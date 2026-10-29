@@ -253,27 +253,33 @@ export async function readFeatureDiff(bb: BbPluginApi, feature: Pick<FeatureRevi
   }
 }
 
+/** `path`, then each folder above it, outermost first: d/e/x is d, d/e, d/e/x. */
+export const pathAndFolders = (path: string) => path.split("/").map((_, at, parts) => parts.slice(0, at + 1).join("/"));
+
 /**
- * Where `path` links to in the folder now, as its diff against the review's base shows it: null when it isn't a link
- * there now, or isn't changed since that base; "" for a link whose target BB didn't show.
+ * The changed link `path` goes through in the folder now, as its diff against the review's base shows it: `path`
+ * itself, or the outermost folder above it, that the diff makes a link (new mode 120000), with where it points ("" when
+ * BB didn't show it); null for none. A list BB cut short can't say, so that's an error, as is any read that fails.
  */
-export async function folderLinkNow(bb: BbPluginApi, feature: Pick<FeatureReview, "environmentId" | "mergeBaseRef">, path: string): Promise<{ link: string | null } | { error: string }> {
+export async function changedLinkNow(bb: BbPluginApi, feature: Pick<FeatureReview, "environmentId" | "mergeBaseRef">, path: string): Promise<{ link: { path: string; target: string } | null } | { error: string }> {
   if (!feature.mergeBaseRef) return { error: "the review hasn’t read its folder yet." };
   const target = { type: "all", mergeBaseBranch: feature.mergeBaseRef };
   try {
     const listed = await callGit(bb, "files", { environmentId: feature.environmentId, target, ignoreWhitespace: false }, filesOutput);
     if (listed.outcome !== "available") return { error: unreadable(listed).message };
+    if (listed.truncated) return { error: "BB lists only part of the folder’s changes, so it can’t tell whether this path goes through a link." };
     // A revision is oldMode:oldBlob:newMode:newBlob.
-    const file = listed.files.find((changed) => changed.path === path);
-    if (file?.revision.split(":")[2] !== "120000") return { link: null };
-    let patch = listed.initialPatches.find((initial) => initial.path === path)?.patch;
+    const links = new Map(listed.files.filter((changed) => changed.revision.split(":")[2] === "120000").map((changed) => [changed.path, changed]));
+    const file = pathAndFolders(path).map((at) => links.get(at)).find((found) => found);
+    if (!file) return { link: null };
+    let patch = listed.initialPatches.find((initial) => initial.path === file.path)?.patch;
     if (patch === undefined) {
-      const key = JSON.stringify([feature.environmentId, target, false, path, file.revision]);
+      const key = JSON.stringify([feature.environmentId, target, false, file.path, file.revision]);
       const read = (await callGit(bb, "patches", { keys: [key] }, patchesOutput))[key];
-      if (read?.outcome !== "available") return { error: `BB sent no diff for ${path}.` };
+      if (read?.outcome !== "available") return { error: `BB sent no diff for ${file.path}.` };
       patch = read.patch.patch;
     }
-    return { link: symlinkTarget(patch) ?? "" };
+    return { link: { path: file.path, target: symlinkTarget(patch) ?? "" } };
   } catch (error) {
     return { error: errorText(error) };
   }

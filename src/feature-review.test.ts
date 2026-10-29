@@ -360,17 +360,17 @@ test("Include brings a secret-looking file into the review and keeps it in; the 
   const reads: unknown[] = [];
   // BB reads through a link inside the folder and answers with the link's own path (checked on BB 0.48).
   s.harness.inspection.sdk.stub("files.read", async (args: any) => { reads.push(args); return { content: "TOKEN=hunter2\n", contentEncoding: "utf8", path: args.path, sha256: "x", sizeBytes: 14 }; });
-  // As read_file has it: the file's diff in the review, if it has one.
-  const read = async (path: string, diff?: string) => readFileAt(vi.fn(), vi.fn(), (await s.store.getReview(key))!, path, "current", 1, undefined,
-    { bb: s.bb, diff: diff ?? (splitPatchByFile(await s.store.patch(key)).filter((file) => file.path === path).map((file) => file.text).join("\n") || undefined) });
+  // As read_file has it: the review's diff, or another given.
+  const read = async (path: string, patch?: string) => readFileAt(vi.fn(), vi.fn(), (await s.store.getReview(key))!, path, "current", 1, undefined,
+    { bb: s.bb, patch: patch ?? await s.store.patch(key) });
   expect(await read(".env")).toEqual({ ok: false, error: ".env looks like a secret, so it isn't read for agents. The reviewer can include it from the review." });
   expect(reads).toEqual([]);
   expect(await read("src/a.ts")).toEqual({ ok: true, text: "src/a.ts at the working tree, lines 1–1 of 1:\n    1  TOKEN=hunter2" });
   expect(reads).toEqual([{ hostId: "host_max", rootPath: "/Users/me/src/api", path: "/Users/me/src/api/src/a.ts" }]);
-  // A link the diff shows: to a secret it's refused, to anything else it's read.
+  // A link the diff shows isn't followed: read_file names where it points.
   const link = (target: string) => `diff --git a/notes.txt b/notes.txt\nnew file mode 120000\nindex 0000000..1111111\n--- /dev/null\n+++ b/notes.txt\n@@ -0,0 +1 @@\n+${target}\n\\ No newline at end of file\n`;
-  expect(await read("notes.txt", link("config/.env.local"))).toEqual({ ok: false, error: "notes.txt links to config/.env.local, which looks like a secret, so it isn't read for agents." });
-  expect((await read("notes.txt", link("docs/notes.md"))).ok).toBe(true);
+  expect(await read("notes.txt", link("config/.env.local"))).toEqual({ ok: false, error: "notes.txt links to config/.env.local; read that instead." });
+  expect(await read("notes.txt", link("../../etc/passwd"))).toEqual({ ok: false, error: "notes.txt links to ../../etc/passwd, outside the folder, so it isn't read." });
   expect(symlinkTarget("diff --git a/l b/l\nindex 1111111..2222222 120000\n--- a/l\n+++ b/l\n@@ -1 +1 @@\n-old.txt\n+.env\n")).toBe(".env");
   expect(symlinkTarget(link(".env").replace("120000", "100644"))).toBeNull();
 
@@ -382,8 +382,13 @@ test("Include brings a secret-looking file into the review and keeps it in; the 
   expect((await read(".env")).ok).toBe(true);
 });
 
-test("read_file reads no link to a secret: one the review's diff shows, a file replaced by one, or one made since", async () => {
-  const s = setup({ files: [{ path: "src/a.ts", body: BODY }, { path: "README.md", link: ".env", replaced: true }, { path: "docs.md", link: "docs/notes.md" }] });
+test("read_file never reads through a changed link: it names where the link points, whose own checks then apply", async () => {
+  const s = setup({ files: [
+    { path: "src/a.ts", body: BODY },
+    { path: "README.md", link: ".env", replaced: true },
+    { path: "a.md", link: "b.md" }, { path: "b.md", link: ".env" },
+    { path: "d", link: "sub" }, { path: "sub/x", link: "../.env" },
+  ] });
   await plugin(s.bb);
   await run(s, "main");
   await settled(s);
@@ -399,21 +404,34 @@ test("read_file reads no link to a secret: one the review's diff shows, a file r
     // A tool answers with its text, or with content and whether it failed.
     return typeof result === "string" ? { ok: true, text: result } : { ok: !result.isError, text: (result.content[0] as { text: string }).text };
   };
-  expect(await readFile("README.md")).toEqual({ ok: false, text: "README.md links to .env, which looks like a secret, so it isn't read for agents." });
-  expect((await readFile("docs.md")).ok).toBe(true);
-  // Where the folder's list leaves it out, every block of the review's diff for it still says it's a link.
+  const refused = (text: string) => ({ ok: false, text });
+  const secret = refused(".env looks like a secret, so it isn't read for agents. The reviewer can include it from the review.");
+  // A file replaced by a link: every block of the review's diff for it.
+  expect(await readFile("README.md")).toEqual(refused("README.md links to .env; read that instead."));
+  expect(await readFile(".env")).toEqual(secret);
+  // A link to a link: each names the next, and the secret at the end stays unread.
+  expect(await readFile("a.md")).toEqual(refused("a.md links to b.md; read that instead."));
+  expect(await readFile("b.md")).toEqual(refused("b.md links to .env; read that instead."));
+  // A link in a folder above the file, which git lists apart from the file: d/x is sub/x, which links to ../.env.
+  expect(await readFile("d/x")).toEqual(refused("d links to sub; read sub/x instead."));
+  expect(await readFile("sub/x")).toEqual(refused("sub/x links to ../.env; read .env instead."));
+  expect((await readFile("src/a.ts")).ok).toBe(true);
+  // Links made since the review read the folder, one pointed elsewhere since, and a folder made a link: its diff now.
+  s.folder.files.push({ path: "notes.txt", link: "config/.env.local" }, { path: "src", link: "../elsewhere" });
+  s.folder.files.find((file) => file.path === "a.md")!.link = ".env.production";
+  expect(await readFile("notes.txt")).toEqual(refused("notes.txt links to config/.env.local; read that instead."));
+  expect(await readFile("a.md")).toEqual(refused("a.md links to b.md; read that instead."));
+  expect(await readFile("src/a.ts")).toEqual(refused("src links to ../elsewhere, outside the folder, so it isn't read."));
+  expect(reads).toEqual(["/Users/me/src/api/src/a.ts"]);
+  // Unknown is no: a folder BB can't list now, or lists only part of, isn't read.
+  s.folder.files = s.folder.files.filter((file) => file.path !== "src");
   s.folder.listLimit = 1;
-  expect(await readFile("README.md")).toEqual({ ok: false, text: "README.md links to .env, which looks like a secret, so it isn't read for agents." });
+  expect(await readFile("src/a.ts")).toEqual(refused("Couldn't check src/a.ts in the folder before reading it: BB lists only part of the folder’s changes, so it can’t tell whether this path goes through a link."));
+  // The review's diff still names the link in a list cut short.
+  expect(await readFile("README.md")).toEqual(refused("README.md links to .env; read that instead."));
   s.folder.listLimit = undefined;
-  // A link made since the review read the folder, and one pointed at a secret since: the folder's diff now says so.
-  s.folder.files.push({ path: "notes.txt", link: "config/.env.local" });
-  s.folder.files.find((file) => file.path === "docs.md")!.link = ".env.production";
-  expect(await readFile("notes.txt")).toEqual({ ok: false, text: "notes.txt links to config/.env.local, which looks like a secret, so it isn't read for agents." });
-  expect(await readFile("docs.md")).toEqual({ ok: false, text: "docs.md links to .env.production, which looks like a secret, so it isn't read for agents." });
-  expect(reads).toEqual(["/Users/me/src/api/docs.md"]);
-  // Unknown is no: a folder BB can't list now isn't read.
   s.folder.throws = "Host request timed out";
-  expect(await readFile("src/a.ts")).toEqual({ ok: false, text: "Couldn't check src/a.ts in the folder before reading it: Host request timed out" });
+  expect(await readFile("src/a.ts")).toEqual(refused("Couldn't check src/a.ts in the folder before reading it: Host request timed out"));
 });
 
 test("Update guide and Rewrite guide read the folder again, and its files with it", async () => {

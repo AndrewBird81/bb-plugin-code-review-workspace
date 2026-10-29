@@ -40,7 +40,7 @@ export const Navigator = memo(function Navigator({ leading, patch, currentFile, 
   const current = activeId === OVERVIEW;
   // Where the review stands, in All reviews' words; a ready guide that's nobody's news says nothing.
   const localDiffChanges = useKnob("localDiffChanges");
-  const status = reviewState(review).label === "Ready" ? null : statusWhy(review, undefined, { localDiffChanges })?.text;
+  const status = reviewState(review).label === "Ready" ? null : statusWhy(review, { localDiffChanges })?.text;
   return (
     <FindInReview leading={leading} patch={patch} sections={sections} onOpenLine={onOpenLine} onOpenChapter={onSelect} onOpenFile={onOpenFile} initialQuery={initialFind} onQuery={onFind}>
       <ChapterNav

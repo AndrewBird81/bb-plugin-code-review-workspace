@@ -10,6 +10,7 @@ import { statusWhy } from "../lib/status-line";
 import { usePortalScopeProps } from "../lib/portal-scope";
 import { setPaletteCommands, usePaletteCommands } from "../lib/commands";
 import { withDefaults } from "../lib/settings";
+import { defaultKnobs } from "../lib/knobs";
 import { cn } from "../lib/utils";
 import { Icon } from "./ui/icon";
 import { kindLook } from "./ReviewStatus";
@@ -62,30 +63,52 @@ function useSlot(active: boolean, at: "first" | "last", find: () => Element | nu
   return node;
 }
 
+const cutMiddle = (name: string) => name.length > 16 ? `${name.slice(0, 7)}…${name.slice(-8)}` : name;
+
 /**
- * A branch or folder as the sidebar has room for it beside the name: its last part (feature/snooze-checks is
- * snooze-checks), cut in the middle past 16 characters, so both its ends, and the name, stay readable.
+ * Branches as the sidebar has room for them beside the names: each by its last part (feature/snooze-checks is
+ * snooze-checks), cut in the middle past 16 characters, so both its ends, and the name, stay readable. Two that would
+ * read the same keep more of their parts, then their whole names, until they don't. Null stays null.
  */
-export function shortName(name: string): string {
-  const last = name.split("/").filter(Boolean).at(-1) ?? name;
-  return last.length > 16 ? `${last.slice(0, 7)}…${last.slice(-8)}` : last;
+export function shortNames(names: readonly (string | null)[]): (string | null)[] {
+  const parts = names.map((name) => name?.split("/").filter(Boolean) ?? []);
+  const kept = names.map(() => 1);
+  const shown = () => names.map((name, at) => name === null ? null : parts[at]!.slice(-kept[at]!).join("/") || name);
+  const clashes = (labels: (string | null)[], at: number) => labels.some((label, other) => other !== at && label === labels[at] && names[other] !== names[at]);
+  for (let grew = true; grew;) {
+    const labels = shown();
+    grew = false;
+    labels.forEach((label, at) => {
+      if (label !== null && clashes(labels, at) && kept[at]! < parts[at]!.length) { kept[at]!++; grew = true; }
+    });
+  }
+  const labels = shown();
+  const cut = labels.map((label) => label && cutMiddle(label));
+  return labels.map((label, at) => label === null ? null : clashes(cut, at) ? label : cut[at]!);
 }
 
-/** Whether Settings shows reviews in BB's thread list; null until the settings load. */
-export function useThreadListReviews(): boolean | null {
+/**
+ * Whether Settings shows reviews in BB's thread list, null until the settings load; and Notice when a local review's
+ * code changes, which the sidebar, outside the panel's settings, reads here.
+ */
+function useSidebarPreferences(): { enabled: boolean | null; localDiffChanges: boolean } {
   const rpc = useRpc<typeof rpcContract>();
-  const [enabled, setEnabled] = useState<boolean | null>(null);
+  const [read, setRead] = useState<{ enabled: boolean | null; localDiffChanges: boolean }>({ enabled: null, localDiffChanges: defaultKnobs.localDiffChanges });
   const load = useCallback(() => {
     rpc.call("getPreferences", null).then((record) => {
-      setEnabled(record.preferences.threadListReviews);
+      const { knobs } = withDefaults(record.preferences);
+      setRead({ enabled: record.preferences.threadListReviews, localDiffChanges: knobs.localDiffChanges });
       // BB asks whether the palette's commands are available synchronously, so this always-mounted load keeps their switch.
-      setPaletteCommands(withDefaults(record.preferences).knobs.paletteCommands);
+      setPaletteCommands(knobs.paletteCommands);
     }).catch(() => {});
   }, [rpc]);
   useEffect(load, [load]);
   useRealtime("preferences", load);
-  return enabled;
+  return read;
 }
+
+/** Whether Settings shows reviews in BB's thread list; null until the settings load. */
+export const useThreadListReviews = (): boolean | null => useSidebarPreferences().enabled;
 
 /**
  * Reviews waiting on you, in the Needs review tab's order, and the ones you pinned, in the order you pinned them. Listed
@@ -157,7 +180,9 @@ export function NeedsReviewSidebar() {
   // BB's command palette's commands run here, the one place always mounted.
   usePaletteCommands();
   // Off in Settings, nothing goes into BB's list.
-  const enabled = useThreadListReviews() === true;
+  const preferences = useSidebarPreferences();
+  const enabled = preferences.enabled === true;
+  const { localDiffChanges } = preferences;
   const sidebarReviews = useSidebarReviews(enabled);
   const needs = enabled ? sidebarReviews.needs : [], pinned = enabled ? sidebarReviews.pinned : [];
   const { setPinned } = sidebarReviews;
@@ -183,8 +208,11 @@ export function NeedsReviewSidebar() {
     navigate.toPluginPanel("review", { subPath: targetKey });
     closePhoneSidebar();
   };
-  const rows = (list: ReviewItem[], isPinned: boolean) => <ul className="space-y-0.5">
-    {list.map((review) => {
+  const rows = (list: ReviewItem[], isPinned: boolean) => {
+    // A local review's branch, or where two share one, the folder's end the id adds.
+    const branches = shortNames(list.map((review) => !review.number && review.kind === "ref" && !review.place?.folder ? reviewIdentity(review).idTail.replace(/^:/, "") || null : null));
+    return <ul className="space-y-0.5">
+    {list.map((review, at) => {
       const identity = reviewIdentity(review);
       // As every page and list calls it: a local review with no name goes by its guide's title.
       const title = identity.name;
@@ -194,7 +222,7 @@ export function NeedsReviewSidebar() {
       const from = renamedFrom(review);
       // The review's id, with a PR's repository in full: flosports/api#4512, or api:feat/x.
       const where = review.number ? `${identity.repo ?? ""}${identity.idTail}` : review.kind === "ref" ? identity.id : null;
-      const why = statusWhy(review)?.text;
+      const why = statusWhy(review, { localDiffChanges })?.text;
       const tooltip = [from, where, why, waited].filter(Boolean).join(" · ") || undefined;
       // The tooltip reaches neither touch nor a screen reader: the row also says it in words.
       const describedBy = from || where || why ? `gr-row-why-${isPinned ? "pinned" : "needs"}-${review.targetKey}` : undefined;
@@ -206,7 +234,7 @@ export function NeedsReviewSidebar() {
               A local review's branch tells apart two of one name, or, where they share it, the folder's end the id adds. */}
           <span className="flex min-w-0 flex-1 items-baseline gap-1.5">
             {!!review.number && <span className="shrink-0 font-mono text-[11px] tabular-nums text-muted-foreground">#{review.number}</span>}
-            {!review.number && review.kind === "ref" && identity.idTail && <span className="shrink-0 font-mono text-[11px] text-muted-foreground">{review.place?.folder ? `(${shortName(review.place.folder)})` : shortName(identity.idTail.replace(/^:/, ""))}</span>}
+            {!review.number && review.kind === "ref" && (review.place?.folder || branches[at]) && <span className="shrink-0 font-mono text-[11px] text-muted-foreground">{review.place?.folder ? `(${review.place.folder})` : branches[at]}</span>}
             <span className="min-w-0 flex-1 truncate">{title}</span>
           </span>
           {waited && <span className="shrink-0 text-xs tabular-nums text-subtle-foreground">{waited}</span>}
@@ -221,6 +249,7 @@ export function NeedsReviewSidebar() {
       </li>;
     })}
   </ul>;
+  };
   return <>
     {needs.length > 0 && createPortal(<Group label="Needs review" count={needs.length} collapsedKey={NEEDS_COLLAPSED_KEY} icon={<HostIcon name={`${pluginId}/review`} fallback="GitPullRequest" className="mr-1 size-3.5 shrink-0" aria-hidden />}>{rows(needs, false)}</Group>, needsSlot)}
     {known && pinned.length > 0 && (bbPinned

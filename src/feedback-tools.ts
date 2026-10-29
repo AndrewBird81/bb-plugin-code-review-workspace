@@ -1,6 +1,6 @@
 // The tools that read a review's context and files, and check your feedback on a PR.
 import { z } from "zod";
-import { changedFiles, splitPatchByFile } from "./patch";
+import { changedFiles } from "./patch";
 import { readPrContext } from "./pr-context";
 import { describeOwnership } from "./codeowners";
 import { assistantReview, unchangeable } from "./draft-comments";
@@ -93,10 +93,8 @@ export function register(deps: ServeDeps) {
         return targetKey ? await tx.getReview(targetKey) : null;
       });
       if (!review) return failed("This conversation is no longer a review's assistant.");
-      // A folder's review reads its folder, with the file's diff, which says whether it shows it and whether it's a link:
-      // every block of it, as a file replaced by a link has two.
-      const blocks = review.feature && review.kind === "ref" ? splitPatchByFile(await store.patch(review.targetKey)).filter((file) => file.path === path) : [];
-      const folder = review.feature && review.kind === "ref" ? { bb, diff: blocks.length ? blocks.map((file) => file.text).join("\n") : undefined } : undefined;
+      // A folder's review reads its folder, with its diff, which says whether it shows the file and whether a link leads to it.
+      const folder = review.feature && review.kind === "ref" ? { bb, patch: await store.patch(review.targetKey) } : undefined;
       const read = await readFileAt(runGh, runGit, review, path, ref ?? "current", startLine, endLine, folder);
       if (!read.ok) return failed(read.error);
       // A changed file it got as the change leaves it: what it read through Code Review Workspace. Its base or reviewed commit isn't the change.

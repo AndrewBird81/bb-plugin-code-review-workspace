@@ -32,7 +32,7 @@ const why = (text: string, tone: StatusTone, icon?: IconName, extra: Partial<Sta
 
 /** Why the review is where it is: agent work under way, whose turn it is and why, or how it ended. */
 /** `knobs`: the settings it reads, Notice when a local review's code changes for a folder's "3 files changed". */
-export function statusWhy(review: ReviewItem, now = Date.now(), knobs: Pick<Knobs, "localDiffChanges"> = defaultKnobs): StatusPart | null {
+export function statusWhy(review: ReviewItem, knobs: Pick<Knobs, "localDiffChanges">, now = Date.now()): StatusPart | null {
   const turn = reviewState(review);
   const s = review.signals ?? {};
   const by = (prefix: string, login: string | null | undefined, otherwise: string) => login ? `${prefix} @${login}` : otherwise;
@@ -100,13 +100,13 @@ const CHECKS: Record<"pass" | "fail" | "pending" | "expected", Pick<StatusPart, 
  * `passingChecks`. `ci` is the checks as just read, where a page has them, in place of the last sync's. `knobs` are the
  * current settings, which a run's reason for not starting may name.
  */
-export function statusLine(review: ReviewItem, { now = Date.now(), passingChecks = false, ci = review.signals?.ci, knobs = defaultKnobs }: { now?: number; passingChecks?: boolean; ci?: TurnSignals["ci"]; knobs?: Pick<Knobs, "unattendedAgents"> & Partial<Pick<Knobs, "localDiffChanges">> } = {}): StatusPart[] {
+export function statusLine(review: ReviewItem, { now = Date.now(), passingChecks = false, ci = review.signals?.ci, knobs }: { now?: number; passingChecks?: boolean; ci?: TurnSignals["ci"]; knobs: Pick<Knobs, "unattendedAgents" | "localDiffChanges"> }): StatusPart[] {
   const turn = reviewState(review);
   const s = review.signals ?? {};
   const parts: StatusPart[] = [];
   const done = turn.group === "archive";
   if (turn.blocking) parts.push({ kind: "blocking", text: "Blocks merge", tone: "warning", icon: "Lock", detail: "Everyone else approved: only your changes requested is left" });
-  const reason = statusWhy(review, now, { localDiffChanges: knobs.localDiffChanges ?? defaultKnobs.localDiffChanges });
+  const reason = statusWhy(review, knobs, now);
   if (reason) parts.push(reason);
   if (review.skippedRun && !review.archivedAt) parts.push({ kind: "not-run", text: notRunReason(review, knobs), tone: "warning", icon: "Lock" });
   if (review.unreachable && turn.reason !== "unreachable") {

@@ -4,6 +4,7 @@ import { cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import type { Turn } from "../lib/turn";
 import { defaultPreferences } from "../src/preferences";
+import { shortNames } from "./NeedsReviewSidebar";
 
 afterEach(() => { cleanup(); document.body.innerHTML = ""; localStorage.clear(); vi.useRealTimers(); });
 
@@ -106,6 +107,13 @@ test("a PR's row has its number before its name, muted, the repository staying i
   const long = await renderSidebar([{ targetKey: "ref-2", kind: "ref", gitRef: "main...feature/snooze-flaky-checks-on-retries", title: "Local work", status: "ready", turn: turn("needs", "new", 1) }]);
   expect(await within(document.body).findByRole("link", { name: "snooze-…-retries Local work 1h" })).toBeTruthy();
   long.lifecycle.unmount();
+  cleanup();
+  // Two whose last parts match keep enough of their branches to tell them apart.
+  threadList();
+  const twins = await renderSidebar(["alice", "bob"].map((who) => ({ targetKey: `ref-${who}`, kind: "ref", gitRef: `main...${who}/fix-login`, title: "Fix login", status: "ready", turn: turn("needs", "new", 1) })));
+  expect(await within(document.body).findByRole("link", { name: "alice/fix-login Fix login 1h" })).toBeTruthy();
+  expect(within(document.body).getByRole("link", { name: "bob/fix-login Fix login 1h" })).toBeTruthy();
+  twins.lifecycle.unmount();
 });
 
 test("a renamed review's row says your name, with the PR's title first in its tooltip and description", async () => {
@@ -304,4 +312,13 @@ test("Settings turns reviews in the thread list off, saying why someone would", 
   await slot.findByText("Settings saved");
   expect(save.mock.calls[0][0].preferences.threadListReviews).toBe(false);
   slot.lifecycle.unmount();
+});
+
+test("short branch names: the last part, cut in the middle when long, and more of each where two would match", () => {
+  expect(shortNames(["feature/snooze-flaky-checks-on-retries", "fix-login", null])).toEqual(["snooze-…-retries", "fix-login", null]);
+  expect(shortNames(["alice/fix-login", "bob/fix-login", "carol/other"])).toEqual(["alice/fix-login", "bob/fix-login", "other"]);
+  // Cut in the middle, two long ones that would match show whole.
+  expect(shortNames(["team/snooze-flaky-checks-a-on-retries", "team/snooze-flaky-checks-b-on-retries"])).toEqual(["snooze-flaky-checks-a-on-retries", "snooze-flaky-checks-b-on-retries"]);
+  // The same branch twice is one name.
+  expect(shortNames(["x/fix", "x/fix"])).toEqual(["fix", "fix"]);
 });

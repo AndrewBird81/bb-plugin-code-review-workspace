@@ -25,9 +25,10 @@ export const TrackedReview = memo(function TrackedReview({ review, onBack }: { r
   const pinnable = useThreadListReviews() === true;
   const [starting, setStarting] = useState(false);
   const unattendedAgents = useKnob("unattendedAgents");
+  const localDiffChanges = useKnob("localDiffChanges");
   const kind = kindLook(review);
   // Its size, its stack and a run that didn't start have their own lines here.
-  const parts = statusLine(review).filter((part) => part.kind !== "size" && part.kind !== "stack" && part.kind !== "stack-unreviewed" && part.kind !== "not-run");
+  const parts = statusLine(review, { knobs: { unattendedAgents, localDiffChanges } }).filter((part) => part.kind !== "size" && part.kind !== "stack" && part.kind !== "stack-unreviewed" && part.kind !== "not-run");
   const size = review.prSize;
 
   async function build() {

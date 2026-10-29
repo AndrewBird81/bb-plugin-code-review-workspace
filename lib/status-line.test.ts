@@ -9,8 +9,9 @@ const now = Date.parse("2026-10-11T12:00:00Z");
 const turn = (group: Turn["group"], reason: Turn["reason"], label = "", extra: Partial<Turn> = {}): Turn =>
   ({ group, reason, label, signal: null, at: null, notify: false, blocking: false, updated: false, eventAt: null, failed: false, ...extra });
 const review = (t: Turn, extra: Partial<ReviewItem> = {}): ReviewItem => ({ targetKey: "k", kind: "pr", status: "ready", turn: t, ...extra });
-const said = (r: ReviewItem) => { const part = statusWhy(r, now); return part && [part.text, part.tone, part.icon]; };
-const line = (r: ReviewItem, passingChecks = false) => statusLine(r, { now, passingChecks }).map((part) => part.text);
+const knobs = { unattendedAgents: true, localDiffChanges: true };
+const said = (r: ReviewItem) => { const part = statusWhy(r, knobs, now); return part && [part.text, part.tone, part.icon]; };
+const line = (r: ReviewItem, passingChecks = false) => statusLine(r, { now, passingChecks, knobs }).map((part) => part.text);
 
 test("why it's yours says who asked, in words, with an icon and a tone only where it changes your next move", () => {
   const signals = { requestedBy: "alice", questionBy: "bob", mentionBy: "carol", author: "alice" };
@@ -49,7 +50,7 @@ test("the author's turn and settled reviews say what you did and when; archived 
 
 test("agent work and a failed guide take the place of why, in the agent's tone and danger", () => {
   const requested = turn("needs", "requested");
-  expect(statusWhy(review(requested, { status: "generating" }), now)).toEqual({ kind: "why", text: "Building guide…", tone: "agent", icon: "Loading", busy: true });
+  expect(statusWhy(review(requested, { status: "generating" }), knobs, now)).toEqual({ kind: "why", text: "Building guide…", tone: "agent", icon: "Loading", busy: true });
   expect(said(review({ ...requested, failed: true, label: "Failed" }, { status: "error" }))).toEqual(["Guide failed", "danger", "AlertTriangle"]);
   // One waiting for its writer's machine to restart it says so, as its page does, until the wait ends (72-hands-on #2).
   expect(said(review({ ...requested, failed: true, label: "Failed" }, { status: "error", restartPending: { since: now } }))).toEqual(["Waiting for the guide writer’s machine", "warning", "Clock"]);
@@ -57,7 +58,7 @@ test("agent work and a failed guide take the place of why, in the agent's tone a
   // A first guide you stopped didn't fail (bug bash LIV-2); it stays in Needs review.
   expect(said(review({ ...requested, failed: true, label: "Failed" }, { status: "error", guideError: { at: now, text: GUIDE_STOPPED } }))).toEqual(["Guide stopped", "neutral", "Route"]);
   expect(said(review({ ...requested, failed: true, label: "Failed" }, { status: "error", guideError: { at: now, text: "The guide writer failed." } }))).toEqual(["Guide failed", "danger", "AlertTriangle"]);
-  expect(statusWhy(review(turn("needs", "re-requested"), { verifyingSince: now - 60_000 }), now)).toMatchObject({ text: "Checking your feedback…", tone: "agent", busy: true });
+  expect(statusWhy(review(turn("needs", "re-requested"), { verifyingSince: now - 60_000 }), knobs, now)).toMatchObject({ text: "Checking your feedback…", tone: "agent", busy: true });
   // Over by the time it's archived.
   expect(said(review(turn("archive", "merged"), { verifyingSince: now - 60_000 }))).toEqual(["Merged", "merged", "GitMerge"]);
 });
@@ -69,15 +70,15 @@ test("the line puts Blocks merge first, then why, then only the facts that chang
     prSize: { additions: 1200, deletions: 30, files: 8 },
   });
   expect(line(busy)).toEqual(["Blocks merge", "Re-requested by @alice", "2/2 handled +1 nit", "+3 commits", "Checks failing", "+1,200 −30 · 8 files"]);
-  expect(statusLine(busy, { now }).map((part) => part.kind)).toEqual(["blocking", "why", "progress", "commits", "checks", "size"]);
+  expect(statusLine(busy, { now, knobs }).map((part) => part.kind)).toEqual(["blocking", "why", "progress", "commits", "checks", "size"]);
   // Passing checks are news only where asked for, as on the Overview.
   const passing = review(turn("needs", "requested"), { signals: { ci: "pass" }, prSize: { additions: 2, deletions: 0, files: 1 } });
   expect(line(passing)).toEqual(["Review requested", "+2 −0 · 1 file"]);
   expect(line(passing, true)).toEqual(["Review requested", "Checks passing", "+2 −0 · 1 file"]);
   expect(line(review(turn("needs", "requested"), { signals: { ci: "expected", commitsSince: 1 } }))).toEqual(["Review requested", "+1 commit", "Checks expected"]);
   // Checks just read, as the Overview has them, say what they say now, not what the last sync saw.
-  expect(statusLine(passing, { now, passingChecks: true, ci: "fail" }).map((part) => part.text)).toEqual(["Review requested", "Checks failing", "+2 −0 · 1 file"]);
-  expect(statusLine(passing, { now, passingChecks: true, ci: "none" }).map((part) => part.text)).toEqual(["Review requested", "+2 −0 · 1 file"]);
+  expect(statusLine(passing, { now, passingChecks: true, ci: "fail", knobs }).map((part) => part.text)).toEqual(["Review requested", "Checks failing", "+2 −0 · 1 file"]);
+  expect(statusLine(passing, { now, passingChecks: true, ci: "none", knobs }).map((part) => part.text)).toEqual(["Review requested", "+2 −0 · 1 file"]);
   // Archived, checks don't matter any more.
   expect(line(review(turn("archive", "merged"), { signals: { ci: "fail" } }))).toEqual(["Merged"]);
 });
@@ -90,14 +91,14 @@ test("the line says why an agent didn't run, when GitHub can't read the PR, and 
     stack: { members: [parent, { ...parent, targetKey: "pr-42", number: 42 }], index: 1, parent, children: [] },
   });
   expect(line(stacked)).toEqual(["Review requested", "Not run automatically: @mallory isn’t a member of acme", "Can’t read on GitHub", "Stack 2 of 2 · on #41", "#41 not reviewed yet"]);
-  expect(statusLine(stacked, { now }).find((part) => part.kind === "unreachable")?.detail).toBe("GitHub refused access, for example for SSO");
+  expect(statusLine(stacked, { now, knobs }).find((part) => part.kind === "unreachable")?.detail).toBe("GitHub refused access, for example for SSO");
   const bottom = review(turn("needs", "requested"), { stack: { members: [{ ...parent, reviewed: true }, { ...parent, targetKey: "pr-42", number: 42 }], index: 0, parent: null, children: [] } });
   expect(line(bottom)).toEqual(["Review requested", "Stack 1 of 2"]);
 });
 
 test("a run skipped while Start agents on their own was off says whether it still is", () => {
   const skipped = review(turn("needs", "requested"), { authorAssociation: "MEMBER", skippedRun: { run: "guide", head: "h", at: 1, why: "settings" } });
-  const notRun = (unattendedAgents: boolean) => statusLine(skipped, { now, knobs: { unattendedAgents } }).find((part) => part.kind === "not-run")?.text;
+  const notRun = (unattendedAgents: boolean) => statusLine(skipped, { now, knobs: { ...knobs, unattendedAgents } }).find((part) => part.kind === "not-run")?.text;
   expect(notRun(false)).toBe("Not run automatically: Start agents on their own is off in Settings");
   expect(notRun(true)).toBe("Not run automatically: Start agents on their own was off in Settings when this came in");
 });
@@ -105,9 +106,9 @@ test("a run skipped while Start agents on their own was off says whether it stil
 // bug bash AGT-5: an automatic review that couldn't start says why, as the text it is.
 test("a run that couldn't start says why", () => {
   const failed = review(turn("needs", "new"), { kind: "ref", skippedRun: { run: "review", head: null, at: 1, why: "failed", error: "Laptop is <b>offline</b>." } });
-  expect(statusLine(failed, { now }).find((part) => part.kind === "not-run")?.text).toBe("Not run automatically: it couldn’t start (Laptop is <b>offline</b>)");
+  expect(statusLine(failed, { now, knobs }).find((part) => part.kind === "not-run")?.text).toBe("Not run automatically: it couldn’t start (Laptop is <b>offline</b>)");
   const unsaid = review(turn("needs", "new"), { kind: "ref", skippedRun: { run: "review", head: null, at: 1, why: "failed" } });
-  expect(statusLine(unsaid, { now }).find((part) => part.kind === "not-run")?.text).toBe("Not run automatically: it couldn’t start");
+  expect(statusLine(unsaid, { now, knobs }).find((part) => part.kind === "not-run")?.text).toBe("Not run automatically: it couldn’t start");
 });
 
 // bug bash LIV-2: a first guide you stopped is stored as status "error" with guideError "Stopped". Its page and bb review
@@ -115,7 +116,7 @@ test("a run that couldn't start says why", () => {
 test("a guide you stopped says so, not that it failed, and still needs you", () => {
   const stopped = review({ ...turn("needs", "requested"), failed: true, label: "Failed" }, { status: "error", guideError: { at: now, text: GUIDE_STOPPED } });
   expect(reviewState(stopped)).toMatchObject({ group: "needs", failed: true });
-  expect(statusWhy(stopped, now)).toEqual({ kind: "why", text: "Guide stopped", tone: "neutral", icon: "Route" });
+  expect(statusWhy(stopped, knobs, now)).toEqual({ kind: "why", text: "Guide stopped", tone: "neutral", icon: "Route" });
 });
 
 test("a folder's review says what changed in its folder, that it's paused on another branch, or that its folder is gone", () => {
@@ -124,7 +125,7 @@ test("a folder's review says what changed in its folder, that it's paused on ano
   expect(said(review(turn("needs", "new"), { kind: "ref", feature: { ...feature, changedFiles: 1 } }))).toEqual(["1 file changed", "foreground", "FileDiff"]);
   expect(said(review(turn("needs", "new"), { kind: "ref", feature: { ...feature, changedFiles: null } }))).toEqual(["Local review", "neutral", "GitBranch"]);
   // With Notice when a local review's code changes off, the last count isn't said.
-  expect(statusWhy(review(turn("needs", "new"), { kind: "ref", feature: { ...feature, changedFiles: 3 } }), now, { localDiffChanges: false })?.text).toBe("Local review");
+  expect(statusWhy(review(turn("needs", "new"), { kind: "ref", feature: { ...feature, changedFiles: 3 } }), { localDiffChanges: false }, now)?.text).toBe("Local review");
   expect(line(review(turn("needs", "new"), { kind: "ref", feature: { ...feature, changedFiles: 3 } }))).toContain("3 files changed");
   expect(statusLine(review(turn("needs", "new"), { kind: "ref", feature: { ...feature, changedFiles: 3 } }), { now, knobs: { unattendedAgents: true, localDiffChanges: false } }).map((part) => part.text)).toContain("Local review");
   expect(said(review(turn("waiting", "paused", "Paused"), { kind: "ref", feature: { ...feature, pausedOn: "bb/fix-docs-thr_cd34" } }))).toEqual(["Paused: on fix-docs", "neutral", "GitBranch"]);
