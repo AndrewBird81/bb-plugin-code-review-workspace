@@ -96,7 +96,7 @@ test("with every toggle off, a member's re-request on an out-of-date review star
     discover: vi.fn(async () => []),
     ownPrs: vi.fn(async () => []),
   };
-  const actions: TurnActions = { prepare: vi.fn(async () => true), checkPushes: vi.fn(async () => true), autoStart: vi.fn(async () => true), projectId: async () => "p1", becomePr: vi.fn(async () => "skipped" as const) };
+  const actions: TurnActions = { prepare: vi.fn(async () => true), checkPushes: vi.fn(async () => true), checkFixes: vi.fn(async () => true), autoStart: vi.fn(async () => true), projectId: async () => "p1", becomePr: vi.fn(async () => "skipped" as const) };
   try {
     const sync = createReviewSync(bb, store, vi.fn() as any, { github, actions, now: () => now });
     await sync.all();

@@ -9,6 +9,7 @@ import { notRunReason } from "./trust";
 import { defaultKnobs, type Knobs } from "./knobs";
 import { baselineOf, progressText, snoozeLabel, type TurnSignals } from "./turn";
 import { branchLabel } from "./review-identity";
+import { cameBackText, reportedText } from "./fixes";
 
 /** foreground: plain text that stands out, for what came back to you; the tones color only what changes your next move. */
 export type StatusTone = Tone | "foreground";
@@ -43,7 +44,8 @@ export function statusWhy(review: ReviewItem, knobs: Pick<Knobs, "localDiffChang
   // A first guide you stopped didn't fail: it waits for Build the guide, as its page says.
   if (turn.failed && review.guideError?.text === GUIDE_STOPPED) return why("Guide stopped", "neutral", "Route");
   if (turn.failed) return why("Guide failed", "danger", "AlertTriangle");
-  if (review.verifyingSince && turn.group !== "archive") return why("Checking your feedback…", "agent", "Loading", { busy: true });
+  // A local review's check is of the fixes it sent; a PR's, of your feedback, and any fixes sent too.
+  if (review.verifyingSince && turn.group !== "archive") return why(review.kind === "pr" ? "Checking your feedback…" : "Checking the fixes…", "agent", "Loading", { busy: true });
   switch (turn.reason) {
     case "re-requested": return why(by("Re-requested by", s.requestedBy, "Re-requested"), "foreground", "Repeat");
     case "requested": return why(by("Requested by", s.requestedBy, "Review requested"), "neutral", "UserRoundPlus");
@@ -62,6 +64,9 @@ export function statusWhy(review: ReviewItem, knobs: Pick<Knobs, "localDiffChang
     case "own": return why("Your PR", "neutral", "UserRound");
     case "new-comments": return why(turn.label, "foreground", "MessageSquare", s.newComments?.by ? { detail: `The latest from @${s.newComments.by}` } : {});
     case "ready-to-approve": return why("Ready to approve", "primary", "Check");
+    case "fixes-ready": return review.fixes ? why(`Ready to re-review · ${reportedText(review.fixes)}`, "foreground", "ArrowTurnBackward", { detail: cameBackText(review.fixes, review.sends?.at(-1)?.readyBy) }) : why("Ready to re-review", "foreground", "ArrowTurnBackward");
+    case "fixes-stopped": return why(turn.label, "foreground", turn.label.startsWith("Main thread deleted") ? "Trash2" : "Archive", { detail: "It won’t report the rest: check them, or send them to a fresh thread" });
+    case "fixes-sent": return why(turn.label, "neutral", "Send", { detail: "Sent to the main thread, which reports on each" });
     // A folder's review says what changed in its folder since it was read, as last checked.
     case "new": return review.kind === "ref" ? review.feature?.changedFiles && knobs.localDiffChanges ? why(`${review.feature.changedFiles} file${review.feature.changedFiles === 1 ? "" : "s"} changed`, "foreground", "FileDiff") : why("Local review", "neutral", "GitBranch")
       : review.status === "tracked" ? why("No guide yet", "neutral") : why("Guide ready", "neutral");

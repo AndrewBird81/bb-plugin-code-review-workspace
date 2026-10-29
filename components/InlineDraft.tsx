@@ -9,6 +9,7 @@ import { useKnob } from "../lib/settings";
 import { cn } from "../lib/utils";
 import { Button } from "./ui/button";
 import { Icon } from "./ui/icon";
+import { InlineCode } from "./ui/inline-code";
 import { Textarea } from "./ui/textarea";
 import { Badge, SpeakerMark, TONE_TEXT } from "./ui/badge";
 import { withLineBreaks } from "../src/line-breaks";
@@ -133,7 +134,8 @@ export const InlineLocation = memo(function InlineLocation({ at }: { at: Comment
     const fold = () => setCommentOpen(key, id, true);
     if (comment) {
       const talk = discussion?.entries.filter((entry) => entry.kind === "message").length ?? 0;
-      return <div data-draft-at={locationKey(at)}><CommentPill frame={notSubmitted(edge)} icon={<DraftIcon edge={edge} />} who={null} words={draftStatus(comment, draftState(comment, draft.stale), facts).label}
+      const status = draftStatus(comment, draftState(comment, draft.stale), facts);
+      return <div data-draft-at={locationKey(at)}><CommentPill frame={notSubmitted(edge)} icon={<DraftIcon edge={edge} mark={status.mark} />} who={null} words={status.label}
         tag={comment.severity && SEVERITY_LABEL[comment.severity]} text={comment.body}
         more={talk ? `${talk} message${talk === 1 ? "" : "s"} with the agent` : null} name={`Draft comment on ${where}`} onShow={fold} /></div>;
     }
@@ -157,15 +159,19 @@ function FoldButton({ onFold }: { onFold: () => void }) {
   return <Button variant="ghost" size="sm" aria-label="Fold" className={cn(action, "w-7 px-0 text-muted-foreground")} onClick={onFold}><Icon name="ChevronUp" className="size-3.5" aria-hidden /></Button>;
 }
 
-/** A draft comment's one status line, with how long ago what it says happened: "Sent to Build snooze · Send 2 · 2m". */
-export function DraftStatus({ comment, stale }: { comment: DraftComment; stale: readonly CommentLocation[] }) {
-  const { label, at } = draftStatus(comment, draftState(comment, stale), useStatusFacts());
+/**
+ * A draft comment's one status line, with how long ago what it says happened: "Sent to Build snooze · Send 2 · 2m". A
+ * thread's note in it shows its `code`, and nothing else of Markdown: they're its words.
+ */
+export function DraftStatus({ status }: { status: ReturnType<typeof draftStatus> }) {
+  const { label, at } = status;
   const when = at === undefined ? null : age(at);
-  return <span className="min-w-0 font-medium text-foreground">{label}{when && <span className="font-normal text-muted-foreground"> · {when}</span>}</span>;
+  return <span className="min-w-0 font-medium text-foreground"><InlineCode text={label} />{when && <span className="font-normal text-muted-foreground"> · {when}</span>}</span>;
 }
 
 function CommentView({ comment, draft, onFold }: { comment: DraftComment; draft: InlineDraft; onFold: (() => void) | null }) {
   const state = draftState(comment, draft.stale);
+  const status = draftStatus(comment, state, useStatusFacts());
   const preExisting = useKnob("preExistingFindings");
   const sendable = useSendable(draft.editable ? draft.targetKey : undefined, comment);
   // What Send now warned, or why it failed, under the comment.
@@ -173,8 +179,8 @@ function CommentView({ comment, draft, onFold }: { comment: DraftComment; draft:
   return (
     <article tabIndex={-1} aria-label={`Draft comment on ${comment.file}:${linesOf(comment)}`} className="outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50">
       <div className={bar}>
-        <DraftIcon edge={draftEdge(comment, draft.stale)} />
-        <DraftStatus comment={comment} stale={draft.stale} />
+        <DraftIcon edge={draftEdge(comment, draft.stale)} mark={status.mark} />
+        <DraftStatus status={status} />
         {state === "older-diff" && comment.author === "agent" && <Badge tone="agent" size="sm" icon={<Icon name="Sparkles" aria-hidden />}>Agent</Badge>}
         {comment.startLine !== undefined && <span className="tabular-nums">Lines {linesOf(comment)}</span>}
         {comment.severity && <SeverityBadge severity={comment.severity} />}

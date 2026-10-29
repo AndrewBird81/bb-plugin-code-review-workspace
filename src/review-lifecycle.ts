@@ -5,7 +5,7 @@ import type { runGh } from "./gh";
 import { baselineOf, ciSettled, computeTurn, type Turn, type TurnOptions, type TurnReason } from "../lib/turn";
 import { alertBody, factsUpdate, threadSignals, turnOptions } from "./turn-signals";
 import { completionNotifications } from "./completion-notifications";
-import { matchesRepo, reReviewCheckPrompt } from "./preferences";
+import { matchesRepo, reReviewCheckPrompt, type ReviewPreferences } from "./preferences";
 import { mayRunUnattended, skipWhy } from "../lib/trust";
 import { targetKey as keyFor } from "./targets";
 import { BATCH_SIZE, fetchPrFacts } from "./github/pr-facts";
@@ -16,6 +16,7 @@ import { discoverOwnPrs, discoverPrs } from "./github/discovery";
 import { createViewer, type Viewer } from "./github/viewer";
 import type { DiscoveredPr, FeedbackThread, PrFacts, PrRead, PrRef } from "./github/types";
 import type { AsyncStore } from "./store-queue";
+import { settleFixes } from "./fix-tally";
 
 /** Everything the sync reads from GitHub. */
 export interface GithubReads {
@@ -55,6 +56,8 @@ export interface TurnActions {
   prepare(targetKey: string, reason: TurnReason): Promise<boolean>;
   /** The author's pushes settled while you wait: check your feedback against them. */
   checkPushes(targetKey: string): Promise<boolean>;
+  /** The comments you sent came back Ready to re-review: check their fixes (src/reports.ts). */
+  checkFixes(targetKey: string): Promise<boolean>;
   /** Your review was requested in an auto-start repository: generate the guide. */
   autoStart(targetKey: string): Promise<boolean>;
   /** The project reviews found on GitHub run in. */
@@ -384,6 +387,8 @@ export function createReviewSync(bb: BbPluginApi, store: AsyncStore, run: typeof
     const now = clock();
     // The turn, and what it records and begins, in one turn of the queue; the work it begins follows that turn.
     const first = await store.exclusive(async (tx) => {
+      // What's out with the thread that fixes your comments, counted again: an edit or a removal may have changed it.
+      if (!disposed) await settleFixes(tx, key);
       let review = await tx.getReview(key);
       if (!review || disposed) return null;
       const preferences = (await tx.getPreferences()).preferences;
@@ -409,8 +414,9 @@ export function createReviewSync(bb: BbPluginApi, store: AsyncStore, run: typeof
           // A row waiting to be approved carries the alert of the turn beneath it.
           const { reason, label } = turn.under ?? turn;
           const request = reason === "requested" || reason === "team-requested";
-          // An event from before bb watched the PR is history; one without a time is history on the first read.
-          const recent = watching !== null && (turn.eventAt === null ? !firstRead : turn.eventAt >= watching);
+          // An event from before bb watched the PR is history; one without a time is history on the first read. Fixes
+          // coming back are the plugin's own news, on a local review too.
+          const recent = reason === "fixes-ready" || watching !== null && (turn.eventAt === null ? !firstRead : turn.eventAt >= watching);
           const act = recent || request && !!review.newRequest;
           // Handled and looks-ready come from passing states; once they're your turn, they hold until you act.
           const held = reason === "handled" || reason === "looks-ready" ? { heldTurn: { reason, label, signal: turn.signal, at: now } } : {};
@@ -499,8 +505,11 @@ export function createReviewSync(bb: BbPluginApi, store: AsyncStore, run: typeof
     }
   }
 
-  /** The re-review work prepare begins, and the push it started at, to put back if the work doesn't start. */
-  type PrepareWork = { start: () => Promise<boolean>; previous: string | null };
+  /**
+   * The re-review work prepare begins, and the push it started at, to put back if the work doesn't start; for fixes,
+   * the Sends it checks, whose check is put back instead.
+   */
+  type PrepareWork = { start: () => Promise<boolean>; previous: string | null; sends?: number[] };
   /**
    * Prepare the re-review behind a turn, in the caller's block, `tx`: rebuild an out-of-date guide and check your
    * feedback, or start the guide for a new request. Returns the work to start once the block has ended (finishPrepare),
@@ -512,6 +521,7 @@ export function createReviewSync(bb: BbPluginApi, store: AsyncStore, run: typeof
     const preferences = (await tx.getPreferences()).preferences;
     // Beneath a row waiting to be approved, the turn there.
     const { reason } = turn.under ?? turn;
+    if (reason === "fixes-ready") return beginFixCheck(tx, key, review, turn, preferences, head);
     const request = reason === "requested" || reason === "team-requested";
     // Guides for PRs found on GitHub cost a run each; they start only in your auto-start repositories.
     const allowed = review.status !== "tracked" || matchesRepo(preferences.autoStartRepos, review.repo);
@@ -533,12 +543,32 @@ export function createReviewSync(bb: BbPluginApi, store: AsyncStore, run: typeof
     return { start: () => (request ? actions.autoStart(key) : actions.prepare(key, reason)).catch(() => false), previous: review.autoRunHead ?? null };
   }
 
+  /**
+   * Begin Check fixes for the Sends that came back, once per Send, as autoRunHead is once per push: with Get a review
+   * ready and the re-review check on, and on a PR, its author trusted to run agents unattended. Off, or once checked, the
+   * alert comes at once, and Check fixes is a click away.
+   */
+  async function beginFixCheck(tx: AsyncStore, key: string, review: ReviewMeta, turn: Turn, preferences: ReviewPreferences, head: string | null): Promise<PrepareWork | null> {
+    const sends = review.sends ?? [];
+    const unchecked = sends.filter((send) => send.readyAt !== undefined && send.checkedAt === undefined).map((send) => send.n);
+    const wanted = preferences.knobs.prepareOnReturn && !!reReviewCheckPrompt(preferences);
+    if (!actions || !unchecked.length || !wanted || review.status === "generating" || review.kind === "pr" && !mayRunUnattended(review, preferences, head)) {
+      await tx.setLifecycle(key, { preparedSignal: turn.signal });
+      return null;
+    }
+    const at = clock();
+    await tx.setLifecycle(key, { sends: sends.map((send) => unchecked.includes(send.n) ? { ...send, checkedAt: at } : send), prepareTriedAt: at });
+    return { start: () => actions.checkFixes(key).catch(() => false), previous: review.autoRunHead ?? null, sends: unchecked };
+  }
+
   /** Start the work beginPrepare began, and record whether it started. Returns whether it did. */
   async function finishPrepare(key: string, turn: Turn, work: PrepareWork): Promise<boolean> {
     const started = await work.start();
     return store.exclusive(async (tx) => {
-      if (!await tx.getReview(key)) return false;
-      await tx.setLifecycle(key, started ? { preparedSignal: turn.signal } : { autoRunHead: work.previous });
+      const review = await tx.getReview(key);
+      if (!review) return false;
+      const unchecked = (review.sends ?? []).map((send) => work.sends?.includes(send.n) ? { ...send, checkedAt: undefined } : send);
+      await tx.setLifecycle(key, started ? { preparedSignal: turn.signal } : work.sends ? { sends: unchecked } : { autoRunHead: work.previous });
       return started;
     });
   }

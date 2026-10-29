@@ -136,3 +136,17 @@ test("a folder's review says what changed in its folder, that it's paused on ano
   expect(said(review(turn("waiting", "paused", "Paused"), { kind: "ref", feature: { ...feature, pausedOn: "bb/fix-docs-thr_cd34" } }))).toEqual(["Paused: on fix-docs", "neutral", "GitBranch"]);
   expect(said(review(turn("archive", "folder-gone", "Folder removed"), { kind: "ref", feature: { ...feature, folderGone: true } }))).toEqual(["Folder removed", "neutral", "Folder"]);
 });
+
+test("comments sent to fix: how many the main thread reported while it works, then Ready to re-review with the count, back to you; archived first, back to you too; a local review's check is of its fixes", () => {
+  const fixes = { sent: 3, reported: 1, inferred: 0, checked: 0, fixed: 0 };
+  expect(said(review(turn("waiting", "fixes-sent", "1 of 3 reported"), { kind: "ref", fixes }))).toEqual(["1 of 3 reported", "neutral", "Send"]);
+  const ready = review(turn("needs", "fixes-ready", "Ready to re-review"), { kind: "ref", fixes: { ...fixes, reported: 3, checked: 3, fixed: 2 } });
+  expect(said(ready)).toEqual(["Ready to re-review · 3 of 3 reported", "foreground", "ArrowTurnBackward"]);
+  expect(statusWhy(ready, knobs, now)?.detail).toBe("The main thread reported all 3 of your comments. Checked: 2 look fixed, 1 doesn't");
+  expect(needsGroup(ready)).toBe("back");
+  const archived = review(turn("needs", "fixes-stopped", "Main thread archived · 1 of 3 reported"), { kind: "ref", fixes });
+  expect(said(archived)).toEqual(["Main thread archived · 1 of 3 reported", "foreground", "Archive"]);
+  expect(needsGroup(archived)).toBe("back");
+  expect(said(review(turn("needs", "fixes-stopped", "Main thread deleted · 1 of 3 reported"), { kind: "ref", fixes }))?.[2]).toBe("Trash2");
+  expect(statusWhy({ ...ready, verifyingSince: now - 60_000 }, knobs, now)).toMatchObject({ text: "Checking the fixes…", tone: "agent", busy: true });
+});

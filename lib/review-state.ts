@@ -17,7 +17,7 @@ export function reviewState(review: ReviewItem): Turn {
  * and requests to a team you're on.
  */
 export type NeedsGroup = "ready" | "back" | "new" | "team";
-const BACK_TO_YOU = new Set<TurnReason>(["re-requested", "question", "mentioned", "handled", "looks-ready", "dismissed", "new-comments"]);
+const BACK_TO_YOU = new Set<TurnReason>(["re-requested", "question", "mentioned", "handled", "looks-ready", "dismissed", "new-comments", "fixes-ready", "fixes-stopped"]);
 const NEEDS_RANK: Record<NeedsGroup, number> = { ready: 0, back: 1, new: 2, team: 3 };
 
 /** Which part of Needs review the review is in. A failed guide keeps the reason underneath, so a review you gave is back. */

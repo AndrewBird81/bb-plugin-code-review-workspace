@@ -16,9 +16,11 @@ import type { TurnKind } from "./asking";
 import { reReviewCheckPrompt } from "./preferences";
 import { baselineOf, diffAt, feedbackView, headOf, isSummaryItem, summarize } from "./feedback-view";
 import { describeInterdiff, interdiff } from "./interdiff";
-import { sendBaselineOf } from "../lib/send-baseline";
+import { sendBaselineOf, sendKey } from "../lib/send-baseline";
+import { commentsOut, reported, type OutComment } from "../lib/fixes";
+import { settleFixes } from "./fix-tally";
 import type { AssessmentItem, AssessmentVerdict } from "../lib/feedback";
-import type { Verdict } from "./draft";
+import type { Claim, CommentLocation, Verdict } from "./draft";
 import { untrusted } from "./untrusted";
 import { threadLabel } from "./github/threads";
 import type { AsyncStore } from "./store-queue";
@@ -52,16 +54,40 @@ export function noteLeftQueue(messageId: string, how: "dispatched" | "cancelled"
   if (leftQueue.size > 100) leftQueue.delete(leftQueue.keys().next().value!);
 }
 
+/** How long a main thread's last reply may be, as the check reads it. */
+const REPLY_LIMIT = 6_000;
+
 /**
- * Ask the review's assistant to check your feedback: on your click (`kind` ask), or as the plugin starts it on its own
- * (automatic). False when it's turned off or can't start.
+ * What the assistant needs to know to check the fixes of the comments out with the thread that fixes them (src/reports.ts):
+ * each against the diff its Send went at, with the main thread's last reply, someone else's words, to read for what it
+ * didn't report.
  */
-export async function startVerification(bb: BbPluginApi, store: AsyncStore, targetKey: string, reason: string, kind: TurnKind): Promise<boolean> {
-  const { prompt, review } = await store.exclusive(async (tx) => ({ prompt: reReviewCheckPrompt((await tx.getPreferences()).preferences), review: await tx.getReview(targetKey) }));
-  if (!prompt || !review || review.kind !== "pr" || !baselineOf(review).at) return false;
+async function fixesContext(bb: BbPluginApi, review: ReviewMeta, out: readonly OutComment[]): Promise<string> {
+  const send = review.sends?.at(-1);
+  const reply = send ? await bb.sdk.threads.output({ threadId: send.threadId }).then(({ output }) => output?.trim() || null, () => null) : null;
+  const unreported = out.filter((comment) => !reported(comment.claim)).length;
+  return [
+    `The reviewer sent ${out.length} comment${out.length === 1 ? "" : "s"} to the main thread, the thread that fixes the code; list_feedback lists them with what it reported${unreported ? `, ${unreported} not yet` : ""}. Check each against what changed since its Send, with read_changes_since_review and its send number, and judge the fix itself.`,
+    "Record each with assess_feedback by its id (c12): addressed, partial, not_addressed, disputed (the thread declined it; say whether it's right), or unclear. For one the thread didn't report, add claimed, done or declined, when its last reply or the changes show which; otherwise leave claimed out. Send nothing to the main thread for the check itself.",
+    ...reply ? [`The main thread's last reply, for what it didn't report:\n${untrusted("main thread's reply", reply.length > REPLY_LIMIT ? `${reply.slice(0, REPLY_LIMIT)}…` : reply)}`] : [],
+  ].join("\n");
+}
+
+/**
+ * Ask the review's assistant to check your feedback on a PR you reviewed: on your click (`kind` ask), or as the plugin
+ * starts it on its own (automatic). With `fixes`, Check fixes instead: the comments you sent to fix, each against its
+ * Send's diff, which no other check reads. False when it's turned off, there's nothing to check, or it can't start.
+ */
+export async function startVerification(bb: BbPluginApi, store: AsyncStore, targetKey: string, reason: string, kind: TurnKind, { fixes = false }: { fixes?: boolean } = {}): Promise<boolean> {
+  const { prompt, review, out } = await store.exclusive(async (tx) => {
+    const review = await tx.getReview(targetKey);
+    return { prompt: reReviewCheckPrompt((await tx.getPreferences()).preferences), review, out: review ? commentsOut((await tx.getDraft(targetKey)).comments, review.threadSends) : [] };
+  });
+  if (!prompt || !review || (fixes ? !out.length : review.kind !== "pr" || !baselineOf(review).at)) return false;
+  const context = fixes ? [`Why now: ${reason}.`, await fixesContext(bb, review, out)].join("\n") : verificationContext(review, reason);
   let sent: Awaited<ReturnType<typeof messageAssistant>>;
   try {
-    sent = await messageAssistant(bb, store, targetKey, prompt, verificationContext(review, reason), { kind });
+    sent = await messageAssistant(bb, store, targetKey, prompt, context, { kind });
   } catch (error) {
     bb.log.warn(`The feedback check for ${targetKey} didn't start: ${String(error)}`);
     return false;
@@ -72,14 +98,49 @@ export async function startVerification(bb: BbPluginApi, store: AsyncStore, targ
   await store.exclusive(async (tx) => {
     const left = sent.queuedMessageId ? leftQueue.get(sent.queuedMessageId) : undefined;
     const queued = sent.queuedMessageId && !left ? sent.queuedMessageId : null;
-    if (left !== "cancelled") await tx.setLifecycle(targetKey, { verifyingSince: Date.now(), verifyingHead: headOf(review), verifyingMessageId: queued });
+    // A check of the fixes still to run keeps them in the check's reach.
+    const running = await tx.getReview(targetKey);
+    const withFixes = fixes || !!running?.verifyingSince && !!running.verifyingFixes;
+    if (left !== "cancelled") await tx.setLifecycle(targetKey, { verifyingSince: Date.now(), verifyingHead: headOf(review), verifyingMessageId: queued, verifyingFixes: withFixes || null });
   });
   bb.realtime.publish(`conversation:${targetKey}`, {});
   return true;
 }
 
-/** list_feedback: your threads, their replies and state, and your review summaries. */
+/** Where a comment out is, as list_feedback says it: its line, or the GitHub thread it is. */
+type Sent = OutComment & { at?: CommentLocation & { body: string }; thread?: string };
+
+/** The comments out with the thread that fixes them, by id: draft comments with their place, and GitHub threads. */
+async function sentComments(store: AsyncStore, review: ReviewMeta): Promise<Map<string, Sent>> {
+  const { comments } = await store.getDraft(review.targetKey);
+  const sent = new Map<string, Sent>();
+  for (const comment of comments) if (comment.state === "sent" && comment.id && comment.sendN !== undefined) sent.set(comment.id, { id: comment.id, sendN: comment.sendN, claim: comment.claim, at: comment });
+  for (const [thread, entry] of Object.entries(review.threadSends ?? {})) sent.set(entry.id, { ...entry, thread });
+  return sent;
+}
+
+/** list_feedback's part for the comments sent to the main thread: each, where, its Send, and what the thread reported. */
+function describeSent(sent: ReadonlyMap<string, Sent>): string {
+  const lines: string[] = [];
+  for (const comment of sent.values()) {
+    const where = comment.at ? `${comment.at.file}:${comment.at.line}${comment.at.side === "LEFT" ? " (old line)" : ""}` : `the GitHub thread ${comment.thread}`;
+    const claim = comment.claim;
+    const said = !claim ? "not reported" : `${claim.inferred ? "not reported; an earlier check inferred" : "reported"} ${claim.outcome}${claim.note ? `: ${claim.note.replace(/\s+/g, " ")}` : ""}${claim.commit ? ` (commit ${short(claim.commit)})` : ""}`;
+    lines.push("", `[${comment.id}] ${where} · Send ${comment.sendN} · ${said}`, ...(comment.at?.body.split("\n") ?? []).map((l) => `  > ${l}`));
+  }
+  return `${sent.size} comment${sent.size === 1 ? "" : "s"} the reviewer sent to the main thread to fix, with what it reported. Compare each with read_changes_since_review and its Send:\n${untrusted("comments sent and reports", lines.join("\n").trim())}`;
+}
+
+/** A check of your feedback only is running: the comments you sent to fix aren't its to read or record. */
+const feedbackCheck = (review: ReviewMeta) => !!review.verifyingSince && !review.verifyingFixes;
+
+/**
+ * list_feedback: your threads, their replies and state, and your review summaries; and the comments you sent to fix,
+ * but in a check of your feedback only.
+ */
 export async function describeFeedback(store: AsyncStore, review: ReviewMeta): Promise<string> {
+  const sent = feedbackCheck(review) ? new Map<string, Sent>() : await sentComments(store, review);
+  if (review.kind !== "pr") return sent.size ? describeSent(sent) : "The reviewer sent no comments to the main thread, so there's nothing to check.";
   const view = await feedbackView(store, review);
   const threads = view.items.filter((item) => item.thread);
   const lines: string[] = [];
@@ -98,6 +159,7 @@ export async function describeFeedback(store: AsyncStore, review: ReviewMeta): P
     const summaries = bodies.flatMap((body) => ["", `(${body.state}, ${date(body.at)})`, ...body.body.split("\n").map((l) => `  > ${l}`)]);
     out.push("", "The reviewer's review summaries, newest last. Record each distinct ask in them as an item with id \"summary:1\", \"summary:2\", … and a short title:", untrusted("review summaries", summaries.join("\n").trim()));
   }
+  if (sent.size) out.push("", describeSent(sent));
   return out.join("\n");
 }
 
@@ -312,46 +374,85 @@ export async function readFileAt(run: Run, git: typeof runGit, review: ReviewMet
 }
 
 export interface AssessInput {
-  items: Array<{ id: string; verdict: AssessmentVerdict; evidence: string; title?: string; file?: string; line?: number }>;
+  /** `claimed`: for a comment sent to the main thread that it didn't report, what the check found it did. */
+  items: Array<{ id: string; verdict: AssessmentVerdict; evidence: string; title?: string; file?: string; line?: number; claimed?: Claim["outcome"] }>;
   summary?: string;
   suggestedVerdict?: Verdict;
   suggestedBody?: string;
 }
 
-/** assess_feedback: record the assistant's verdicts for the PR's head. */
-export async function assess(store: AsyncStore, review: ReviewMeta, input: AssessInput): Promise<{ ok: true; text: string } | { ok: false; error: string }> {
+/**
+ * assess_feedback: record the assistant's verdicts: on your feedback, for the PR's head; on a comment you sent, for the
+ * Send that carried it. A sent comment the thread didn't report gets what the check found it did, `claimed`, marked as
+ * inferred, never over the thread's own report. `checker` is the review agent's thread.
+ */
+export async function assess(store: AsyncStore, caller: ReviewMeta, input: AssessInput, checker: string | null = null): Promise<{ ok: true; text: string } | { ok: false; error: string }> {
   return store.exclusive(async (tx) => {
+    // As it is now, in this turn: a report may have come since the caller read it.
+    const review = (await tx.getReview(caller.targetKey)) ?? caller;
+    const sent = feedbackCheck(review) ? new Map<string, Sent>() : await sentComments(tx, review);
+    const fixes = input.items.filter((item) => sent.has(item.id));
+    const feedback = input.items.filter((item) => !sent.has(item.id));
+    const ids = sent.size ? ", or a sent comment's id (c12)" : "";
+    if (feedback.length && review.kind !== "pr") return { ok: false, error: `Unknown item ids: ${feedback.map((item) => item.id).join(", ")}. Use the sent comments' ids from list_feedback (c12). Nothing was recorded.` };
     // During a check, verdicts belong to the commit it started on; the author may have pushed since.
     const head = review.verifyingSince && review.verifyingHead ? review.verifyingHead : headOf(review);
-    if (!head) return { ok: false, error: "This review has no commit to check against." };
-    const threads = await tx.listFeedbackThreads(review.targetKey);
+    if (feedback.length && !head) return { ok: false, error: "This review has no commit to check against." };
+    const threads = feedback.length ? await tx.listFeedbackThreads(review.targetKey) : [];
     const threadIds = threads.map((t) => t.id);
-    const unknown = input.items.filter((item) => !threadIds.includes(item.id) && !isSummaryItem(item.id)).map((item) => item.id);
-    if (unknown.length) return { ok: false, error: `Unknown item ids: ${unknown.join(", ")}. Use the thread ids from list_feedback, or "summary:<n>" for asks in a review summary. Nothing was recorded.` };
+    const unknown = feedback.filter((item) => !threadIds.includes(item.id) && !isSummaryItem(item.id)).map((item) => item.id);
+    if (unknown.length) return { ok: false, error: `Unknown item ids: ${unknown.join(", ")}. Use the thread ids from list_feedback, or "summary:<n>" for asks in a review summary${ids}. Nothing was recorded.` };
     const untitled: AssessInput["items"] = [];
-    for (const item of input.items) if (isSummaryItem(item.id) && !item.title?.trim() && !(await tx.getAssessment(review.targetKey, head)).items.some((i) => i.id === item.id && i.title)) untitled.push(item);
+    for (const item of feedback) if (isSummaryItem(item.id) && !item.title?.trim() && !(await tx.getAssessment(review.targetKey, head!)).items.some((i) => i.id === item.id && i.title)) untitled.push(item);
     if (untitled.length) return { ok: false, error: `Give each summary ask a title: ${untitled.map((i) => i.id).join(", ")}. Nothing was recorded.` };
     const now = Date.now();
     // Where the evidence is, only as a line the current diff shows on its new side, so it links to code the reviewer sees.
     const positions = await tx.diffPositions(review.targetKey);
     const shown = (file?: string, line?: number) => !!file && !!line && !!positions.get(file)?.right.has(line);
-    const items: AssessmentItem[] = input.items.map((item) => ({
+    const recorded = (item: AssessInput["items"][number]): AssessmentItem => ({
       id: item.id, verdict: item.verdict, evidence: item.evidence.trim().slice(0, 1000), assessedAt: now,
       ...(item.title?.trim() ? { title: item.title.trim().slice(0, 300) } : {}),
       ...(shown(item.file, item.line) ? { file: item.file, line: item.line } : {}),
-    }));
-    await tx.saveAssessmentItems(review.targetKey, head, items);
-    const previous = (await tx.getAssessment(review.targetKey, head)).run;
-    await tx.saveAssessmentRun(review.targetKey, {
-      headSha: head, assessedAt: now,
-      summary: input.summary?.trim() ?? previous?.summary ?? "",
-      suggestedVerdict: input.suggestedVerdict ?? previous?.suggestedVerdict ?? null,
-      suggestedBody: input.suggestedBody?.trim() ?? previous?.suggestedBody ?? "",
     });
-    // Non-blocking threads are checked too, but don't count toward what's addressed.
-    const summary = summarize(head, (await tx.getAssessment(review.targetKey, head)).items, threads.filter((t) => !threadLabel(t.body)?.nonBlocking).map((t) => t.id));
-    await tx.setLifecycle(review.targetKey, { assessment: summary });
-    const missing = summary.total - summary.addressed - summary.partial - summary.notAddressed - summary.disputed - summary.unclear;
-    return { ok: true, text: `Recorded ${items.length} item${items.length === 1 ? "" : "s"} for ${short(head)}: ${summary.addressed} of ${summary.total} addressed.${missing ? ` ${missing} item${missing === 1 ? " has" : "s have"} no verdict yet.` : ""} The reviewer sees them in Comments.` };
+    const said: string[] = [];
+    if (fixes.length) {
+      // Each with its Send, whose diff it was checked against.
+      const bySend = new Map<number, AssessmentItem[]>();
+      for (const item of fixes) bySend.set(sent.get(item.id)!.sendN, [...bySend.get(sent.get(item.id)!.sendN) ?? [], recorded(item)]);
+      for (const [n, items] of bySend) await tx.saveAssessmentItems(review.targetKey, sendKey(n), items);
+      const inferred = fixes.filter((item) => item.claimed && !reported(sent.get(item.id)!.claim));
+      for (const item of inferred) {
+        const comment = sent.get(item.id)!;
+        const claim: Claim = { outcome: item.claimed!, note: item.evidence.trim().slice(0, 1000), threadId: checker, at: now, inferred: true };
+        if (comment.at) await tx.trackComments(review.targetKey, [{ at: comment.at, claim }]);
+        else {
+          // A report always stands over what a check found.
+          const threadSends = (await tx.getReview(review.targetKey))?.threadSends ?? {};
+          const thread = threadSends[comment.thread!];
+          if (thread && !reported(thread.claim)) await tx.setLifecycle(review.targetKey, { threadSends: { ...threadSends, [comment.thread!]: { ...thread, claim } } });
+        }
+      }
+      // Counted again: what the check found shows on the review, and in its alert.
+      await settleFixes(tx, review.targetKey);
+      const addressed = fixes.filter((item) => item.verdict === "addressed").length;
+      said.push(`Recorded ${fixes.length} sent comment${fixes.length === 1 ? "" : "s"}: ${addressed} of ${fixes.length} addressed${inferred.length ? `; ${inferred.length} the main thread didn't report now read "Looks done" or "Looks declined"` : ""}. The reviewer sees them on the comments.`);
+    }
+    if (feedback.length) {
+      const items = feedback.map(recorded);
+      await tx.saveAssessmentItems(review.targetKey, head!, items);
+      const previous = (await tx.getAssessment(review.targetKey, head!)).run;
+      await tx.saveAssessmentRun(review.targetKey, {
+        headSha: head!, assessedAt: now,
+        summary: input.summary?.trim() ?? previous?.summary ?? "",
+        suggestedVerdict: input.suggestedVerdict ?? previous?.suggestedVerdict ?? null,
+        suggestedBody: input.suggestedBody?.trim() ?? previous?.suggestedBody ?? "",
+      });
+      // Non-blocking threads are checked too, but don't count toward what's addressed.
+      const summary = summarize(head!, (await tx.getAssessment(review.targetKey, head!)).items, threads.filter((t) => !threadLabel(t.body)?.nonBlocking).map((t) => t.id));
+      await tx.setLifecycle(review.targetKey, { assessment: summary });
+      const missing = summary.total - summary.addressed - summary.partial - summary.notAddressed - summary.disputed - summary.unclear;
+      said.unshift(`Recorded ${items.length} item${items.length === 1 ? "" : "s"} for ${short(head)}: ${summary.addressed} of ${summary.total} addressed.${missing ? ` ${missing} item${missing === 1 ? " has" : "s have"} no verdict yet.` : ""} The reviewer sees them in Comments.`);
+    }
+    return { ok: true, text: said.join(" ") };
   });
 }

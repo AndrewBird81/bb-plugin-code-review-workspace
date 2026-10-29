@@ -481,9 +481,6 @@ export async function readForGuide(bb: BbPluginApi, review: ReviewMeta): Promise
 
 export function register(deps: ServeDeps) {
   const { bb, store } = deps;
-  /** The feature reviews of this folder, or whose main thread this is. */
-  const reviewsOf = async (match: (review: ReviewMeta & { feature: FeatureReview }) => boolean) =>
-    (await store.listReviews()).map(featureOf).filter((review): review is ReviewMeta & { feature: FeatureReview } => !!review && match(review));
 
   const handlers = {
     async checkFeature({ targetKey }) {
@@ -544,14 +541,6 @@ export function register(deps: ServeDeps) {
         return keys;
       });
       for (const key of gone) deps.changed(key);
-    }],
-    // A main thread that stops may have changed the folder: its reviews check, and their open pages ask again.
-    "thread.idle": [async ({ thread }) => {
-      if (!thread.environmentId || thread.visibility === "hidden") return;
-      for (const review of await reviewsOf((review) => review.kind === "ref" && review.mainThread?.threadId === thread.id && !review.feature.folderGone)) {
-        await checkFeature(deps, review.targetKey).catch(() => {});
-        bb.realtime.publish(`folder:${review.targetKey}`, { ts: Date.now() });
-      }
     }],
   };
   return { handlers, events };

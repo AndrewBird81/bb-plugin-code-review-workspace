@@ -65,7 +65,7 @@ async function setup(options: { pr?: Partial<PrFacts>; threads?: FeedbackThread[
     ownPrs: vi.fn(async () => []),
   };
   const actions: TurnActions = {
-    prepare: vi.fn(async () => true), checkPushes: vi.fn(async () => true), autoStart: vi.fn(async () => true), projectId: async () => "p1",
+    prepare: vi.fn(async () => true), checkPushes: vi.fn(async () => true), checkFixes: vi.fn(async () => true), autoStart: vi.fn(async () => true), projectId: async () => "p1",
     becomePr: vi.fn(async () => "skipped" as const),
   };
   const sync = createReviewSync(bb, store, vi.fn() as any, { github, actions, now: () => now });

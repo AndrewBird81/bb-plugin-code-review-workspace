@@ -2,6 +2,8 @@
 // on author), nobody's (Reviewed), or done (Archive). Pure, so the server and
 // the panel agree; the server attaches its result to every review it returns.
 import type { Verdict } from "../src/draft";
+import type { ReviewLifecycle } from "../src/store";
+import { fixesState, reportedText } from "./fixes";
 
 export type TurnGroup = "needs" | "waiting" | "reviewed" | "archive";
 
@@ -15,7 +17,9 @@ export type TurnReason =
   | "own" | "new-comments"
   // A local review whose folder is on another branch, or that bb removed (src/feature-review.ts).
   | "paused" | "folder-gone"
-  | "ready-to-approve";
+  | "ready-to-approve"
+  // Comments sent to the thread that fixes them: waiting for its reports, or back to you (src/reports.ts).
+  | "fixes-sent" | "fixes-ready" | "fixes-stopped";
 
 /** Your review threads on the PR, by where each stands. */
 export interface ThreadTally {
@@ -123,6 +127,9 @@ export interface TurnInput {
   feature?: { pausedOn?: string | null; folderGone?: boolean } | null;
   /** A relayed approve, merge or close waiting for your click, since `at`. */
   readyToApprove?: { at: number } | null;
+  /** The Sends, and the comments still out with the thread that fixes them (lib/fixes.ts). */
+  sends?: ReviewLifecycle["sends"];
+  fixes?: ReviewLifecycle["fixes"];
 }
 
 export interface TurnOptions {
@@ -226,12 +233,28 @@ export function computeTurn(review: TurnInput, options: TurnOptions = defaultTur
   return review.status === "generating" ? { ...turn, label: "Generating" } : turn;
 
   function reviewerTurn(): Turn {
+    // Comments sent to the thread that fixes them come back to you once it reports them all, or runs bb review ready:
+    // idle alone never means done. Archived or deleted first, it won't report the rest: they're back with you, with no
+    // alert, as it's usually you who archived it. On a PR, until your next review there.
+    const fixes = fixesState(review);
+    const readyAt = fixes?.send.readyAt;
+    const fixesReady = () => make("needs", "fixes-ready", "Ready to re-review", { signal: `fixes-ready:${fixes!.send.n}`, at: readyAt!, notify: true, eventAt: readyAt! });
+    const unreported = !!fixes && !fixes.ready && fixes.tally.reported < fixes.tally.sent;
+    const stoppedAt = fixes?.send.stopped?.at;
+    const fixesStopped = () => make("needs", "fixes-stopped", `Main thread ${fixes!.gone} · ${reportedText(fixes!.tally)}`, { at: stoppedAt! });
     if (review.kind === "ref") {
       // Its folder gone, its comments still wait on you; on another branch, it waits for its own.
       if (review.feature?.folderGone) return make("needs", "folder-gone", "Folder removed", { at: review.createdAt ?? null });
       if (review.feature?.pausedOn) return make("waiting", "paused", "Paused", { at: review.createdAt ?? null });
+      if (fixes?.ready && after(readyAt, snoozedAt)) return fixesReady();
+      if (unreported && fixes!.gone) return fixesStopped();
+      // While its thread works on them, a local review waits on it: until it reports the last, or the last unreported
+      // comment is yours again.
+      if (unreported) return make("waiting", "fixes-sent", reportedText(fixes!.tally), { at: fixes!.send.at });
       return make("needs", "new", "Ready", { at: review.createdAt ?? null });
     }
+    if (fixes?.ready && after(readyAt, lastReviewAt, snoozedAt)) return fixesReady();
+    if (unreported && fixes!.gone && after(stoppedAt, lastReviewAt, snoozedAt)) return fixesStopped();
     const tracked = review.status === "tracked";
     // Your own PR comes to you when someone's comment waits for your reply, never a bot's. One you started a review of
     // is yours to review until you have; one found on GitHub waits on its reviewers.

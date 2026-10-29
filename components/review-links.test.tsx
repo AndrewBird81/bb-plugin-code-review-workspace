@@ -140,3 +140,24 @@ test("a local review's comment opens in an editor only where its diff ends at th
   expect(await offered("main...feature")).toEqual({ offered: false, asked: false });
   expect(await offered("a..b")).toEqual({ offered: false, asked: false });
 });
+
+test("on your own change a sent comment's icon says where its fix stands, and a reported note shows its code as code, nothing else", async () => {
+  const now = Date.now();
+  const drafted = [
+    { file: "src/a.ts", line: 1, side: "RIGHT", body: "Name it.", id: "c1", state: "sent", sendN: 1, claim: { outcome: "done", note: "Renamed it `total` <b>now</b>.", threadId: "coder", at: now } },
+    { file: "src/a.ts", line: 3, side: "RIGHT", body: "Not sent.", id: "c2", state: "sent", sendN: 1, claim: { outcome: "done", note: "a.ts:3", threadId: "agent", at: now, inferred: true } },
+    { file: "src/a.ts", line: 2, side: "LEFT", body: "Why drop it?", id: "c3", state: "sent", sendN: 1 },
+  ];
+  const slot = await renderSent({ status: { ...LOCAL, sends: [{ n: 1, at: now, threadId: "coder", ids: ["c1", "c2", "c3"] }] } }, drafted);
+  const card = async (name: string) => within(slot.getByTestId("filediff")).findByRole("article", { name });
+  const icon = async (name: string) => (await card(name)).querySelector(":scope > div > svg")!.getAttribute("data-icon");
+  // The thread's words, without their closing stop; its code as code, and markup as the text it is.
+  expect(await statusOf(slot, "Draft comment on src/a.ts:1")).toBe("Done · Renamed it total <b>now</b> · now");
+  expect((await card("Draft comment on src/a.ts:1")).querySelector("code")?.textContent).toBe("total");
+  expect((await card("Draft comment on src/a.ts:1")).querySelector("b")).toBeNull();
+  expect(await icon("Draft comment on src/a.ts:1")).toBe("Check");
+  expect(await statusOf(slot, "Draft comment on src/a.ts:3")).toBe("Looks done · not reported · now");
+  expect(await icon("Draft comment on src/a.ts:3")).toBe("CircleCheck");
+  expect(await icon("Draft comment on src/a.ts:2")).toBe("Send");
+  slot.lifecycle.unmount();
+});

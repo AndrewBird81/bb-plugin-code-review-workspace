@@ -50,10 +50,18 @@ test("the pattern catches the ways around it", () => {
 });
 
 test("each feedback check says who started it: your click in the review, or the plugin on its own", () => {
-  const kinds = sources.flatMap((file) => [...read(file).matchAll(/startVerification\(bb, store, [^;]*?"(ask|automatic)"\)/g)].map((m) => `${file} ${m[1]}`)).sort();
+  const kinds = sources.flatMap((file) => [...read(file).matchAll(/startVerification\(bb, store, [^;]*?"(ask|automatic)"(, \{ fixes: true \})?\)/g)].map((m) => `${file} ${m[1]}${m[2] ? " fixes" : ""}`)).sort();
   expect(kinds).toEqual([
-    "server.ts automatic", "server.ts automatic",
+    // A re-review coming back, pushes settling; and fixes coming back Ready to re-review (PC2), the only check of
+    // fixes the plugin starts.
+    "server.ts automatic", "server.ts automatic", "server.ts automatic fixes",
     "src/generate.ts automatic",
+    // Check fixes and Check now, clicked.
+    "src/reports.ts ask fixes",
     "src/turn-rpc.ts ask", "src/turn-rpc.ts ask",
   ]);
+  expect(read("server.ts")).toMatch(/checkFixes: \(targetKey\) => startVerification\(bb, store, targetKey, [^;]*?"automatic", \{ fixes: true \}\)/);
+  expect(read("src/reports.ts")).toMatch(/async checkFixes\(\{ targetKey \}\) \{[^]*?startVerification\(bb, store, targetKey, [^;]*?"ask", \{ fixes: true \}\)/);
+  // Every call is caught: none is missed by the pattern.
+  expect(sources.reduce((n, file) => n + (read(file).match(/\bstartVerification\(/g)?.length ?? 0), 0) - 1).toBe(kinds.length);
 });

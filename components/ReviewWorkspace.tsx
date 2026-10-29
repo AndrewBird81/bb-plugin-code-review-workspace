@@ -59,6 +59,7 @@ import { PhoneDock } from "./shell/PhoneDock";
 import { returnFocus } from "./shell/side-parts";
 import { REWRITE_GUIDE, ReviewNotices, useNewCommits, type Notice } from "./shell/ReviewNotices";
 import { useFeatureNotices } from "./shell/FeatureNotices";
+import { useFixNotices } from "./shell/FixNotices";
 import { SelectionBar } from "./shell/SelectionBar";
 import { SidePanel, sidePanelId } from "./shell/SidePanel";
 import { TopBand, navigatorId } from "./shell/TopBand";
@@ -1380,6 +1381,8 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   // The review's main thread, named for Send now and its tab's entries.
   const mainThreadId = useKnob("sendToThread") ? recipientOf(review) : null;
   const { thread: mainLink } = useMainThread(targetKey, review);
+  // The comments sent to it: Ready to re-review, or reported so far once it stops.
+  const fixNotices = useFixNotices(targetKey, review, load);
   const mainThread = useMemo(() => mainThreadId ? { threadId: mainThreadId, title: mainLink?.title ?? null, machine: mainLink?.machine ?? null } : null, [mainThreadId, mainLink]);
   const commentKeys = useKnob("commentKeys");
   const unattendedAgents = useKnob("unattendedAgents");
@@ -1456,6 +1459,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
       : { id: "rebuild", tone: "danger", icon: "AlertTriangle", role: "alert", text: <>Couldn’t update the guide. Showing the previous one.{review.guideError?.text && <span className="mt-0.5 line-clamp-3 whitespace-pre-line break-words">{review.guideError.text}</span>}</>, action: retryGuide } as const] : []),
     ...(repoAccess && !repoAccess.accessible ? [{ id: "access", tone: "danger", icon: "Lock", text: repoAccess.badCredentials ? "GitHub refused your account’s credentials. Switch account:" : `${repoAccess.account ? `@${repoAccess.account}` : "Your GitHub account"} can’t access ${repoAccess.repo ?? "this repo"}. Switch account:`, action: <AccountBar /> }] as const : []),
     ...featureNotices,
+    ...fixNotices,
     ...(became?.targetKey === targetKey ? [{ id: "became-pr", tone: "info", icon: "GitPullRequest", text: `This review is now ${became.to}, the PR’s. It was ${became.from}; your comments came with it.`,
       action: <Button variant="outline" size="sm" className={noticeButton} onClick={() => setBecame(null)}>Got it</Button> }] as const : []),
     ...(generatingReplacement ? [{ id: "updating", tone: "warning", icon: "Loading", busy: true, text: "Updating the guide for the new commits. Your current view and unsaved edits stay here.", ...(stopGenerating ? { action: <Button variant="outline" size="sm" className={noticeButton} disabled={stopping} onClick={() => void stopGuide()}>{stopping ? "Stopping…" : "Stop"}</Button> } : {}) }] as const : []),

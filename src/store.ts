@@ -63,6 +63,8 @@ export interface ReviewLifecycle {
   pendingAlert?: { signal: string; since: number } | null;
   /** The assistant is checking your feedback, since this time. */
   verifyingSince?: number | null;
+  /** The running check is of the comments sent to fix too (Check fixes, the plugin's or your click's); no other check reads them. */
+  verifyingFixes?: boolean | null;
   /** The feedback check's message while it waits in the assistant's queue; cleared once it dispatches, so its own turn ends the check. */
   verifyingMessageId?: string | null;
   /** When the automatic re-review or check last finished. */
@@ -144,6 +146,8 @@ export interface ReviewLifecycle {
   sends?: SendEntry[];
   /** On your own PR, the GitHub threads sent to a fixer, by the thread's id: the id and Send they went in, and the fixer's report. */
   threadSends?: Record<string, { id: string; sendN: number; claim?: Claim }>;
+  /** The comments still out with the thread that fixes them, and how many it reported, as last counted (src/fix-tally.ts). */
+  fixes?: FixTally | null;
   /** A relayed approve, merge or close, waiting in Needs review for the reviewer's own click. Null for none. */
   readyToApprove?: ReadyToApprove | null;
   /** Let it push when done: a Send leaves out "Don't push until I say". Absent or false, it says it. */
@@ -217,9 +221,21 @@ export interface SendEntry {
   patch?: string;
   /** The message that carries it while it waits in the thread's queue, as BB names it; absent once the thread takes it. */
   queued?: string;
-  /** When the thread ran `bb review ready` after this Send. */
+  /**
+   * When it became Ready to re-review: its thread ran `bb review ready`, or reported the last comment out (src/reports.ts).
+   */
   readyAt?: number;
-  /** When Check fixes ran for this Send, which it does once. */
+  /**
+   * Who ran `bb review ready` for it: the main thread or a thread under it, another thread (by its title then), or a
+   * shell outside any thread. Absent when its last comment's report made it ready.
+   */
+  readyBy?: { from: "main" | "thread" | "shell"; title?: string };
+  /**
+   * Its thread stopped before it was ready: went idle or failed, which alone never means done, or was archived or
+   * deleted, which leaves the rest to you. Cleared when it works again.
+   */
+  stopped?: { at: number; why: "idle" | "archived" | "deleted" };
+  /** When the Check fixes the plugin starts on its own, once it's ready, started for this Send: once per Send. Your clicks check any time. */
   checkedAt?: number;
 }
 
@@ -233,6 +249,12 @@ export interface SnapshotFiles {
   /** The files the secrets filter kept out of the patch, and why. */
   hidden: Array<{ path: string; reason: "secret" | "binary" | "large" }>;
 }
+
+/**
+ * A review's comments out with the thread that fixes them: how many, how many it reported, and how many a check found
+ * it did without a report (`inferred`); and how many the review agent checked against their Send, `fixed` of them.
+ */
+export interface FixTally { sent: number; reported: number; inferred: number; checked: number; fixed: number }
 
 /** Whose message a review agent's turn carries: yours typed in the review, one of your other threads', or none, as the plugin's own. */
 export type Asking = "direct" | "relayed" | "unattended";

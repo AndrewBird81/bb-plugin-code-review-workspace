@@ -415,7 +415,7 @@ export async function endAssistantWaits(bb: BbPluginApi, store: AsyncStore, targ
   return store.exclusive(async (tx) => {
     if (await tx.stopWaiting(targetKey)) bb.realtime.publish(`draft:${targetKey}`, {});
     if (!(await tx.getReview(targetKey))?.verifyingSince) return false;
-    await tx.setLifecycle(targetKey, { verifyingSince: null, verifyingHead: null, preparedAt: Date.now() });
+    await tx.setLifecycle(targetKey, { verifyingSince: null, verifyingHead: null, verifyingFixes: null, preparedAt: Date.now() });
     bb.realtime.publish(`feedback:${targetKey}`, { ts: Date.now() });
     return true;
   });

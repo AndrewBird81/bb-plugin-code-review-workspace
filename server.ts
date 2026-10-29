@@ -53,6 +53,7 @@ import * as guideTool from "./src/guide-tool";
 import * as featureReview from "./src/feature-review";
 import * as openPr from "./src/open-pr";
 import * as loop from "./src/loop";
+import * as reportsModule from "./src/reports";
 import * as rpcStubs from "./src/rpc-stubs";
 import * as reviewAgentTools from "./src/review-agent-tools";
 import * as relaysModule from "./src/relays";
@@ -185,6 +186,7 @@ function servePlugin(bb: BbPluginApi, { configured, store, interrupted }: Awaite
       return startVerification(bb, store, targetKey, reasons[reason] ?? "the review came back to the reviewer", "automatic");
     },
     checkPushes: (targetKey) => startVerification(bb, store, targetKey, "the author pushed new commits and they have settled", "automatic"),
+    checkFixes: (targetKey) => startVerification(bb, store, targetKey, "the main thread finished the comments the reviewer sent, so they're ready to re-review", "automatic", { fixes: true }),
     async autoStart(targetKey) {
       return (await rerunReview(deps, targetKey, { notify: false, unattended: true })).ok;
     },
@@ -314,8 +316,9 @@ function servePlugin(bb: BbPluginApi, { configured, store, interrupted }: Awaite
   const feature = featureReview.register(moduleDeps);
   const opening = openPr.register(moduleDeps);
   const sends = loop.register(moduleDeps);
+  const reports = reportsModule.register(moduleDeps);
   const stubs = rpcStubs.register();
-  const handlers: RpcHandlers = merge(settings.handlers, reviews.handlers, githubThreads.handlers, draft.handlers, assistant.handlers, turn.handlers, feature.handlers, opening.handlers, relays.handlers, sends.handlers, stubs.handlers);
+  const handlers: RpcHandlers = merge(settings.handlers, reviews.handlers, githubThreads.handlers, draft.handlers, assistant.handlers, turn.handlers, feature.handlers, opening.handlers, relays.handlers, sends.handlers, reports.handlers, stubs.handlers);
   const guarded = Object.fromEntries(Object.entries(handlers).map(([name, handler]) =>
     [name, (input: unknown) => updates.run(() => (handler as (input: unknown) => unknown)(input))])) as unknown as typeof handlers;
   bb.rpc.register(rpcContract, {
@@ -326,8 +329,8 @@ function servePlugin(bb: BbPluginApi, { configured, store, interrupted }: Awaite
     setReviewPresence: ({ clientId, open }) => updates.presence(clientId, open),
     applyPluginUpdate: ({ clientId, candidateVersion }) => updates.apply(clientId, candidateVersion),
   });
-  listen(bb, [events.events, feature.events, ledgerEvents(bb), sends.events]);
-  const subcommands: Subcommands = merge(reviews.commands, draft.commands, relays.commands);
+  listen(bb, [events.events, feature.events, ledgerEvents(bb), sends.events, reports.events]);
+  const subcommands: Subcommands = merge(reviews.commands, draft.commands, relays.commands, reports.commands);
 
   // Tools go only to THIS plugin's own spawned threads, by the role each is recorded with: a thread can retitle
   // itself, so its title chooses only while its spawn is in flight, before its id is recorded.
@@ -388,6 +391,8 @@ function servePlugin(bb: BbPluginApi, { configured, store, interrupted }: Awaite
       // On SQLite, the instance a reload replaces shares data.db, and may write after this one read configure's view,
       // which reads a guide again only when a call can change it: it's all read again once, after the first pass's first turn.
       if (sharedWithReplaced) configured.readAllAfterNextTurn();
+      // What happened to the main threads while the plugin was down: BB doesn't tell its events again.
+      await updates.run(() => reports.reconcile(), false).catch((error) => bb.log.warn(`Could not read the main threads again: ${String(error)}`));
       while (!signal.aborted) {
         await updates.run(() => sync.all(), false).catch(() => {});
         await updates.run(() => retryInterruptedGuides(deps), false).catch(() => {});

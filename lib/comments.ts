@@ -108,6 +108,8 @@ interface ItemBase {
 export interface DraftItem extends ItemBase {
   kind: "draft";
   state: "draft" | "agent-draft" | "older-diff";
+  /** Where its fix stands, once sent, on your own change (draftStatus). */
+  mark?: FixMark;
   comment: DraftComment;
   /** Your discussion with the agent about it, shown under it. */
   discussion: Discussion | null;
@@ -211,19 +213,32 @@ export interface StatusFacts {
 /** As before 1.8.0: every comment posts, and none is yours to send. */
 export const POSTS: StatusFacts = { posts: true, own: false };
 
-/** The status line, and when what it says happened, for a card to add how long ago. */
-export function draftStatus(comment: DraftComment, state: DraftItem["state"], facts: StatusFacts): { label: string; at?: number } {
+/**
+ * Where a sent comment's fix stands, as its icon shows it: sent (or queued), done or declined as the thread reported, or
+ * as the review agent's check found it did without a report.
+ */
+export type FixMark = "sent" | "done" | "declined" | "looks-done" | "looks-declined";
+
+/**
+ * The status line, and when what it says happened, for a card to add how long ago; and on your own change, where a sent
+ * comment's fix stands (`mark`). A report's note is the thread's words, without its closing full stop.
+ */
+export function draftStatus(comment: DraftComment, state: DraftItem["state"], facts: StatusFacts): { label: string; at?: number; mark?: FixMark } {
   const draft = facts.posts && (!facts.own || !comment.state || comment.state === "open");
   const base = draft ? STATE_LABEL[state] : state === "older-diff" ? "Older diff" : comment.author === "agent" ? "Agent · Open" : "Open";
   if (comment.state === "resolved") return { label: "Resolved" };
   if (comment.state === "dismissed") return { label: "Dismissed" };
-  // The thread's report on what it was sent; an edit opens it again, for the next Send.
-  if (comment.claim && comment.state === "sent") return { label: `${comment.claim.outcome === "done" ? "Done" : "Declined"}${comment.claim.note ? ` · ${comment.claim.note}` : ""}`, at: comment.claim.at };
+  // The thread's report on what it was sent; an edit opens it again, for the next Send. One the review agent's check
+  // inferred, as the thread didn't report it, says so.
+  const done = comment.claim?.outcome === "done";
+  if (comment.claim?.inferred && comment.state === "sent") return { label: `${done ? "Looks done" : "Looks declined"} · not reported`, at: comment.claim.at, mark: done ? "looks-done" : "looks-declined" };
+  const note = comment.claim?.note?.trim().replace(/(?<!\.)\.$/, "");
+  if (comment.claim && comment.state === "sent") return { label: `${done ? "Done" : "Declined"}${note ? ` · ${note}` : ""}`, at: comment.claim.at, mark: done ? "done" : "declined" };
   const send = comment.state === "sent" && comment.sendN !== undefined ? facts.sends?.find((entry) => entry.n === comment.sendN) : undefined;
   if (send) {
     const to = (facts.sent?.threadId === send.threadId ? facts.sent.title : null) ?? "the main thread";
     const went = `${send.queued ? `Queued for ${to}` : `Sent to ${to}`} · Send ${send.n}`;
-    return { label: draft ? `${base} · ${went}` : went, at: send.at };
+    return { label: draft ? `${base} · ${went}` : went, at: send.at, ...draft ? {} : { mark: "sent" as const } };
   }
   // Sent before 1.8.0, as it reads now: 1.7.0's record.
   const before = !comment.state ? facts.sent?.comments.find((entry) => sameLocation(entry, comment) && (entry.body === undefined || entry.body === comment.body)) : undefined;
@@ -271,8 +286,9 @@ export function buildItems(sources: CommentSources): CommentItem[] {
   for (const comment of comments) {
     const state = draftState(comment, stale);
     const who = speaker(comment.author ?? "reviewer");
+    const { label, mark } = draftStatus(comment, state, sources.status ?? POSTS);
     add({
-      kind: "draft", id: draftItemId(comment), state, label: draftStatus(comment, state, sources.status ?? POSTS).label, ...needing(state === "older-diff" ? "older-diff" : null, "not-submitted"),
+      kind: "draft", id: draftItemId(comment), state, label, ...mark ? { mark } : {}, ...needing(state === "older-diff" ? "older-diff" : null, "not-submitted"),
       at: { file: comment.file, line: comment.line, side: comment.side, lines: linesOf(comment) }, chapterId: chapterOf(comment.file, comment.line, comment.side),
       who, latest: { who, body: comment.body, at: null }, nonBlocking: comment.severity === "nit",
       comment, discussion: discussions.find((discussion) => sameLocation(discussion, comment)) ?? null,

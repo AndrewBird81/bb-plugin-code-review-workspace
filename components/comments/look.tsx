@@ -1,7 +1,7 @@
 // How a comment-like thing looks wherever it shows, in the code, the list, or Finish (spec §4): dashed with a colored
 // edge while it's only in BB, solid on GitHub with its author, muted with a lock when it's private. Never color alone:
 // its state is always in words too.
-import { CHECK_LABEL, STATE_LABEL, THREAD_FLAG_LABEL, type CommentCheck, type CommentItem, type ThreadItem } from "../../lib/comments";
+import { CHECK_LABEL, STATE_LABEL, THREAD_FLAG_LABEL, type CommentCheck, type CommentItem, type FixMark, type ThreadItem } from "../../lib/comments";
 import type { AssessmentVerdict } from "../../lib/feedback";
 import type { CommentLocation, DraftComment, Severity } from "../../src/draft";
 import { sameLocation } from "../../src/draft";
@@ -33,19 +33,32 @@ export function frameOf(item: CommentItem): string {
 }
 
 const DRAFT_ICON: Record<Edge, IconName> = { yours: "CircleDashed", agent: "Sparkles", older: "AlertTriangle" };
+/**
+ * A sent comment's icon, where its fix stands: the send arrow while it's out; a check once the thread reports it done,
+ * hollow where the review agent's check found it done unreported; a cross for declined, hollow the same way.
+ */
+const MARK_ICON: Record<FixMark, { icon: IconName; text: string }> = {
+  sent: { icon: "Send", text: "text-primary" },
+  done: { icon: "Check", text: "text-diff-added" },
+  "looks-done": { icon: "CircleCheck", text: "text-muted-foreground" },
+  declined: { icon: "X", text: "text-muted-foreground" },
+  "looks-declined": { icon: "CircleX", text: "text-muted-foreground" },
+};
 
-/** The icon that leads an item: a dashed circle, the agent's sparkle, a warning, GitHub's mark, or a lock. */
+/** The icon that leads an item: a dashed circle, the agent's sparkle, a warning, where a sent one's fix stands, GitHub's mark, or a lock. */
 export function ItemIcon({ item, className }: { item: CommentItem; className?: string }) {
   if (item.kind === "draft") {
     const edge: Edge = item.state === "older-diff" ? "older" : item.state === "agent-draft" ? "agent" : "yours";
-    return <Icon name={DRAFT_ICON[edge]} className={cn("size-3.5 shrink-0", EDGE_TEXT[edge], className)} aria-hidden />;
+    return <DraftIcon edge={edge} mark={item.state === "older-diff" ? undefined : item.mark} className={className} />;
   }
   if (item.kind === "private") return <Icon name="Lock" className={cn("size-3.5 shrink-0 text-subtle-foreground", className)} aria-hidden />;
   if (item.kind === "ask") return <Icon name="FileText" className={cn("size-3.5 shrink-0 text-muted-foreground", className)} aria-hidden />;
   return <Icon name="Github" className={cn("size-3.5 shrink-0 text-muted-foreground", className)} aria-hidden />;
 }
 
-export function DraftIcon({ edge, className }: { edge: Edge; className?: string }) {
+/** A draft's icon by who wrote it, or once sent, where its fix stands (`mark`). */
+export function DraftIcon({ edge, mark, className }: { edge: Edge; mark?: FixMark; className?: string }) {
+  if (mark && edge !== "older") return <Icon name={MARK_ICON[mark].icon} className={cn("size-3.5 shrink-0", MARK_ICON[mark].text, className)} aria-hidden />;
   return <Icon name={DRAFT_ICON[edge]} className={cn("size-3.5 shrink-0", EDGE_TEXT[edge], className)} aria-hidden />;
 }
 

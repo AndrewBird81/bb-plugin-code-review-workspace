@@ -20,6 +20,7 @@ import { machineStatus } from "./machines";
 import { sendKey } from "../lib/send-baseline";
 import { failed, type EventListeners, type RpcHandlers, type ServeDeps } from "./server-modules";
 import { ONLY_WITH_THESE_TOOLS } from "./review-agent-tools";
+import { settleFixes } from "./fix-tally";
 
 /** The thread a review's Sends go to, as the review shows it, and the machine it works on when that's known. */
 export interface MainThreadLink { threadId: string; title: string | null; state: "open" | "archived" | "gone"; machine?: string | null }
@@ -299,10 +300,10 @@ export async function send(deps: Deps, targetKey: string, picked: readonly Comme
     const n = Math.max(0, ...(now.sends ?? []).map((entry) => entry.n)) + 1;
     await tx.saveSnapshot(targetKey, sendKey(n), composed.patch);
     if (composed.files) await tx.saveSnapshotFiles(targetKey, sendKey(n), composed.files);
-    // Each comment as it went; one edited meanwhile is open again, for the next Send.
+    // Each comment as it went, with no report yet; one edited meanwhile is open again, for the next Send.
     const { comments } = await tx.getDraft(targetKey);
     const unchanged = composed.comments.filter((sent) => comments.some((comment) => sameLocation(comment, sent) && comment.body === sent.body));
-    await tx.trackComments(targetKey, unchanged.map((comment) => ({ at: comment, state: "sent" as const, sendN: n })));
+    await tx.trackComments(targetKey, unchanged.map((comment) => ({ at: comment, state: "sent" as const, sendN: n, claim: undefined })));
     const at = Date.now();
     const entry: SendEntry = { n, at, threadId: went.threadId, ids: composed.comments.map((comment) => comment.id), ...add.patch === undefined ? {} : { patch: add.patch }, ...went.queued ? { queued: went.queued } : {} };
     // 1.7.0's record, which its Send to thread reads: comments sent to this thread before stay marked, one sent again is marked now.
@@ -314,6 +315,7 @@ export async function send(deps: Deps, targetKey: string, picked: readonly Comme
       approvalSent: null,
       ...went.fresh ? mainThreadState(now, went.fresh, at, "fresh") : {},
     });
+    await settleFixes(tx, targetKey);
     await pruneDiffs(tx, (await tx.getReview(targetKey))!);
     return n;
   });
@@ -407,7 +409,7 @@ export async function startMainThread(deps: Deps, targetKey: string): Promise<{ 
  * A Send's message that waited in its thread's queue: taken, it's no longer queued; deleted from the queue before the
  * thread took it, its comments were never sent, so they're open again for the next Send, and the Send is dropped.
  */
-async function settleQueued(deps: Deps, entry: { id: string; threadId: string }, taken: boolean) {
+export async function settleQueued(deps: Deps, entry: { id: string; threadId: string }, taken: boolean) {
   const { store } = deps;
   const changed = await store.exclusive(async (tx) => {
     const keys: string[] = [];
@@ -419,6 +421,7 @@ async function settleQueued(deps: Deps, entry: { id: string; threadId: string },
         await tx.trackComments(review.targetKey, comments.filter((comment) => comment.state === "sent" && comment.sendN === send.n).map((comment) => ({ at: comment, state: "open" as const, sendN: undefined })));
       }
       await tx.setLifecycle(review.targetKey, { sends: taken ? review.sends!.map((s) => s === send ? { ...s, queued: undefined } : s) : review.sends!.filter((s) => s !== send) });
+      if (!taken) await settleFixes(tx, review.targetKey);
       keys.push(review.targetKey);
     }
     return keys;

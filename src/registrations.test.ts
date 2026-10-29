@@ -188,6 +188,16 @@ test("the plugin registers the same RPC methods, tools, CLI subcommands, listene
           "usage": "bb review approve <review…> [--body <text>]",
         },
         {
+          "name": "report",
+          "summary": "Say what you did with a comment the reviewer sent you: done or declined",
+          "usage": "bb review report <id> done|declined [--note <text>] [--commit <sha>]",
+        },
+        {
+          "name": "ready",
+          "summary": "Say you've finished with the comments the reviewer sent you, for them to re-review",
+          "usage": "bb review ready [<review>]",
+        },
+        {
           "name": "storage",
           "summary": "Show where the reviews are kept, and move them between SQLite and Postgres",
           "usage": "bb review storage <status | verify | migrate | export-sqlite [--replace-data-db]>",
@@ -204,8 +214,12 @@ test("the plugin registers the same RPC methods, tools, CLI subcommands, listene
       "experimental_environment.removed": 1,
       "message.cancelled": 3,
       "message.dispatched": 3,
-      "thread.failed": 2,
+      "thread.active": 1,
+      "thread.archived": 1,
+      "thread.deleted": 1,
+      "thread.failed": 3,
       "thread.idle": 3,
+      "thread.unarchived": 1,
     }
   `);
   expect(registered.services.map(({ name }) => name)).toMatchInlineSnapshot(`

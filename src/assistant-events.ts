@@ -37,7 +37,7 @@ export function register(deps: ServeDeps) {
     }
   };
   /** A feedback check that ended, recorded through `writer`, the store or the block that found it ended: its review is prepared for its next turn. */
-  const endCheck = (writer: AsyncStore, reviewKey: string) => writer.setLifecycle(reviewKey, { verifyingSince: null, verifyingHead: null, verifyingMessageId: null, preparedAt: Date.now() });
+  const endCheck = (writer: AsyncStore, reviewKey: string) => writer.setLifecycle(reviewKey, { verifyingSince: null, verifyingHead: null, verifyingMessageId: null, verifyingFixes: null, preparedAt: Date.now() });
   /** Once a check's end is recorded: whose turn the review is now, and its open pages told. */
   const checkEnded = async (reviewKey: string) => {
     await sync.evaluate(reviewKey);

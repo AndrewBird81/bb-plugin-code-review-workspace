@@ -4,7 +4,7 @@ import type { FeedbackThread } from "../src/github/types";
 import type { ReviewThread, ThreadComment } from "../src/threads";
 import type { AssessmentVerdict, FeedbackItem, FeedbackView, ReplyDraft } from "./feedback";
 import {
-  buildItems, checkTally, fileCounts, groups, needsYou, shownItems, toSend, CHECK_LABEL, FILTER_LABEL, GROUP_TITLE, REPLY_DRAFT_LABEL, STATE_LABEL, SUMMARY_LABEL, THREAD_FLAG_LABEL,
+  buildItems, checkTally, draftStatus, fileCounts, groups, needsYou, shownItems, toSend, CHECK_LABEL, FILTER_LABEL, GROUP_TITLE, REPLY_DRAFT_LABEL, STATE_LABEL, SUMMARY_LABEL, THREAD_FLAG_LABEL,
   type CommentItem, type CommentSources, type ThreadItem,
 } from "./comments";
 
@@ -400,4 +400,16 @@ test("on a teammate's PR, bots' threads stay where they were and nothing reads N
   const items = buildItems(sources);
   expect(items.some((item) => item.kind === "thread" && (item.state === "needs-reply" || item.bot))).toBe(false);
   expect(groups(items)[2].folded?.label).toBe("2 resolved · 1 outdated");
+});
+
+test("a sent comment's report says Done or Declined with its note, without its closing stop; one the review agent's check found says it wasn't reported; each marks its icon", () => {
+  const sent: DraftComment = { file: "src/a.ts", line: 1, side: "RIGHT", body: "Name it.", id: "c1", state: "sent", sendN: 1 };
+  const local = { posts: false, own: true, sends: [{ n: 1, at: 1, threadId: "coder", ids: ["c1"] }] };
+  expect(draftStatus({ ...sent, claim: { outcome: "done", note: "Renamed it `total`.", threadId: "coder", at: 1 } }, "draft", local)).toEqual({ label: "Done · Renamed it `total`", at: 1, mark: "done" });
+  expect(draftStatus({ ...sent, claim: { outcome: "declined", note: "Later...", threadId: "coder", at: 1 } }, "draft", local)).toMatchObject({ label: "Declined · Later...", mark: "declined" });
+  expect(draftStatus({ ...sent, claim: { outcome: "done", note: "a.ts:1 renamed", threadId: "agent", at: 1, inferred: true } }, "draft", local)).toMatchObject({ label: "Looks done · not reported", mark: "looks-done" });
+  expect(draftStatus({ ...sent, claim: { outcome: "declined", threadId: "agent", at: 1, inferred: true } }, "draft", local)).toMatchObject({ label: "Looks declined · not reported", mark: "looks-declined" });
+  expect(draftStatus(sent, "draft", local)).toMatchObject({ label: "Sent to the main thread · Send 1", mark: "sent" });
+  // Where it posts on someone else's PR, it's still a draft first: no mark.
+  expect(draftStatus(sent, "draft", { ...local, posts: true, own: false }).mark).toBeUndefined();
 });

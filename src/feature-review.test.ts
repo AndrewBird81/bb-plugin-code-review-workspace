@@ -287,7 +287,7 @@ function ownPrSync(s: ReturnType<typeof setup>) {
     facts: vi.fn(async () => new Map()), threads: vi.fn(async () => []), discover: vi.fn(async () => []), ownPrs: vi.fn(async () => [pr]),
   };
   const actions: TurnActions = {
-    prepare: vi.fn(async () => false), checkPushes: vi.fn(async () => false), autoStart: vi.fn(async () => false), projectId: async () => "proj_api",
+    prepare: vi.fn(async () => false), checkPushes: vi.fn(async () => false), checkFixes: vi.fn(async () => false), autoStart: vi.fn(async () => false), projectId: async () => "proj_api",
     becomePr: (key, found) => becomePr(s.deps, key, found),
   };
   return createReviewSync(s.bb, s.store, vi.fn() as any, { github, actions });

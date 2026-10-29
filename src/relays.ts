@@ -50,18 +50,23 @@ export async function holdForApproval(bb: BbPluginApi, store: AsyncStore, review
 
 type Outcome = { outcome: "posted"; url?: string } | { outcome: "held" | "failed"; error: string; commits?: number | null };
 
+/**
+ * Why a command can't run from here: a review's own agent, or a thread one started, which would be acting for itself;
+ * or a thread bb can't place, which fails closed. A plain shell, with no thread, may.
+ */
+export async function refusedFromAgents(deps: Pick<ServeDeps, "fromOwnAgent">, ownReview: string | undefined, threadId: string | undefined, refusal: string): Promise<{ exitCode: number; stderr: string } | null> {
+  if (ownReview !== undefined) return { exitCode: 2, stderr: refusal };
+  const own = threadId === undefined ? false : await deps.fromOwnAgent(threadId);
+  if (own === null) return { exitCode: 1, stderr: "bb couldn't say which threads this one was started from, so nothing was done. Try again in a moment." };
+  return own ? { exitCode: 2, stderr: refusal } : null;
+}
+
 export function register(deps: ServeDeps, { submit }: {
   /** draft-rpc's Submit: it posts, then records what follows. */
   submit: (targetKey: string, revision: undefined, account: undefined, comments: [], summary: { body: string; verdict: Verdict }, force: readonly SubmitWarning[], options: { alone: boolean; reviewed: string }) => Promise<SubmitResult>;
 }) {
   const { bb, store, githubWrites, changed } = deps;
-  /** Why a command can't run from here: a review's own agent, or a thread one started, would be relaying to itself. */
-  const notFromAgents = async (ownReview: string | undefined, threadId: string | undefined, refusal: string) => {
-    if (ownReview !== undefined) return { exitCode: 2, stderr: refusal };
-    const own = threadId === undefined ? false : await deps.fromOwnAgent(threadId);
-    if (own === null) return { exitCode: 1, stderr: "bb couldn't say which threads this one was started from, so nothing was done. Try again in a moment." };
-    return own ? { exitCode: 2, stderr: refusal } : null;
-  };
+  const notFromAgents = (ownReview: string | undefined, threadId: string | undefined, refusal: string) => refusedFromAgents(deps, ownReview, threadId, refusal);
   /** The reviews being approved now: a second click waits for the first's answer. */
   const posting = new Set<string>();
 

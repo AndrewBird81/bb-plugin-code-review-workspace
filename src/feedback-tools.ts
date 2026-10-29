@@ -1,4 +1,4 @@
-// The tools that read a review's context and files, and check your feedback on a PR.
+// The tools that read a review's context and files, and check your feedback on a PR and the fixes of comments you sent.
 import { z } from "zod";
 import { changedFiles } from "./patch";
 import { readPrContext } from "./pr-context";
@@ -16,20 +16,21 @@ import { failed, type ServeDeps } from "./server-modules";
 
 export function register(deps: ServeDeps) {
   const { bb, store, sync, changed, refreshThreads, reviewOwners } = deps;
-  // Checking your feedback: the review assistant reads it and what changed, then records a verdict per item.
+  // Checking your feedback, and the fixes of the comments you sent: the review assistant reads them and what changed,
+  // then records a verdict per item.
   async function assistantReviewOf(threadId: string): Promise<ReviewMeta | string> {
     const review = await store.exclusive(async (tx) => {
       const targetKey = await assistantReview(tx, threadId);
       return targetKey ? await tx.getReview(targetKey) : null;
     });
     if (!review) return "This conversation is no longer a review's assistant.";
-    if (review.kind !== "pr") return "This is a local review; there's no GitHub feedback to check.";
+    if (review.kind !== "pr" && !review.sends?.length) return "This is a local review, and none of its comments were sent to fix; there's no feedback to check.";
     return review;
   }
   bb.agents.registerTool({
     name: "list_feedback",
-    description: "List the reviewer's feedback on this PR: each review thread they started (id, location, their comment, replies, resolved/outdated state, any earlier verdict) and their review summaries.",
-    instructions: "When a review comes back to the reviewer, check whether each piece of their feedback was properly addressed: list_feedback, then read_changes_since_review, then read_file where you need context. Judge the fix itself, not just whether the lines changed: a renamed variable doesn't fix a race. Record every thread, and each distinct ask in the summaries as \"summary:<n>\" with a title, with assess_feedback: addressed, partial, not_addressed, disputed (the author argues against it; say why in the evidence), or unclear. Then suggest a verdict and a short summary the reviewer could submit, with assess_feedback: they go into the reviewer's draft, where the reviewer picks the verdict. A summary the reviewer wrote stays theirs, and yours waits in Finish review. Draft a reply with draft_thread_reply only on open threads where one adds something, such as what's still missing, or \"Fixed in abc123, thanks.\"",
+    description: "List the reviewer's feedback on this PR: each review thread they started (id, location, their comment, replies, resolved/outdated state, any earlier verdict) and their review summaries. Also the comments they sent to the main thread to fix (c12), each with its Send and what the thread reported.",
+    instructions: "When a review comes back to the reviewer, check whether each piece of their feedback was properly addressed: list_feedback, then read_changes_since_review (with send, for a sent comment's Send), then read_file where you need context. Judge the fix itself, not just whether the lines changed: a renamed variable doesn't fix a race. Record every thread, each sent comment by its id, and each distinct ask in the summaries as \"summary:<n>\" with a title, with assess_feedback: addressed, partial, not_addressed, disputed (the author argues against it; say why in the evidence), or unclear. Then suggest a verdict and a short summary the reviewer could submit, with assess_feedback: they go into the reviewer's draft, where the reviewer picks the verdict. A summary the reviewer wrote stays theirs, and yours waits in Finish review. Draft a reply with draft_thread_reply only on open threads where one adds something, such as what's still missing, or \"Fixed in abc123, thanks.\"",
     parameters: z.object({}),
     async execute(_input, { threadId }) {
       const review = await assistantReviewOf(threadId);
@@ -115,7 +116,7 @@ export function register(deps: ServeDeps) {
   });
   bb.agents.registerTool({
     name: "assess_feedback",
-    description: "Record whether each piece of the reviewer's feedback was addressed at the PR's current head. Items are thread ids from list_feedback, or \"summary:<n>\" (with a title) for asks in a review summary. Optionally add an overall summary, the verdict you'd suggest, and a review summary for the reviewer's draft. The reviewer sees it in Comments and in Finish review; nothing reaches GitHub.",
+    description: "Record whether each piece of the reviewer's feedback was addressed at the PR's current head, and each comment they sent to fix since its Send. Items are thread ids from list_feedback, sent comments' ids (c12), or \"summary:<n>\" (with a title) for asks in a review summary. Optionally add an overall summary, the verdict you'd suggest, and a review summary for the reviewer's draft. The reviewer sees it in Comments and in Finish review; nothing reaches GitHub.",
     parameters: z.object({
       items: z.array(z.object({
         id: z.string().min(1),
@@ -124,6 +125,7 @@ export function register(deps: ServeDeps) {
         title: z.string().optional().describe("For a summary ask: the ask, briefly."),
         file: z.string().optional().describe("Where the evidence is, in the current diff."),
         line: z.number().int().min(1).optional(),
+        claimed: z.enum(["done", "declined"]).optional().describe("For a sent comment the main thread didn't report: what its last reply or the changes show it did. Leave out when they don't say."),
       })).min(1),
       summary: z.string().optional().describe("Two or three sentences on where the PR stands."),
       suggestedVerdict: z.enum(["APPROVE", "REQUEST_CHANGES", "COMMENT"]).optional(),
@@ -134,7 +136,7 @@ export function register(deps: ServeDeps) {
       if (typeof review === "string") return failed(review);
       // The verdicts, and the suggestion they come with, in one turn.
       const recorded = await store.exclusive(async (tx) => {
-        const result = await assess(tx, review, input);
+        const result = await assess(tx, review, input, threadId);
         if (!result.ok) return result;
         // The suggestion fills the draft's summary when the rules allow; over the reviewer's own, it waits in Finish review for Use as draft.
         let note = "";
@@ -153,6 +155,8 @@ export function register(deps: ServeDeps) {
       });
       if (!recorded.ok) return failed(recorded.error);
       bb.realtime.publish(`feedback:${review.targetKey}`, { ts: Date.now() });
+      // What it inferred the main thread did shows on the comments.
+      if (input.items.some((item) => item.claimed)) bb.realtime.publish(`draft:${review.targetKey}`, {});
       await sync.evaluate(review.targetKey);
       changed(review.targetKey);
       return recorded.text;

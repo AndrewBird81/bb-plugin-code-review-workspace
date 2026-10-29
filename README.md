@@ -144,7 +144,7 @@ bb review my-feature --base main     # what the branch changed since it left mai
 bb review https://github.com/acme/web/pull/42
 ```
 
-- Your comments go to the review's main thread, the thread that writes the code: **Send** in Finish review takes the ones you pick, **Send now** on a comment sends it alone, and the **Main thread** tab beside the diff shows that thread's chat. Each comment gets an id the thread reports on, and it's told not to push until you say. **Fix in a new thread** starts one instead. Nothing goes to GitHub.
+- Your comments go to the review's main thread, the thread that writes the code: **Send** in Finish review takes the ones you pick, **Send now** on a comment sends it alone, and the **Main thread** tab beside the diff shows that thread's chat. Each comment gets an id the thread reports on, and it's told not to push until you say. Once it has reported them all, or says it's finished, the review comes back **Ready to re-review** with the review agent's check of each fix; if it goes idle first, which it does while subagents work, the review says "1 of 6 reported" with **Check now**. **Fix in a new thread** starts one instead. Nothing goes to GitHub.
 - Agents in your threads can add draft comments and a summary with `bb review comment` and `bb review summary`. They change only the local draft.
 - **Open in editor** opens a local review's file at the line.
 

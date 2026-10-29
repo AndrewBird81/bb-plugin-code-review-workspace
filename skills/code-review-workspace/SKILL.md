@@ -44,6 +44,18 @@ bb review [<pr-url | owner/repo#n | pr-number | git-ref> [--base <ref>]] [--cont
   their comments back here, each with an id, while **Send comments to the main thread** is on in Settings. Do what each
   asks; each Send says how to report back, and whether you may push.
 
+## Report on comments sent to you
+
+```sh
+bb review report <id> done|declined [--note <text>] [--commit <sha>]
+bb review ready [<review>]
+```
+
+- Report each comment by the id its Send gave it (`c12`), from this thread or a subagent of it: `done` with what you
+  did, or `declined` with why, in `--note`; `--commit` names the commit with the fix.
+- Run `bb review ready` once you've finished with them all, even if you declined some: the review goes back to the
+  reviewer to re-review. Going idle doesn't count: run it once your subagents' work is in too.
+
 ## List reviews
 
 ```sh
