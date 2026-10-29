@@ -24,7 +24,7 @@ interface Deps { bb: BbPluginApi; store: AsyncStore; gh: ServeDeps["gh"]; change
 const live = (thread: Pick<Thread, "archivedAt" | "deletedAt">) => !thread.archivedAt && !thread.deletedAt;
 const threadTitle = (thread: Pick<Thread, "title" | "titleFallback">) => thread.title ?? thread.titleFallback ?? null;
 /** A home folder as ~, as the review shows it. */
-const homeShort = (path: string) => path.replace(/^\/(?:Users|home)\/[^/]+(?=\/|$)/, "~");
+export const homeShort = (path: string) => path.replace(/^\/(?:Users|home)\/[^/]+(?=\/|$)/, "~");
 
 /** The thread, or null when BB has no such thread. Any other failure throws: it says nothing about the thread. */
 async function threadOf(bb: BbPluginApi, threadId: string): Promise<Thread | null> {
@@ -103,9 +103,12 @@ async function saveRead(tx: AsyncStore, key: string, feature: FeatureReview, rea
   await tx.saveSnapshotFiles(key, diffFilesHead(await tx.patchHash(key)), { revisions: read.revisions, hidden: read.hidden });
 }
 
-/** The lifecycle that records `main` as the review's main thread, the one before it, if any, kept as an implementer. */
-function mainThreadState(review: Pick<ReviewMeta, "mainThread" | "implementers"> | null, main: Thread, now: number): ReviewLifecycle {
-  const mainThread: MainThread = { threadId: main.id, environmentId: main.environmentId!, origin: "adopted", since: now };
+/**
+ * The lifecycle that records `main` as the review's main thread, the one before it, if any, kept as an implementer:
+ * adopted, one already working in the folder, or fresh, one a Send started.
+ */
+export function mainThreadState(review: Pick<ReviewMeta, "mainThread" | "implementers"> | null, main: Pick<Thread, "id" | "environmentId">, now: number, origin: MainThread["origin"] = "adopted"): ReviewLifecycle {
+  const mainThread: MainThread = { threadId: main.id, environmentId: main.environmentId ?? null, origin, since: now };
   const before = review?.mainThread;
   // The thread a Send goes to until Send has its own (src/fix-handoff.ts), and its title as the review shows it.
   return { mainThread, sourceThreadId: main.id, sourceThreadAt: now, ...before ? { implementers: [...review.implementers ?? [], before] } : {} };

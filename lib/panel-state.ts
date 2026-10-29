@@ -5,7 +5,7 @@
 // geometry separately (see AgentDock), under agentDockKey.
 import { NAV_WIDTH, PANEL_WIDTH } from "./workspace-layout";
 
-export type PanelView = "comments" | "agent" | "finish";
+export type PanelView = "comments" | "agent" | "finish" | "main";
 
 export interface ReviewUiState {
   /** The chapter showing, or the Overview's id. */
@@ -89,7 +89,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function isPanelView(value: unknown): value is PanelView {
-  return value === "comments" || value === "agent" || value === "finish";
+  return value === "comments" || value === "agent" || value === "finish" || value === "main";
 }
 
 /** A saved width within its range, or its initial width when there's none to read. */

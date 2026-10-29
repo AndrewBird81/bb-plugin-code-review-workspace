@@ -1,12 +1,12 @@
-// The review assistant's conversation, and sending comments to a fix thread or to the thread the change came from.
+// The review assistant's conversation, and starting a new thread to fix comments; Send is the loop's (src/loop.ts).
 import { endAssistantWaits, getConversation, newConversation, startConversation } from "./agent";
 import { noteInserted } from "./asking";
-import { sendApprovalToSourceThread, sendToSourceThread, sourceThread, startFixThread } from "./fix-handoff";
+import { startFixThread } from "./fix-handoff";
 import { clearAsks } from "./asks";
 import type { RpcHandlers, ServeDeps } from "./server-modules";
 
 export function register(deps: ServeDeps) {
-  const { bb, store, sync, changed } = deps;
+  const { bb, store, sync } = deps;
   const handlers = {
     // Review assistant: a hidden bb thread per review, shown with ThreadChat
     getConversation({ targetKey }) {
@@ -32,24 +32,8 @@ export function register(deps: ServeDeps) {
       if (ended) await sync.evaluate(targetKey);
       return { ok: true };
     },
-    startFixThread({ targetKey, comments }) {
-      return startFixThread(bb, store, targetKey, comments);
-    },
-    async getSourceThread({ targetKey }) {
-      if (!(await store.getPreferences()).preferences.knobs.sendToThread) return { thread: null };
-      return { thread: await sourceThread(bb, store, targetKey) };
-    },
-    async sendToSourceThread({ targetKey, comments, message, includeSummary }) {
-      if (!(await store.getPreferences()).preferences.knobs.sendToThread) throw new Error("Send to thread is off in Review settings.");
-      const result = await sendToSourceThread(bb, store, targetKey, comments, { message, includeSummary });
-      changed(targetKey);
-      return result;
-    },
-    async sendApprovalToSourceThread({ targetKey, revision, message, includeSummary }) {
-      if (!(await store.getPreferences()).preferences.knobs.sendToThread) throw new Error("Send to thread is off in Review settings.");
-      const result = await sendApprovalToSourceThread(bb, store, targetKey, revision, { message, includeSummary });
-      changed(targetKey);
-      return result;
+    startFixThread({ targetKey, comments, force }) {
+      return startFixThread(bb, store, targetKey, comments, force);
     },
   } satisfies Partial<RpcHandlers>;
   return { handlers };

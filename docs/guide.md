@@ -417,7 +417,7 @@ Code Review Workspace alerts only about what happens after it starts following a
 - BB's title bar, after the panel's name, and the window's title lead with it, then the review's name: `api#4512 › Fix login race` in the bar, `api#4512 · Fix login race` as the window's title. Each pane's bar names its own review, so two reviews in split panes, or two windows, read apart, and a long name is cut before the id is. In a window under 720px the bar shows them as one title, cut at its end.
 - A local review with no name of yours goes by its guide's title in every list, page and title.
 - The band keeps the id in a chip after ‹ on every page of the review. The name follows it in a chapter only where BB's title bar doesn't show it, in full screen or on a BB without page titles, and where the band has room. Short of room, the repository's name is cut first, and `#4512` never; hovering the chip shows the whole id, with the repository in full, and the name. On a phone, the dock's chapter tab has the id over the chapter.
-- The page bar of a review without a guide yet, the popped-out review agent, a PR's row in BB's thread list (its `#n`), Needs You alerts, review agent and **Fix in a new thread** threads, and what Send to thread sends all name the review by its id. A local review's row in All reviews says its id and machine, `api:feat/x · MaxBook`, and its Overview the machine and folder of its checkout.
+- The page bar of a review without a guide yet, the popped-out review agent, a PR's row in BB's thread list (its `#n`), Needs You alerts, review agent and **Fix in a new thread** threads, and what Send sends all name the review by its id. A local review's row in All reviews says its id and machine, `api:feat/x · MaxBook`, and its Overview the machine and folder of its checkout.
 - A local review with no name of yours goes by its guide's title.
 
 ### Rename
@@ -555,16 +555,24 @@ What you write in a reply, on anyone's GitHub thread, waits as a reply draft ("R
 
 After you submit, the panel reads **Review submitted**: the verdict, where it posted and as whom, **View on GitHub**, **Add another review**, and the next review in Needs review, with **Open**. A merged or closed PR's Comments ends with "Merged · Archived" and **Open**: its **Archived review**, with the unsubmitted draft and notes to read.
 
-### Hand comments to a coding thread
+### Send comments to the main thread
 
-These appear in Finish review on your own PR or a local review.
+A review started with `bb review` in a thread has a main thread: the top thread working in the review's folder, or for a PR or ref, the thread you ran it in. It's the thread that writes the code, and gets the comments you send. Nothing goes to GitHub.
 
-- **Fix in a new thread** hands the draft comments you choose to a visible BB thread in the review's project. Its first message lists each comment with its file, lines, severity, and code, and the branch and commit you reviewed. It runs on the **Review agent** setting, and is told not to push or change GitHub unless you ask in that thread. The draft isn't changed or submitted.
-- When you started the review with `bb review` in a thread, Finish review leads instead with **Send N comments to ‹thread›**, the thread that made the change, with "or Fix in a new thread" beside it. It sends only on your click, with the same picker and message, queued behind whatever that thread is doing, and asks it to reply with what it changed; nothing goes to GitHub. The picker also takes an optional message, sent before the comments, and **Include the summary**, unchecked, which adds the review summary after them.
-- Then it says "Sent to ‹thread›" or "Queued in ‹thread›", with **Open**, and each comment you sent says "Sent to ‹thread› · 2m" on its card, still not submitted, until you edit it.
-- With no comments in the draft, it offers **Send approval to ‹thread›** instead. It opens a small form: an optional message, and **Include the summary**, unchecked, when the draft has a summary. **Send** tells that thread "Approved", then your message and the summary if you add them, queued behind whatever it's doing; nothing goes to GitHub. It's offered once for each diff you review; add a comment and the comments go as above.
-- If that thread was archived or deleted, only Fix in a new thread is offered, and Finish review says why.
-- **Send comments to the thread that made the change** in Settings turns it off.
+- **Send N to main thread** in Finish review sends the comments not sent yet, after whatever that thread is doing. Its picker takes the comments you keep, an optional message, sent before them, **Include the summary**, unchecked, which adds the review summary after them, and **Let it push when done**, the review's, off until you turn it on. Each comment goes with its id, file, lines and code; the message ends "Don't push until I say", unless you let it push, and says how to report on each comment. Under it, Finish review names the main thread and its machine, "Build snooze · MaxBook", with **Change main thread**: a local review and its main thread can share a title. On someone else's PR, **Let it push when done** asks once before it's on.
+- **Send now** on a comment's card, in the code or in Comments, sends that comment alone; its hint names the thread and machine.
+- Then Finish review says "Sent 2 comments to ‹thread›" with **Open**, or "Queued for ‹thread›: it's busy, and gets 2 comments when its turn ends", and each comment you sent says "Queued for ‹thread› · Send 2" until the thread takes it, then "Sent to ‹thread› · Send 2 · 2m", in place of its state: on your own change a comment is **Open** until a Send carries it, then Sent, then **Done** or **Declined** with the thread's note once it reports, or **Resolved**. On a PR you don't own it stays "Draft · not submitted" too, as it still posts with Submit. Edit it and it's open again, for the next Send; it keeps its id. Delete a queued Send from the thread's queue and its comments are open again.
+- With no comments left to send, it offers **Send approval to ‹thread›**: an optional message and **Include the summary**, then "Approved", queued behind whatever that thread is doing.
+- Some Sends ask first, with the choices to go on:
+  - On someone else's PR: **Send anyway**. Your review on GitHub isn't changed.
+  - A main thread that's archived: **Unarchive and send**, or **Start a fresh thread** in its folder.
+  - A main thread that was deleted: **Start a fresh thread** in its folder, which becomes the main thread.
+  - A folder BB removed: **Start a fresh thread** in a new worktree from the branch; its uncommitted work went with the folder. The review then reads that worktree, and still pushes to its branch.
+  - Comments not sent yet, or an approval already sent for this diff, before **Send approval**: **Send anyway**. An approval never starts a thread: with the main thread or its folder gone, Send anyway only records it.
+- The **Main thread** tab, from BB's title bar or the phone's dock, shows the main thread's chat beside the diff, with its own permissions: which thread it is, on which machine, and whether it's working now, so a Send waits for its turn. **Change** picks another thread working in the folder, or **Start a fresh thread here**; **Open** opens it in BB.
+- Ask the review agent to fix a comment and it sends it with Send now, and says so. Say "you do it" and it writes the exact patch, which goes with that comment's Send for the main thread to apply as written: one thread writes the folder. A turn you didn't start sends nothing.
+- **Fix in a new thread** hands the comments you choose to a new visible thread in the review's project instead. It runs on the **Review agent** setting, and is told not to push or change GitHub unless you ask in that thread.
+- **Send comments to the main thread** in Settings turns these off.
 
 ## Customize your reviews
 
@@ -618,7 +626,7 @@ These switches turn a feature off; each is on by default. A setting that depends
 | Reading | Open in editor (local reviews) | Nothing offers it. |
 | Reading | CI failures in the code | No failure notes on lines; the Overview still lists failing checks. |
 | Reading | Comment on or ask about a failing check | A failing check's note and the Overview's failing checks offer View check only. |
-| Comments and Finish review | Send comments to the thread that made the change | Finish review offers Fix in a new thread only, and cards don't say what you sent. |
+| Comments and Finish review | Send comments to the main thread | Finish review offers Fix in a new thread only, cards have no Send now and don't say what you sent, and there's no Main thread tab. |
 | Comments and Finish review | Ask agent about selected text | Selecting text only selects it; selected lines still offer Comment and Ask agent. |
 | Comments and Finish review | Move comments on an older diff into the summary | You edit or remove them. |
 | Comments and Finish review | Check before you approve | Finish review doesn't flag unviewed high-risk files or chapters read faster than your set pace. |

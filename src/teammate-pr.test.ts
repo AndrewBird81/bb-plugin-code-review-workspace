@@ -26,6 +26,7 @@ import { defaultPreferences } from "./preferences";
 import { ASSISTANT_WRITE_TOOL_NAMES } from "./server-modules";
 import { agentChat } from "./agent-chat.test-support";
 import { toolFailed, toolText } from "./fake-host.test-support";
+import { toGithubReviewPayload } from "./draft";
 
 // 1.7.0's key for acme/web#1: sha256("acme/web"), 16 hex characters, then the number.
 const KEY = "pr-86f279ce9c29f106-1";
@@ -144,6 +145,21 @@ test("a teammate's PR has no main thread, Sends or feature to show", async () =>
   const { call } = await teammatePr();
   const { review } = await call("getReviewBundle", { targetKey: KEY });
   for (const key of ["mainThread", "feature", "implementers", "sends", "threadSends", "readyToApprove", "letPush"]) expect(review).not.toHaveProperty(key);
+});
+
+test("a Send on a teammate's PR warns first, and sent anyway, never changes what Submit posts", async () => {
+  const { store, call } = await teammatePr();
+  // You ran bb review in a thread of yours for it, which is where a Send goes.
+  await store.setLifecycle(KEY, { sourceThreadId: "coder" });
+  await store.savePatch(KEY, "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1,2 +1,2 @@\n x\n-y\n+z\n");
+  for (const line of [1, 2]) await store.upsertDraftComment(KEY, { file: "a.ts", line, side: "RIGHT", body: `Line ${line}.` });
+  const before = JSON.stringify(toGithubReviewPayload(await store.getDraft(KEY)));
+  const comments = [{ file: "a.ts", line: 1, side: "RIGHT" }, { file: "a.ts", line: 2, side: "RIGHT" }];
+  expect(await call("sendToSourceThread", { targetKey: KEY, comments })).toEqual({ ok: false, warning: "This is @alice’s PR, not yours. Your review on GitHub stays as it is.", offers: ["anyway"] });
+  expect(await call("sendToSourceThread", { targetKey: KEY, comments, force: true })).toMatchObject({ ok: true, sendN: 1 });
+  const after = await store.getDraft(KEY);
+  expect(after.comments.map((comment) => comment.state)).toEqual(["sent", "sent"]);
+  expect(JSON.stringify(toGithubReviewPayload(after))).toBe(before);
 });
 
 // The review agent: its tools and instructions.

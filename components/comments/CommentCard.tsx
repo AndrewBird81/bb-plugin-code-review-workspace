@@ -24,9 +24,9 @@ import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover";
 import { CheckBadge, frameOf, plainLine, TAG_TONE, ThreadState } from "./look";
 import { MoveToSummary } from "./MoveToSummary";
 import { ReplyBox } from "./ReplyBox";
-import { SentLine } from "../SentLine";
 import { CommentEditorMenu } from "../OpenInEditor";
 import { useComments } from "./store";
+import { SendNow, useSendable } from "../SendNow";
 
 /**
  * In the code: inside pierre's code view, so it sets its own text style rather than inheriting the code's, at a
@@ -53,7 +53,7 @@ export function whereOf(item: CommentItem): string {
 export function CommentCard({ targetKey, item, variant }: { targetKey: string; item: CommentItem; variant: "inline" | "row" }) {
   if (item.kind === "thread") return <ThreadCard targetKey={targetKey} item={item} variant={variant} />;
   if (item.kind === "ask") return <AskCard targetKey={targetKey} item={item} variant={variant} />;
-  if (item.kind === "draft") return <DraftCard item={item} />;
+  if (item.kind === "draft") return <DraftCard targetKey={targetKey} item={item} />;
   return <PrivateCard item={item} />;
 }
 
@@ -235,13 +235,16 @@ export function ShowBoxInDiff({ className }: { className?: string }) {
 }
 
 /** A draft comment in a list, under its row: its words, its discussion with the agent, its box, and what you can do. */
-function DraftCard({ item }: { item: DraftItem }) {
+function DraftCard({ targetKey, item }: { targetKey: string; item: DraftItem }) {
   const draft = useDraft();
   const composer = usePanelComposer();
   const { comment } = item;
   const box = boxAt(draft, comment);
   const where = `${comment.file}:${linesOf(comment)}`;
   const preExisting = useKnob("preExistingFindings");
+  const sendable = useSendable(draft.editable ? targetKey : undefined, comment);
+  // What Send now warned, or why it failed, under the comment.
+  const [sendNote, setSendNote] = useState<ReactNode>(null);
   return (
     <article data-comment-at={`${comment.file}:${comment.line}:${comment.side}`} tabIndex={-1} aria-label={`Draft comment on ${where}`} className={cn("overflow-hidden rounded-lg bg-card text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/50", frameOf(item))}>
       {box === "edit" ? <>
@@ -249,7 +252,6 @@ function DraftCard({ item }: { item: DraftItem }) {
         {comment.startLine !== undefined && <p className="px-2.5 pt-2.5 text-xs text-muted-foreground tabular-nums">Lines {linesOf(comment)}</p>}
         <ComposerFields mode="edit" busy={draft.busy} composer={composer} controlsRef={draft.composerControls} />
       </> : <div className="space-y-2 px-3 pb-2.5 pt-2.5">
-        <SentLine at={comment} />
         {(comment.startLine !== undefined || comment.side === "LEFT") && <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
           {comment.startLine !== undefined && <span className="tabular-nums">Lines {linesOf(comment)}</span>}
           {comment.side === "LEFT" && <Badge size="sm">Old line</Badge>}
@@ -257,9 +259,11 @@ function DraftCard({ item }: { item: DraftItem }) {
         <CommentBody body={comment.body} link={comment.author === "agent"} />
         {comment.evidence && <AgentEvidence evidence={comment.evidence} />}
         {item.state === "older-diff" && <p className="text-xs text-warning-text">Drafted against an older diff. Edit and save it, or remove it, before you submit.</p>}
+        {sendNote}
         {draft.editable && <div className="-mb-1 -ml-2 flex flex-wrap gap-0.5">
           <Button variant="ghost" size="sm" aria-label={`Edit comment on ${where}`} className={ACTION} {...whileBusy(draft.busy, draft.writing)} onClick={() => { if (!draft.busy && !draft.writing) draft.openComposer(comment, false); }}><Icon name="Edit" className="size-3.5" aria-hidden />Edit</Button>
           <Button variant="ghost" size="sm" aria-label={`Ask agent about the comment on ${where}`} className={cn(ACTION, "text-(--ansi-13) hover:text-(--ansi-13)")} {...whileBusy(draft.busy, draft.writing)} onClick={() => { if (!draft.busy && !draft.writing) draft.openComposer(comment, false, true); }}><Icon name="Sparkles" className="size-3.5" aria-hidden />Ask agent</Button>
+          {sendable && <SendNow targetKey={targetKey} comment={comment} to={sendable} className={ACTION} onNote={setSendNote} />}
           {preExisting && item.state !== "older-diff" && <Button variant="ghost" size="sm" className={ACTION} {...whileBusy(draft.busy)} onClick={() => { if (!draft.busy) void draft.markPreExisting(comment, comment.introduced !== false); }}>
             <Icon name="History" className="size-3.5" aria-hidden />{comment.introduced === false ? "Mark as from this PR" : "Mark as pre-existing"}
           </Button>}

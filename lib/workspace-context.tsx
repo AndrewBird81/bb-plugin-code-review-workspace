@@ -118,7 +118,15 @@ export interface WorkspaceApi {
   showShortcuts(): void;
   /** Single-key shortcuts are on (Settings → Reading). */
   shortcuts: boolean;
+  /**
+   * The review's main thread, which its Sends go to, while Send to thread is on (src/loop.ts): its title and machine
+   * once the server says; null for none.
+   */
+  mainThread: MainThreadName | null;
 }
+
+/** The thread a review's Sends go to, by its title and machine as the server last said: null until it does. */
+export interface MainThreadName { threadId: string; title: string | null; machine: string | null }
 
 /** The `activeId` of the review's Overview, which comes before its chapters. */
 export const OVERVIEW = "overview";

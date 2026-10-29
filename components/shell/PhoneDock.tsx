@@ -5,7 +5,9 @@ import { TEXT_FIELD } from "../../lib/review-shortcuts";
 import { cn } from "../../lib/utils";
 import { useWorkspace } from "../../lib/workspace-context";
 import { useNeedsYou } from "../../lib/workspace-store";
+import { useFullscreenPortalContainer } from "../../lib/portal-scope";
 import { Button } from "../ui/button";
+import { Hint } from "../ui/hint";
 import { Icon } from "../ui/icon";
 import { InlineCode } from "../ui/inline-code";
 import { ReviewIdChip } from "../ReviewIdChip";
@@ -78,16 +80,17 @@ function DockId({ identity }: { identity: ReviewIdentity }) {
 }
 
 /**
- * A phone's controls, at the bottom: All reviews, the chapter you're on, Comments, the agent, and Full screen. The
- * chapter, Comments and the agent are the tabs of the one sheet above it: the open one is pressed, and pressing it
+ * A phone's controls, at the bottom: All reviews, the chapter you're on, Comments, the agent, the main thread (with
+ * one), and Full screen. The chapter, Comments, the agent and the main thread are the tabs of the one sheet above it: the open one is pressed, and pressing it
  * again closes the sheet. It makes way while you type, for the keyboard, and for the lines you select (`hidden`).
  */
 export function PhoneDock({ hidden }: { hidden: boolean }) {
-  const { targetKey, review, guide, sections, activeId, files, nav, panel, askAgent, fullscreen, leave } = useWorkspace();
+  const { targetKey, review, guide, sections, activeId, files, nav, panel, askAgent, fullscreen, leave, mainThread } = useWorkspace();
   // A phone has no band, and in full screen no title bar of BB's: the chapter's tab says which review this is.
   const identity = useMemo(() => reviewIdentity(review, guide.title), [review, guide.title]);
   const status = useDraftStatus(targetKey);
   const needsYou = useNeedsYou(targetKey);
+  const container = useFullscreenPortalContainer();
   const [typing, setTyping] = useState(() => typingIn(document.activeElement));
   useEffect(() => {
     const update = () => setTyping(typingIn(document.activeElement));
@@ -154,6 +157,11 @@ export function PhoneDock({ hidden }: { hidden: boolean }) {
       <Button variant="ghost" aria-label="Ask agent" aria-pressed={panel.view === "agent"} aria-controls={sidePanelId(targetKey)} className={tab} onClick={() => panel.view === "agent" ? panel.close() : askAgent()}>
         <Icon name="Sparkles" className="text-(--ansi-13)" aria-hidden />
       </Button>
+      {mainThread && <Hint label={`Main thread${mainThread.title ? `: ${mainThread.title}` : ""}`} container={container}>
+        <Button variant="ghost" aria-label="Main thread" aria-pressed={panel.view === "main"} aria-controls={sidePanelId(targetKey)} className={tab} onClick={() => panel.view === "main" ? panel.close() : panel.open("main")}>
+          <Icon name="Code" aria-hidden />
+        </Button>
+      </Hint>}
       {fullscreen.available && (
         <Button variant="ghost" aria-label={fullscreen.on ? "Exit full screen" : "Full screen"} className={tab} onClick={fullscreen.toggle}>
           <Icon name={fullscreen.on ? "Minimize2" : "Maximize2"} aria-hidden />

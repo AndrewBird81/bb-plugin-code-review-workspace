@@ -105,7 +105,8 @@ test("an offline machine is said calmly, with Check again", async () => {
 test("a removed folder says so, with Archive until it's archived", async () => {
   const archiveReview = vi.fn(() => ({ ok: true }));
   const { slot } = await renderWorkspace({ checkFeature: () => ({ ...nothing, state: "gone" }), archiveReview }, { ...local, feature: { ...feature, folderGone: true } });
-  const text = "BB removed this folder. The review keeps its last changes and your comments.";
+  // Its main thread worked there: a Send starts a fresh one.
+  const text = "BB removed this folder. The review keeps its last changes and your comments. Your next Send starts a fresh thread from snooze-checks.";
   await slot.findByText(text);
   fireEvent.click(within(notice(slot, text)).getByRole("button", { name: "Archive" }));
   await waitFor(() => expect(archiveReview).toHaveBeenCalledWith({ targetKey: KEY, archived: true }));

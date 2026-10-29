@@ -1000,5 +1000,56 @@ exports[`the plugin registers the same RPC methods, tools, CLI subcommands, list
     "name": "generate_review_guide",
     "presentation": null,
   },
+  {
+    "description": "Send one of the reviewer's draft comments to the review's main thread now, the thread that writes the code, to fix: it gets an id the thread reports on, and goes after the thread's current turn. With patch, your exact fix goes with it, for the thread to apply as written. Nothing goes to GitHub.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "file": {
+          "description": "The draft comment's file, exactly as the diff shows it.",
+          "type": "string",
+        },
+        "force": {
+          "description": "Send past the warning the last call gave, once the reviewer says so.",
+          "type": "boolean",
+        },
+        "line": {
+          "description": "The draft comment's line (a range's last).",
+          "maximum": 2147483647,
+          "minimum": 1,
+          "type": "integer",
+        },
+        "patch": {
+          "description": "When the reviewer said you do it: the exact unified diff that fixes this comment, with file headers and hunks, as git apply takes it.",
+          "maxLength": 200000,
+          "type": "string",
+        },
+        "side": {
+          "description": "RIGHT, the default, or LEFT for a comment on a removed line.",
+          "enum": [
+            "RIGHT",
+            "LEFT",
+          ],
+          "type": "string",
+        },
+        "thread": {
+          "description": "When the main thread is archived or deleted, as the warning offered: unarchive it, or start a fresh thread.",
+          "enum": [
+            "unarchive",
+            "fresh",
+          ],
+          "type": "string",
+        },
+      },
+      "required": [
+        "file",
+        "line",
+      ],
+      "type": "object",
+    },
+    "instructions": "When the reviewer asks to have a comment fixed ("fix this", "send it"), send it with send_now and say so; add the comment with add_draft_comment first if the line has none. When they say you do it, write the exact unified diff that fixes it, against the code as it is now, and pass it as patch: the main thread applies it as written, so the folder keeps one writer. Don't change the code yourself. If it comes back with a warning, tell the reviewer in a line, and call again only as they choose: force: true to send anyway, with thread: "unarchive" or "fresh" when it offers those. In a turn the reviewer didn't start, it sends nothing: suggest it instead. Post, approve, merge, close or push only with these tools, never with gh, gh api or git push in your shell.",
+    "name": "send_now",
+    "presentation": null,
+  },
 ]
 `;

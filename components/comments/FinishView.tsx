@@ -100,9 +100,9 @@ export function FinishView({ shown, revision }: {
             {isPr && <Verdicts revision={revision} />}
             {isPr ? <GoesToGitHub items={items} replyDrafts={items.filter((item) => item.kind === "thread" && item.replyDraft).length} onList={openList} />
               : <Part title="Stays in BB"><p className="text-sm text-muted-foreground">{d.hint}</p>{notes.show && <PrivateNotes targetKey={targetKey} />}</Part>}
-            {(d.isLocal || d.ownPr) && <FixHandoff targetKey={targetKey} comments={d.sortedComments} revision={revision} />}
+            {(d.isLocal || d.ownPr || api.mainThread) && <FixHandoff targetKey={targetKey} comments={d.sortedComments} revision={revision} />}
             {d.isLocal && <OpenPr />}
-            {isPr && <AgentActivity />}
+            <AgentActivity />
             {isPr && notes.show && <Part title="Stays in BB"><PrivateNotes targetKey={targetKey} /></Part>}
           </div>
           {!d.isLocal && <SubmitFoot onSubmit={submit} />}

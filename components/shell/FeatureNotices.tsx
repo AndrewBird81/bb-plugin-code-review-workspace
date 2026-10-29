@@ -3,7 +3,7 @@ import { useBbNavigate, useRealtime, useRpc } from "@get-bb/plugin-sdk/app";
 import { toast } from "sonner";
 import type { rpcContract } from "../../src/rpc-contract";
 import type { FeatureCheck } from "../../src/feature-review";
-import type { FeatureReview } from "../../src/store";
+import type { FeatureReview, MainThread } from "../../src/store";
 import { flaggedFileNotice, hiddenFileNotice } from "../../lib/folder-files";
 import { branchLabel } from "../../lib/review-identity";
 import { useKnob } from "../../lib/settings";
@@ -17,7 +17,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover";
 import { REWRITE_GUIDE, type Notice } from "./ReviewNotices";
 
 /** The review, as far as its folder's notices read it. */
-interface Reviewed { kind?: "pr" | "ref"; status?: string; feature?: FeatureReview | null; archivedAt?: number | null; userArchivedAt?: number | null }
+interface Reviewed { kind?: "pr" | "ref"; status?: string; feature?: FeatureReview | null; mainThread?: Pick<MainThread, "environmentId"> | null; archivedAt?: number | null; userArchivedAt?: number | null }
 
 const BUTTON = cn("h-7", TOUCH_CONTROL);
 // A branch's name never breaks across lines.
@@ -101,8 +101,10 @@ export function useFeatureNotices(targetKey: string, review: Reviewed | null, on
   const add = (notice: Notice) => notices.push({ firstLine: true, ...notice });
   if (check.state === "gone") {
     const archived = !!review.archivedAt || !!review.userArchivedAt;
+    // Its main thread worked there: the next Send starts a fresh thread from the branch (src/loop.ts).
+    const fresh = !archived && (!review.mainThread || review.mainThread.environmentId === feature.environmentId);
     add({ id: "folder-gone", tone: "warning", icon: "Folder", label: "Folder removed",
-      text: `BB removed this folder. The review keeps its last changes${archived ? "" : " and your comments"}.`,
+      text: `BB removed this folder. The review keeps its last changes${archived ? "" : " and your comments"}.${fresh ? ` Your next Send starts a fresh thread from ${branchLabel(feature.workBranch ?? feature.branch)}.` : ""}`,
       ...archived ? {} : { action: button("archive", "Archive", () => void act("archive", () => rpc.call("archiveReview", { targetKey, archived: true }), "Couldn’t archive the review."), { warning: true }) } });
   }
   if (check.state === "paused" && check.branch !== undefined) {

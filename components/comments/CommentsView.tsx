@@ -6,6 +6,7 @@ import { buildItems, checkTally, FILTER_LABEL, groups, needsYou, shownItems, toS
 import { clearOpenComments, forgetOpenComments, revealComment } from "../../lib/comments-fold";
 import { askReply, registerCommentKeys, registerCommentStepper, showCommentStep, useCommentStep } from "../../lib/comment-stops";
 import { holdReview } from "../../lib/review-holds";
+import { useStatusFacts } from "../../lib/review-links";
 import { useKnob } from "../../lib/settings";
 import { cn } from "../../lib/utils";
 import { useWorkspace } from "../../lib/workspace-context";
@@ -67,6 +68,8 @@ export function CommentsView({ shown, finish, tab, onTab, onShowThread }: {
   const navigate = useBbNavigate();
   const coarse = useMediaQuery("(pointer: coarse)");
   const isPr = review.kind === "pr";
+  // Each draft's status line, as its card in the code says it.
+  const status = useStatusFacts();
   const ownPr = isPr && review.ownPr === true;
   const visible = shown && !finish;
   const merged = review.prState === "MERGED";
@@ -89,8 +92,8 @@ export function CommentsView({ shown, finish, tab, onTab, onShowThread }: {
     draft: draft.loaded ? { draft: draft.draft, stale: draft.stale, discussions: draft.discussions } : null,
     threads: isPr ? threads : [], feedback: isPr ? feedback : null, replyDrafts: isPr ? replyDrafts : [],
     // Your own PR is yours as its author until your account is verified.
-    sections, patch: draft.patch, viewer: draft.account ?? (ownPr ? review.author : null) ?? null, prUrl: review.url ?? null, closed, ownPr,
-  }), [draft.loaded, draft.draft, draft.stale, draft.discussions, isPr, threads, feedback, replyDrafts, sections, draft.patch, draft.account, review.url, closed, ownPr, review.author]);
+    sections, patch: draft.patch, viewer: draft.account ?? (ownPr ? review.author : null) ?? null, prUrl: review.url ?? null, closed, ownPr, status,
+  }), [draft.loaded, draft.draft, draft.stale, draft.discussions, isPr, threads, feedback, replyDrafts, sections, draft.patch, draft.account, review.url, closed, ownPr, review.author, status]);
   const items = useMemo(() => buildItems(sources), [sources]);
   const sending = useMemo(() => toSend(sources), [sources]);
   // Hidden nits leave the list and the code, not what Submit sends; one that needs you stays.

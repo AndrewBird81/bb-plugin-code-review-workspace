@@ -26,7 +26,7 @@ export type TitleBarPlacement = "title" | "band";
 let focusToggle: { to: TitleBarPlacement; until: number } | null = null;
 
 /**
- * The review's commands: Comments, Ask agent, Finish review, Review actions (⋯) and Full screen; on All reviews, the
+ * The review's commands: Comments, Ask agent, Main thread (with one), Finish review, Review actions (⋯) and Full screen; on All reviews, the
  * list's. BB renders it in its title bar (navPanel headerContent) with the page's subPath, apart from the page, so it
  * reads the workspace from the store. A plain function, not memo: the SDK takes only a function as a slot's component.
  */
@@ -79,6 +79,12 @@ function ReviewControls({ api, placement }: { api: WorkspaceApi; placement: Titl
             {tier !== "icons" && "Ask agent"}
           </Button>
         </Hint>
+        {api.mainThread && <Hint label="Main thread: the thread that writes the code, and gets your Sends" container={container}>
+          <Button variant="ghost" size="sm" aria-label="Main thread" aria-pressed={panel.view === "main"} aria-controls={controls} className={tier === "labeled" ? labeled : icon} onClick={() => panel.toggle("main")}>
+            <Icon name="Code" aria-hidden />
+            {tier === "labeled" && "Main thread"}
+          </Button>
+        </Hint>}
         {status && <Hint label={keyHint("Finish review", "s", api.shortcuts)} container={container}>
           <Button variant="ghost" size="sm" aria-label={`Finish review: ${VERDICT_LABEL[status.verdict]}, ${comments} comment${comments === 1 ? "" : "s"}`} aria-pressed={panel.view === "finish"} aria-controls={controls} aria-keyshortcuts={ariaKeys("s", api.shortcuts)} className={labeled} onClick={() => panel.view === "finish" ? panel.close() : api.openFinish()}>
             <Icon name="Github" aria-hidden />

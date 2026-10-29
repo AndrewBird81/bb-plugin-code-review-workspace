@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
-// What a draft comment's card links to, in the code and in Comments' list: the thread Send to thread sent it to, and on
-// a local review, the line in an editor.
+// What a draft comment's card says and links to, in the code and in Comments' list: its one status line, which on your
+// own change follows its Sends to the main thread, and on a local review, the line in an editor.
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, within } from "@testing-library/react";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import type { ReviewLinks } from "../lib/review-links";
+import type { StatusFacts } from "../lib/comments";
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }));
 // Pierre's annotations at its rows, new lines 1–3 and old lines 1–2, not its internals.
@@ -19,58 +20,79 @@ afterEach(() => { cleanup(); sessionStorage.clear(); vi.useRealTimers(); });
 const patch = "diff --git a/src/a.ts b/src/a.ts\n--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1,2 +1,3 @@\n-old\n-gone\n+new\n+more\n+most\n";
 const comments = [{ file: "src/a.ts", line: 1, side: "RIGHT", body: "Name it." }, { file: "src/a.ts", line: 3, side: "RIGHT", body: "Not sent." }, { file: "src/a.ts", line: 2, side: "LEFT", body: "Why drop it?" }];
 
-async function renderSent(links: Partial<ReviewLinks>) {
+const LOCAL: StatusFacts = { posts: false, own: true };
+
+async function renderSent(links: Partial<ReviewLinks>, drafted: readonly unknown[] = comments) {
   await loadPluginApp(() => import("../app"));
   const { DraftTray } = await import("./draft-tray.test-support");
   const { DiffViewer } = await import("./DiffViewer");
   const { ReviewLinksContext } = await import("../lib/review-links");
-  const component = () => <ReviewLinksContext.Provider value={{ sent: null, editor: null, ...links }}>
+  const component = () => <ReviewLinksContext.Provider value={{ status: LOCAL, editor: null, ...links }}>
     <DraftTray targetKey="k" patch={patch} activeChapterId="c1" activeFiles={["src/a.ts"]} reviewRevision="r1" account="reviewer" isLocal>
       <DiffViewer patch={patch} files={["src/a.ts"]} views={new Map()} onToggleViewed={() => {}} />
     </DraftTray>
   </ReviewLinksContext.Provider>;
-  const slot = renderSlot({ component }, {}, { rpc: { setReviewPresence: () => ({ ok: true }), getReviewerNotes: () => ({ body: "", revision: 0 }), getDraft: () => ({ draft: { targetKey: "k", verdict: "COMMENT", body: "", comments }, stale: [] }) } as any });
+  const slot = renderSlot({ component }, {}, { rpc: { setReviewPresence: () => ({ ok: true }), getReviewerNotes: () => ({ body: "", revision: 0 }), getDraft: () => ({ draft: { targetKey: "k", verdict: "COMMENT", body: "", comments: drafted }, stale: [] }) } as any });
   await slot.findByText("Draft saved");
   return slot;
 }
+/** A card's one status line: what follows its icon in its head. */
+const statusOf = async (slot: Awaited<ReturnType<typeof renderSent>>, name: string) => (await within(slot.getByTestId("filediff")).findByRole("article", { name })).querySelector(":scope > div > span")!.textContent;
 
-test("a sent comment's card says where it went and when, under its state, in the code and in the list; it's still not submitted", async () => {
+test("on a local review each card has one status: Open, Queued for or Sent to its thread in Send n and when, Done or Declined as reported, Resolved", async () => {
   const now = Date.now();
-  const slot = await renderSent({ sent: { at: now, threadId: "coder", title: "Retry uploads", comments: [{ file: "src/a.ts", line: 1, side: "RIGHT", at: now - 120_000 }] } });
-  const diff = within(slot.getByTestId("filediff"));
-  const sentCard = await diff.findByRole("article", { name: "Draft comment on src/a.ts:1" });
-  expect(within(sentCard).getByText("Draft · not submitted")).toBeTruthy();
-  const line = within(sentCard).getByText("Retry uploads").closest("p")!;
-  expect(line.textContent).toBe("Sent to Retry uploads· 2m");
-  // It follows the state line, before the comment's words.
-  expect(line.compareDocumentPosition(within(sentCard).getByText("Name it.")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-  expect(within(diff.getByRole("article", { name: "Draft comment on src/a.ts:3" })).queryByText(/Sent to/)).toBeNull();
+  const drafted = [
+    { file: "src/a.ts", line: 1, side: "RIGHT", body: "Name it.", id: "c1", state: "sent", sendN: 2 },
+    { file: "src/a.ts", line: 3, side: "RIGHT", body: "Not sent.", author: "agent" },
+    { file: "src/a.ts", line: 2, side: "LEFT", body: "Why drop it?", id: "c3", state: "sent", sendN: 3, claim: { outcome: "declined", note: "It's dead code", threadId: "coder", at: now } },
+  ];
+  const sends = [{ n: 2, at: now - 120_000, threadId: "coder", ids: ["c1"] }, { n: 3, at: now, threadId: "coder", ids: ["c3"] }];
+  const slot = await renderSent({ status: { ...LOCAL, sends, sent: { at: now, threadId: "coder", title: "Retry uploads", comments: [] } } }, drafted);
+  expect(await statusOf(slot, "Draft comment on src/a.ts:1")).toBe("Sent to Retry uploads · Send 2 · 2m");
+  expect(await statusOf(slot, "Draft comment on src/a.ts:3")).toBe("Agent · Open");
+  expect(await statusOf(slot, "Draft comment on src/a.ts:2")).toBe("Declined · It's dead code · now");
+  // Nothing on a local review is a draft not submitted, nor says two things.
+  expect(within(slot.getByTestId("filediff")).queryByText(/not submitted/)).toBeNull();
+  // The list's rows say the same.
   const list = within(slot.getByRole("region", { name: "Comments" }));
-  fireEvent.click(list.getByRole("button", { name: /^Expand .*src\/a\.ts:1/ }));
-  const listed = list.getByRole("article", { name: "Draft comment on src/a.ts:1" });
-  expect(within(listed).getByText("Retry uploads").closest("p")!.textContent).toBe("Sent to Retry uploads· 2m");
+  const row = list.getByRole("button", { name: /^Sent to Retry uploads · Send 2 · src\/a\.ts:1/ });
+  expect(within(row).getByText("Sent to Retry uploads · Send 2")).toBeTruthy();
+  expect(within(list.getByRole("button", { name: /^Agent · Open · src\/a\.ts:3/ })).getByText("Agent · Open")).toBeTruthy();
   slot.lifecycle.unmount();
+  cleanup();
+  // Still in the thread's queue, it's queued; then resolved by your click.
+  const queued = await renderSent({ status: { ...LOCAL, sends: [{ ...sends[0]!, queued: "q1" }] } }, [drafted[0], { file: "src/a.ts", line: 3, side: "RIGHT", body: "Not sent.", id: "c2", state: "resolved" }]);
+  expect(await statusOf(queued, "Draft comment on src/a.ts:1")).toBe("Queued for the main thread · Send 2 · 2m");
+  expect(await statusOf(queued, "Draft comment on src/a.ts:3")).toBe("Resolved");
+  queued.lifecycle.unmount();
 });
 
-test("a comment edited since it was sent, or a new one at its line, doesn't say sent; one as sent does, and a record from 0.8.0 matches by place", async () => {
+test("where comments post to GitHub, an open one is a draft not submitted; a sent one stays so on someone else's PR, and on yours is sent", async () => {
   const now = Date.now();
-  const slot = await renderSent({ sent: { at: now, threadId: "coder", title: "Retry uploads", comments: [
-    { file: "src/a.ts", line: 1, side: "RIGHT", body: "Name it.", at: now },
+  const drafted = [{ file: "src/a.ts", line: 1, side: "RIGHT", body: "Name it.", id: "c1", state: "sent", sendN: 1 }, { file: "src/a.ts", line: 3, side: "RIGHT", body: "Not sent." }];
+  const status = { sends: [{ n: 1, at: now, threadId: "coder", ids: ["c1"] }], sent: { at: now, threadId: "coder", title: "Retry uploads", comments: [] } };
+  const theirs = await renderSent({ status: { posts: true, own: false, ...status } }, drafted);
+  expect(await statusOf(theirs, "Draft comment on src/a.ts:1")).toBe("Draft · not submitted · Sent to Retry uploads · Send 1 · now");
+  expect(await statusOf(theirs, "Draft comment on src/a.ts:3")).toBe("Draft · not submitted");
+  theirs.lifecycle.unmount();
+  cleanup();
+  const yours = await renderSent({ status: { posts: true, own: true, ...status } }, drafted);
+  expect(await statusOf(yours, "Draft comment on src/a.ts:1")).toBe("Sent to Retry uploads · Send 1 · now");
+  expect(await statusOf(yours, "Draft comment on src/a.ts:3")).toBe("Draft · not submitted");
+  yours.lifecycle.unmount();
+});
+
+test("a comment sent before 1.8.0 says so while it reads as sent; edited since, or a new one at its line, it doesn't; a record from 0.8.0 matches by place", async () => {
+  const now = Date.now();
+  const slot = await renderSent({ status: { ...LOCAL, sent: { at: now, threadId: "coder", title: "Retry uploads", comments: [
+    { file: "src/a.ts", line: 1, side: "RIGHT", body: "Name it.", at: now - 120_000 },
     { file: "src/a.ts", line: 3, side: "RIGHT", body: "Name it more.", at: now },
     // 0.8.0 recorded no body.
     { file: "src/a.ts", line: 2, side: "LEFT", at: now },
-  ] } });
-  const diff = within(slot.getByTestId("filediff"));
-  expect(within(await diff.findByRole("article", { name: "Draft comment on src/a.ts:1" })).getByText("Retry uploads")).toBeTruthy();
-  expect(within(diff.getByRole("article", { name: "Draft comment on src/a.ts:3" })).queryByText(/Sent to/)).toBeNull();
-  expect(within(diff.getByRole("article", { name: "Draft comment on src/a.ts:2" })).getByText("Retry uploads")).toBeTruthy();
-  slot.lifecycle.unmount();
-});
-
-test("nothing says sent when nothing was, or Send to thread is off", async () => {
-  const slot = await renderSent({ sent: null });
-  await within(slot.getByTestId("filediff")).findByRole("article", { name: "Draft comment on src/a.ts:1" });
-  expect(slot.queryByText(/Sent to/)).toBeNull();
+  ] } } });
+  expect(await statusOf(slot, "Draft comment on src/a.ts:1")).toBe("Sent to Retry uploads · 2m");
+  expect(await statusOf(slot, "Draft comment on src/a.ts:3")).toBe("Open");
+  expect(await statusOf(slot, "Draft comment on src/a.ts:2")).toBe("Sent to Retry uploads · now");
   slot.lifecycle.unmount();
 });
 

@@ -176,6 +176,11 @@ export interface FeatureReview {
   pausedOn?: string | null;
   /** bb removed the folder. A review that became a PR goes on, and its next Send starts a fresh thread. */
   folderGone?: boolean;
+  /**
+   * The folder's own branch when it isn't `branch`: a fresh thread's new worktree, made from `branch` once the folder it
+   * was on was removed, which the review then reads. `branch` stays what the review pushes to.
+   */
+  workBranch?: string;
   /** The key of the review its branch's PR already had when the PR was found: this one links to it instead of becoming it. */
   prReview?: string;
   /** How many files changed in the folder since the review read it, as last checked; null for none or not checked. */
@@ -190,7 +195,8 @@ export interface FeatureReview {
 /** A thread that fixes the review's comments. */
 export interface MainThread {
   threadId: string;
-  environmentId: string;
+  /** Its folder; null while a fresh thread's is still being made, filled in once it's read. */
+  environmentId: string | null;
   /** adopted: a thread already working in the folder; fresh: one a Send started; forked: a fork of your PR's original thread. */
   origin: "adopted" | "fresh" | "forked";
   since: number;
@@ -209,6 +215,8 @@ export interface SendEntry {
   ids: string[];
   /** "You do it": the exact unified diff the review agent wrote for the comment it carried, for the thread to apply as written. */
   patch?: string;
+  /** The message that carries it while it waits in the thread's queue, as BB names it; absent once the thread takes it. */
+  queued?: string;
   /** When the thread ran `bb review ready` after this Send. */
   readyAt?: number;
   /** When Check fixes ran for this Send, which it does once. */

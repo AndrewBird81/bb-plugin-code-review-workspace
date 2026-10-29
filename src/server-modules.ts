@@ -94,9 +94,9 @@ export const ASSISTANT_TOOL_NAMES = ["read_review_patch", "list_review_files", "
  * The tools that act on GitHub or send to other threads, given besides only while Settings lets the review agent act
  * when asked (reviewAgentActs). Each also checks the knob when it runs, since a running agent keeps the tools it started with.
  */
-export const ASSISTANT_WRITE_TOOL_NAMES = ["submit_review", "post_reply", "resolve_thread", "github_pr", "open_pr"];
+export const ASSISTANT_WRITE_TOOL_NAMES = ["submit_review", "post_reply", "resolve_thread", "github_pr", "open_pr", "send_now"];
 // Raise when the review assistant's tools, or their instructions, change.
-export const ASSISTANT_TOOLS = 14;
+export const ASSISTANT_TOOLS = 15;
 
 /** A tool's answer that it failed, with why. */
 export const failed = (text: string): PluginAgentToolResult => ({ content: [{ type: "text", text }], isError: true });

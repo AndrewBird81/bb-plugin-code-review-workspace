@@ -144,7 +144,7 @@ bb review my-feature --base main     # what the branch changed since it left mai
 bb review https://github.com/acme/web/pull/42
 ```
 
-- On your own PR or a local review, Finish review sends the comments you pick to that thread, or starts one with **Fix in a new thread**. Nothing goes to GitHub.
+- Your comments go to the review's main thread, the thread that writes the code: **Send** in Finish review takes the ones you pick, **Send now** on a comment sends it alone, and the **Main thread** tab beside the diff shows that thread's chat. Each comment gets an id the thread reports on, and it's told not to push until you say. **Fix in a new thread** starts one instead. Nothing goes to GitHub.
 - Agents in your threads can add draft comments and a summary with `bb review comment` and `bb review summary`. They change only the local draft.
 - **Open in editor** opens a local review's file at the line.
 

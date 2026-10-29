@@ -54,10 +54,20 @@ const commentShape = z
 const location = { file: z.string(), line: lineNumber, side: z.enum(["LEFT", "RIGHT"]) };
 // What Send to thread adds to what it sends (src/fix-handoff.ts): your message, as long as a summary may be, and the summary.
 const sendExtras = { message: z.string().max(65_000).optional(), includeSummary: z.boolean().optional() };
-// A Send's own choices (src/loop.ts): letPush, Let it push when done for this Send, else the review's setting; force, send past the warning, as on a PR you don't own.
-const sendChoices = { letPush: z.boolean().optional(), force: z.boolean().optional() };
-/** A Send that didn't go: it warns, and the same call with force sends it. */
-const sendWarning = z.object({ ok: z.literal(false), warning: z.string() });
+// Where a Send goes past its warning (src/loop.ts): force, past it, as on a PR you don't own; thread, when the main
+// thread is archived or deleted, or its folder gone, as the warning offered: unarchive it and send, or a fresh thread.
+const routeChoices = { force: z.boolean().optional(), thread: z.enum(["unarchive", "fresh"]).optional() };
+// A Send's own choices: letPush, Let it push when done for this Send, else the review's setting, and where it goes.
+const sendChoices = { letPush: z.boolean().optional(), ...routeChoices };
+/**
+ * A Send that didn't go: why, and what it offers. anyway: the same call with force sends it; unarchive and fresh: with
+ * force and that thread.
+ */
+const sendWarning = z.object({
+  ok: z.literal(false), warning: z.string(), offers: z.array(z.enum(["anyway", "unarchive", "fresh"])).optional(),
+  // With fresh offered: where that thread starts, "in ~/src/api".
+  freshWhere: z.string().optional(),
+});
 const syncHealth = z.object({
   lastReadAt: z.number().nullable(),
   error: z.object({ kind: z.enum(["auth", "rate-limit", "partial", "teams", "gh-missing", "other"]), at: z.number(), count: z.number().optional(), retryAt: z.number().optional() }).nullable(),
@@ -332,31 +342,35 @@ export const rpcContract = defineRpcContract({
     output: z.object({ ok: z.literal(true) }),
   },
   newConversation: { input: targetKey, output: z.object({ ok: z.boolean() }) },
-  // A visible coding thread that fixes draft comments on your own PR or a local review; the draft stays.
+  // A visible coding thread that fixes draft comments; the draft stays. On a PR you don't own it warns, and force starts it.
   startFixThread: {
-    input: z.object({ targetKey: z.string(), comments: z.array(z.object(location).strict()).min(1) }).strict(),
-    output: z.object({ threadId: z.string(), title: z.string() }),
+    input: z.object({ targetKey: z.string(), comments: z.array(z.object(location).strict()).min(1), force: z.boolean().optional() }).strict(),
+    output: z.union([z.object({ ok: z.literal(true), threadId: z.string(), title: z.string() }), sendWarning]),
   },
-  // The thread `bb review` ran in, which Finish review's Send to thread sends comments to (src/fix-handoff.ts).
+  // The review's main thread, which its Sends go to (src/loop.ts): the top thread in its folder, or the thread `bb review`
+  // ran in, and the machine it works on when that's known.
   getSourceThread: {
     input: targetKey,
-    output: z.object({ thread: z.object({ threadId: z.string(), title: z.string().nullable(), state: z.enum(["open", "archived", "gone"]) }).nullable() }),
+    output: z.object({ thread: z.object({ threadId: z.string(), title: z.string().nullable(), state: z.enum(["open", "archived", "gone"]), machine: z.string().nullable().optional() }).nullable() }),
   },
+  // Send: the comments, each with an id, to the main thread, threadId (a fresh one, when it started one), as Send sendN.
   sendToSourceThread: {
     input: z.object({ targetKey: z.string(), comments: z.array(z.object(location).strict()).min(1), ...sendExtras, ...sendChoices }).strict(),
-    output: z.union([z.object({ ok: z.literal(true), delivery: z.enum(["sent", "queued"]), title: z.string().nullable() }), sendWarning]),
+    output: z.union([z.object({ ok: z.literal(true), delivery: z.enum(["sent", "queued"]), title: z.string().nullable(), threadId: z.string().optional(), sendN: z.number().int().optional() }), sendWarning]),
   },
-  // With no comments in the draft: tells the source thread you approve the change as is, at the revision the page shows.
+  // Tells the main thread you approve the change as is, at the revision the page shows. With comments not yet sent, or
+  // told already for this diff, it warns.
   sendApprovalToSourceThread: {
-    input: z.object({ targetKey: z.string(), revision: z.string().optional(), ...sendExtras }).strict(),
-    output: z.object({ ok: z.literal(true), delivery: z.enum(["sent", "queued"]), title: z.string().nullable() }),
+    input: z.object({ targetKey: z.string(), revision: z.string().optional(), ...sendExtras, ...routeChoices }).strict(),
+    // recorded: no thread could be told, the main thread being gone, so it's only recorded, as you chose.
+    output: z.union([z.object({ ok: z.literal(true), delivery: z.enum(["sent", "queued"]), title: z.string().nullable(), threadId: z.string().optional(), recorded: z.literal(true).optional() }), sendWarning]),
   },
 
   // The loop with the thread that fixes your change: Send now, the fixes' states, a local review's folder, push and
   // open a PR. `warning`: it didn't act, and the same call with `force` does.
   /**
    * Send one comment to the review's main thread now, a draft comment or, on your own PR, a GitHub thread: it gets an
-   * id the thread reports on. letPush and force are this Send's, as on sendToSourceThread.
+   * id the thread reports on. letPush, force and thread are this Send's, as on sendToSourceThread.
    */
   sendNow: {
     input: z.object({
@@ -366,7 +380,7 @@ export const rpcContract = defineRpcContract({
     }).strict(),
     // sent: the comment's id, the Send's number, and the thread it went to.
     output: z.object({
-      ok: z.boolean(), error: z.string().optional(), warning: z.string().optional(),
+      ok: z.boolean(), error: z.string().optional(), warning: z.string().optional(), offers: sendWarning.shape.offers, freshWhere: sendWarning.shape.freshWhere,
       sent: z.object({ id: z.string(), sendN: z.number().int(), threadId: z.string(), title: z.string().nullable(), delivery: z.enum(["sent", "queued"]) }).optional(),
     }),
   },
@@ -402,9 +416,9 @@ export const rpcContract = defineRpcContract({
     input: z.object({ targetKey: z.string(), letPush: z.boolean() }).strict(),
     output: z.object({ ok: z.boolean(), error: z.string().optional() }),
   },
-  /** Send to this thread from now on: one working in the review's folder. */
+  /** Send to this thread from now on: one working in the review's folder; with fresh, a new one started there. */
   setMainThread: {
-    input: z.object({ targetKey: z.string(), threadId: z.string().min(1) }).strict(),
+    input: z.union([z.object({ targetKey: z.string(), threadId: z.string().min(1) }).strict(), z.object({ targetKey: z.string(), fresh: z.literal(true) }).strict()]),
     output: z.object({ ok: z.boolean(), error: z.string().optional() }),
   },
   /** Include files the secrets filter keeps out of a local review's diff, by path; with included false, keep them out again. */

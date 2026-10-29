@@ -2,6 +2,7 @@
 // everyone's threads on GitHub, and your feedback (your threads' status, the agent's check, drafted replies, the
 // asks from your review summary). A thread joins its feedback by node id, the same in both. Pure, so the list, the
 // code, the title bar and Finish show and count the same things.
+import type { ReviewLifecycle, SendEntry } from "../src/store";
 import { isPreExisting, isSummary, linesOf, sameLocation, SEVERITIES, severityCounts, type CommentLocation, type Discussion, type Draft, type DraftComment, type Severity, type Verdict } from "../src/draft";
 import { threadLabel } from "../src/github/threads";
 import { chapterAt } from "../src/hunks";
@@ -179,6 +180,8 @@ export interface CommentSources {
   closed?: boolean;
   /** Your own PR: everyone's threads are yours to answer, and `viewer` must be given, as `feedback` holds them all. */
   ownPr?: boolean;
+  /** What a draft comment's status line says of the review; without it, as before 1.8.0. */
+  status?: StatusFacts;
 }
 
 const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
@@ -188,6 +191,48 @@ export const draftItemId = (at: CommentLocation) => `draft:${keyOf(at)}`;
 export const privateItemId = (at: CommentLocation) => `private:${keyOf(at)}`;
 const speaker = (author: Author) => author === "agent" ? "Agent" : "You";
 const STATE_OF: Record<"open" | "answered" | "question", ThreadItem["state"]> = { open: "waiting", answered: "replied", question: "question" };
+
+// A draft comment's one status line, the same on its card, its row and its pill. Where its comments post to GitHub (a
+// PR), an open one is a draft not submitted. On your own change a Send carries it to the main thread (src/loop.ts), so
+// it reads Open, Queued for or Sent to ‹thread› · Send n, Done or Declined as the thread reported, or Resolved; on a PR
+// you don't own a sent comment still posts, so it stays not submitted too.
+
+/** What a status line needs of its review: whether its comments post to GitHub, whether the change is yours, its Sends. */
+export interface StatusFacts {
+  /** A PR's review: open comments post with Submit. */
+  posts: boolean;
+  /** Your own change: a local review, a folder's review that became its PR, or your own PR. */
+  own: boolean;
+  sends?: readonly SendEntry[] | null;
+  /** 1.7.0's record of the last Send, which names its thread and lists what went before 1.8.0. */
+  sent?: ReviewLifecycle["sent"];
+}
+
+/** As before 1.8.0: every comment posts, and none is yours to send. */
+export const POSTS: StatusFacts = { posts: true, own: false };
+
+/** The status line, and when what it says happened, for a card to add how long ago. */
+export function draftStatus(comment: DraftComment, state: DraftItem["state"], facts: StatusFacts): { label: string; at?: number } {
+  const draft = facts.posts && (!facts.own || !comment.state || comment.state === "open");
+  const base = draft ? STATE_LABEL[state] : state === "older-diff" ? "Older diff" : comment.author === "agent" ? "Agent · Open" : "Open";
+  if (comment.state === "resolved") return { label: "Resolved" };
+  if (comment.state === "dismissed") return { label: "Dismissed" };
+  // The thread's report on what it was sent; an edit opens it again, for the next Send.
+  if (comment.claim && comment.state === "sent") return { label: `${comment.claim.outcome === "done" ? "Done" : "Declined"}${comment.claim.note ? ` · ${comment.claim.note}` : ""}`, at: comment.claim.at };
+  const send = comment.state === "sent" && comment.sendN !== undefined ? facts.sends?.find((entry) => entry.n === comment.sendN) : undefined;
+  if (send) {
+    const to = (facts.sent?.threadId === send.threadId ? facts.sent.title : null) ?? "the main thread";
+    const went = `${send.queued ? `Queued for ${to}` : `Sent to ${to}`} · Send ${send.n}`;
+    return { label: draft ? `${base} · ${went}` : went, at: send.at };
+  }
+  // Sent before 1.8.0, as it reads now: 1.7.0's record.
+  const before = !comment.state ? facts.sent?.comments.find((entry) => sameLocation(entry, comment) && (entry.body === undefined || entry.body === comment.body)) : undefined;
+  if (before && facts.sent) {
+    const went = `Sent to ${facts.sent.title ?? "the thread that made the change"}`;
+    return { label: facts.posts ? `${base} · ${went}` : went, at: before.at };
+  }
+  return { label: base };
+}
 
 /** A draft comment's state: on an older diff whoever wrote it, else the agent's or yours. */
 export function draftState(comment: DraftComment, stale: readonly CommentLocation[]): DraftItem["state"] {
@@ -227,7 +272,7 @@ export function buildItems(sources: CommentSources): CommentItem[] {
     const state = draftState(comment, stale);
     const who = speaker(comment.author ?? "reviewer");
     add({
-      kind: "draft", id: draftItemId(comment), state, label: STATE_LABEL[state], ...needing(state === "older-diff" ? "older-diff" : null, "not-submitted"),
+      kind: "draft", id: draftItemId(comment), state, label: draftStatus(comment, state, sources.status ?? POSTS).label, ...needing(state === "older-diff" ? "older-diff" : null, "not-submitted"),
       at: { file: comment.file, line: comment.line, side: comment.side, lines: linesOf(comment) }, chapterId: chapterOf(comment.file, comment.line, comment.side),
       who, latest: { who, body: comment.body, at: null }, nonBlocking: comment.severity === "nit",
       comment, discussion: discussions.find((discussion) => sameLocation(discussion, comment)) ?? null,

@@ -40,9 +40,9 @@ bb review [<pr-url | owner/repo#n | pr-number | git-ref> [--base <ref>]] [--cont
   (`pr-…` or `ref-…`) and where to open it. An agent writes the guide
   in the background; you needn't wait for it, but comments and the summary do: run
   `bb review list` until the review says guide ready.
-- Running it with a PR or ref makes this thread the review's source; with none, the main thread is. On a local review, or a PR the
-  reviewer authored, Finish review can send their comments back here, while **Send comments to the
-  thread that made the change** is on in Settings. Reply to them as they ask.
+- Running it with a PR or ref makes this thread the review's source; with none, the main thread is. The reviewer can send
+  their comments back here, each with an id, while **Send comments to the main thread** is on in Settings. Do what each
+  asks; each Send says how to report back, and whether you may push.
 
 ## List reviews
 

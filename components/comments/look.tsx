@@ -1,7 +1,7 @@
 // How a comment-like thing looks wherever it shows, in the code, the list, or Finish (spec §4): dashed with a colored
 // edge while it's only in BB, solid on GitHub with its author, muted with a lock when it's private. Never color alone:
 // its state is always in words too.
-import { CHECK_LABEL, THREAD_FLAG_LABEL, type CommentCheck, type CommentItem, type ThreadItem } from "../../lib/comments";
+import { CHECK_LABEL, STATE_LABEL, THREAD_FLAG_LABEL, type CommentCheck, type CommentItem, type ThreadItem } from "../../lib/comments";
 import type { AssessmentVerdict } from "../../lib/feedback";
 import type { CommentLocation, DraftComment, Severity } from "../../src/draft";
 import { sameLocation } from "../../src/draft";
@@ -100,7 +100,8 @@ export function placeLabel(item: CommentItem): string | null {
 
 /** The words an item's row and pill lead with: its header's, though a draft's "not submitted" is its group's title. */
 export function itemWords(item: CommentItem): string {
-  if (item.kind === "draft") return item.state === "older-diff" ? item.label : item.state === "agent-draft" ? "Agent draft" : "Draft";
+  // A draft not submitted, in short; on your own change, its status line whole (lib/comments.ts draftStatus).
+  if (item.kind === "draft") return item.label !== STATE_LABEL[item.state] || item.state === "older-diff" ? item.label : item.state === "agent-draft" ? "Agent draft" : "Draft";
   if (item.kind === "thread") return [item.label, item.outdated ? THREAD_FLAG_LABEL.outdated : null, item.fileComment ? THREAD_FLAG_LABEL.fileComment : null].filter(Boolean).join(" · ");
   return item.label;
 }

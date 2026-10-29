@@ -35,6 +35,8 @@ import { DraftProvider, useDraft, type CommentPrefill } from "./DraftProvider";
 import { TrackedReview } from "./TrackedReview";
 import { NotRunButton } from "./NotRunBanner";
 import { AgentDock, agentDockMode, type DockInjection } from "./AgentDock";
+import { MainThreadPanel } from "./MainThreadPanel";
+import { recipientOf, useMainThread } from "../lib/main-thread";
 import { ReviewSkeleton, ReviewError } from "./ReviewSkeleton";
 import { AccountBar } from "./AccountBar";
 import { defaultPreferences, type ReviewPreferences } from "../lib/review-preferences";
@@ -1375,6 +1377,10 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   };
   // Settings → Reading can turn the keys off, all but Esc.
   const shortcutsOn = useKnob("singleKeyShortcuts");
+  // The review's main thread, named for Send now and its tab's entries.
+  const mainThreadId = useKnob("sendToThread") ? recipientOf(review) : null;
+  const { thread: mainLink } = useMainThread(targetKey, review);
+  const mainThread = useMemo(() => mainThreadId ? { threadId: mainThreadId, title: mainLink?.title ?? null, machine: mainLink?.machine ?? null } : null, [mainThreadId, mainLink]);
   const commentKeys = useKnob("commentKeys");
   const unattendedAgents = useKnob("unattendedAgents");
   const shortcutsRef = useRef(shortcutsOn);
@@ -1408,8 +1414,8 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     reveal: showComment, showLocation, followUp, askAgent, openFinish: showDraftSummary,
     fullscreen: { available: canFullscreen, on: fullscreen, toggle: toggleFullscreen }, leave,
     snooze, newCommits, rebuild, reload: load, pinnable: preferences?.preferences.threadListReviews === true, showShortcuts,
-    shortcuts: shortcutsOn,
-  } : null, [targetKey, review, guide, sections, activeId, selectChapter, layout, toggleNav, findInReview, navView, changeNavView, shownPanel, openPanel, togglePanel, closePanel, views, toggleViewed, markChapterViewed, nextUnviewed, foldAllFiles, baselineSha, compareFrom, pickCompare, flip, since, sinceOnly, sinceError, sinceWhat, diffLayout, toggleLayout, newFiles, changeNewFiles, markdownFiles, changeMarkdownFiles, unifiedOnly, wrapLines, changeWrap, hideWhitespace, changeHideWhitespace, showThreads, setShowThreads, commentsFolded, changeCommentsFolded, showComment, showLocation, followUp, askAgent, showDraftSummary, canFullscreen, fullscreen, toggleFullscreen, leave, snooze, newCommits, rebuild, load, preferences, showShortcuts, shortcutsOn]);
+    shortcuts: shortcutsOn, mainThread,
+  } : null, [targetKey, review, guide, sections, activeId, selectChapter, layout, toggleNav, findInReview, navView, changeNavView, shownPanel, openPanel, togglePanel, closePanel, views, toggleViewed, markChapterViewed, nextUnviewed, foldAllFiles, baselineSha, compareFrom, pickCompare, flip, since, sinceOnly, sinceError, sinceWhat, diffLayout, toggleLayout, newFiles, changeNewFiles, markdownFiles, changeMarkdownFiles, unifiedOnly, wrapLines, changeWrap, hideWhitespace, changeHideWhitespace, showThreads, setShowThreads, commentsFolded, changeCommentsFolded, showComment, showLocation, followUp, askAgent, showDraftSummary, canFullscreen, fullscreen, toggleFullscreen, leave, snooze, newCommits, rebuild, load, preferences, showShortcuts, shortcutsOn, mainThread]);
 
   // Which review this is, for BB's title bar and the window's title, whatever the page shows.
   const identity = useMemo(() => review ? reviewIdentity(review, guide?.title) : null, [review, guide?.title]);
@@ -1549,6 +1555,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
           <CommentsView shown={shownPanel === "comments" || shownPanel === "finish"} finish={shownPanel === "finish"} tab={commentsTab} onTab={setCommentsTab} revision={revision} onShowThread={showThread} />
           <FinishView shown={shownPanel === "finish"} revision={revision} />
           <AgentDock targetKey={targetKey} reviewId={identity?.id} patch={patch} injection={injection} container={rootEl} active={shownPanel === "agent"} popOut={layout.mode === "tablet"} closeLabel={sheet ? "Close" : undefined} onDock={() => openPanel("agent")} onCollapse={closePanel} />
+          <MainThreadPanel active={shownPanel === "main"} reviewId={identity?.id} closeLabel={sheet ? "Close" : undefined} onClose={closePanel} />
         </SidePanel>
         {/* Over the code, a side dims the rest; a tap there closes it. */}
         {(layout.nav === "overlay" || layout.panel === "overlay") && <div aria-hidden className="absolute inset-0 z-30 bg-black/40 animate-in fade-in duration-200 motion-reduce:animate-none" onClick={() => { setNavOverlay(false); if (layout.panel === "overlay") closePanel(); }} />}

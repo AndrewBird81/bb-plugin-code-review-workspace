@@ -148,6 +148,7 @@ test("the plugin registers the same RPC methods, tools, CLI subcommands, listene
       "github_pr",
       "open_pr",
       "generate_review_guide",
+      "send_now",
     ]
   `);
   // What agents read of each tool, word for word.
@@ -201,8 +202,8 @@ test("the plugin registers the same RPC methods, tools, CLI subcommands, listene
   expect(Object.fromEntries(Object.entries(registered.threadEventHandlers).filter(([, count]) => count > 0))).toMatchInlineSnapshot(`
     {
       "experimental_environment.removed": 1,
-      "message.cancelled": 2,
-      "message.dispatched": 2,
+      "message.cancelled": 3,
+      "message.dispatched": 3,
       "thread.failed": 2,
       "thread.idle": 3,
     }
@@ -261,6 +262,7 @@ test("the plugin registers the same RPC methods, tools, CLI subcommands, listene
           "resolve_thread",
           "github_pr",
           "open_pr",
+          "send_now",
         ],
       },
       "other": {

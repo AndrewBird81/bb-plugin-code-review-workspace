@@ -52,6 +52,7 @@ import * as assistantEvents from "./src/assistant-events";
 import * as guideTool from "./src/guide-tool";
 import * as featureReview from "./src/feature-review";
 import * as openPr from "./src/open-pr";
+import * as loop from "./src/loop";
 import * as rpcStubs from "./src/rpc-stubs";
 import * as reviewAgentTools from "./src/review-agent-tools";
 import * as relaysModule from "./src/relays";
@@ -312,8 +313,9 @@ function servePlugin(bb: BbPluginApi, { configured, store, interrupted }: Awaite
   guideTool.register(moduleDeps);
   const feature = featureReview.register(moduleDeps);
   const opening = openPr.register(moduleDeps);
+  const sends = loop.register(moduleDeps);
   const stubs = rpcStubs.register();
-  const handlers: RpcHandlers = merge(settings.handlers, reviews.handlers, githubThreads.handlers, draft.handlers, assistant.handlers, turn.handlers, feature.handlers, opening.handlers, relays.handlers, stubs.handlers);
+  const handlers: RpcHandlers = merge(settings.handlers, reviews.handlers, githubThreads.handlers, draft.handlers, assistant.handlers, turn.handlers, feature.handlers, opening.handlers, relays.handlers, sends.handlers, stubs.handlers);
   const guarded = Object.fromEntries(Object.entries(handlers).map(([name, handler]) =>
     [name, (input: unknown) => updates.run(() => (handler as (input: unknown) => unknown)(input))])) as unknown as typeof handlers;
   bb.rpc.register(rpcContract, {
@@ -324,7 +326,7 @@ function servePlugin(bb: BbPluginApi, { configured, store, interrupted }: Awaite
     setReviewPresence: ({ clientId, open }) => updates.presence(clientId, open),
     applyPluginUpdate: ({ clientId, candidateVersion }) => updates.apply(clientId, candidateVersion),
   });
-  listen(bb, [events.events, feature.events, ledgerEvents(bb)]);
+  listen(bb, [events.events, feature.events, ledgerEvents(bb), sends.events]);
   const subcommands: Subcommands = merge(reviews.commands, draft.commands, relays.commands);
 
   // Tools go only to THIS plugin's own spawned threads, by the role each is recorded with: a thread can retitle

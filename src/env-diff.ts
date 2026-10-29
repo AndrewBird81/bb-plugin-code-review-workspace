@@ -121,7 +121,7 @@ type Opened = { env: Environment; base: string; pr?: FolderPr; offline: () => Fo
  * The folder, ready to read: ready on a connected machine, on the review's `branch` when one's given, and its base;
  * else why it can't be read.
  */
-async function openFolder(bb: BbPluginApi, feature: Pick<FeatureReview, "environmentId" | "machine" | "repo"> & { baseRef?: string; branch?: string }): Promise<Opened | FolderUnread> {
+async function openFolder(bb: BbPluginApi, feature: Pick<FeatureReview, "environmentId" | "machine" | "repo"> & { baseRef?: string; branch?: string; workBranch?: string }): Promise<Opened | FolderUnread> {
   let env: Environment;
   try {
     env = await bb.sdk.environments.get({ environmentId: feature.environmentId });
@@ -135,11 +135,13 @@ async function openFolder(bb: BbPluginApi, feature: Pick<FeatureReview, "environ
   const machine = await machineStatus(bb, env.hostId);
   const offline = (): FolderUnread => ({ outcome: "offline", message: `${machine?.name ?? feature.machine} is offline. Wake it to see the folder’s latest changes.` });
   if (machine && !machine.connected) return offline();
-  // Another branch's changes aren't this review's.
-  if (feature.branch !== undefined && env.branchName !== feature.branch) {
-    return { outcome: "paused", branch: env.branchName, message: `The folder is on ${env.branchName ?? "no branch"}, not ${feature.branch}.` };
+  // Another branch's changes aren't this review's; a fresh thread's worktree is on a branch of its own, made from it.
+  const branch = feature.workBranch ?? feature.branch;
+  if (branch !== undefined && env.branchName !== branch) {
+    return { outcome: "paused", branch: env.branchName, message: `The folder is on ${env.branchName ?? "no branch"}, not ${branch}.` };
   }
-  const found = await featureBase(bb, env, feature.repo, feature.baseRef);
+  // That worktree's own base is the branch it was made from: the review keeps the base it had.
+  const found = feature.workBranch && feature.baseRef ? { base: feature.baseRef } : await featureBase(bb, env, feature.repo, feature.baseRef);
   if ("message" in found) return { outcome: "unavailable", message: found.message };
   return { env, ...found, offline };
 }
@@ -148,7 +150,7 @@ async function openFolder(bb: BbPluginApi, feature: Pick<FeatureReview, "environ
  * Each changed file's revision in the folder now, against its real base, hidden files' too, without reading a diff:
  * what a review compares with the revisions it keeps to say whether the folder changed. With the branch's PR.
  */
-export async function readFeatureRevisions(bb: BbPluginApi, feature: Pick<FeatureReview, "environmentId" | "machine" | "repo"> & { baseRef?: string; branch?: string }): Promise<{ outcome: "available"; revisions: Record<string, string>; base: string; pr?: FolderPr } | FolderUnread> {
+export async function readFeatureRevisions(bb: BbPluginApi, feature: Pick<FeatureReview, "environmentId" | "machine" | "repo"> & { baseRef?: string; branch?: string; workBranch?: string }): Promise<{ outcome: "available"; revisions: Record<string, string>; base: string; pr?: FolderPr } | FolderUnread> {
   const opened = await openFolder(bb, feature);
   if ("outcome" in opened) return opened;
   const { env, base, pr } = opened;
@@ -175,7 +177,7 @@ const unreadable = (result: z.infer<typeof notGit> | z.infer<typeof failure>): F
  * machine that's asleep, a folder bb removed or on another branch, and any read that fails come back as an outcome with
  * the message the review shows.
  */
-export async function readFeatureDiff(bb: BbPluginApi, feature: Pick<FeatureReview, "environmentId" | "machine" | "repo"> & { baseRef?: string; branch?: string }, include: readonly string[] = []): Promise<FeatureDiff> {
+export async function readFeatureDiff(bb: BbPluginApi, feature: Pick<FeatureReview, "environmentId" | "machine" | "repo"> & { baseRef?: string; branch?: string; workBranch?: string }, include: readonly string[] = []): Promise<FeatureDiff> {
   const opened = await openFolder(bb, feature);
   if ("outcome" in opened) return opened;
   const { env, base, pr, offline } = opened;
