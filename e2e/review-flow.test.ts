@@ -20,6 +20,8 @@ test.skipIf(!process.env.BB_E2E_URL)("fullscreen verdict → submitted → reloa
   vi.mocked(runGh).mockImplementation(async (args) => {
     if (args[0] === "auth") return { code: 0, stderr: "", stdout: "test-token" };
     if (args[1] === "user") return { code: 0, stderr: "", stdout: "reviewer" };
+    // The review sync's batched PR facts (src/github/pr-facts.ts), one alias per PR.
+    if (args.some((arg) => arg.includes("p0:repository"))) return { code: 0, stderr: "", stdout: JSON.stringify({ data: { p0: { pullRequest: { number: 7, state: prState, mergedAt: prState === "MERGED" ? new Date().toISOString() : null, headRefOid: "sha1", author: { login: "alice" }, reviews: { nodes: approved ? [{ id: "review-12", state: "APPROVED", submittedAt: new Date().toISOString(), body: "", commit: { oid: "sha1" } }] : [] } } } } }) };
     if (args.includes("graphql")) return { code: 0, stderr: "", stdout: JSON.stringify({ data: { viewer: { login: "reviewer" }, repository: { pullRequest: { state: prState, headRefOid: "sha1", reviews: { nodes: approved ? [{ state: "APPROVED", submittedAt: new Date().toISOString(), author: { login: "reviewer" }, commit: { oid: "sha1" } }] : [] } } } } }) };
     if (args.includes("POST")) { approved = true; return { code: 0, stderr: "", stdout: '{"id":12}' }; }
     return { code: 0, stderr: "", stdout: JSON.stringify({ headRefOid: "sha1", state: prState }) };
@@ -29,7 +31,7 @@ test.skipIf(!process.env.BB_E2E_URL)("fullscreen verdict → submitted → reloa
     get: async () => ({ archivedAt: null, deletedAt: null, status: "idle" }),
     spawn: async () => ({ id: `e2e-hidden-agent-${++workerCount}` }),
     stop: async () => ({}), update: async () => ({}), archive: async () => ({}),
-  } } });
+  }, projects: { defaultExecutionOptions: async () => ({ providerId: "codex", model: "gpt-6", reasoningLevel: "low", permissionMode: "auto" }) } } });
   await plugin(bb);
   const store = queueStore(createStore(bb));
   const key = "e2e-review";
@@ -136,7 +138,7 @@ test.skipIf(!process.env.BB_E2E_URL)("fullscreen verdict → submitted → reloa
     // A phone: Finish is inside the Comments sheet, above the dock.
     await page.setViewportSize({ width: 390, height: 844 });
     await page.reload();
-    await commands.getByRole("button", { name: /^Comments, 1 not submitted/ }).click();
+    await commands.getByRole("button", { name: "Comments, 1 to send", exact: true }).click();
     await page.getByRole("dialog", { name: "Comments", exact: true }).getByRole("button", { name: "Finish review", exact: true }).click();
     await verdicts.waitFor();
     await verdicts.getByRole("button", { name: "Approve", exact: true }).scrollIntoViewIfNeeded();
@@ -213,7 +215,10 @@ test.skipIf(!process.env.BB_E2E_URL)("fullscreen verdict → submitted → reloa
     // A docked panel opens again where it was.
     await page.reload();
     await assistant.waitFor();
-    await commands.getByRole("button", { name: /^Finish review:/ }).click();
+    // Nothing left to submit, so the title bar has no Finish review: Comments' foot opens the submitted review.
+    expect(await commands.getByRole("button", { name: /^Finish review:/ }).count()).toBe(0);
+    await commands.getByRole("button", { name: "Comments", exact: true }).click();
+    await side.getByRole("button", { name: "Finish review", exact: true }).click();
     await page.getByRole("region", { name: "Submitted review" }).waitFor();
     await page.getByText("Private notes", { exact: true }).click();
     expect(await page.getByRole("textbox", { name: "Private notes", exact: true }).inputValue()).toBe("Private: verify the staged rollout, then the cache.");
