@@ -269,3 +269,10 @@ test("the token-scope probe lists what a classic token lacks, says when a token 
   expect(probe).toHaveBeenCalledWith(["api", "-i", "user"]);
   expect(await missingScopes(vi.fn<typeof runGh>().mockResolvedValue({ code: 1, stdout: "", stderr: "gh: not logged in" }))).toBeNull();
 });
+
+test("opening a PR: GitHub's 422s for a branch with a PR already, or with no commits beyond its base, are refusals in plain words", () => {
+  const unprocessable = (message: string) => ({ code: 1, stdout: JSON.stringify({ message: "Validation Failed", errors: [{ resource: "PullRequest", code: "custom", message }] }), stderr: "gh: Validation Failed (HTTP 422)" });
+  const args = ["api", "repos/acme/api/pulls", "-f", "head=feat/qa"];
+  expect(classifyWriteError(unprocessable("A pull request already exists for acme:feat/qa."), { args })).toMatchObject({ kind: "pr-exists", error: "GitHub has a PR from this branch already, so no other was opened." });
+  expect(classifyWriteError(unprocessable("No commits between main and feat/qa"), { args })).toMatchObject({ kind: "no-commits", error: "The branch on GitHub has no commits beyond main yet. Commit and push your work first." });
+});

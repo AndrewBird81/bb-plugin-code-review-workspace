@@ -146,6 +146,7 @@ test("the plugin registers the same RPC methods, tools, CLI subcommands, listene
       "post_reply",
       "resolve_thread",
       "github_pr",
+      "open_pr",
       "generate_review_guide",
     ]
   `);
@@ -259,6 +260,7 @@ test("the plugin registers the same RPC methods, tools, CLI subcommands, listene
           "post_reply",
           "resolve_thread",
           "github_pr",
+          "open_pr",
         ],
       },
       "other": {

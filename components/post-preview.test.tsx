@@ -84,3 +84,16 @@ test("Request changes and Close name what they do, on both buttons", async () =>
   const close = await renderForm({ ...shown, title: "Close flosports/api#42 as @casey", action: "Close", button: "Close", parts: [], notes: [], details: ["Closes the PR without merging it."] });
   expect(close.slot.getAllByRole("button").map((b) => b.textContent)).toEqual(["Don’t close", "Close"]);
 });
+
+test("Open PR shows its title and description, base ← head, and as whom, and its button says Open PR", async () => {
+  const { slot, submit } = await renderForm({ title: "Open a PR from feat/qa into main as @casey", action: "Open PR", button: "Open PR", notes: [],
+    parts: [{ label: "Title", body: "Snooze flaky checks" }, { label: "Description", body: "Adds a snooze." }], details: ["acme/api: main ← feat/qa, at c0ffee0 on GitHub."] });
+  expect(slot.getByRole("region", { name: "Open a PR from feat/qa into main as @casey" })).toBeTruthy();
+  expect(slot.getByText("acme/api: main ← feat/qa, at c0ffee0 on GitHub.")).toBeTruthy();
+  expect(slot.getByText("Snooze flaky checks")).toBeTruthy();
+  expect(slot.getByText("Adds a snooze.")).toBeTruthy();
+  expect(slot.getAllByRole("button").map((b) => b.textContent)).toEqual(["Don’t open", "Open PR"]);
+  fireEvent.click(slot.getByRole("button", { name: "Open PR" }));
+  expect(submit).toHaveBeenCalledWith({ post: true });
+  expect(await slot.findByRole("button", { name: "Opening…" })).toBeTruthy();
+});

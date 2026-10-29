@@ -717,3 +717,78 @@ test("on an approval, the button past a warning says Approve anyway", async () =
   await waitFor(() => expect(within(alert).getByRole("button", { name: "Approve anyway" })).toBeTruthy());
   slot.lifecycle.unmount();
 });
+
+/** A local review of feat/qa in acme/web, on MaxBook. */
+const folderReview = { kind: "ref", gitRef: "feat/qa", place: { repo: "acme/web", machine: "MaxBook", path: "/Users/me/web" }, feature: { environmentId: "env1", hostId: "h", machine: "MaxBook", path: "/Users/me/web", branch: "feat/qa", baseRef: "main", repo: "acme/web" } };
+
+test("a local review of a branch in a GitHub repo offers Open PR, which asks the review agent to draft it and opens its chat", async () => {
+  const openPr = vi.fn(() => ({ ok: true }));
+  const { slot } = await renderWorkspace({ review: folderReview, rpc: { openPr } });
+  const view = await finish(slot);
+  expect(view.getByRole("heading", { name: "Open a PR" })).toBeTruthy();
+  expect(view.getByText(/shows you its title and description before it opens/).textContent).toBe("The review agent drafts a PR from feat/qa in acme/web, and shows you its title and description before it opens.");
+  fireEvent.click(view.getByRole("button", { name: "Open PR" }));
+  await waitFor(() => expect(openPr).toHaveBeenCalledWith({ targetKey: "pr-42" }));
+  expect(await slot.findByRole("region", { name: "Review agent" })).toBeTruthy();
+  slot.lifecycle.unmount();
+});
+
+test("Open PR on a branch that isn't on GitHub yet says to push it first, as a muted note, not an error", async () => {
+  const note = "Push feat/qa to GitHub first, then open the PR. It isn’t there yet.";
+  const { slot } = await renderWorkspace({ review: folderReview, rpc: { openPr: vi.fn(() => ({ ok: false, note })) } });
+  const view = await finish(slot);
+  fireEvent.click(view.getByRole("button", { name: "Open PR" }));
+  const said = await view.findByText(note);
+  expect(said.getAttribute("role")).toBe("status");
+  expect(said.className).toContain("text-muted-foreground");
+  expect(view.queryByRole("alert")).toBeNull();
+  expect(view.getByRole("button", { name: "Open PR" })).toBeTruthy();
+  slot.lifecycle.unmount();
+});
+
+test("Open PR that fails says why, as an alert", async () => {
+  const error = "This folder’s repo is a fork; open its PR on GitHub.";
+  const { slot } = await renderWorkspace({ review: folderReview, rpc: { openPr: vi.fn(() => ({ ok: false, error })) } });
+  const view = await finish(slot);
+  fireEvent.click(view.getByRole("button", { name: "Open PR" }));
+  expect((await view.findByRole("alert")).textContent).toBe(error);
+  slot.lifecycle.unmount();
+});
+
+test("Open PR on a branch with a PR already says so: the review is now that PR's", async () => {
+  const note = "feat/qa has PR #7 on GitHub already, so none was opened. This review is now its review, with its comments.";
+  const { slot } = await renderWorkspace({ review: folderReview, rpc: { openPr: vi.fn(() => ({ ok: true, note })) } });
+  const view = await finish(slot);
+  fireEvent.click(view.getByRole("button", { name: "Open PR" }));
+  await waitFor(() => expect(toast.info).toHaveBeenCalledWith(note));
+  slot.lifecycle.unmount();
+});
+
+test("no Open PR on a ref's review, a folder with no GitHub repo, or with the review agent drafting only", async () => {
+  for (const [review, knobs] of [
+    [{ kind: "ref", gitRef: "main...x" }, defaultKnobs],
+    [{ ...folderReview, feature: { ...folderReview.feature, repo: null } }, defaultKnobs],
+    [folderReview, { ...defaultKnobs, reviewAgentActs: false }],
+  ] as const) {
+    const { slot } = await renderWorkspace({ review, rpc: { getPreferences: () => ({ preferences: { ...defaultPreferences, knobs }, revision: 0 }) } });
+    const view = await finish(slot);
+    expect(view.queryByRole("button", { name: "Open PR" })).toBeNull();
+    slot.lifecycle.unmount();
+    cleanup();
+  }
+});
+
+test("a local review that becomes its PR's while open says so in a notice, as its id changes", async () => {
+  let review: Record<string, unknown> = folderReview;
+  const { slot } = await renderWorkspace({ rpc: { getReviewBundle: () => ({ review: { targetKey: "pr-42", status: "ready", createdAt: 1, title: "Parse rows", ...review }, guide: structuredClone(guide), patch, revision: "r1" }) } });
+  const text = "This review is now web#7, the PR’s. It was web:feat/qa; your comments came with it.";
+  expect(slot.queryByText(text)).toBeNull();
+  review = { kind: "pr", repo: "acme/web", number: 7, url: "https://github.com/acme/web/pull/7", headSha: "c0ffee", feature: folderReview.feature };
+  await slot.emitRealtime("review:pr-42", {});
+  // A notice in the page's flow, covering nothing, until Got it.
+  const notice = (await slot.findByText(text)).closest("[role=status]")!;
+  expect(notice).toBeTruthy();
+  fireEvent.click(within(notice as HTMLElement).getByRole("button", { name: "Got it" }));
+  await waitFor(() => expect(slot.queryByText(text)).toBeNull());
+  slot.lifecycle.unmount();
+});

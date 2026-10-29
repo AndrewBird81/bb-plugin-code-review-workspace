@@ -101,6 +101,7 @@ export function FinishView({ shown, revision }: {
             {isPr ? <GoesToGitHub items={items} replyDrafts={items.filter((item) => item.kind === "thread" && item.replyDraft).length} onList={openList} />
               : <Part title="Stays in BB"><p className="text-sm text-muted-foreground">{d.hint}</p>{notes.show && <PrivateNotes targetKey={targetKey} />}</Part>}
             {(d.isLocal || d.ownPr) && <FixHandoff targetKey={targetKey} comments={d.sortedComments} revision={revision} />}
+            {d.isLocal && <OpenPr />}
             {isPr && <AgentActivity />}
             {isPr && notes.show && <Part title="Stays in BB"><PrivateNotes targetKey={targetKey} /></Part>}
           </div>
@@ -117,6 +118,45 @@ function Part({ title, children }: { title: string; children: ReactNode }) {
     <h3 className="px-0.5 text-[11px] font-semibold uppercase tracking-wider text-subtle-foreground">{main}{rest && <span className="font-normal normal-case tracking-normal"> · {rest}</span>}</h3>
     {children}
   </section>;
+}
+
+/**
+ * Open PR, on a local review of a branch in a GitHub repo, while Settings lets the review agent act: it drafts the PR's
+ * title and description, shown in the Post form in its chat, whose click opens it. The server says when the branch
+ * needs Push first.
+ */
+function OpenPr() {
+  const { targetKey, review, panel } = useWorkspace();
+  const rpc = useRpc<typeof rpcContract>();
+  const acts = useKnob("reviewAgentActs");
+  const [busy, setBusy] = useState(false);
+  // What went wrong, or what has to happen first, as pushing the branch: an ordinary "not yet", said as such.
+  const [said, setSaid] = useState<{ text: string; error: boolean } | null>(null);
+  const feature = review.kind === "ref" ? review.feature : null;
+  if (!acts || !feature?.repo || feature.prReview) return null;
+  const setError = (text: string) => setSaid({ text, error: true });
+  async function open() {
+    if (busy) return;
+    setBusy(true);
+    setSaid(null);
+    try {
+      const result = await rpc.call("openPr", { targetKey });
+      if (!result.ok) setSaid(result.note ? { text: result.note, error: false } : { text: result.error ?? "Couldn’t ask the review agent. Try again.", error: true });
+      else if (result.note) toast.info(result.note);
+      else panel.open("agent");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn’t ask the review agent. Try again.");
+    } finally { setBusy(false); }
+  }
+  return <Part title="Open a PR">
+    <p className="text-sm text-muted-foreground">The review agent drafts a PR from <span className="break-all font-mono">{feature.branch}</span> in <span className="break-all font-mono">{feature.repo}</span>, and shows you its title and description before it opens.</p>
+    <Button variant="outline" size="sm" className={cn("gap-1.5", TOUCH_CONTROL, BUSY)} aria-disabled={busy || undefined} onClick={() => void open()}>
+      <Icon name={busy ? "Loading" : "GitPullRequest"} className={cn("size-4", busy && "animate-spin motion-reduce:animate-none")} aria-hidden />
+      {busy ? "Asking the agent…" : "Open PR"}
+    </Button>
+    {said?.error && <p role="alert" className="flex gap-1.5 text-xs text-destructive-text"><Icon name="AlertCircle" className="mt-0.5 size-3.5 shrink-0" aria-hidden />{said.text}</p>}
+    {said && !said.error && <p role="status" className="flex gap-1.5 text-xs text-muted-foreground"><Icon name="Info" className="mt-0.5 size-3.5 shrink-0" aria-hidden />{said.text}</p>}
+  </Part>;
 }
 
 /** The verdict, the agent's suggestion with Switch to it, and its two ways into the draft: Use as draft and Request what's left. */

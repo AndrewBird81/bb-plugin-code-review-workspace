@@ -391,8 +391,12 @@ export const rpcContract = defineRpcContract({
     input: z.object({ targetKey: z.string(), force: z.boolean().optional() }).strict(),
     output: z.object({ ok: z.boolean(), error: z.string().optional(), warning: z.string().optional(), delivery: z.enum(["sent", "queued"]).optional() }),
   },
-  /** Ask the review agent to draft the PR's title and description, shown in a Post form whose Post opens the PR. */
-  openPr: { input: targetKey, output: z.object({ ok: z.boolean(), error: z.string().optional() }) },
+  /**
+   * Ask the review agent to draft the PR's title and description, shown in a Post form whose Post opens the PR. note:
+   * what happened instead, as when the branch has a PR already, which the review then becomes; or, not ok, what has to
+   * happen first, as pushing the branch.
+   */
+  openPr: { input: targetKey, output: z.object({ ok: z.boolean(), error: z.string().optional(), note: z.string().optional() }) },
   /** The review's Let it push when done: on, a Send leaves out "Don't push until I say", unless it says otherwise. */
   setLetPush: {
     input: z.object({ targetKey: z.string(), letPush: z.boolean() }).strict(),

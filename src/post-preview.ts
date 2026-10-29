@@ -5,7 +5,7 @@
 export const POST_PREVIEW_RENDERER = "post-preview";
 
 /** The form's one button: what clicking it does. */
-export type PostButton = "Post" | "Approve" | "Request changes" | "Merge" | "Close" | "Apply";
+export type PostButton = "Post" | "Approve" | "Request changes" | "Merge" | "Close" | "Apply" | "Open PR";
 
 /** What the Post form shows: where it posts and as whom, then each part exactly as it posts. */
 export interface PostShown {
@@ -84,7 +84,7 @@ const FILLER = new Set(["it", "that", "this", "please", "thanks", "thank", "you"
 /** The verbs that say yes to each button, and only to it: "close it" doesn't answer a Merge form. */
 const VERBS: Record<Exclude<PostButton, "Apply">, string[]> = {
   Post: ["post", "send", "submit", "reply", "comment"], Approve: ["approve", "approved", "post", "send", "submit"], "Request changes": ["request", "changes", "post", "send", "submit"],
-  Merge: ["merge"], Close: ["close"],
+  Merge: ["merge"], Close: ["close"], "Open PR": ["open", "create", "pr", "post", "submit"],
 };
 
 /**

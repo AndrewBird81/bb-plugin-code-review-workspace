@@ -404,3 +404,11 @@ test("Approve all shown posts each row's verdict and summary alone, holds one wh
   expect((await call("approveReady", { rows: [rows[0]] })).results[0]).toMatchObject({ outcome: "failed" });
   expect(posts()).toHaveLength(3);
 });
+
+test("on a teammate's PR, open_pr opens nothing: the review is a PR's already", async () => {
+  const { harness } = await teammatePr();
+  const result = await harness.behavior.callAgentTool("open_pr", { title: "Cache reads" }, { threadId: "agent" });
+  expect(toolText(result)).toBe("This review is of acme/web#1 already, so there’s no PR to open.");
+  expect(harness.inspection.pendingInteractions).toEqual([]);
+  expect(runGh.mock.calls.filter(([args]) => (args as string[])[1]?.endsWith("/pulls"))).toEqual([]);
+});

@@ -720,6 +720,46 @@ exports[`the plugin registers the same RPC methods, tools, CLI subcommands, list
     "presentation": null,
   },
   {
+    "description": "Open a PR on GitHub from this local review's branch, as the reviewer, with the title and description you give. They see exactly what opens, with an Open PR button, first. Once it's open, this review becomes the PR's review.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "base": {
+          "description": "The branch it goes into, when the reviewer names one; else the review's base.",
+          "maxLength": 255,
+          "minLength": 1,
+          "type": "string",
+        },
+        "body": {
+          "description": "The PR's description, in GitHub Markdown.",
+          "maxLength": 65000,
+          "type": "string",
+        },
+        "confirm": {
+          "description": ""yes": the reviewer, or the thread it was sent to, answered yes to exactly what was shown; give the same input again. "just-post-it": the reviewer's own message, or the relayed one, says to post it without showing it first ("just post it"; for request changes, the message is only that command: "just request changes").",
+          "enum": [
+            "yes",
+            "just-post-it",
+          ],
+          "type": "string",
+        },
+        "title": {
+          "description": "The PR's title.",
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string",
+        },
+      },
+      "required": [
+        "title",
+      ],
+      "type": "object",
+    },
+    "instructions": "When the reviewer asks you to open a PR, draft its title and description from the review, then call open_pr; it opens the Post form, and a yes works as with submit_review. The branch must be on GitHub first: if it isn't, tell the reviewer to push it with Push in Finish review, and never push it yourself. Post, approve, merge, close or push only with these tools, never with gh, gh api or git push in your shell.",
+    "name": "open_pr",
+    "presentation": null,
+  },
+  {
     "description": "Submit the guide. It's rejected, with every problem listed, unless: each changed file (or each hunk of a split file) is in exactly one chapter; chapter ids are unique, and none is "overview", the Overview page's; unplaced files have no changed lines; every chapter has a risk, and medium- and high-risk chapters a focus; no hotspot is listed twice; each hotspot and covered requirement points at a line the diff shows, a new-file line or, with side LEFT, a removed line's old-file line; and its text fits the schema's length limits. Fix and resubmit with the same targetKey and generationId.",
     "inputSchema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",

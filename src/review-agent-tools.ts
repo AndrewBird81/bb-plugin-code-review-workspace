@@ -1,8 +1,9 @@
-// The review agent's tools that act on GitHub when the reviewer asks: submit_review, post_reply, resolve_thread and
-// github_pr. What posts under the reviewer's name shows first, exactly, in the Post form (src/post-preview.ts), and
-// one click posts it; their "yes" typed in the review does too. Who's asking (src/asking.ts) decides what a turn may
-// do. Every write goes through the server's line of writes to GitHub (src/github-writes.ts) and onto the review's
-// activity. Settings' Let the review agent act when you ask (reviewAgentActs) gives these tools, and each checks it.
+// The review agent's tools that act on GitHub when the reviewer asks: submit_review, post_reply, resolve_thread,
+// github_pr and open_pr. What posts under the reviewer's name shows first, exactly, in the Post form
+// (src/post-preview.ts), and one click posts it; their "yes" typed in the review does too. Who's asking (src/asking.ts)
+// decides what a turn may do. Every write goes through the server's line of writes to GitHub (src/github-writes.ts) and
+// onto the review's activity. Settings' Let the review agent act when you ask (reviewAgentActs) gives these tools, and
+// each checks it.
 import { createHash } from "node:crypto";
 import type { PluginAgentToolResult } from "@get-bb/plugin-sdk";
 import { z } from "zod";
@@ -12,6 +13,7 @@ import { writeSummary } from "./draft-summary";
 import { ghReplyThreadArgs, ghResolveThreadArgs, ghUnresolveThreadArgs, runGh } from "./gh";
 import { readReviewThreads } from "./github-threads-rpc";
 import { addAssignees, mergePr, pushback, readMergeSettings, readWriteFacts, refusalText, type WriteAction, type WriteFacts, type WriteRefusal } from "./github-writes";
+import { becomeOpened, branchOnGithub, createPr, FORK, notPushed, openable, prBase, type FolderReview } from "./open-pr";
 import { postDraftedReply } from "./post-receipts";
 import { affirms, justPost, POST_PREVIEW_RENDERER, shownText, type JustVerb, type PostButton, type PostShown } from "./post-preview";
 import { holdForApproval } from "./relays";
@@ -27,6 +29,8 @@ const FORM_TIMEOUT_MS = 30 * 60_000;
 
 type Comment = Pick<DraftComment, "file" | "line" | "side" | "startLine" | "startSide" | "severity" | "introduced" | "body">;
 type Review = ReviewMeta & { repo: string; number: number };
+/** What a write is on: a PR's review, or, to open its PR, a local review's branch. */
+type Target = Review | FolderReview;
 /** What github_pr changes without text: labels, reviewers, assignees, open or closed, ready or draft. */
 const META = ["add-label", "remove-label", "add-reviewer", "remove-reviewer", "add-assignee", "remove-assignee", "reopen", "ready", "draft"] as const;
 type MetaAction = typeof META[number];
@@ -44,7 +48,8 @@ type Write =
   | { kind: "merge"; method: "merge" | "squash" | "rebase"; auto: boolean; deleteBranch: boolean; headSha: string; subject?: string; body?: string }
   | { kind: "close" }
   | { kind: "meta"; action: MetaAction; names: string[] }
-  | { kind: "resolve"; thread: string; resolved: boolean; at: string | null };
+  | { kind: "resolve"; thread: string; resolved: boolean; at: string | null }
+  | { kind: "open-pr"; head: string; base: string; title: string; body: string; headSha: string };
 /**
  * The post an agent's Post form shows, kept until it's posted: one per review agent. `from`, for a relayed ask, is the
  * thread it was shown to instead, whose yes confirms it; unset when it was shown to the reviewer in the review.
@@ -84,14 +89,16 @@ export function register(deps: ServeDeps, { submit }: {
   /** Each open Post form, by its token, to cancel when a yes in chat posts it, or a newer one replaces it. */
   const forms = new Map<string, AbortController>();
 
+  /** The review the agent on `threadId` is for, if it's still one's. */
+  const reviewFor = (threadId: string) => store.exclusive(async (tx) => {
+    const targetKey = await assistantReview(tx, threadId);
+    return targetKey ? await tx.getReview(targetKey) : null;
+  });
   /** The PR review the agent on `threadId` is for, or why it has none to act on. */
   async function reviewOf(threadId: string): Promise<Review | string> {
-    const review = await store.exclusive(async (tx) => {
-      const targetKey = await assistantReview(tx, threadId);
-      return targetKey ? await tx.getReview(targetKey) : null;
-    });
+    const review = await reviewFor(threadId);
     if (!review) return "This conversation is no longer a review's agent.";
-    if (review.kind !== "pr" || !review.repo || !review.number) return "This is a local review: nothing in it goes to GitHub.";
+    if (review.kind !== "pr" || !review.repo || !review.number) return review.feature?.repo ? "This is a local review, with no PR yet: nothing in it goes to GitHub until open_pr opens its PR." : "This is a local review: nothing in it goes to GitHub.";
     return { ...review, repo: review.repo, number: review.number };
   }
   const acting = async () => (await store.getPreferences()).preferences.knobs.reviewAgentActs;
@@ -136,14 +143,16 @@ export function register(deps: ServeDeps, { submit }: {
     });
   }
   /** Post a consumed preview, and add it to the activity. */
-  async function post(review: Review, preview: Preview, turn: Turn): Promise<Done> {
+  async function post(review: Target, preview: Preview, turn: Turn): Promise<Done> {
     const done = await write(review, preview.write, preview.account);
     if (done.ok) await noteActivity(review.targetKey, turn, done.activity, done.url);
     return done;
   }
 
   /** Do one write on GitHub as the server's account. */
-  async function write(review: Review, w: Write, account: string | null): Promise<Done> {
+  async function write(target: Target, w: Write, account: string | null): Promise<Done> {
+    if (w.kind === "open-pr") return openedPr(target as FolderReview, w);
+    const review = target as Review;
     const { repo, number, targetKey } = review;
     const pr = [String(number), "-R", repo];
     const via = async (args: string[], action: WriteAction, stdin?: string) => await githubWrites.post(runGh, args, { action, ...(stdin === undefined ? {} : { stdin }) });
@@ -243,13 +252,35 @@ export function register(deps: ServeDeps, { submit }: {
   }
 
   /**
+   * Open the PR the form showed, while GitHub's branch is at the commit it showed and has no PR yet, and make this
+   * review its review.
+   */
+  async function openedPr(review: FolderReview, w: Extract<Write, { kind: "open-pr" }>): Promise<Done> {
+    const { repo } = review.feature;
+    const now = await branchOnGithub(runGh, repo, w.head);
+    if ("error" in now) return { ok: false, text: `No PR was opened. ${now.error}` };
+    if ("fork" in now) return { ok: false, text: `No PR was opened. ${FORK}` };
+    if ("missing" in now) return { ok: false, text: `No PR was opened. ${notPushed(w.head)}` };
+    if (now.pr) return { ok: false, text: `${w.head} has PR #${now.pr.number} on GitHub already, so none was opened. ${await becomeOpened(deps, review, now.pr)}` };
+    if (now.sha !== w.headSha) return { ok: false, text: `${w.head} moved on GitHub since it was shown (${w.headSha.slice(0, 7)} then, ${now.sha.slice(0, 7)} now), so no PR was opened. Call open_pr again to show it as it is now.` };
+    const made = await createPr(githubWrites, runGh, { repo, head: w.head, base: w.base, title: w.title, body: w.body });
+    // One opened since the read: this review becomes it, as when the read finds it.
+    if (!made.ok && made.kind === "pr-exists") {
+      const since = await branchOnGithub(runGh, repo, w.head);
+      if ("sha" in since && since.pr) return { ok: false, text: `${w.head} has PR #${since.pr.number} on GitHub already, so none was opened. ${await becomeOpened(deps, review, since.pr)}` };
+    }
+    if (!made.ok) return { ok: false, text: `No PR was opened. ${sentence(made)}` };
+    return { ok: true, text: `Opened ${repo}#${made.number}: ${made.url}. ${await becomeOpened(deps, review, made)}`, activity: `Opened PR #${made.number}`, url: made.url };
+  }
+
+  /**
    * Post `w` as the reviewer asked: shown first in the Post form, unless they said yes in chat to exactly what it
    * showed, or their own message said to post it without showing it. Asked from another of their threads, it's shown
    * to that thread instead, with no form, and its yes, or the reviewer's, posts it. Each message confirms one write, and
    * one carrying text the plugin put in it, such as a quote from the PR, none. The form's click posts it; its result
    * reaches the agent when it comes.
    */
-  async function previewed(threadId: string, signal: AbortSignal, review: Review, turn: Turn, w: Write, verb: JustVerb, shown: (account: string | null) => PostShown, answer: "yes" | "just-post-it" | undefined): Promise<PluginAgentToolResult> {
+  async function previewed(threadId: string, signal: AbortSignal, review: Target, turn: Turn, w: Write, verb: JustVerb, shown: (account: string | null) => PostShown, answer: "yes" | "just-post-it" | undefined): Promise<PluginAgentToolResult> {
     const account = await login();
     const token = previewToken(review.targetKey, account, w);
     const preview: Preview = { token, targetKey: review.targetKey, account, at: Date.now(), write: w, shown: shown(account) };
@@ -549,6 +580,41 @@ export function register(deps: ServeDeps, { submit }: {
         "add-assignee": `Assigns ${list}.`, "remove-assignee": `Unassigns ${list}.`, reopen: "Reopens the PR.", ready: "Marks it ready for review.", draft: "Marks it as a draft.",
       } as Record<MetaAction, string>)[action];
       return change(threadId, signal, review, turn, { kind: "meta", action, names: names ?? [] }, facts, what, answer);
+    },
+  });
+
+  bb.agents.registerTool({
+    name: "open_pr",
+    description: "Open a PR on GitHub from this local review's branch, as the reviewer, with the title and description you give. They see exactly what opens, with an Open PR button, first. Once it's open, this review becomes the PR's review.",
+    instructions: `When the reviewer asks you to open a PR, draft its title and description from the review, then call open_pr; it opens the Post form, and a yes works as with submit_review. The branch must be on GitHub first: if it isn't, tell the reviewer to push it with Push in Finish review, and never push it yourself. ${ONLY_WITH_THESE_TOOLS}`,
+    parameters: z.object({
+      title: z.string().trim().min(1).max(256).describe("The PR's title."),
+      body: z.string().trim().max(65_000).optional().describe("The PR's description, in GitHub Markdown."),
+      base: z.string().trim().min(1).max(255).optional().describe("The branch it goes into, when the reviewer names one; else the review's base."),
+      confirm,
+    }),
+    async execute({ title, body = "", base: named, confirm: answer }, { threadId, signal }) {
+      if (!await acting()) return failed(OFF);
+      const found = await reviewFor(threadId);
+      const review = found ? openable(found) : "This conversation is no longer a review's agent.";
+      if (typeof review === "string") return failed(review);
+      // Opening a PR posts under the reviewer's name: a turn they didn't start opens none.
+      const turn = await classify(threadId);
+      if (turn.asking === "unattended") return failed(`${UNATTENDED} Suggest the PR's title and description in chat instead.`);
+      const { repo, branch } = review.feature;
+      const base = prBase(named ?? review.feature.baseRef);
+      if (!base) return failed("This review's base is a commit, not a branch, so the PR's base isn't known. Ask the reviewer which branch it goes into, then pass it as base.");
+      if (base === branch) return failed(`The PR can't go into ${branch}, its own branch. Ask the reviewer which branch it goes into.`);
+      const pushed = await branchOnGithub(runGh, repo, branch);
+      if ("error" in pushed) return failed(pushed.error);
+      if ("fork" in pushed) return failed(`${FORK} Tell the reviewer.`);
+      if ("missing" in pushed) return failed(`${notPushed(branch)} Tell the reviewer; never push it yourself.`);
+      if (pushed.pr) return failed(`${branch} has PR #${pushed.pr.number} on GitHub already, so none was opened. ${await becomeOpened(deps, review, pushed.pr)}`);
+      return previewed(threadId, signal, review, turn, { kind: "open-pr", head: branch, base, title, body, headSha: pushed.sha }, "post", (account) => ({
+        title: `Open a PR from ${branch} into ${base}${by(account)}`, action: "Open PR", button: "Open PR",
+        parts: [{ label: "Title", body: title }, ...body ? [{ label: "Description", body }] : []],
+        notes: [], details: [`${repo}: ${base} ← ${branch}, at ${pushed.sha.slice(0, 7)} on GitHub.`, ...body ? [] : ["No description."]],
+      }), answer);
     },
   });
 }

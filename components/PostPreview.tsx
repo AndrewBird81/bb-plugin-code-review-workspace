@@ -18,6 +18,7 @@ const LOOK: Record<PostButton, { tone: Tone; busy: string; cancel: string }> = {
   Merge: { tone: "merged", busy: "Merging…", cancel: "Don’t merge" },
   Close: { tone: "danger", busy: "Closing…", cancel: "Don’t close" },
   Apply: { tone: "neutral", busy: "Applying…", cancel: "Don’t apply" },
+  "Open PR": { tone: "primary", busy: "Opening…", cancel: "Don’t open" },
 };
 
 /** Whether a form's payload is a PostShown, as the server sends it. */
@@ -29,7 +30,7 @@ function isShown(payload: unknown): payload is PostShown {
 /**
  * The Post form, in place of the review agent's message box while it waits: what it does, where and as whom, then
  * exactly the text that posts, as written (raw, so nothing in it hides from you), or how a merge or close is done, and
- * one button naming it: Post, Approve, Request changes, Merge, Close. Don't post closes it; a "yes" typed in chat
+ * one button naming it: Post, Approve, Request changes, Merge, Close, Open PR. Don't post closes it; a "yes" typed in chat
  * instead posts it too, and closes it.
  */
 export function PostPreview({ interaction, submit, cancel }: PluginPendingInteractionProps) {

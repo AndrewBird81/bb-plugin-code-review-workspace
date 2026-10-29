@@ -165,6 +165,10 @@ const REFUSALS: { kind: string; match: RegExp; error: string | ((text: string, a
   { kind: "auto-merge-off", match: /auto-?merge is not allowed|auto merge is not allowed|enablePullRequestAutoMerge/i, error: "This repo doesn't allow auto-merge. Merge it once its checks pass, or ask a maintainer to turn on Allow auto-merge." },
   // unverified (H2): pending checks or reviews without --auto
   { kind: "not-mergeable", match: /not mergeable|base branch policy prohibits/i, error: "GitHub can't merge this PR yet: required checks or reviews haven't passed. Merge it automatically once they do?" },
+  // unverified (H2): opening a PR from a branch that has one, as when one opened between the read and the post
+  { kind: "pr-exists", match: /a pull request already exists for/i, error: "GitHub has a PR from this branch already, so no other was opened." },
+  // unverified (H2): opening a PR from a branch with nothing beyond its base on GitHub
+  { kind: "no-commits", match: /no commits between \S+ and/i, error: (text) => `The branch on GitHub has no commits beyond ${text.match(/no commits between (\S+) and/i)?.[1] ?? "its base"} yet. Commit and push your work first.` },
   // unverified (H2): a classic token without a scope, such as read:org for team reviewers
   { kind: "missing-scope", match: /organization teams|required scopes?|not been granted|needs the "[^"]+" scope/i, error: (text) => {
     const scope = text.match(/scopes? \[([^\]]+)\]/i)?.[1] ?? text.match(/needs the "([^"]+)" scope/i)?.[1] ?? (/organization teams/i.test(text) ? "read:org" : undefined);

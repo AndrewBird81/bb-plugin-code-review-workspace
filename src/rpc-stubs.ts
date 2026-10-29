@@ -17,8 +17,6 @@ export function register() {
 
     push: notYet("Push"), // Step 5.1.
 
-    openPr: notYet("Open PR"), // Step 5.2.
-
     setMainThread: notYet("Changing the main thread"), // Step 2.1.
 
     setLetPush: notYet("Let it push when done"), // Step 2.1.
