@@ -35,7 +35,7 @@ An agent writes a guide to the change: what it does and why, then chapters in re
 
 ### Start from a drafted review, not a blank page
 
-When the guide is ready, the review agent reviews the change and drafts line comments, a summary, and a suggested verdict. You keep, edit, or remove each one. Nothing posts until you submit.
+When the guide is ready, the review agent reviews the change and drafts line comments, a summary, and a suggested verdict. You keep, edit, or remove each one. Nothing posts until you submit, or ask the review agent to post and click **Post**.
 
 - Each comment has a severity: **Blocking**, **Should fix**, **Question**, or **Nit**.
 - A draft can carry a suggested change. **How the agent checked** says what it read or ran, with file:line, and stays in BB.
@@ -78,7 +78,7 @@ When the guide is ready, the review agent reviews the change and drafts line com
 **All reviews** sorts every review into Needs review, Waiting on author, Reviewed, and Archive. A push alone never makes a review your turn: authors often push one fix at a time.
 
 - A re-request, a question for you, a mention, or your feedback being handled brings a review back.
-- PRs that request your review join the list from GitHub.
+- PRs that request your review join the list from GitHub, and so do your own open PRs, with everyone's comments: a teammate's comment waiting for your reply brings yours back as **Your PR · 3 new comments**; a bot's never does.
 - Rows show checks, size, and your feedback's progress, such as `2/5 addressed`. Stacked PRs sit together, bottom first.
 - **Snooze**, **Pin**, and **Archive** set reviews aside, each with Undo. BB's thread list shows Needs review too.
 - **Rename…** gives a review a name of your own in your lists; its Overview keeps the PR's title under it, and nothing changes on GitHub.
@@ -128,22 +128,36 @@ Some changes look harmless in a diff. The plugin marks them where you'll see the
 
 **CI failures in the code:** a failing check shows under the line that failed.
 
-### Agents draft; only you post
+### The review agent does review work when you ask
 
-- None of the plugin's agent tools posts to GitHub. `bb review comment` and `bb review summary` change only the local draft. A review, reply, or resolve posts only when you click it. See [What the agents can and can't do](docs/guide.md#what-the-agents-can-and-cant-do).
+Ask the review agent, in **Ask agent**, and it does the work: replies, PR comments, and your review, on any PR; merging any PR you can merge, after the Post form; and on your own PRs, also the title, description, labels, reviewers, assignees, and closing.
+
+- Whatever posts under your name shows its exact text first, with a **Post** button. A typed "yes" works too, and "just post it" skips the preview.
+- Only your own message or click in that review approves, merges, or closes. Asked from another of your threads, they wait in Needs review as **Ready to approve**, for one click.
+- A risky ask, such as merging with checks still running, gets one pushback and a better route, then happens your way.
+- Turns the plugin starts on its own, such as the automatic review, only draft: they never post or send.
+- **Let the review agent act when you ask**, in Settings, turns it off: the agent only drafts, as before. All of this is instructions to an agent with a shell, not a sandbox: see [What the agents can and can't do](docs/guide.md#what-the-agents-can-and-cant-do).
 - By default, agents start on their own only on your own PRs, local reviews, and PRs from the repository's owner, members, and collaborators, and not on a branch in someone else's fork. You can change who in Settings. PR text reaches them fenced as untrusted data, and the repo's instruction files are read from the PR's base, never its head.
 
 ### Hand fixes back to the agent that wrote the code
 
-Run `bb review` in the BB thread that made a change, and the review remembers that thread. Finish review can then send your comments straight back to it.
+Review a thread's work while it's still in its folder, on any machine: **Review changes**, above the thread's message box in BB, or `bb review` from the thread or any of its subagents. There's one review per folder and branch, uncommitted and new files included; when the code changes, it says so, with **Update**. Threads linked to a review get a **Review** tab beside their chat, with its comments and its agent.
 
 ```sh
+bb review                            # this thread's folder, on any machine: one review per folder and branch
 bb review main                       # your working tree against main
 bb review my-feature --base main     # what the branch changed since it left main
 bb review https://github.com/acme/web/pull/42
 ```
 
-- On your own PR or a local review, Finish review sends the comments you pick to that thread, or starts one with **Fix in a new thread**. Nothing goes to GitHub.
+- Your comments go to the review's main thread, the thread that writes the code: **Send** in Finish review takes the ones you pick, and **Send now** on a comment sends it alone. The **Main thread** tab beside the diff shows that thread's chat. **Fix in a new thread** starts a new one instead. Nothing goes to GitHub.
+- Each comment gets an id the thread reports on. It's told not to push until you say, unless you turn on **Let it push when done**.
+- Once it has reported them all, or says it's finished, the review comes back **Ready to re-review**, with the review agent's check of each fix. Each card says where its fix stands; only your click resolves, dismisses or reopens one, and a reopened comment goes with the next Send.
+- On your own change, Submit posts only open comments: ones sent to fix, resolved or dismissed stay in BB.
+- If it goes idle first, as it does while subagents work, the review says "1 of 6 reported", with **Check now**.
+- **Push** in Finish review has the main thread commit what you reviewed, checks that commit against what you reviewed, warning first when they differ, then has the thread push exactly that commit, never forced.
+- Then **Open PR** in Finish review has the review agent draft the PR, and the same review becomes the PR's.
+- On your own PR, teammates' comments go through the same loop: **Send** them to the thread that wrote it, or to a fresh thread at the PR's head that the review briefs.
 - Agents in your threads can add draft comments and a summary with `bb review comment` and `bb review summary`. They change only the local draft.
 - **Open in editor** opens a local review's file at the line.
 
@@ -169,7 +183,7 @@ bb review https://github.com/acme/web/pull/42
 
 ## Requirements
 
-- **BB 0.45 or later** (plugin SDK 0.6.14+), running on **Node 24 or later**. No npm or build step is needed.
+- **BB 0.48 or later** (plugin SDK 0.6.79+), running on **Node 24 or later**. No npm or build step is needed.
 - **`git` and GitHub CLI (`gh`)** on the machine running BB (the BB server), signed in to github.com. No token is pasted into the plugin.
 - **A BB agent provider**, connected in BB's Settings. Guides and reviews use its normal usage allowance.
 - **At least one BB project.** A review you start from the panel runs in your Personal project, or in the first project if there's none.
@@ -178,7 +192,7 @@ bb review https://github.com/acme/web/pull/42
 Limits:
 
 - GitHub features support github.com only.
-- A local review needs its checkout on the BB server. A checkout only on another enrolled machine isn't supported.
+- A review of a local ref, such as `bb review main`, needs its checkout on the BB server. A thread's folder, `bb review` with no ref, can be on any enrolled machine.
 - Each reviewer uses their own BB installation and GitHub identity. On a shared BB server, credentials, settings, and saved reviews are shared.
 
 ## Quick start
@@ -195,7 +209,7 @@ Limits:
 5. On the review's Overview, choose **Start reading** and go through the chapters. Edit or remove the agent's comments, and add your own.
 6. Open **Finish review**, pick a verdict, and choose **Submit to GitHub**.
 
-For a local change, run `bb review main` in a BB thread whose project checkout is on the BB server. See [Local changes and the command line](docs/guide.md#local-changes-and-the-command-line).
+For a local change, run `bb review` in the BB thread that made it, on any machine. See [Local changes and the command line](docs/guide.md#local-changes-and-the-command-line).
 
 ## Moving from Guided Review
 

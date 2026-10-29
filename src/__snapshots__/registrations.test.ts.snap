@@ -1,0 +1,1084 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`the plugin registers the same RPC methods, tools, CLI subcommands, listeners, services and schedules 3`] = `
+[
+  {
+    "description": "Return the diff text of your own review, by the targetKey you were given, in pages of about 80 KB that end on file boundaries. In pages, lockfiles and generated or vendored files show as one-line stubs. Pass file to read one file's whole diff.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "file": {
+          "type": "string",
+        },
+        "limit": {
+          "maximum": 200000,
+          "minimum": 1,
+          "type": "integer",
+        },
+        "offset": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer",
+        },
+        "targetKey": {
+          "type": "string",
+        },
+      },
+      "required": [
+        "targetKey",
+      ],
+      "type": "object",
+    },
+    "instructions": null,
+    "name": "read_review_patch",
+    "presentation": null,
+  },
+  {
+    "description": "List your own review's changed files, by the targetKey you were given: path, status (added, deleted, modified, "renamed from ‹path›" or "copied from ‹path›", naming the source), lines added and removed, diff size, and kind (code, test, docs, config, lockfile, generated). A large review's list comes in pages of about 40 KB that end on a file: call again with the offset it gives. offset counts files from 0; limit caps a page's files.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "limit": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "type": "integer",
+        },
+        "offset": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer",
+        },
+        "targetKey": {
+          "type": "string",
+        },
+      },
+      "required": [
+        "targetKey",
+      ],
+      "type": "object",
+    },
+    "instructions": null,
+    "name": "list_review_files",
+    "presentation": null,
+  },
+  {
+    "description": "Show the reviewer's local draft for this review: the review summary and who wrote it (an agent or the reviewer), the verdict the reviewer picked and the one suggested, then each comment's location, who added it, and text, and the agents' comments the reviewer removed.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {},
+      "type": "object",
+    },
+    "instructions": null,
+    "name": "list_draft_comments",
+    "presentation": null,
+  },
+  {
+    "description": "Add an inline comment to the reviewer's local draft for this review, on a line of the current diff, or with startLine on lines startLine to line. It reaches GitHub only when the review is submitted. Refuses a line that already has a draft comment.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "body": {
+          "description": "The comment, in GitHub Markdown.",
+          "maxLength": 65000,
+          "minLength": 1,
+          "type": "string",
+        },
+        "code": {
+          "description": "The line's text, without the diff's leading +, -, or space. It must match the line. For a range, the lines' text, one per line: its first and last must match startLine and line.",
+          "type": "string",
+        },
+        "evidence": {
+          "description": "How you confirmed it, in Markdown, under 600 characters: what you read or ran, with file:line, and repro steps. Only what you actually did. The reviewer sees it folded under the comment; it's never posted to GitHub.",
+          "maxLength": 600,
+          "type": "string",
+        },
+        "file": {
+          "description": "Repo-relative path, exactly as the diff shows it.",
+          "type": "string",
+        },
+        "introduced": {
+          "description": "false when the problem is in code this PR didn't change.",
+          "type": "boolean",
+        },
+        "line": {
+          "description": "The line's number in the new file (side RIGHT) or the old file (side LEFT).",
+          "maximum": 2147483647,
+          "minimum": 1,
+          "type": "integer",
+        },
+        "severity": {
+          "description": "How much it matters: blocking, should-fix, question, nit, or none. Without it, a label the body starts with (**Blocking:**, **Should fix:**, **Question:**, **Nit:**) sets it; on edit, it otherwise stays. The label is kept apart from the text, and GitHub shows it in front.",
+          "enum": [
+            "blocking",
+            "should-fix",
+            "question",
+            "nit",
+            "none",
+          ],
+          "type": "string",
+        },
+        "side": {
+          "description": "RIGHT, the default, for an added or unchanged line; LEFT for a removed line.",
+          "enum": [
+            "RIGHT",
+            "LEFT",
+          ],
+          "type": "string",
+        },
+        "startLine": {
+          "description": "For a comment on several lines, the first; line is the last. Both in one hunk of the diff.",
+          "maximum": 2147483647,
+          "minimum": 1,
+          "type": "integer",
+        },
+        "startSide": {
+          "description": "The first line's side, when it isn't side: LEFT for a range from a removed line to an added one.",
+          "enum": [
+            "RIGHT",
+            "LEFT",
+          ],
+          "type": "string",
+        },
+      },
+      "required": [
+        "file",
+        "line",
+        "code",
+        "body",
+      ],
+      "type": "object",
+    },
+    "instructions": "During a review pass, or when the reviewer asks, add each verified issue with add_draft_comment on the line it concerns, or the lines (startLine to line). In ordinary chat, answer in chat. Put one issue in each comment. Give its severity (blocking, should-fix, question, or nit), then say concretely what fails and the fix. Put how you confirmed it in evidence, with file:line: only what you read or ran. Prefer a \`\`\`suggestion block for a small, mechanical fix: it holds the exact replacement, indentation included, for exactly the commented lines, line alone or startLine to line, and the author applies it with one click. Give a range that covers every line the suggestion replaces, and no more. Points about the change as a whole go in the review summary, with set_review_summary. list_draft_comments shows the draft and who added each comment, and the comments the reviewer removed: don't raise those again unless their code changed. edit_draft_comment and delete_draft_comment change it. Change or delete the reviewer's own comments only when they ask. The draft is the reviewer's: they edit and remove it, and it's submitted only when they say so.",
+    "name": "add_draft_comment",
+    "presentation": null,
+  },
+  {
+    "description": "Replace the text of the draft comment at a file, line, and side in the reviewer's local draft; line is a range's last line. With startLine and code, it also sets the range's first line, for example to fit a suggestion block. Its last line stays; to move a comment, delete it and add it again. Nothing reaches GitHub. Refuses a comment the reviewer wrote, unless they asked for the change.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "body": {
+          "description": "The comment, in GitHub Markdown.",
+          "maxLength": 65000,
+          "minLength": 1,
+          "type": "string",
+        },
+        "code": {
+          "description": "With startLine: the lines' text, one per line, as add_draft_comment takes it.",
+          "type": "string",
+        },
+        "evidence": {
+          "description": "Replaces how you confirmed it, under 600 characters; without it, that stays.",
+          "maxLength": 600,
+          "type": "string",
+        },
+        "file": {
+          "description": "Repo-relative path, exactly as the diff shows it.",
+          "type": "string",
+        },
+        "introduced": {
+          "description": "false when the problem is in code this PR didn't change; true when it's from this PR. Without it, that stays.",
+          "type": "boolean",
+        },
+        "line": {
+          "description": "The line's number in the new file (side RIGHT) or the old file (side LEFT).",
+          "maximum": 2147483647,
+          "minimum": 1,
+          "type": "integer",
+        },
+        "severity": {
+          "description": "How much it matters: blocking, should-fix, question, nit, or none. Without it, a label the body starts with (**Blocking:**, **Should fix:**, **Question:**, **Nit:**) sets it; on edit, it otherwise stays. The label is kept apart from the text, and GitHub shows it in front.",
+          "enum": [
+            "blocking",
+            "should-fix",
+            "question",
+            "nit",
+            "none",
+          ],
+          "type": "string",
+        },
+        "side": {
+          "description": "RIGHT, the default, for an added or unchanged line; LEFT for a removed line.",
+          "enum": [
+            "RIGHT",
+            "LEFT",
+          ],
+          "type": "string",
+        },
+        "startLine": {
+          "description": "For a comment on several lines, the first; line is the last. Both in one hunk of the diff.",
+          "maximum": 2147483647,
+          "minimum": 1,
+          "type": "integer",
+        },
+        "startSide": {
+          "description": "The first line's side, when it isn't side: LEFT for a range from a removed line to an added one.",
+          "enum": [
+            "RIGHT",
+            "LEFT",
+          ],
+          "type": "string",
+        },
+      },
+      "required": [
+        "file",
+        "line",
+        "body",
+      ],
+      "type": "object",
+    },
+    "instructions": null,
+    "name": "edit_draft_comment",
+    "presentation": null,
+  },
+  {
+    "description": "Delete the draft comment at a file, line, and side from the reviewer's local draft. Nothing reaches GitHub. Refuses a comment the reviewer wrote, unless they asked for it.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "file": {
+          "description": "Repo-relative path, exactly as the diff shows it.",
+          "type": "string",
+        },
+        "line": {
+          "description": "The line's number in the new file (side RIGHT) or the old file (side LEFT).",
+          "maximum": 2147483647,
+          "minimum": 1,
+          "type": "integer",
+        },
+        "side": {
+          "description": "RIGHT, the default, for an added or unchanged line; LEFT for a removed line.",
+          "enum": [
+            "RIGHT",
+            "LEFT",
+          ],
+          "type": "string",
+        },
+      },
+      "required": [
+        "file",
+        "line",
+      ],
+      "type": "object",
+    },
+    "instructions": null,
+    "name": "delete_draft_comment",
+    "presentation": null,
+  },
+  {
+    "description": "Write the review summary in the reviewer's local draft for this review: the top-level comment GitHub shows with the verdict and the line comments. Optionally suggest a verdict; the reviewer picks it. Nothing reaches GitHub. Refuses a summary the reviewer wrote, unless they asked on the summary for the change.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "body": {
+          "description": "The summary, in GitHub Markdown.",
+          "maxLength": 65000,
+          "minLength": 1,
+          "type": "string",
+        },
+        "unchecked": {
+          "description": "Up to 5 things you didn't read or run, such as files you skipped or tests you couldn't run, each under 120 characters. The reviewer sees them beside your verdict; they're never posted. Without it, what you said before stays.",
+          "items": {
+            "maxLength": 120,
+            "type": "string",
+          },
+          "maxItems": 5,
+          "type": "array",
+        },
+        "verdict": {
+          "description": "The verdict you'd suggest; the reviewer picks.",
+          "enum": [
+            "APPROVE",
+            "REQUEST_CHANGES",
+            "COMMENT",
+          ],
+          "type": "string",
+        },
+      },
+      "required": [
+        "body",
+      ],
+      "type": "object",
+    },
+    "instructions": "Write the review summary with set_review_summary: the overall assessment, what blocks merging and what doesn't, and points that have no line. Don't repeat your line comments, since GitHub shows them with the review; refer to them by file:line. Keep it short, in GitHub Markdown. Name anything you didn't read. Give the verdict you'd suggest: APPROVE only if nothing blocks and you read every non-generated file, REQUEST_CHANGES only for a verified blocking issue, otherwise COMMENT. The reviewer picks the verdict, and yours is marked on it. Without verdict, your earlier suggestion stays marked. Messages from the summary's discussion ask for changes to it: make them with set_review_summary, and answer with reply_in_discussion (summary: true).",
+    "name": "set_review_summary",
+    "presentation": null,
+  },
+  {
+    "description": "Reply in the reviewer's discussion at a line of the diff, shown under the line's draft comment, or in its place when there's none; or, with summary: true, in the discussion on the review summary. Only the reviewer sees it; nothing reaches GitHub. The reviewer starts discussions, so there must be one there.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "body": {
+          "description": "The reply, in Markdown.",
+          "maxLength": 65000,
+          "minLength": 1,
+          "type": "string",
+        },
+        "file": {
+          "description": "Repo-relative path, exactly as the diff shows it.",
+          "type": "string",
+        },
+        "line": {
+          "description": "The line's number in the new file (side RIGHT) or the old file (side LEFT).",
+          "maximum": 2147483647,
+          "minimum": 1,
+          "type": "integer",
+        },
+        "side": {
+          "description": "RIGHT, the default, for an added or unchanged line; LEFT for a removed line.",
+          "enum": [
+            "RIGHT",
+            "LEFT",
+          ],
+          "type": "string",
+        },
+        "summary": {
+          "description": "true to reply in the review summary's discussion, without file and line.",
+          "type": "boolean",
+        },
+      },
+      "required": [
+        "body",
+      ],
+      "type": "object",
+    },
+    "instructions": "Messages from a discussion in the diff say which line they're about. When a reply is warranted, answer with reply_in_discussion on that line, where the reviewer reads it, and keep your chat reply to one short line. When they ask for a change to the draft comment there, make it with add_draft_comment, edit_draft_comment, or delete_draft_comment instead of describing it.",
+    "name": "reply_in_discussion",
+    "presentation": null,
+  },
+  {
+    "description": "List the reviewer's feedback on this PR: each review thread they started (id, location, their comment, replies, resolved/outdated state, any earlier verdict) and their review summaries. Also the comments they sent to the main thread to fix (c12), each with its Send and what the thread reported. On their own PR: everyone's threads, and others' review summaries and comments on the PR.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {},
+      "type": "object",
+    },
+    "instructions": "When a review comes back to the reviewer, check whether each piece of their feedback was properly addressed: list_feedback, then read_changes_since_review (with send, for a sent comment's Send), then read_file where you need context. Judge the fix itself, not just whether the lines changed: a renamed variable doesn't fix a race. Record every thread, each sent comment by its id, and each distinct ask in the summaries as "summary:<n>" with a title, with assess_feedback: addressed, partial, not_addressed, disputed (the author argues against it; say why in the evidence), or unclear. Then suggest a verdict and a short summary the reviewer could submit, with assess_feedback: they go into the reviewer's draft, where the reviewer picks the verdict. A summary the reviewer wrote stays theirs, and yours waits in Finish review. Draft a reply with draft_thread_reply only on open threads where one adds something, such as what's still missing, or "Fixed in abc123, thanks." On the reviewer's own PR, list_feedback has everyone's threads, and others' review summaries and comments on the PR, with what the thread that fixed each reported: draft each thread's reply from its report with draft_thread_reply, and for a review summary or comment, suggest the reply in your message.",
+    "name": "list_feedback",
+    "presentation": null,
+  },
+  {
+    "description": "What changed in this PR since the reviewer's last review: the PR's diff then compared with its diff now, file by file (rebases and base-branch merges don't show), plus the commits since. Pass file for one file. Pass send for what changed since that Send of comments to the main thread; a review with Sends and no review of the PR compares with its last Send.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "file": {
+          "description": "Repo-relative path, as the diff shows it.",
+          "type": "string",
+        },
+        "send": {
+          "description": "A Send's number, as a sent comment's Send names it.",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
+      },
+      "type": "object",
+    },
+    "instructions": null,
+    "name": "read_changes_since_review",
+    "presentation": null,
+  },
+  {
+    "description": "What the change says about itself and what others already said on it: the PR's title, author, branches, labels, description, linked issues, commits, failing CI checks, other people's open review threads, the repo's review instructions, and the context the review was started with. For a local review, its commits and the review instructions at the diff's start. Text from the PR is fenced as untrusted.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {},
+      "type": "object",
+    },
+    "instructions": "Start a guide or a review with read_pr_context. If the title, branch, or description names a ticket (like ABC-123) and you have a tool that reads it, read it, unless read_pr_context says the PR's author isn't trusted. Read tickets only: never write to an issue tracker or chat.",
+    "name": "read_pr_context",
+    "presentation": null,
+  },
+  {
+    "description": "Read a file of this review with line numbers, up to 400 lines from startLine. ref "current" (the default) is the PR's head now, or a local review's changed side; "base" is the commit the diff starts from, before the change; "reviewed" is the commit the reviewer last reviewed (PRs only).",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "endLine": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "type": "integer",
+        },
+        "path": {
+          "description": "Repo-relative path.",
+          "minLength": 1,
+          "type": "string",
+        },
+        "ref": {
+          "enum": [
+            "current",
+            "base",
+            "reviewed",
+          ],
+          "type": "string",
+        },
+        "startLine": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "type": "integer",
+        },
+      },
+      "required": [
+        "path",
+      ],
+      "type": "object",
+    },
+    "instructions": "To read code beyond the diff at the PR's head without changing anything: if your working directory is a git checkout of the PR's repository, run \`git fetch origin +pull/<number>/head:refs/code-review-workspace/pr-<number>\`, then \`git show refs/code-review-workspace/pr-<number>:<path>\` or \`git grep <pattern> refs/code-review-workspace/pr-<number>\`. Never check out, commit, push, or change the working tree, except as your instructions allow for the repo's checks. Otherwise, use read_file.",
+    "name": "read_file",
+    "presentation": null,
+  },
+  {
+    "description": "Record whether each piece of the reviewer's feedback was addressed at the PR's current head, and each comment they sent to fix since its Send. Items are thread ids from list_feedback, sent comments' ids (c12), or "summary:<n>" (with a title) for asks in a review summary. Optionally add an overall summary, the verdict you'd suggest, and a review summary for the reviewer's draft. The reviewer sees it in Comments and in Finish review; nothing reaches GitHub.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "items": {
+          "items": {
+            "properties": {
+              "claimed": {
+                "description": "For a sent comment the main thread didn't report: what its last reply or the changes show it did. Leave out when they don't say.",
+                "enum": [
+                  "done",
+                  "declined",
+                ],
+                "type": "string",
+              },
+              "evidence": {
+                "description": "One line: what changed, or what's missing.",
+                "minLength": 1,
+                "type": "string",
+              },
+              "file": {
+                "description": "Where the evidence is, in the current diff.",
+                "type": "string",
+              },
+              "id": {
+                "minLength": 1,
+                "type": "string",
+              },
+              "line": {
+                "maximum": 9007199254740991,
+                "minimum": 1,
+                "type": "integer",
+              },
+              "title": {
+                "description": "For a summary ask: the ask, briefly.",
+                "type": "string",
+              },
+              "verdict": {
+                "enum": [
+                  "addressed",
+                  "partial",
+                  "not_addressed",
+                  "disputed",
+                  "unclear",
+                ],
+                "type": "string",
+              },
+            },
+            "required": [
+              "id",
+              "verdict",
+              "evidence",
+            ],
+            "type": "object",
+          },
+          "minItems": 1,
+          "type": "array",
+        },
+        "suggestedBody": {
+          "description": "The review summary you'd submit with that verdict, in GitHub Markdown. It goes into the reviewer's draft, unless they wrote the draft's summary.",
+          "maxLength": 65000,
+          "type": "string",
+        },
+        "suggestedVerdict": {
+          "enum": [
+            "APPROVE",
+            "REQUEST_CHANGES",
+            "COMMENT",
+          ],
+          "type": "string",
+        },
+        "summary": {
+          "description": "Two or three sentences on where the PR stands.",
+          "type": "string",
+        },
+      },
+      "required": [
+        "items",
+      ],
+      "type": "object",
+    },
+    "instructions": null,
+    "name": "assess_feedback",
+    "presentation": null,
+  },
+  {
+    "description": "Draft a reply on one of the reviewer's review threads. It waits on the thread in Comments, unposted.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "body": {
+          "description": "The reply, in GitHub Markdown.",
+          "maxLength": 65000,
+          "minLength": 1,
+          "type": "string",
+        },
+        "threadId": {
+          "description": "The thread id from list_feedback.",
+          "minLength": 1,
+          "type": "string",
+        },
+      },
+      "required": [
+        "threadId",
+        "body",
+      ],
+      "type": "object",
+    },
+    "instructions": null,
+    "name": "draft_thread_reply",
+    "presentation": null,
+  },
+  {
+    "description": "Submit the reviewer's review of this PR to GitHub: their draft's comments, with the verdict, and the summary given or the draft's. The reviewer sees exactly what posts, with a button naming the verdict, before it posts.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "body": {
+          "description": "The summary to post with it, in GitHub Markdown, replacing the draft's when it posts. Without it, the draft's summary posts.",
+          "maxLength": 65000,
+          "type": "string",
+        },
+        "confirm": {
+          "description": ""yes": the reviewer, or the thread it was sent to, answered yes to exactly what was shown; give the same input again. "just-post-it": the reviewer's own message, or the relayed one, says to post it without showing it first ("just post it"; for request changes, the message is only that command: "just request changes").",
+          "enum": [
+            "yes",
+            "just-post-it",
+          ],
+          "type": "string",
+        },
+        "force": {
+          "description": "true: post past the warning you told the reviewer about, as they asked.",
+          "type": "boolean",
+        },
+        "verdict": {
+          "enum": [
+            "APPROVE",
+            "REQUEST_CHANGES",
+            "COMMENT",
+          ],
+          "type": "string",
+        },
+      },
+      "required": [
+        "verdict",
+      ],
+      "type": "object",
+    },
+    "instructions": "When the reviewer asks you to submit their review, approve, or request changes, call submit_review. It opens a form showing them exactly what posts: say it's there, and end your turn. If they answer with a short yes in chat instead, call it again with the same input and confirm: "yes". Pass confirm: "just-post-it" only when their own message says to post without showing it, and for an approval names it ("approve it, just post it"). Asked from another of their threads, it gives you the text to send back there, and an approval waits for the reviewer's click in Needs review. If it comes back with a warning, such as new commits since they reviewed, tell them in a line, and call again with force: true only if they want it posted anyway. In a turn the reviewer didn't start, it only marks your suggested verdict. Post, approve, merge, close or push only with these tools, never with gh, gh api or git push in your shell.",
+    "name": "submit_review",
+    "presentation": null,
+  },
+  {
+    "description": "Reply on a review thread on this PR, as the reviewer. They see exactly what posts, with a Post button, before it posts.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "body": {
+          "description": "The reply, in GitHub Markdown.",
+          "maxLength": 65000,
+          "minLength": 1,
+          "type": "string",
+        },
+        "confirm": {
+          "description": ""yes": the reviewer, or the thread it was sent to, answered yes to exactly what was shown; give the same input again. "just-post-it": the reviewer's own message, or the relayed one, says to post it without showing it first ("just post it"; for request changes, the message is only that command: "just request changes").",
+          "enum": [
+            "yes",
+            "just-post-it",
+          ],
+          "type": "string",
+        },
+        "threadId": {
+          "description": "The thread's id, from list_feedback or read_pr_context.",
+          "minLength": 1,
+          "type": "string",
+        },
+      },
+      "required": [
+        "threadId",
+        "body",
+      ],
+      "type": "object",
+    },
+    "instructions": "When the reviewer asks you to reply on a thread, call post_reply with the thread's id; it opens the Post form, and a yes works as with submit_review. Post, approve, merge, close or push only with these tools, never with gh, gh api or git push in your shell.",
+    "name": "post_reply",
+    "presentation": null,
+  },
+  {
+    "description": "Resolve, or with resolved: false unresolve, a review thread on this PR on GitHub.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "confirm": {
+          "description": ""yes": the reviewer, or the thread it was sent to, answered yes to exactly what was shown; give the same input again. "just-post-it": the reviewer's own message, or the relayed one, says to post it without showing it first ("just post it"; for request changes, the message is only that command: "just request changes").",
+          "enum": [
+            "yes",
+            "just-post-it",
+          ],
+          "type": "string",
+        },
+        "resolved": {
+          "description": "false to unresolve it.",
+          "type": "boolean",
+        },
+        "threadId": {
+          "description": "The thread's id, from list_feedback or read_pr_context.",
+          "minLength": 1,
+          "type": "string",
+        },
+      },
+      "required": [
+        "threadId",
+      ],
+      "type": "object",
+    },
+    "instructions": "Resolve or unresolve a thread when the reviewer asks, with resolve_thread. On someone else's PR, push back once before changing its labels, reviewers, assignees, title or description, resolving its threads, or closing it, and offer a comment instead; then do what the reviewer says. Post, approve, merge, close or push only with these tools, never with gh, gh api or git push in your shell.",
+    "name": "resolve_thread",
+    "presentation": null,
+  },
+  {
+    "description": "Act on this PR on GitHub as the reviewer: comment; edit its title or description; add or remove labels, reviewers (a team as org/slug) or assignees; close, reopen or merge it; mark it ready for review or a draft. A comment, an edit, closing and merging show the reviewer exactly what happens, with a button naming it, first.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "action": {
+          "enum": [
+            "comment",
+            "edit",
+            "close",
+            "merge",
+            "add-label",
+            "remove-label",
+            "add-reviewer",
+            "remove-reviewer",
+            "add-assignee",
+            "remove-assignee",
+            "reopen",
+            "ready",
+            "draft",
+          ],
+          "type": "string",
+        },
+        "auto": {
+          "description": "merge: once checks and reviews pass.",
+          "type": "boolean",
+        },
+        "body": {
+          "description": "comment: the comment. edit: the new description. merge: the merge commit's description, else none. GitHub Markdown.",
+          "maxLength": 65000,
+          "type": "string",
+        },
+        "confirm": {
+          "description": ""yes": the reviewer, or the thread it was sent to, answered yes to exactly what was shown; give the same input again. "just-post-it": the reviewer's own message, or the relayed one, says to post it without showing it first ("just post it"; for request changes, the message is only that command: "just request changes").",
+          "enum": [
+            "yes",
+            "just-post-it",
+          ],
+          "type": "string",
+        },
+        "deleteBranch": {
+          "description": "merge: delete the branch after.",
+          "type": "boolean",
+        },
+        "method": {
+          "description": "merge: how. Ask the reviewer if they didn't say.",
+          "enum": [
+            "merge",
+            "squash",
+            "rebase",
+          ],
+          "type": "string",
+        },
+        "names": {
+          "description": "Labels, logins, or teams as org/slug, for the add and remove actions.",
+          "items": {
+            "minLength": 1,
+            "type": "string",
+          },
+          "maxItems": 50,
+          "type": "array",
+        },
+        "title": {
+          "description": "edit: the new title. merge: the merge commit's title, else the PR's title and number.",
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string",
+        },
+      },
+      "required": [
+        "action",
+      ],
+      "type": "object",
+    },
+    "instructions": "Use github_pr when the reviewer asks for one of these. On someone else's PR, push back once before changing its labels, reviewers, assignees, title or description, resolving its threads, or closing it, and offer a comment instead; then do what the reviewer says. Ask before merging while checks are still running, and offer auto: true, which merges once they pass. Force-pushing is the main thread's job: offer to send it there. The form and a yes work as with submit_review. Post, approve, merge, close or push only with these tools, never with gh, gh api or git push in your shell.",
+    "name": "github_pr",
+    "presentation": null,
+  },
+  {
+    "description": "Open a PR on GitHub from this local review's branch, as the reviewer, with the title and description you give. They see exactly what opens, with an Open PR button, first. Once it's open, this review becomes the PR's review.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "base": {
+          "description": "The branch it goes into, when the reviewer names one; else the review's base.",
+          "maxLength": 255,
+          "minLength": 1,
+          "type": "string",
+        },
+        "body": {
+          "description": "The PR's description, in GitHub Markdown.",
+          "maxLength": 65000,
+          "type": "string",
+        },
+        "confirm": {
+          "description": ""yes": the reviewer, or the thread it was sent to, answered yes to exactly what was shown; give the same input again. "just-post-it": the reviewer's own message, or the relayed one, says to post it without showing it first ("just post it"; for request changes, the message is only that command: "just request changes").",
+          "enum": [
+            "yes",
+            "just-post-it",
+          ],
+          "type": "string",
+        },
+        "title": {
+          "description": "The PR's title.",
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string",
+        },
+      },
+      "required": [
+        "title",
+      ],
+      "type": "object",
+    },
+    "instructions": "When the reviewer asks you to open a PR, draft its title and description from the review, then call open_pr; it opens the Post form, and a yes works as with submit_review. The branch must be on GitHub first: if it isn't, tell the reviewer to push it with Push in Finish review, and never push it yourself. Post, approve, merge, close or push only with these tools, never with gh, gh api or git push in your shell.",
+    "name": "open_pr",
+    "presentation": null,
+  },
+  {
+    "description": "Submit the guide. It's rejected, with every problem listed, unless: each changed file (or each hunk of a split file) is in exactly one chapter; chapter ids are unique, and none is "overview", the Overview page's; unplaced files have no changed lines; every chapter has a risk, and medium- and high-risk chapters a focus; no hotspot is listed twice; each hotspot and covered requirement points at a line the diff shows, a new-file line or, with side LEFT, a removed line's old-file line; and its text fits the schema's length limits. Fix and resubmit with the same targetKey and generationId.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "generationId": {
+          "type": "string",
+        },
+        "guide": {
+          "properties": {
+            "hotspots": {
+              "description": "The 1–3 places most likely to hide a defect, highest risk first.",
+              "items": {
+                "properties": {
+                  "file": {
+                    "description": "The file's exact repo-relative path, as the diff shows it.",
+                    "minLength": 1,
+                    "type": "string",
+                  },
+                  "line": {
+                    "description": "A line the diff shows: a new-file line (added or context), or with side LEFT an old-file line.",
+                    "maximum": 9007199254740991,
+                    "minimum": 1,
+                    "type": "integer",
+                  },
+                  "side": {
+                    "description": "RIGHT, the default, for a new-file line; LEFT for a removed line, such as a dropped check.",
+                    "enum": [
+                      "LEFT",
+                      "RIGHT",
+                    ],
+                    "type": "string",
+                  },
+                  "why": {
+                    "description": "The defect that could hide there, in one sentence.",
+                    "maxLength": 300,
+                    "minLength": 1,
+                    "type": "string",
+                  },
+                },
+                "required": [
+                  "file",
+                  "line",
+                  "why",
+                ],
+                "type": "object",
+              },
+              "maxItems": 3,
+              "type": "array",
+            },
+            "intent": {
+              "description": "Why the change exists, in 1–2 sentences.",
+              "maxLength": 800,
+              "minLength": 1,
+              "type": "string",
+            },
+            "requirements": {
+              "description": "What the PR description and its linked tickets ask for, each checked against the diff. Leave out when the PR doesn't say what it should do.",
+              "items": {
+                "properties": {
+                  "evidence": {
+                    "description": "Why, in one short sentence: what the code does, or what's absent.",
+                    "maxLength": 400,
+                    "minLength": 1,
+                    "type": "string",
+                  },
+                  "file": {
+                    "description": "Where the diff does it: the file's exact repo-relative path. Required when covered.",
+                    "minLength": 1,
+                    "type": "string",
+                  },
+                  "line": {
+                    "description": "A line the diff shows in that file: a new-file line, or with side LEFT an old-file line. Required when covered.",
+                    "maximum": 9007199254740991,
+                    "minimum": 1,
+                    "type": "integer",
+                  },
+                  "side": {
+                    "description": "RIGHT, the default, for a new-file line; LEFT for a removed line.",
+                    "enum": [
+                      "LEFT",
+                      "RIGHT",
+                    ],
+                    "type": "string",
+                  },
+                  "status": {
+                    "description": "Whether the diff does it.",
+                    "enum": [
+                      "covered",
+                      "partial",
+                      "missing",
+                      "unclear",
+                    ],
+                    "type": "string",
+                  },
+                  "text": {
+                    "description": "One thing the PR description or a linked ticket asks for, in a short line.",
+                    "maxLength": 300,
+                    "minLength": 1,
+                    "type": "string",
+                  },
+                },
+                "required": [
+                  "text",
+                  "status",
+                  "evidence",
+                ],
+                "type": "object",
+              },
+              "maxItems": 25,
+              "type": "array",
+            },
+            "sections": {
+              "description": "Chapters, in reading order.",
+              "items": {
+                "properties": {
+                  "diffs": {
+                    "description": "The chapter's files, each in exactly one chapter, or each of a split file's hunks in exactly one chapter.",
+                    "items": {
+                      "properties": {
+                        "file": {
+                          "description": "The file's exact repo-relative path, as the diff shows it.",
+                          "minLength": 1,
+                          "type": "string",
+                        },
+                        "hunks": {
+                          "description": "Only for a file split across chapters: the hunks this chapter covers, numbered from 1 in the file's patch order. Leave out to cover the whole file.",
+                          "items": {
+                            "maximum": 9007199254740991,
+                            "minimum": 1,
+                            "type": "integer",
+                          },
+                          "minItems": 1,
+                          "type": "array",
+                        },
+                        "summary": {
+                          "description": "What changed in this file and why it matters, in 1–2 sentences.",
+                          "maxLength": 400,
+                          "minLength": 1,
+                          "type": "string",
+                        },
+                      },
+                      "required": [
+                        "file",
+                        "summary",
+                      ],
+                      "type": "object",
+                    },
+                    "minItems": 1,
+                    "type": "array",
+                  },
+                  "focus": {
+                    "description": "Required on medium- and high-risk chapters: 1–3 short things to verify, each starting "Check that".",
+                    "items": {
+                      "maxLength": 200,
+                      "minLength": 1,
+                      "type": "string",
+                    },
+                    "maxItems": 3,
+                    "type": "array",
+                  },
+                  "id": {
+                    "description": "A short kebab-case id, unique in the guide. Not "overview", the Overview page's.",
+                    "minLength": 1,
+                    "type": "string",
+                  },
+                  "overview": {
+                    "description": "2–6 sentences of Markdown on what the chapter changes and what to check.",
+                    "maxLength": 1200,
+                    "minLength": 1,
+                    "type": "string",
+                  },
+                  "risk": {
+                    "description": "How closely to read this chapter; see the skill's rubric.",
+                    "enum": [
+                      "low",
+                      "medium",
+                      "high",
+                    ],
+                    "type": "string",
+                  },
+                  "title": {
+                    "description": "The chapter's concept, briefly.",
+                    "maxLength": 120,
+                    "minLength": 1,
+                    "type": "string",
+                  },
+                },
+                "required": [
+                  "id",
+                  "title",
+                  "overview",
+                  "risk",
+                  "diffs",
+                ],
+                "type": "object",
+              },
+              "type": "array",
+            },
+            "sinceReview": {
+              "description": "On a re-review only: what changed since the reviewer's last review, in 2–4 sentences.",
+              "maxLength": 1200,
+              "type": "string",
+            },
+            "title": {
+              "description": "The change, in one line.",
+              "maxLength": 120,
+              "minLength": 1,
+              "type": "string",
+            },
+            "unplacedFiles": {
+              "default": [],
+              "description": "Files with nothing to review (binary, mode-only, pure rename): never a file with changed lines. Usually empty.",
+              "items": {
+                "type": "string",
+              },
+              "type": "array",
+            },
+          },
+          "required": [
+            "title",
+            "intent",
+            "sections",
+          ],
+          "type": "object",
+        },
+        "targetKey": {
+          "type": "string",
+        },
+      },
+      "required": [
+        "targetKey",
+        "generationId",
+        "guide",
+      ],
+      "type": "object",
+    },
+    "instructions": "When generate_review_guide answers \`Guide accepted.\`, stop.",
+    "name": "generate_review_guide",
+    "presentation": null,
+  },
+  {
+    "description": "Send one of the reviewer's draft comments to the review's main thread now, the thread that writes the code, to fix: it gets an id the thread reports on, and goes after the thread's current turn. With patch, your exact fix goes with it, for the thread to apply as written. Nothing goes to GitHub.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "file": {
+          "description": "The draft comment's file, exactly as the diff shows it.",
+          "type": "string",
+        },
+        "force": {
+          "description": "Send past the warning the last call gave, once the reviewer says so.",
+          "type": "boolean",
+        },
+        "line": {
+          "description": "The draft comment's line (a range's last).",
+          "maximum": 2147483647,
+          "minimum": 1,
+          "type": "integer",
+        },
+        "patch": {
+          "description": "When the reviewer said you do it: the exact unified diff that fixes this comment, with file headers and hunks, as git apply takes it.",
+          "maxLength": 200000,
+          "type": "string",
+        },
+        "side": {
+          "description": "RIGHT, the default, or LEFT for a comment on a removed line.",
+          "enum": [
+            "RIGHT",
+            "LEFT",
+          ],
+          "type": "string",
+        },
+        "thread": {
+          "description": "As the warning offered: unarchive the main thread, start a fresh thread, or on a PR, fork the thread that wrote it.",
+          "enum": [
+            "unarchive",
+            "fresh",
+            "fork",
+          ],
+          "type": "string",
+        },
+      },
+      "required": [
+        "file",
+        "line",
+      ],
+      "type": "object",
+    },
+    "instructions": "When the reviewer asks to have a comment fixed ("fix this", "send it"), send it with send_now and say so; add the comment with add_draft_comment first if the line has none. When they say you do it, write the exact unified diff that fixes it, against the code as it is now, and pass it as patch: the main thread applies it as written, so the folder keeps one writer; on a PR with no thread working on it, a fresh thread at the PR's head applies it. Don't change the code, or push, yourself. If it comes back with a warning, tell the reviewer in a line, and call again only as they choose: force: true to send anyway, with thread: "unarchive", "fresh" or "fork" when it offers those. In a turn the reviewer didn't start, it sends nothing: suggest it instead. Post, approve, merge, close or push only with these tools, never with gh, gh api or git push in your shell.",
+    "name": "send_now",
+    "presentation": null,
+  },
+  {
+    "description": "Push this review's branch to GitHub when the reviewer says push: the main thread commits what they reviewed, the review checks the commit, then the main thread pushes exactly that commit. Never a force-push.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "at": {
+          "description": "With force: the at of the warning you told the reviewer, as push gave it.",
+          "type": "number",
+        },
+        "force": {
+          "description": "Push anyway, past the warning the last Push gave, once the reviewer's message is just "push anyway".",
+          "type": "boolean",
+        },
+      },
+      "type": "object",
+    },
+    "instructions": "Only when the reviewer's message in this review is just "push" or "push it", call push and tell them it's under way: the main thread commits, and Push in Finish review shows the check and the push. If it warns, tell them the warning in a line, with its at; call push with force: true and that at only once their message is just "push anyway". In any other turn it pushes nothing. Post, approve, merge, close or push only with these tools, never with gh, gh api or git push in your shell.",
+    "name": "push",
+    "presentation": null,
+  },
+]
+`;

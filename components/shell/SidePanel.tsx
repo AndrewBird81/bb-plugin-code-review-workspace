@@ -12,7 +12,7 @@ import { OPAQUE, Resizer, useSide } from "./side-parts";
 /** The id of the side panel, which the title bar's openers show and hide. */
 export const sidePanelId = (targetKey: string) => `gr-side-panel-${targetKey}`;
 
-const TITLE: Record<PanelView, string> = { comments: "Comments", finish: "Finish review", agent: "Review agent" };
+const TITLE: Record<PanelView, string> = { comments: "Comments", finish: "Finish review", agent: "Review agent", main: "Main thread" };
 
 /** Where a view puts its own actions in the panel's header, before ✕: Comments' ↻ and ⋯. */
 export const PanelActionsContext = createContext<HTMLElement | null>(null);
@@ -20,8 +20,8 @@ export const PanelActionsContext = createContext<HTMLElement | null>(null);
 /**
  * The conversation and finishing, at the code's right: docked at its width, over the code (`overlay`), or closed. On a
  * phone (`sheet`) over the code is the sheet above the dock. Its views stay mounted when it closes or switches, so
- * none loses what you were doing; `children` are them, each showing for its own view. The agent's view has a header of
- * its own.
+ * none loses what you were doing; `children` are them, each showing for its own view. The agent's and the main
+ * thread's views have headers of their own.
  */
 export function SidePanel({ targetKey, placement, sheet, view, width, maxWidth, onWidth, onWidthDone, onClose, onBack, children }: {
   targetKey: string;
@@ -72,7 +72,7 @@ export function SidePanel({ targetKey, placement, sheet, view, width, maxWidth, 
         style={placement === "docked" ? { width: docked } : overlay ? OPAQUE : undefined}
       >
         {inSheet && <SheetHandle sheet={ref} onClose={onClose} />}
-        {view && view !== "agent" && (
+        {view && view !== "agent" && view !== "main" && (
           <div className="flex h-11 shrink-0 items-center gap-1 border-b border-border pl-1.5 pr-1.5">
             {view === "finish"
               ? <Button variant="ghost" size="sm" className={cn("h-8 gap-1 px-2 text-muted-foreground", TOUCH_CONTROL)} onClick={onBack}><Icon name="ChevronLeft" aria-hidden />Comments</Button>

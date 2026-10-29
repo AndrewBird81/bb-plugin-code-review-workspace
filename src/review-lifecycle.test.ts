@@ -4,7 +4,8 @@ import { createStore } from "./store";
 import { recordPrState } from "./start-review";
 import { createReviewSync, type GithubReads, type TurnActions } from "./review-lifecycle";
 import { defaultPreferences } from "./preferences";
-import type { FeedbackThread, PrFacts, PrRef } from "./github/types";
+import type { DiscoveredPr, FeedbackThread, PrFacts, PrRef } from "./github/types";
+import { parseMyThreads } from "./github/threads";
 import { feedbackProgress } from "../lib/turn";
 import { matchesFilter } from "../lib/review-filters";
 import { completionNotifications } from "./completion-notifications";
@@ -61,9 +62,11 @@ async function setup(options: { pr?: Partial<PrFacts>; threads?: FeedbackThread[
     facts: vi.fn(async (refs: PrRef[]) => new Map(refs.map((ref) => [ref.targetKey, facts(ref, pr)]))),
     threads: vi.fn(async () => threads),
     discover: vi.fn(async () => []),
+    ownPrs: vi.fn(async () => []),
   };
   const actions: TurnActions = {
-    prepare: vi.fn(async () => true), checkPushes: vi.fn(async () => true), autoStart: vi.fn(async () => true), projectId: async () => "p1",
+    prepare: vi.fn(async () => true), checkPushes: vi.fn(async () => true), checkFixes: vi.fn(async () => true), autoStart: vi.fn(async () => true), projectId: async () => "p1",
+    becomePr: vi.fn(async () => "skipped" as const),
   };
   const sync = createReviewSync(bb, store, vi.fn() as any, { github, actions, now: () => now });
   return {
@@ -539,7 +542,8 @@ test("discovery adds PRs you're asked to review, skips deleted ones, and auto-st
   expect(s.actions.autoStart).toHaveBeenCalledWith(api.targetKey);
   // The other request alerts now; the auto-started one waits for its guide.
   await vi.waitFor(() => expect(s.published).toHaveLength(1));
-  expect(s.published[0]).toMatchObject({ title: "Fix login", body: expect.stringContaining("requested your review") });
+  // Its id leads, as in its window's title.
+  expect(s.published[0]).toMatchObject({ title: "app#9 · Fix login", body: expect.stringContaining("requested your review") });
 });
 
 test("evaluations of one review run one at a time, so a signal is prepared once", async () => {
@@ -1272,10 +1276,22 @@ test("after an upgrade to new turn rules, turns found in events from before it a
   expect(s.actions.prepare).toHaveBeenCalledTimes(1);
 });
 
+test("1.8.0's turn rules make only your own PRs' earlier comments history: a teammate's PR keeps what it was watching, and its event acts", async () => {
+  const s = await setup({ reviewed: true, pr: { headSha: "sha2", commits: ["sha1", "sha2"], requests: [{ at: T0 - HOUR, by: "alice", via: "user" }] } });
+  await s.store.setLifecycle("pr-1", { watchingSince: T0 - 10 * HOUR, watchedHead: "sha1" });
+  await s.store.saveReview({ targetKey: "pr-own", kind: "pr", repo: "acme/web", number: 9, author: "me", headSha: "sha1", createdAt: 1, status: "tracked", projectId: "p1" });
+  await s.store.setLifecycle("pr-own", { ownPr: true, watchingSince: T0 - 10 * HOUR, watchedHead: "sha1" });
+  await s.bb.storage.kv.set("turn-rules", 5);
+  await s.sync.all();
+  expect(s.actions.prepare).toHaveBeenCalledTimes(1);
+  expect(await s.store.getReview("pr-own")).toMatchObject({ watchingSince: T0 });
+  expect(await s.bb.storage.kv.get("turn-rules")).toBe(6);
+});
+
 test("once the turn rules are current, an event from before a pass still acts", async () => {
   const s = await setup({ reviewed: true, pr: { headSha: "sha2", commits: ["sha1", "sha2"], requests: [{ at: T0 - HOUR, by: "alice", via: "user" }] } });
   await s.store.setLifecycle("pr-1", { watchingSince: T0 - 10 * HOUR, watchedHead: "sha1" });
-  await s.bb.storage.kv.set("turn-rules", 5);
+  await s.bb.storage.kv.set("turn-rules", 6);
   await s.sync.all();
   expect(s.actions.prepare).toHaveBeenCalledTimes(1);
 });
@@ -1301,7 +1317,7 @@ test("a forced read of one review doesn't wait for the rest of a 200-review sync
       return out;
     }),
     threads: async () => [],
-    discover: async () => [],
+    discover: async () => [], ownPrs: async () => [],
   };
   const sync = createReviewSync(bb, store, vi.fn() as any, { github });
   const pass = sync.all(true);
@@ -1331,7 +1347,7 @@ test("an evaluation clears an expired snooze in the turn that reads it, so a sno
   const github: GithubReads = {
     viewer: { login: async () => "me", teams: async () => new Set<string>(), reset() {} },
     gate: { poll: async () => ({ kind: "unchanged" }) },
-    facts: vi.fn(async () => new Map()), threads: vi.fn(async () => []), discover: vi.fn(async () => []),
+    facts: vi.fn(async () => new Map()), threads: vi.fn(async () => []), discover: vi.fn(async () => []), ownPrs: vi.fn(async () => []),
   };
   const sync = createReviewSync(bb, store, vi.fn() as any, { github, now: () => T0 });
   const snoozed = read.then(() => store.setLifecycle("pr-1", { snoozedAt: T0, snoozedUntil: T0 + 5 * HOUR }));
@@ -1339,4 +1355,275 @@ test("an evaluation clears an expired snooze in the turn that reads it, so a sno
   await sync.evaluate("pr-1");
   await snoozed;
   expect(await store.getReview("pr-1")).toMatchObject({ snoozedAt: T0, snoozedUntil: T0 + 5 * HOUR });
+});
+
+// Your own PRs (1.8.0): their own search, everyone's threads, and a feature review becoming the PR's.
+
+const ownPr = (number: number, extra: Partial<DiscoveredPr> = {}): DiscoveredPr => ({
+  repo: "acme/web", number, title: `Mine ${number}`, url: `https://github.com/acme/web/pull/${number}`, author: "me", updatedAt: 1, isDraft: false,
+  requested: false, reviewed: false, own: true, head: `feat/${number}`, ...extra,
+});
+/** A review thread as GitHub's GraphQL gives it: started by `by` an hour after T0, with later comments. */
+const ghThread = (id: string, by: { __typename: string; login: string }, later: Array<[{ __typename: string; login: string }, number]> = []) => ({
+  id, isResolved: false, isOutdated: false, path: "a.ts", line: 2, originalLine: 2, startLine: null, diffSide: "RIGHT", subjectType: "LINE", resolvedBy: null,
+  first: { nodes: [{ id: `${id}-0`, databaseId: 1, author: by, body: "Can this be a map", createdAt: new Date(T0 + HOUR).toISOString(), pullRequestReview: null }] },
+  recent: { nodes: later.map(([author, hours], i) => ({ id: `${id}-${i + 1}`, author, body: "And this", createdAt: new Date(T0 + hours * HOUR).toISOString() })) },
+});
+const person = (login: string) => ({ __typename: "User", login });
+const botUser = (login: string) => ({ __typename: "Bot", login });
+
+/** Your PR acme/web#4 found by its own search, beside alice's pr-1; its threads are read as the sync reads them. */
+async function ownSetup() {
+  const s = await setup();
+  let nodes: unknown[] = [];
+  let updatedAt = 1;
+  vi.mocked(s.github.ownPrs).mockResolvedValue([ownPr(4)]);
+  vi.mocked(s.github.facts).mockImplementation(async (refs) => new Map(refs.map((ref) => [ref.targetKey, ref.number === 4
+    ? facts(ref, { author: "me", url: "https://github.com/acme/web/pull/4", headRefName: "feat/4", updatedAt }) : facts(ref)])));
+  vi.mocked(s.github.threads).mockImplementation(async (_repo, number, viewer, author) =>
+    number === 4 ? parseMyThreads({ data: { repository: { pullRequest: { reviewThreads: { nodes } } } } }, viewer, author) : []);
+  const key = (await import("./targets")).targetKey({ kind: "pr", repo: "acme/web", number: 4 });
+  return { ...s, key, comments: (next: unknown[]) => { nodes = next; updatedAt++; } };
+}
+
+test("a failing search for your own PRs leaves the look for review requests working", async () => {
+  const s = await setup();
+  await s.sync.all();
+  vi.mocked(s.github.ownPrs).mockRejectedValue(new Error("gh: Something went wrong"));
+  vi.mocked(s.github.discover).mockResolvedValue([
+    { repo: "acme/api", number: 7, title: "Add tenant scoping", url: "https://github.com/acme/api/pull/7", author: "bob", updatedAt: 1, isDraft: false, requested: true, reviewed: false },
+  ]);
+  s.at(1);
+  await s.sync.all(true);
+  expect(s.github.ownPrs).toHaveBeenCalled();
+  expect((await s.store.listReviews()).map((r) => r.repo).sort()).toEqual(["acme/api", "acme/web"]);
+  expect(s.sync.health().error).toBeNull();
+});
+
+test("your own PRs join the list in Reviewed, starting nothing; a bot's comment leaves it there, a teammate's brings it to Needs review with an alert", async () => {
+  const s = await ownSetup();
+  await s.sync.all(true);
+  const found = (await s.store.getReview(s.key))!;
+  expect(found).toMatchObject({ kind: "pr", status: "tracked", ownPr: true, author: "me" });
+  expect(await s.sync.turnOf(found)).toMatchObject({ group: "reviewed", reason: "own", label: "Your PR" });
+  // A bot's thread, and a bot under yours.
+  s.comments([ghThread("t-bot", botUser("copilot-pull-request-reviewer")), ghThread("t-mine", person("me"), [[botUser("github-actions"), 1.5]])]);
+  s.at(2);
+  await s.sync.all(true);
+  expect(await s.sync.turnOf((await s.store.getReview(s.key))!)).toMatchObject({ group: "reviewed", reason: "own" });
+  // bob's thread, and his reply on yours.
+  s.comments([ghThread("t-bot", botUser("copilot-pull-request-reviewer")), ghThread("t-mine", person("me"), [[botUser("github-actions"), 1.5], [person("bob"), 2.5]]), ghThread("t-bob", person("bob"))]);
+  s.at(3);
+  await s.sync.all(true);
+  const back = (await s.store.getReview(s.key))!;
+  expect(await s.sync.turnOf(back)).toMatchObject({ group: "needs", reason: "new-comments", label: "Your PR · 2 new comments" });
+  // Everyone's threads are kept on your PR.
+  expect((await s.store.listFeedbackThreads(s.key)).map((t) => t.id).sort()).toEqual(["t-bob", "t-bot", "t-mine"]);
+  await vi.waitFor(() => expect(s.published).toHaveLength(1));
+  expect(s.published[0]).toMatchObject({ title: "web#4 · Expire cache entries", body: expect.stringContaining("2 new comments on your PR, the latest from @bob") });
+  expect(s.actions.prepare).not.toHaveBeenCalled();
+  expect(s.actions.autoStart).not.toHaveBeenCalled();
+  expect(s.actions.checkPushes).not.toHaveBeenCalled();
+});
+
+/** A relayed merge, close or approval waiting in Ready to approve, asked at `hoursAfter`. */
+const readyRow = (action: "approve" | "merge" | "close", hoursAfter: number) => ({ readyToApprove: { action, verdict: null, body: "", comments: [], headSha: "sha1", token: `tok-${action}`, from: "thr-orchestrator", at: T0 + hoursAfter * HOUR } });
+
+test("a new comment on your own PR while its merge waits in Ready to approve still alerts, as the comment it is (3.4-fixes2 P1)", async () => {
+  const s = await ownSetup();
+  await s.sync.all(true);
+  await s.store.setLifecycle(s.key, readyRow("merge", 1));
+  s.comments([ghThread("t-bob", person("bob")), ghThread("t-mine", person("me"), [[person("bob"), 2.5]])]);
+  s.at(3);
+  await s.sync.all(true);
+  const turn = await s.sync.turnOf((await s.store.getReview(s.key))!);
+  expect(turn).toMatchObject({ group: "needs", reason: "ready-to-approve", signal: expect.stringMatching(/^comments:/), under: { reason: "new-comments" } });
+  await vi.waitFor(() => expect(s.published).toHaveLength(1));
+  expect(s.published[0]).toMatchObject({ body: expect.stringContaining("2 new comments on your PR, the latest from @bob") });
+  // The alert stays current while the row waits.
+  s.at(3.1);
+  await s.sync.all(true);
+  expect(s.published).toHaveLength(1);
+  expect((await s.store.getReview(s.key))?.notifiedSignal).toBe(turn.signal);
+});
+
+test("a teammate's Request changes with only a summary brings your PR to Needs review once, as one comment; a review's inline comments count as their threads, not again", async () => {
+  const s = await ownSetup();
+  let conversation: PrFacts["conversation"] = [];
+  vi.mocked(s.github.facts).mockImplementation(async (refs) => new Map(refs.map((ref) => [ref.targetKey, ref.number === 4
+    // Each read sees the PR updated, so its threads are read again.
+    ? facts(ref, { author: "me", url: "https://github.com/acme/web/pull/4", headRefName: "feat/4", conversation, updatedAt: Date.now() }) : facts(ref)])));
+  await s.sync.all(true);
+  const body = { id: "PRR_1", kind: "review" as const, author: "dana", bot: false, state: "CHANGES_REQUESTED", body: "Can you add tests?", at: T0 + 2 * HOUR, url: null, waiting: true };
+  conversation = [body];
+  s.at(3);
+  await s.sync.all(true);
+  const back = (await s.store.getReview(s.key))!;
+  expect(back.prConversation).toEqual([body]);
+  expect(back.signals?.newComments).toEqual({ count: 1, threads: 1, at: T0 + 2 * HOUR, by: "dana" });
+  expect(await s.sync.turnOf(back)).toMatchObject({ group: "needs", reason: "new-comments", label: "Your PR · 1 new comment" });
+  await vi.waitFor(() => expect(s.published).toHaveLength(1));
+  expect(s.published[0]).toMatchObject({ body: expect.stringContaining("@dana commented on your PR") });
+  // Read again, it's the same comment: no second alert.
+  s.at(3.5);
+  await s.sync.all(true);
+  expect(s.published).toHaveLength(1);
+  // Her review adds a thread on a line: two comments, each once.
+  s.comments([ghThread("t-dana", person("dana"))]);
+  s.at(4);
+  await s.sync.all(true);
+  expect((await s.store.getReview(s.key))!.signals?.newComments).toMatchObject({ count: 2, threads: 2 });
+  // Your comment on the PR answers her summary.
+  conversation = [{ ...body, waiting: false }];
+  s.comments([]);
+  s.at(5);
+  await s.sync.all(true);
+  expect(await s.sync.turnOf((await s.store.getReview(s.key))!)).toMatchObject({ group: "reviewed", reason: "own" });
+});
+
+test("a Request changes with only a summary keeps waiting once 16 later reviews push it out of GitHub's window of 15, until your comment answers it", async () => {
+  const { parsePrFacts } = await import("./github/pr-facts");
+  const s = await ownSetup();
+  const node = (id: string, login: string, state: string, body: string, hours: number) => ({ __typename: "PullRequestReview", id, url: null, state, author: { __typename: "User", login }, body, submittedAt: new Date(T0 + hours * HOUR).toISOString(), comments: { nodes: [] } });
+  const comment = (id: string, login: string, body: string, hours: number) => ({ id, url: null, author: { __typename: "User", login }, body, createdAt: new Date(T0 + hours * HOUR).toISOString() });
+  // Dana's Request changes, then her 16 replies on lines, each a review of its own with no summary.
+  const reviews = [node("PRR_rc", "dana", "CHANGES_REQUESTED", "Can you add tests?", 2), ...Array.from({ length: 16 }, (_, i) => node(`PRR_r${i}`, "dana", "COMMENTED", "", 2.1 + i * 0.01))];
+  let window = { reviews: reviews.slice(-15), comments: [] as unknown[] };
+  vi.mocked(s.github.facts).mockImplementation(async (refs) => new Map(refs.map((ref) => {
+    if (ref.number !== 4) return [ref.targetKey, facts(ref)];
+    const pr = { number: 4, state: "OPEN", isDraft: false, updatedAt: new Date(Date.now()).toISOString(), title: "Expire cache entries", url: "https://github.com/acme/web/pull/4", baseRefName: "main", headRefName: "feat/4", headRefOid: "sha1",
+      author: { login: "me" }, commits: { nodes: [{ commit: { oid: "sha1" } }] }, head: { nodes: [] }, latestOpinionatedReviews: { nodes: [] }, reviewRequests: { nodes: [] }, reviews: { nodes: [] }, events: { nodes: [] },
+      conversation: { nodes: window.comments }, reviewItems: { nodes: window.reviews } };
+    return [ref.targetKey, parsePrFacts({ data: { p0: { pullRequest: pr } } }, [ref], "me", new Set()).get(ref.targetKey)!];
+  })));
+  await s.sync.all(true);
+  // First read: in the window.
+  window = { reviews: [reviews[0]!, ...reviews.slice(1, 15)], comments: [] };
+  s.at(3);
+  await s.sync.all(true);
+  expect((await s.store.getReview(s.key))!.prConversation).toEqual([expect.objectContaining({ id: "PRR_rc", waiting: true })]);
+  // Then 16 later reviews: GitHub's last 15 no longer have it, and it still waits, counted once.
+  window = { reviews: reviews.slice(-15), comments: [] };
+  s.at(4);
+  await s.sync.all(true);
+  const kept = (await s.store.getReview(s.key))!;
+  expect(kept.prConversation).toEqual([expect.objectContaining({ id: "PRR_rc", waiting: true })]);
+  expect(kept.signals?.newComments).toMatchObject({ count: 1, by: "dana" });
+  expect(await s.sync.turnOf(kept)).toMatchObject({ group: "needs", reason: "new-comments" });
+  // Your comment on the PR answers it.
+  window = { reviews: reviews.slice(-15), comments: [comment("IC_me", "me", "Added them.", 5)] };
+  s.at(5);
+  await s.sync.all(true);
+  expect((await s.store.getReview(s.key))!.prConversation).toEqual([]);
+  expect(await s.sync.turnOf((await s.store.getReview(s.key))!)).toMatchObject({ group: "reviewed" });
+});
+
+test("a summary you answered stays answered once 15 later PR comments push your reply out of GitHub's window", async () => {
+  const { parsePrFacts } = await import("./github/pr-facts");
+  const s = await ownSetup();
+  const rc = { __typename: "PullRequestReview", id: "PRR_rc", url: null, state: "CHANGES_REQUESTED", author: { __typename: "User", login: "dana" }, body: "Can you add tests?", submittedAt: new Date(T0 + 2 * HOUR).toISOString(), comments: { nodes: [] } };
+  const comment = (id: string, author: { __typename: string; login: string }, hours: number) => ({ id, url: null, author, body: "Coverage report", createdAt: new Date(T0 + hours * HOUR).toISOString() });
+  // Your reply, then a bot's 15 comments after it.
+  const comments = [comment("IC_me", { __typename: "User", login: "me" }, 3), ...Array.from({ length: 15 }, (_, i) => comment(`IC_bot${i}`, { __typename: "Bot", login: "codecov" }, 3.1 + i * 0.01))];
+  let window: unknown[] = [];
+  vi.mocked(s.github.facts).mockImplementation(async (refs) => new Map(refs.map((ref) => {
+    if (ref.number !== 4) return [ref.targetKey, facts(ref)];
+    const pr = { number: 4, state: "OPEN", isDraft: false, updatedAt: new Date(Date.now()).toISOString(), title: "Expire cache entries", url: "https://github.com/acme/web/pull/4", baseRefName: "main", headRefName: "feat/4", headRefOid: "sha1",
+      author: { login: "me" }, commits: { nodes: [{ commit: { oid: "sha1" } }] }, head: { nodes: [] }, latestOpinionatedReviews: { nodes: [] }, reviewRequests: { nodes: [] }, reviews: { nodes: [] }, events: { nodes: [] },
+      conversation: { nodes: window }, reviewItems: { nodes: [rc] } };
+    return [ref.targetKey, parsePrFacts({ data: { p0: { pullRequest: pr } } }, [ref], "me", new Set()).get(ref.targetKey)!];
+  })));
+  window = comments.slice(0, 1);
+  s.at(4);
+  await s.sync.all(true);
+  expect((await s.store.getReview(s.key))!.prConversation?.find((item) => item.id === "PRR_rc")).toMatchObject({ waiting: false });
+  // GitHub's last 15 comments are the bot's: your reply isn't among them.
+  window = comments.slice(-15);
+  s.at(5);
+  await s.sync.all(true);
+  const later = (await s.store.getReview(s.key))!;
+  expect(later.prConversation?.find((item) => item.id === "PRR_rc")).toMatchObject({ waiting: false });
+  expect(later.signals?.newComments ?? null).toBeNull();
+  expect(await s.sync.turnOf(later)).toMatchObject({ group: "reviewed" });
+});
+
+test("a teammate's PR keeps no summaries or comments of others, as before 1.8.0", async () => {
+  const s = await setup({ reviewed: true, pr: { conversation: [{ id: "PRR_1", kind: "review", author: "bob", bot: false, state: "COMMENTED", body: "Thoughts?", at: T0, url: null, waiting: true }] } });
+  await s.sync.all(true);
+  const review = (await s.store.getReview("pr-1"))!;
+  expect(review.prConversation).toBeNull();
+  expect(review.signals).not.toHaveProperty("newComments");
+});
+
+test("a snooze that ends while a row waits in Ready to approve still wakes, with its alert (3.4-fixes2 P1)", async () => {
+  const s = await setup({ reviewed: true });
+  await s.sync.all();
+  s.pr({ headSha: "sha2", commits: ["sha1", "sha2"], requests: [{ at: T0 + 0.1 * HOUR, by: "alice", via: "user" }] });
+  vi.mocked(s.actions.prepare).mockResolvedValue(false);
+  s.at(0.2);
+  await s.sync.all(true);
+  await vi.waitFor(() => expect(s.published).toHaveLength(1));
+  await s.store.setLifecycle("pr-1", { snoozedAt: T0 + 0.4 * HOUR, snoozedUntil: T0 + HOUR, ...readyRow("approve", 0.5) });
+  s.at(0.5);
+  await s.sync.evaluate("pr-1");
+  expect(await s.sync.turnOf((await s.store.getReview("pr-1"))!)).toMatchObject({ reason: "ready-to-approve", signal: null });
+  s.at(1.1);
+  await s.sync.all();
+  expect(await s.sync.turnOf((await s.store.getReview("pr-1"))!)).toMatchObject({ reason: "ready-to-approve", signal: `re-requested:${T0 + 0.1 * HOUR}` });
+  await vi.waitFor(() => expect(s.published).toHaveLength(2));
+  expect(s.published[1].eventId).toBe(`turn:re-requested:${T0 + 0.1 * HOUR}:woke:${T0 + HOUR}`);
+  expect(s.published[1].body).toMatch(/^@alice re-requested your review/);
+});
+
+test("your PR of a folder's branch makes that folder's review the PR's, not another review; one that can't yet waits for it", async () => {
+  const s = await setup();
+  await s.sync.all();
+  const feature = { environmentId: "env1", hostId: "h1", machine: "MaxBook", path: "/src/web", branch: "feat/4", baseRef: "main", repo: "acme/web" };
+  await s.store.saveReview({ targetKey: "br-1", kind: "ref", title: "Fix login", status: "ready", createdAt: 1, projectId: "p1" });
+  await s.store.setLifecycle("br-1", { feature });
+  vi.mocked(s.github.ownPrs).mockResolvedValue([ownPr(4), ownPr(5)]);
+  // The guide is still being written: it waits.
+  vi.mocked(s.actions.becomePr).mockResolvedValue("skipped");
+  s.at(1);
+  await s.sync.all(true);
+  expect(s.actions.becomePr).toHaveBeenCalledWith("br-1", { repo: "acme/web", number: 4 });
+  expect((await s.store.listReviews()).map((r) => r.number ?? r.targetKey).sort()).toEqual([1, 5, "br-1"]);
+  // Then it becomes the PR's, as src/feature-review.ts becomePr does: the same row.
+  vi.mocked(s.actions.becomePr).mockImplementation(async (key, pr) => {
+    await s.store.saveReview({ ...(await s.store.getReview(key))!, kind: "pr", ...pr, url: `https://github.com/acme/web/pull/${pr.number}` });
+    return "converted";
+  });
+  s.at(2);
+  await s.sync.all(true);
+  const reviews = await s.store.listReviews();
+  expect(reviews.map((r) => [r.targetKey, r.kind, r.number])).toEqual(expect.arrayContaining([["br-1", "pr", 4]]));
+  expect(reviews.filter((r) => r.number === 4)).toHaveLength(1);
+  // Read at once, as a PR.
+  expect(s.github.facts).toHaveBeenCalledWith([{ targetKey: "br-1", repo: "acme/web", number: 4 }], "me", expect.anything());
+  // Once it's the PR's, it isn't asked again.
+  vi.mocked(s.actions.becomePr).mockClear();
+  s.at(3);
+  await s.sync.all(true);
+  expect(s.actions.becomePr).not.toHaveBeenCalled();
+});
+
+test("your PR whose review you took off the list leaves its folder's review as it is", async () => {
+  const s = await setup();
+  await s.sync.all();
+  await s.store.saveReview({ targetKey: "br-1", kind: "ref", status: "ready", createdAt: 1, projectId: "p1" });
+  await s.store.setLifecycle("br-1", { feature: { environmentId: "env1", hostId: "h1", machine: "MaxBook", path: "/src/web", branch: "feat/4", baseRef: "main", repo: "acme/web" } });
+  vi.mocked(s.github.ownPrs).mockResolvedValue([ownPr(4)]);
+  const { targetKey } = await import("./targets");
+  await s.store.ignoreDiscovery(targetKey({ kind: "pr", repo: "acme/web", number: 4 }));
+  s.at(1);
+  await s.sync.all(true);
+  expect(s.actions.becomePr).not.toHaveBeenCalled();
+  expect((await s.store.getReview("br-1"))?.kind).toBe("ref");
+});
+
+test("with Include your own PRs off, discovery doesn't look for them", async () => {
+  const s = await setup({ preferences: { knobs: { ...defaultPreferences.knobs, trackOwnPrs: false } } });
+  await s.sync.all(true);
+  expect(s.github.discover).toHaveBeenCalled();
+  expect(s.github.ownPrs).not.toHaveBeenCalled();
 });

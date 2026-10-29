@@ -123,7 +123,7 @@ test("Ask agent on the summary talks in its discussion, and Undo puts the agent'
   fireEvent.click(summary(slot).getByRole("button", { name: "Ask agent about the review summary" }));
   fireEvent.change(summary(slot).getByRole("textbox", { name: "Message to agent" }), { target: { value: "Shorter, please." } });
   fireEvent.click(summary(slot).getByRole("button", { name: "Send to agent" }));
-  await waitFor(() => expect(askAgent).toHaveBeenCalledWith({ targetKey: "ask", file: "", line: 0, side: "RIGHT", body: "Shorter, please." }));
+  await waitFor(() => expect(askAgent).toHaveBeenCalledWith({ targetKey: "ask", file: "", line: 0, side: "RIGHT", body: "Shorter, please.", inserted: false }));
   await summary(slot).findByText("Agent edited the summary.");
   expect(summary(slot).getByText("Short.")).toBeTruthy();
   fireEvent.click(summary(slot).getByRole("button", { name: "Undo" }));
@@ -140,7 +140,7 @@ test("an agent's summary written before your comments changed offers to update i
   const slot = await renderTray("outdated", { getDraft: () => ({ draft }), askAgent });
   expect(summary(slot).getByText("Your comments changed since the agent wrote this.")).toBeTruthy();
   fireEvent.click(summary(slot).getByRole("button", { name: "Update" }));
-  await waitFor(() => expect(askAgent).toHaveBeenCalledWith({ targetKey: "outdated", ...SUMMARY_AT, body: "My comments changed since you wrote this summary. Update it to match them." }));
+  await waitFor(() => expect(askAgent).toHaveBeenCalledWith({ targetKey: "outdated", ...SUMMARY_AT, body: "My comments changed since you wrote this summary. Update it to match them.", inserted: true }));
   // While the agent works on it, the hint steps aside.
   await summary(slot).findByText("Waiting for agent…");
   expect(summary(slot).queryByText("Your comments changed since the agent wrote this.")).toBeNull();
@@ -153,7 +153,7 @@ test("without a summary, you write it or ask the agent to, and Request changes w
   const setVerdict = vi.fn(({ verdict }: any) => ({ draft: { ...draft, verdict, verdictChosen: true } }));
   const slot = await renderTray("empty", { getDraft: () => ({ draft }), askAgent, setVerdict });
   fireEvent.click(summary(slot).getByRole("button", { name: "Ask agent to write it" }));
-  await waitFor(() => expect(askAgent).toHaveBeenCalledWith({ targetKey: "empty", ...SUMMARY_AT, body: "Write the review summary." }));
+  await waitFor(() => expect(askAgent).toHaveBeenCalledWith({ targetKey: "empty", ...SUMMARY_AT, body: "Write the review summary.", inserted: true }));
   fireEvent.click(verdict(slot, "Request changes"));
   await slot.findByText("Requesting changes needs a summary: say what has to change.");
   expect(slot.getByRole("button", { name: /^Submit to GitHub/ }).hasAttribute("disabled")).toBe(true);

@@ -70,6 +70,42 @@ test("your own PR needs your review until you've reviewed it, then it's Reviewed
   expect(turn(own({ prState: "MERGED" })).group).toBe("archive");
 });
 
+test("your own PR found on GitHub waits in Reviewed until someone's comment waits for your reply, then it's yours, with an alert per comment", () => {
+  const found: TurnInput = { targetKey: "pr-9", kind: "pr", status: "tracked", prState: "OPEN", ownPr: true, createdAt: t(9), signals: { ci: "pass" } };
+  expect(turn(found)).toMatchObject({ group: "reviewed", reason: "own", label: "Your PR", signal: null, notify: false });
+  const commented = { ...found, signals: { ...found.signals, newComments: { count: 3, at: t(1), by: "bob" } } };
+  expect(turn(commented)).toMatchObject({ group: "needs", reason: "new-comments", label: "Your PR · 3 new comments", signal: `comments:${t(1)}`, notify: true, at: t(1), eventAt: t(1) });
+  expect(turn({ ...found, signals: { newComments: { count: 1, at: t(1), by: "bob" } } }).label).toBe("Your PR · 1 new comment");
+  // As many threads as Comments' Needs you counts, when that's not one a comment.
+  expect(turn({ ...found, signals: { newComments: { count: 3, threads: 2, at: t(1), by: "bob" } } }).label).toBe("Your PR · 3 new comments in 2 threads");
+  expect(turn({ ...found, signals: { newComments: { count: 2, threads: 1, at: t(1), by: "bob" } } }).label).toBe("Your PR · 2 new comments in 1 thread");
+  expect(turn({ ...found, signals: { newComments: { count: 2, threads: 2, at: t(1), by: "bob" } } }).label).toBe("Your PR · 2 new comments");
+  // One you started a review of, or reviewed, comes back the same way.
+  expect(turn({ ...commented, status: "ready", submittedVerdict: "COMMENT", submittedAt: t(5) })).toMatchObject({ group: "needs", reason: "new-comments" });
+  // Your reply, or a resolve, ends it: the sync reads no comment waiting.
+  expect(turn({ ...commented, signals: { ...commented.signals, newComments: null } })).toMatchObject({ group: "reviewed", reason: "own" });
+  // A snooze holds the comments it set aside; a newer one wakes it.
+  const snoozed = { ...commented, snoozedAt: t(0.5), snoozedUntil: NOW + hour };
+  expect(turn(snoozed)).toMatchObject({ group: "waiting", reason: "snoozed" });
+  expect(turn({ ...snoozed, signals: { newComments: { count: 4, at: t(0.2), by: "carol" } } })).toMatchObject({ group: "needs", reason: "new-comments" });
+  // A teammate's PR never reads them.
+  expect(turn({ ...commented, ownPr: false, signals: { ...commented.signals, requestPending: true, requestedAt: t(8) } }).reason).toBe("requested");
+});
+
+test("with Include your own PRs off, your PRs found on GitHub leave the list until you start a review of one", () => {
+  const found: TurnInput = { targetKey: "pr-9", kind: "pr", status: "tracked", prState: "OPEN", ownPr: true, signals: { newComments: { count: 2, at: t(1), by: "bob" } } };
+  expect(turn(found, { ownPrs: false })).toMatchObject({ group: "archive", reason: "own" });
+  expect(turn({ ...found, status: "ready" }, { ownPrs: false })).toMatchObject({ group: "needs", reason: "new-comments" });
+  expect(turnOptions({ ...defaultPreferences, knobs: { ...defaultPreferences.knobs, trackOwnPrs: false } }).ownPrs).toBe(false);
+  expect(turnOptions(defaultPreferences).ownPrs).toBe(true);
+});
+
+test("your own PR's threads aren't progress: an answered one waits for your reply", () => {
+  const threads = { total: 3, resolved: 1, answered: 2, questions: 0, open: 0, outdated: 0 };
+  expect(feedbackProgress({ ownPr: true, signals: { threads } })).toBeNull();
+  expect(feedbackProgress({ ownPr: false, signals: { threads } })).toMatchObject({ done: 3, total: 3 });
+});
+
 test("a PR GitHub can't find for a week goes to Archive", () => {
   const gone = (days: number, reason: "not-found" | "forbidden" = "not-found") => changesRequested({ unreachable: { since: NOW - days * 24 * hour, reason } });
   expect(turn(gone(1)).group).toBe("waiting");
@@ -293,4 +329,58 @@ test("a non-blocking thread doesn't hold Feedback handled or count in progress, 
   const comment = { ...changesRequested({ submittedVerdict: "COMMENT" }, threadSignals([mine("open", "nit: spacing")])) };
   expect(turn(comment)).toMatchObject({ group: "reviewed", label: "Commented" });
   expect(feedbackProgress(comment)).toBeNull();
+});
+
+test("a relayed approval waiting for your click is in Needs review, whatever the review waited on, and alerts nothing of its own; a merged PR's is done", () => {
+  const ready = { readyToApprove: { at: t(1) } };
+  for (const review of [changesRequested(ready), changesRequested({ ...ready, userArchivedAt: t(2) }), changesRequested({ ...ready, snoozedAt: t(2) })]) {
+    expect(computeTurn(review, undefined, NOW)).toMatchObject({ group: "needs", reason: "ready-to-approve", label: "Ready to approve", at: t(1), notify: false, signal: null });
+  }
+  expect(computeTurn(changesRequested({ ...ready, prState: "MERGED" }), undefined, NOW)).toMatchObject({ group: "archive", reason: "merged" });
+});
+
+test("a row waiting to be approved carries the alert of the turn beneath it: a new comment on your own PR, or a re-request", () => {
+  const ready = { readyToApprove: { at: t(1) } };
+  const own: TurnInput = { targetKey: "pr-1", kind: "pr", status: "tracked", prState: "OPEN", ownPr: true, ...ready, signals: { newComments: { count: 2, at: t(0.5), by: "bob" } } };
+  expect(computeTurn(own, undefined, NOW)).toEqual({ ...computeTurn({ ...own, readyToApprove: null }, undefined, NOW), reason: "ready-to-approve", label: "Ready to approve", at: t(1),
+    under: { reason: "new-comments", label: "Your PR · 2 new comments" } });
+  expect(computeTurn(own, undefined, NOW)).toMatchObject({ signal: `comments:${t(0.5)}`, notify: true, eventAt: t(0.5) });
+  const asked = changesRequested(ready, { requestedAt: t(0.5), requestedVia: "user" });
+  expect(computeTurn(asked, undefined, NOW)).toMatchObject({ reason: "ready-to-approve", signal: `re-requested:${t(0.5)}`, notify: true, under: { reason: "re-requested" } });
+});
+
+test("comments sent to fix: a local review waits on the main thread's reports, and comes back Ready to re-review, alerting once per Send", () => {
+  const local = (sends: TurnInput["sends"], fixes: TurnInput["fixes"], extra: Partial<TurnInput> = {}): TurnInput => ({ targetKey: "br-1", kind: "ref", status: "ready", createdAt: t(9), sends, fixes, ...extra });
+  const sent = [{ n: 1, at: t(3), threadId: "coder", ids: ["c1", "c2", "c3"] }];
+  expect(turn(local(sent, { sent: 3, reported: 1, inferred: 1, checked: 0, fixed: 0 }))).toMatchObject({ group: "waiting", reason: "fixes-sent", label: "1 of 3 reported", signal: null, notify: false });
+  // Idle alone isn't done.
+  expect(turn(local([{ ...sent[0]!, stopped: { at: t(2), why: "idle" } }], { sent: 3, reported: 1, inferred: 0, checked: 0, fixed: 0 }))).toMatchObject({ group: "waiting", reason: "fixes-sent" });
+  // Archived or deleted, it won't report the rest: they're back with you, with no alert.
+  expect(turn(local([{ ...sent[0]!, stopped: { at: t(2), why: "archived" } }], { sent: 3, reported: 2, inferred: 0, checked: 0, fixed: 0 })))
+    .toMatchObject({ group: "needs", reason: "fixes-stopped", label: "Main thread archived · 2 of 3 reported", signal: null, notify: false, at: t(2) });
+  expect(turn(local([{ ...sent[0]!, stopped: { at: t(2), why: "deleted" } }], { sent: 3, reported: 2, inferred: 0, checked: 0, fixed: 0 })).label).toBe("Main thread deleted · 2 of 3 reported");
+  const ready = turn(local([{ ...sent[0]!, readyAt: t(1) }], { sent: 3, reported: 3, inferred: 0, checked: 0, fixed: 0 }));
+  expect(ready).toMatchObject({ group: "needs", reason: "fixes-ready", label: "Ready to re-review", signal: "fixes-ready:1", notify: true, at: t(1), eventAt: t(1) });
+  // A Send after it waits again; its own readiness alerts again.
+  const again = [{ ...sent[0]!, readyAt: t(1) }, { n: 2, at: t(0.5), threadId: "coder", ids: ["c4"] }];
+  expect(turn(local(again, { sent: 1, reported: 0, inferred: 0, checked: 0, fixed: 0 }))).toMatchObject({ group: "waiting", reason: "fixes-sent" });
+  expect(turn(local([again[0]!, { ...again[1]!, readyAt: t(0.2) }], { sent: 1, reported: 1, inferred: 0, checked: 0, fixed: 0 })).signal).toBe("fixes-ready:2");
+  // Nothing out: resolved, dismissed or open again, there's nothing to wait for or re-review.
+  expect(turn(local([{ ...sent[0]!, readyAt: t(1) }], { sent: 0, reported: 0, inferred: 0, checked: 0, fixed: 0 }))).toMatchObject({ group: "needs", reason: "new" });
+  expect(turn(local(sent, { sent: 0, reported: 0, inferred: 0, checked: 0, fixed: 0 }))).toMatchObject({ group: "needs", reason: "new" });
+  // The last one not reported is yours again, edited: the rest are reported, so it doesn't wait.
+  expect(turn(local(sent, { sent: 2, reported: 2, inferred: 0, checked: 0, fixed: 0 }))).toMatchObject({ group: "needs", reason: "new" });
+  // A paused folder still waits for its branch.
+  expect(turn(local([{ ...sent[0]!, readyAt: t(1) }], { sent: 3, reported: 3, inferred: 0, checked: 0, fixed: 0 }, { feature: { pausedOn: "main" } }))).toMatchObject({ group: "waiting", reason: "paused" });
+});
+
+test("comments sent to fix on a PR: Ready to re-review until your next review there; while they're out, GitHub says whose turn it is", () => {
+  const pr = (readyAt?: number, lastReviewAt = t(5)) => changesRequested({ sends: [{ n: 1, at: t(4), threadId: "coder", ids: ["c1"], ...readyAt ? { readyAt } : {} }], fixes: { sent: 1, reported: readyAt ? 1 : 0, inferred: 0, checked: 0, fixed: 0 } }, { lastReviewAt });
+  expect(turn(pr())).toMatchObject({ group: "waiting", reason: "waiting" });
+  expect(turn(pr(t(2)))).toMatchObject({ group: "needs", reason: "fixes-ready", signal: "fixes-ready:1", notify: true });
+  expect(turn(pr(t(2), t(1)))).toMatchObject({ group: "waiting", reason: "waiting" });
+  // Its fixer archived before reporting: back with you, until your next review there.
+  const archived = (lastReviewAt: number) => changesRequested({ sends: [{ n: 1, at: t(4), threadId: "coder", ids: ["c1"], stopped: { at: t(2), why: "archived" } }], fixes: { sent: 1, reported: 0, inferred: 0, checked: 0, fixed: 0 } }, { lastReviewAt });
+  expect(turn(archived(t(5)))).toMatchObject({ group: "needs", reason: "fixes-stopped", notify: false });
+  expect(turn(archived(t(1)))).toMatchObject({ group: "waiting", reason: "waiting" });
 });

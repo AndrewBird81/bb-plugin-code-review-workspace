@@ -61,8 +61,8 @@ test("read_pr_context gives the PR's story, CI, others' threads, and the repo's 
   expect(text).toMatch(/Commits \(2\):\n<untrusted source="commit messages">\n- Retry once\n- Add test\n<\/untrusted>/);
   expect(text).toContain('Failing CI checks:\n<untrusted source="CI checks">\n- lint: https://ci/lint\n</untrusted>');
   expect(text).not.toContain("- unit");
-  expect(text).toContain("open review threads (1; 1 resolved)");
-  expect(text).toContain("- @coderabbitai (bot) on src/auth.ts:12: Possible null deref.\n  latest reply, @alice: Guarded now.");
+  expect(text).toContain("open review threads (1; 1 resolved), each with its id");
+  expect(text).toContain("- [t1] @coderabbitai (bot) on src/auth.ts:12: Possible null deref.\n  latest reply, @alice: Guarded now.");
   expect(text).not.toContain("My own thread");
   expect(text).not.toContain("Old point");
   expect(text).toContain("The repo's review instructions at the base commit base012.");

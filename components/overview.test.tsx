@@ -58,19 +58,19 @@ test("a PR review's title on its Overview opens the pull request on GitHub, and 
 
   fireEvent.click(slot.getByRole("button", { name: "Start reading: Refresh" }));
   await waitFor(() => expect(slot.queryByRole("heading", { name: "Fix token refresh race" })).toBeNull());
-  fireEvent.click(within(slot.getByRole("navigation", { name: "Breadcrumb" })).getByRole("button", { name: "Fix token refresh race" }));
+  fireEvent.click(within(slot.getByRole("navigation", { name: "Breadcrumb" })).getByRole("button", { name: "web#42" }));
   expect(await slot.findByRole("heading", { name: "Fix token refresh race" })).toBeTruthy();
   slot.lifecycle.unmount();
 });
 
-test("a renamed review's Overview leads with your name, still opening the PR, with the PR's title under it, and the band says your name", async () => {
+test("a renamed review's Overview leads with your name, still opening the PR, with the PR's title under it, and BB's title bar says your name", async () => {
   const slot = await renderWorkspace({ kind: "pr", number: 42, repo: "acme/web", title: "Fix token refresh race", name: "Token lock", url });
   const link = await slot.findByRole("link", { name: "Token lock" });
   expect(link.getAttribute("href")).toBe(url);
   expect(main(slot).getByText("PR title:").parentElement!.textContent).toBe("PR title: Fix token refresh race");
   fireEvent.click(slot.getByRole("button", { name: "Start reading: Refresh" }));
   await waitFor(() => expect(slot.queryByRole("heading", { name: "Token lock" })).toBeNull());
-  expect(within(slot.getByRole("navigation", { name: "Breadcrumb" })).getByRole("button", { name: "Token lock" })).toBeTruthy();
+  expect(slot.experimental_pageTitle).toMatchObject({ breadcrumbs: [{ label: "web#42" }, { label: "Token lock" }] });
   slot.lifecycle.unmount();
 });
 
@@ -168,6 +168,23 @@ test("the status line says whose turn it is, how your feedback fared and how the
   slot.lifecycle.unmount();
 });
 
+test("your own PR's comments waiting for your reply say how many, in how many threads, and open Comments on what needs you", async () => {
+  const slot = await renderWorkspace({
+    kind: "pr", number: 42, repo: "acme/web", title: "Fix token refresh race", url, author: "me", ownPr: true,
+    signals: { ci: "pass", newComments: { count: 3, threads: 2, at: now - 3_600_000, by: "sam" } },
+    turn: { group: "needs", reason: "new-comments", label: "Your PR · 3 new comments in 2 threads", signal: "comments:1", at: now, notify: true, blocking: false, updated: false, eventAt: now, failed: false },
+  });
+  const comments = await slot.findByRole("button", { name: "3 new comments in 2 threads" });
+  // Yours is said above it, so the status line doesn't say Your PR again.
+  expect(slot.getByText("Yours")).toBeTruthy();
+  expect(slot.queryByText(/^Your PR/)).toBeNull();
+  expect(comments.closest("[title]")?.getAttribute("title")).toBe("Show them in Comments");
+  fireEvent.click(comments);
+  const panel = within(await slot.findByRole("complementary", { name: "Comments and agent" }));
+  await waitFor(() => expect(panel.getByRole("radio", { name: /^Needs you, \d+$/ }).getAttribute("aria-checked")).toBe("true"));
+  slot.lifecycle.unmount();
+});
+
 test("passing checks are a fact in the status line, without a Checks section", async () => {
   const slot = await renderWorkspace({ kind: "pr", number: 42, repo: "acme/web", title: "Fix token refresh race", url }, { getChecks: () => ({ bucket: "pass", checks: [{ name: "build", bucket: "pass", state: "SUCCESS" }] }) });
   expect(await slot.findByText("Checks passing")).toBeTruthy();
@@ -229,10 +246,11 @@ test("every fact the 0.5.2 header showed is on the Overview", async () => {
     hotspots: [{ file: "src/auth.ts", line: 3, why: "The lock outlives a failed refresh." }],
     requirements: [{ text: "One refresh at a time", status: "partial", evidence: "Only in the client." }],
   });
-  const overview = within(await slot.findByRole("main", { name: "Review" }));
+  const overview = within(await slot.findByRole("main", { name: /^Review\b/ }));
   expect((await overview.findByRole("link", { name: "Fix token refresh race" })).getAttribute("href")).toBe(url);
-  for (const fact of ["@octo", "acme/web", "#42", "main", "fix-race", "Re-requested", "Blocks merge", "1/3 addressed", "Checks passing", "Stack · 2 of 2", "Serializes token refreshes.", "The lock is released on error now.", "The lock outlives a failed refresh.", "One refresh at a time", "Only in the client."]) {
-    expect(overview.getByText(fact)).toBeTruthy();
+  for (const fact of ["@octo", "acme/web#42", "main", "fix-race", "Re-requested", "Blocks merge", "1/3 addressed", "Checks passing", "Stack · 2 of 2", "Serializes token refreshes.", "The lock is released on error now.", "The lock outlives a failed refresh.", "One refresh at a time", "Only in the client."]) {
+    // #42 is in the band's id chip too.
+    expect(overview.getAllByText(fact).length).toBeGreaterThan(0);
   }
   // main ← fix-race, which a screen reader hears the way the PR merges.
   expect(overview.getByText("fix-race into main").className).toBe("sr-only");
@@ -334,7 +352,7 @@ test("images in the guide's own words show as links: What and why, Since your re
     ...guide, intent: `Why ${image("intent")}`, sinceReview: `Since ${image("since")}`,
     sections: [{ ...guide.sections[0], overview: `How ${image("overview")}` }],
   });
-  const overview = within(await slot.findByRole("main", { name: "Review" }));
+  const overview = within(await slot.findByRole("main", { name: /^Review\b/ }));
   expect(await overview.findByText("Why [Image: intent](https://evil.example/intent.png)")).toBeTruthy();
   expect(overview.getByText("Since [Image: since](https://evil.example/since.png)")).toBeTruthy();
   fireEvent.click(slot.getByRole("button", { name: "Start reading: Refresh" }));
@@ -347,7 +365,7 @@ test("a file the PR adds under a path that reads as generated counts as one to r
   const diff = (path: string, added: boolean) => `diff --git a/${path} b/${path}\n${added ? "new file mode 100644\n" : ""}--- a/${path}\n+++ b/${path}\n@@ -0,0 +1,2 @@\n+a\n+b\n`;
   const sent = { ...guide, sections: [{ id: "c1", title: "Hooks", overview: "", risk: "high", diffs: [{ file: "src/vendor/hook.js" }, { file: "vendor/lib.js" }] }] };
   const slot = await renderWorkspace({ kind: "pr", number: 42, repo: "acme/web", title: "Fix token refresh race", url }, {}, sent, {}, diff("src/vendor/hook.js", true) + diff("vendor/lib.js", false));
-  const chapters = within(await within(await slot.findByRole("main", { name: "Review" })).findByRole("region", { name: "Chapters" }));
+  const chapters = within(await within(await slot.findByRole("main", { name: /^Review\b/ })).findByRole("region", { name: "Chapters" }));
   expect(chapters.getByRole("button").textContent).toContain("1 skippable");
   expect(main(slot).getByText(/^2 changed lines/)).toBeTruthy();
   slot.lifecycle.unmount();

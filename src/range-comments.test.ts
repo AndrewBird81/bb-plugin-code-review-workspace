@@ -47,7 +47,7 @@ test("a selection dragged upward, or across sides, orders to its first and last 
 });
 
 test("the GitHub payload sends a range's start line and side; single-line comments are unchanged", () => {
-  const payload = toGithubReviewPayload({ targetKey: "k", verdict: "COMMENT", body: "", comments: [at(4, 2), at(3, 2, "RIGHT", "LEFT"), at(5)] });
+  const payload = toGithubReviewPayload({ targetKey: "k", verdict: "COMMENT", body: "", comments: [at(4, 2), at(3, 2, "RIGHT", "LEFT"), at(5)] }, false, false);
   expect(payload.comments).toEqual([
     { path: "a.ts", line: 4, side: "RIGHT", start_line: 2, start_side: "RIGHT", body: "x" },
     { path: "a.ts", line: 3, side: "RIGHT", start_line: 2, start_side: "LEFT", body: "x" },
@@ -69,7 +69,7 @@ test("submitting a range sends it, and the page must show the same range", async
   const run = vi.fn<typeof runGh>(async (args) => ({ code: 0, stderr: "", stdout: args[0] === "pr" ? '{"headRefOid":"sha1"}' : '{"id":12}' }));
   const submit = createReviewSubmitter(store, run);
   const summary = { body: (await store.getDraft("pr-1")).body, verdict: (await store.getDraft("pr-1")).verdict };
-  expect(await submit("pr-1", undefined, undefined, [{ ...at(4), body: "x" }], summary)).toMatchObject({ ok: false, error: expect.stringContaining("Your draft comments changed") });
+  expect(await submit("pr-1", undefined, undefined, [{ ...at(4), body: "x" }], summary)).toMatchObject({ ok: false, error: expect.stringContaining("Draft changed · review it") });
   expect(await submit("pr-1", undefined, undefined, [at(4, 2)], summary)).toEqual({ ok: true });
   expect(JSON.parse(run.mock.calls[1][1]!.stdin!).comments).toEqual([{ path: "a.ts", line: 4, side: "RIGHT", start_line: 2, start_side: "RIGHT", body: "x" }]);
 });

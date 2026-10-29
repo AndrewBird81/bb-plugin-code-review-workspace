@@ -142,7 +142,7 @@ const requirementsOff = { preferences: { ...defaultPreferences, knobs: { ...defa
 
 test("a settings load that never answers opens the review with default settings after a second", async () => {
   const page = await openReview(() => new Promise(() => {}));
-  await page.findByRole("main", { name: "Review" }, { timeout: 4000 });
+  await page.findByRole("main", { name: /^Review\b/ }, { timeout: 4000 });
   await page.findByRole("region", { name: /^Requirements/ });
   page.lifecycle.unmount();
 }, 15_000);
@@ -157,7 +157,7 @@ test("a first settings load overtaken by a reload that never answers still opens
   await waitFor(() => expect(pending.length).toBeGreaterThan(before));
   // Every load but the newest answers.
   pending.slice(0, -1).forEach((resolve) => resolve(requirementsOff));
-  await page.findByRole("main", { name: "Review" }, { timeout: 4000 });
+  await page.findByRole("main", { name: /^Review\b/ }, { timeout: 4000 });
   page.lifecycle.unmount();
 }, 15_000);
 
@@ -180,7 +180,7 @@ test("a settings load that never answers opens the review with the switches this
 test("a slow settings load doesn't hold the review, and its settings apply once they arrive", async () => {
   let answer!: (record: unknown) => void;
   const page = await openReview(() => new Promise((resolve) => { answer = resolve; }));
-  await page.findByRole("main", { name: "Review" }, { timeout: 4000 });
+  await page.findByRole("main", { name: /^Review\b/ }, { timeout: 4000 });
   await page.findByRole("region", { name: /^Requirements/ });
   answer(requirementsOff);
   await waitFor(() => expect(page.queryByRole("region", { name: /^Requirements/ })).toBeNull());
@@ -201,7 +201,7 @@ async function secondTimers(run: () => Promise<void>) {
 test("a review's wait for its settings stops once they answer, or once its load fails", async () => {
   expect(await secondTimers(async () => {
     const page = await openReview(() => requirementsOff);
-    await page.findByRole("main", { name: "Review" }, { timeout: 4000 });
+    await page.findByRole("main", { name: /^Review\b/ }, { timeout: 4000 });
     page.lifecycle.unmount();
   })).toEqual([true]);
   expect(await secondTimers(async () => {
@@ -355,7 +355,7 @@ test("with Stop a guide while it builds off, neither the building card nor a reb
   building.lifecycle.unmount();
   Object.assign(state, { status: "ready", built: true });
   const workspace = renderSlot(app.navPanels[0]!, { subPath: "pr-42" }, { rpc: rpc as any });
-  await workspace.findByRole("main", { name: "Review" });
+  await workspace.findByRole("main", { name: /^Review\b/ });
   Object.assign(state, { status: "generating", built: false });
   await workspace.emitRealtime("review:pr-42", {});
   await workspace.findByText(/Updating the guide for the new commits/);

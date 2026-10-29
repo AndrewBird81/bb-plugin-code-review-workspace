@@ -105,7 +105,7 @@ async function renderWorkspace(review: Record<string, unknown>, getSinceReview =
     markSeen: () => ({ ok: true }),
     getSinceReview,
   } as any });
-  await slot.findByRole("main", { name: "Review" });
+  await slot.findByRole("main", { name: /^Review\b/ });
   return { slot, getSinceReview };
 }
 

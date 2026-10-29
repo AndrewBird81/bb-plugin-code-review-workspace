@@ -94,8 +94,9 @@ test("with every toggle off, a member's re-request on an out-of-date review star
     } as PrFacts])),
     threads: async () => [],
     discover: vi.fn(async () => []),
+    ownPrs: vi.fn(async () => []),
   };
-  const actions: TurnActions = { prepare: vi.fn(async () => true), checkPushes: vi.fn(async () => true), autoStart: vi.fn(async () => true), projectId: async () => "p1" };
+  const actions: TurnActions = { prepare: vi.fn(async () => true), checkPushes: vi.fn(async () => true), checkFixes: vi.fn(async () => true), autoStart: vi.fn(async () => true), projectId: async () => "p1", becomePr: vi.fn(async () => "skipped" as const) };
   try {
     const sync = createReviewSync(bb, store, vi.fn() as any, { github, actions, now: () => now });
     await sync.all();
@@ -109,6 +110,7 @@ test("with every toggle off, a member's re-request on an out-of-date review star
     expect(actions.prepare).not.toHaveBeenCalled();
     expect(actions.autoStart).not.toHaveBeenCalled();
     expect(github.discover).toHaveBeenCalledWith({ reviewed: false, teams: false });
+    expect(github.ownPrs).not.toHaveBeenCalled();
     expect(await store.getReview("pr-1")).toMatchObject({ notifiedSignal: `re-requested:${T0 + 0.1 * HOUR}`, pendingAlert: null });
     expect(delivered).toEqual([]);
   } finally {

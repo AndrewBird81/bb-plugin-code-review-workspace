@@ -4,6 +4,8 @@ import type { z } from "zod";
 import type { rpcContract } from "../src/rpc-contract";
 import { useFullscreenPortalContainer } from "../lib/portal-scope";
 import { baselineOf } from "../lib/turn";
+import { sendBaselineOf, sendOf } from "../lib/send-baseline";
+import { hasNotPushed, showNotPushed } from "../lib/main-thread";
 import { cn } from "../lib/utils";
 import { useWorkspace, type WorkspaceApi } from "../lib/workspace-context";
 import { TOUCH_COMPACT, TOUCH_CONTROL } from "./touch";
@@ -17,9 +19,13 @@ type PrCommit = z.infer<typeof rpcContract.getPrCommits.output>["commits"][numbe
 
 const short = (sha: string) => sha.slice(0, 7);
 
-/** What the diff shows, as the compare select's label says it: "All changes", "Since your review", or "Since abc1234". */
+/**
+ * What the diff shows, as the compare select's label says it: "All changes", "Since your review", "Since your last
+ * Send", or "Since abc1234".
+ */
 export function compareLabel(narrowed: boolean, from: string | null, brief = false): string {
   if (!narrowed) return "All changes";
+  if (sendOf(from) !== null) return brief ? "Since Send" : "Since your last Send";
   return from ? `Since ${short(from)}` : brief ? "Since review" : "Since your review";
 }
 
@@ -32,13 +38,22 @@ function commitsAgo(from: string | null, commits: readonly PrCommit[] | null): s
 /** Why the diff can't narrow: "Couldn’t compare with your last review", and the reason, when there's more to say. */
 export function compareProblem(compare: WorkspaceApi["compare"]): string | null {
   if (!compare.error) return null;
-  const problem = `Couldn’t compare with ${compare.from ? short(compare.from) : "your last review"}`;
+  const problem = `Couldn’t compare with ${sendOf(compare.from) !== null ? "your last Send" : compare.from ? short(compare.from) : "your last review"}`;
   return compare.error.startsWith("Couldn’t compare") ? problem : `${problem}: ${compare.error}`;
 }
 
 /** Your last review's commit, when the diff shown is a later one: something to compare with. */
 export function lastReviewed(compare: WorkspaceApi["compare"]): string | null {
   return compare.baseline && compare.baseline !== compare.head ? compare.baseline : null;
+}
+
+/**
+ * What a switch between all changes and since compares with: the comparison picked, else your last review (null), else
+ * your last Send; undefined when there's nothing to compare with.
+ */
+export function sinceFrom(compare: WorkspaceApi["compare"], review: WorkspaceApi["review"]): string | null | undefined {
+  if (compare.from || lastReviewed(compare)) return compare.from;
+  return sendBaselineOf(review)?.key;
 }
 
 /** The PR's commits, read while `wanted`, and again once a push moves the diff's head. */
@@ -65,11 +80,12 @@ export function useCommits(wanted: boolean): { commits: PrCommit[] | null; error
 function moveFocus(event: KeyboardEvent<HTMLElement>) {
   if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
   event.preventDefault();
-  const items = Array.from(event.currentTarget.closest("[role=menu]")?.querySelectorAll<HTMLElement>("[role=menuitemradio]") ?? []);
+  const items = Array.from(event.currentTarget.closest("[role=menu]")?.querySelectorAll<HTMLElement>("[role=menuitemradio], [role=menuitem]") ?? []);
   items[items.indexOf(event.currentTarget) + (event.key === "ArrowDown" ? 1 : -1)]?.focus();
 }
 
-function Choice({ checked, label, detail, onSelect }: { checked: boolean; label: ReactNode; detail?: ReactNode; onSelect: () => void }) {
+/** `detail` is in monospace while it leads with a commit's sha; `plain` sets it in the menu's own type. */
+function Choice({ checked, label, detail, plain = false, onSelect }: { checked: boolean; label: ReactNode; detail?: ReactNode; plain?: boolean; onSelect: () => void }) {
   return (
     <button
       type="button"
@@ -82,30 +98,42 @@ function Choice({ checked, label, detail, onSelect }: { checked: boolean; label:
       <Icon name="Check" className={cn("mt-0.5 size-3.5 shrink-0 text-primary pointer-coarse:mt-0", !checked && "invisible")} aria-hidden />
       <span className="min-w-0 flex-1">
         <span className="block truncate">{label}</span>
-        {detail && <span className="block truncate font-mono text-[11px] text-subtle-foreground">{detail}</span>}
+        {detail && <span className={cn("block truncate text-[11px] text-subtle-foreground", !plain && "font-mono")}>{detail}</span>}
       </span>
     </button>
   );
 }
 
 /**
- * What the diff can show: all of the PR, what changed since your review, or since one of its commits, newest first.
- * Your reviewed commit is listed once, as your review; a comparison that failed says why. `onPicked` runs after a
- * choice.
+ * What the diff can show: all of the change, what changed since your review, since your last Send of comments to the
+ * main thread, or since one of the PR's commits, newest first. Your reviewed commit is listed once, as your review; a
+ * comparison that failed says why. `onPicked` runs after a choice.
  */
 export function CompareMenu({ commits, error, onPicked }: { commits: PrCommit[] | null; error: string | null; onPicked: () => void }) {
-  const { review, compare } = useWorkspace();
+  const { targetKey, review, compare, panel } = useWorkspace();
   const pickable = review.kind === "pr";
   const lastReview = lastReviewed(compare);
   const reviewedAt = timeAgo(baselineOf(review).at);
+  const lastSend = sendBaselineOf(review);
   const choices = commits?.filter((commit) => commit.sha !== compare.head && commit.sha !== lastReview) ?? [];
   const choose = (act: () => void) => () => { act(); onPicked(); };
   const problem = compareProblem(compare);
   return (
     <div role="menu" aria-label="Show changes" className="flex flex-col">
       <p aria-hidden className="px-2 pb-1 pt-1.5 text-xs font-medium text-muted-foreground">Show changes</p>
-      <Choice checked={!compare.narrowed} label="All changes in this PR" onSelect={choose(() => compare.setNarrowed(false))} />
+      <Choice checked={!compare.narrowed} label={pickable ? "All changes in this PR" : "All changes"} onSelect={choose(() => compare.setNarrowed(false))} />
       {lastReview && <Choice checked={compare.narrowed && !compare.from} label="Since your review" detail={[short(lastReview), reviewedAt].filter(Boolean).join(" · ")} onSelect={choose(() => compare.pick(null))} />}
+      {lastSend && <Choice checked={compare.narrowed && compare.from === lastSend.key} label="Since your last Send" detail={[`Send ${lastSend.n}`, timeAgo(lastSend.at)].filter(Boolean).join(" · ")} plain onSelect={choose(() => compare.pick(lastSend.key))} />}
+      {/* What the thread working on the PR hasn't pushed: beside the diff, in the Main thread tab. */}
+      {hasNotPushed(review) && <button type="button" role="menuitem" onKeyDown={moveFocus} onClick={choose(() => { showNotPushed(targetKey); panel.open("main"); })}
+        className={cn("flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-state-hover focus-visible:bg-state-hover focus-visible:outline-none", TOUCH_CONTROL, "pointer-coarse:items-center")}>
+        {/* The choices' check column stays empty: it opens a view, it isn't what the diff shows. */}
+        <span aria-hidden className="size-3.5 shrink-0" />
+        <span className="min-w-0 flex-1">
+          <span className="block truncate">Not pushed yet</span>
+          <span className="block truncate text-[11px] text-subtle-foreground">Opens beside the diff, in the main thread’s folder</span>
+        </span>
+      </button>}
       {problem && <p role="status" className="flex items-start gap-2 px-2 py-1.5 text-xs text-destructive-text"><Icon name="AlertCircle" className="mt-px size-3.5 shrink-0" aria-hidden />{problem}</p>}
       {pickable && (
         <div role="group" aria-label="Since a commit" className="mt-1 border-t border-border pt-1">

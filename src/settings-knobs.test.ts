@@ -2,8 +2,11 @@ import { expect, test } from "vitest";
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
 import plugin from "../server";
 import { AUTOMATIC_REVIEW_BEFORE_PRECISION, VERIFICATION_PROMPT_BEFORE_OPEN_THREADS, automaticReviewPrompt, defaultPreferences, preferencesSchema, reReviewCheckPrompt, readKnobs } from "./preferences";
-import { defaultKnobs } from "../lib/knobs";
+import { defaultKnobs, type Knobs } from "../lib/knobs";
 import { testSql, testStore } from "./test-store.test-support";
+
+/** The knobs as the column keeps them while 1.8.0's switches are at their defaults. */
+const withoutSwitches = ({ reviewAgentActs: _agent, reviewChangesLine: _line, trackOwnPrs: _own, ...rest }: Knobs) => rest;
 
 async function host() {
   const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
@@ -34,7 +37,7 @@ test("knobs save and load through the RPC in their own column, and a stale edit 
   const value = JSON.parse((await row()).value);
   expect(value).not.toHaveProperty("knobs");
   expect(() => preferencesSchema.omit({ knobs: true }).parse(value)).not.toThrow();
-  expect(JSON.parse((await row()).knobs!)).toEqual(knobs);
+  expect(JSON.parse((await row()).knobs!)).toEqual(withoutSwitches(knobs));
 });
 
 test("settings saved before knobs still load unchanged, with every knob at its default", async () => {
@@ -68,8 +71,25 @@ test("a save keeps knobs a newer version saved, so a rollback and a settings sav
   const { call, sql, row } = await host();
   await sql.run(`INSERT INTO review_preferences (id,value,revision,knobs) VALUES (1,?,1,?)`, [JSON.stringify({}), JSON.stringify({ codeOwners: false, futureKnob: 7, __proto__x: true })]);
   await call("savePreferences", { preferences: { ...defaultPreferences, knobs: { ...defaultKnobs, requirements: false } }, revision: 1 });
-  expect(JSON.parse((await row()).knobs!)).toEqual({ ...defaultKnobs, requirements: false, futureKnob: 7, __proto__x: true });
+  expect(JSON.parse((await row()).knobs!)).toEqual({ ...withoutSwitches(defaultKnobs), requirements: false, futureKnob: 7, __proto__x: true });
   expect((await call("getPreferences", null)).preferences.knobs).toEqual({ ...defaultKnobs, requirements: false });
+});
+
+test("1.8.0's switches are saved only while they differ from their defaults, so a changed default reaches whoever saved Settings", async () => {
+  const { call, row } = await host();
+  let saved = await call("savePreferences", { preferences: defaultPreferences, revision: 0 });
+  expect(JSON.parse((await row()).knobs!)).toEqual(withoutSwitches(defaultKnobs));
+  // As a 1.8.1 that turns the review agent's posting off by default would.
+  defaultKnobs.reviewAgentActs = false;
+  try {
+    expect((await call("getPreferences", null)).preferences.knobs.reviewAgentActs).toBe(false);
+    // Turned on, it's saved, and stays on whatever the default.
+    saved = await call("savePreferences", { preferences: { ...defaultPreferences, knobs: { ...defaultKnobs, reviewAgentActs: true, trackOwnPrs: false } }, revision: saved.revision });
+    expect(JSON.parse((await row()).knobs!)).toMatchObject({ reviewAgentActs: true, trackOwnPrs: false });
+  } finally { defaultKnobs.reviewAgentActs = true; }
+  expect((await call("getPreferences", null)).preferences.knobs).toEqual({ ...defaultKnobs, trackOwnPrs: false });
+  await call("savePreferences", { preferences: { ...defaultPreferences, knobs: { ...defaultKnobs, trackOwnPrs: false } }, revision: saved.revision });
+  expect(JSON.parse((await row()).knobs!)).toEqual({ ...withoutSwitches(defaultKnobs), trackOwnPrs: false });
 });
 
 test("a save without knobs keeps the saved ones, a partial one merges, and an invalid one is rejected", async () => {

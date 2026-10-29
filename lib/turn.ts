@@ -2,6 +2,8 @@
 // on author), nobody's (Reviewed), or done (Archive). Pure, so the server and
 // the panel agree; the server attaches its result to every review it returns.
 import type { Verdict } from "../src/draft";
+import type { ReviewLifecycle } from "../src/store";
+import { fixesState, reportedText } from "./fixes";
 
 export type TurnGroup = "needs" | "waiting" | "reviewed" | "archive";
 
@@ -12,7 +14,12 @@ export type TurnReason =
   | "question" | "mentioned" | "handled" | "looks-ready" | "dismissed"
   | "waiting" | "draft" | "snoozed"
   | "approved" | "commented"
-  | "own";
+  | "own" | "new-comments"
+  // A local review whose folder is on another branch, or that bb removed (src/feature-review.ts).
+  | "paused" | "folder-gone"
+  | "ready-to-approve"
+  // Comments sent to the thread that fixes them: waiting for its reports, or back to you (src/reports.ts).
+  | "fixes-sent" | "fixes-ready" | "fixes-stopped";
 
 /** Your review threads on the PR, by where each stands. */
 export interface ThreadTally {
@@ -75,6 +82,8 @@ export interface TurnSignals {
   commitsSince?: number | null;
   /** The PR's author. */
   author?: string | null;
+  /** On your own PR: comments waiting for your reply, bots' aside, in how many threads, and the latest's time and author (src/github/threads.ts). */
+  newComments?: { count: number; threads?: number; at: number; by: string | null } | null;
 }
 
 /** The review assistant's latest check of your feedback, for one head commit. */
@@ -114,6 +123,13 @@ export interface TurnInput {
   ownPr?: boolean | null;
   /** A turn that came from a passing state (feedback handled, looks ready); it holds until you act. */
   heldTurn?: { reason: TurnReason; label: string; signal: string; at: number } | null;
+  /** A local review's folder: on another branch, which pauses it, or removed by bb (src/feature-review.ts). */
+  feature?: { pausedOn?: string | null; folderGone?: boolean } | null;
+  /** A relayed approve, merge or close waiting for your click, since `at`. */
+  readyToApprove?: { at: number } | null;
+  /** The Sends, and the comments still out with the thread that fixes them (lib/fixes.ts). */
+  sends?: ReviewLifecycle["sends"];
+  fixes?: ReviewLifecycle["fixes"];
 }
 
 export interface TurnOptions {
@@ -127,6 +143,8 @@ export interface TurnOptions {
   teamRequests?: boolean;
   /** false: a mention doesn't make it your turn. */
   mentions?: boolean;
+  /** false: your own PRs found on GitHub, with no review started, leave your list. */
+  ownPrs?: boolean;
 }
 
 export interface Turn {
@@ -148,6 +166,8 @@ export interface Turn {
   eventAt: number | null;
   /** The guide couldn't be (re)generated; the turn underneath still stands. */
   failed: boolean;
+  /** Ready to approve: the turn beneath the row, whose alert it carries. */
+  under?: { reason: TurnReason; label: string };
 }
 
 export const QUIET_MS = 10 * 60_000;
@@ -176,9 +196,20 @@ export function computeTurn(review: TurnInput, options: TurnOptions = defaultTur
     ({ ...base, group, reason, label, ...extra });
 
   if (review.prState === "MERGED") return make("archive", "merged", "Merged");
+  // A local review whose folder bb removed, with nothing left open or sent (src/feature-review.ts).
+  if (review.kind === "ref" && review.archivedAt && review.feature?.folderGone) return make("archive", "folder-gone", "Folder removed");
   if (review.prState === "CLOSED" || review.archivedAt) return make("archive", "closed", "Closed");
   // Deleted, or out of your reach for good; access refused (say, for SSO) may come back.
   if (review.unreachable?.reason === "not-found" && now - review.unreachable.since >= UNREACHABLE_MS) return make("archive", "unreachable", "Can’t read on GitHub");
+  // A relayed approve, merge or close waits for your click, whatever else the review waits on, your own archive too. You
+  // asked for it, so it alerts nothing of its own; the turn beneath it alerts as it would, a snooze's end included.
+  const ready = review.readyToApprove;
+  if (ready) {
+    const under = computeTurn({ ...review, readyToApprove: null }, options, now);
+    return make("needs", "ready-to-approve", "Ready to approve", {
+      at: ready.at, signal: under.signal, notify: under.notify, eventAt: under.eventAt, under: { reason: under.reason, label: under.label },
+    });
+  }
 
   // A local receipt counts until GitHub reports the review.
   const lastReviewAt = Math.max(s.lastReviewAt ?? 0, review.submittedAt ?? 0) || null;
@@ -202,12 +233,39 @@ export function computeTurn(review: TurnInput, options: TurnOptions = defaultTur
   return review.status === "generating" ? { ...turn, label: "Generating" } : turn;
 
   function reviewerTurn(): Turn {
-    if (review.kind === "ref") return make("needs", "new", "Ready", { at: review.createdAt ?? null });
+    // Comments sent to the thread that fixes them come back to you once it reports them all, or runs bb review ready:
+    // idle alone never means done. Archived or deleted first, it won't report the rest: they're back with you, with no
+    // alert, as it's usually you who archived it. On a PR, until your next review there.
+    const fixes = fixesState(review);
+    const readyAt = fixes?.send.readyAt;
+    const fixesReady = () => make("needs", "fixes-ready", "Ready to re-review", { signal: `fixes-ready:${fixes!.send.n}`, at: readyAt!, notify: true, eventAt: readyAt! });
+    const unreported = !!fixes && !fixes.ready && fixes.tally.reported < fixes.tally.sent;
+    const stoppedAt = fixes?.send.stopped?.at;
+    const fixesStopped = () => make("needs", "fixes-stopped", `Main thread ${fixes!.gone} · ${reportedText(fixes!.tally)}`, { at: stoppedAt! });
+    if (review.kind === "ref") {
+      // Its folder gone, its comments still wait on you; on another branch, it waits for its own.
+      if (review.feature?.folderGone) return make("needs", "folder-gone", "Folder removed", { at: review.createdAt ?? null });
+      if (review.feature?.pausedOn) return make("waiting", "paused", "Paused", { at: review.createdAt ?? null });
+      if (fixes?.ready && after(readyAt, snoozedAt)) return fixesReady();
+      if (unreported && fixes!.gone) return fixesStopped();
+      // While its thread works on them, a local review waits on it: until it reports the last, or the last unreported
+      // comment is yours again.
+      if (unreported) return make("waiting", "fixes-sent", reportedText(fixes!.tally), { at: fixes!.send.at });
+      return make("needs", "new", "Ready", { at: review.createdAt ?? null });
+    }
+    if (fixes?.ready && after(readyAt, lastReviewAt, snoozedAt)) return fixesReady();
+    if (unreported && fixes!.gone && after(stoppedAt, lastReviewAt, snoozedAt)) return fixesStopped();
     const tracked = review.status === "tracked";
-    // Your own PR is yours to review until you have; then nothing brings it back.
+    // Your own PR comes to you when someone's comment waits for your reply, never a bot's. One you started a review of
+    // is yours to review until you have; one found on GitHub waits on its reviewers.
     if (review.ownPr) {
+      if (tracked && options.ownPrs === false) return make("archive", "own", "Your PR");
+      const fresh = s.newComments;
+      if (fresh?.count && after(fresh.at, snoozedAt)) {
+        return make("needs", "new-comments", `Your PR · ${newCommentsText(fresh)}`, { signal: `comments:${fresh.at}`, at: fresh.at, notify: true, eventAt: fresh.at });
+      }
       if (!reviewed && until) return make("waiting", "snoozed", snoozedLabel, { at: snoozedAt });
-      if (!reviewed) return make("needs", "own", "Your PR", { at: review.createdAt ?? null });
+      if (!reviewed && !tracked) return make("needs", "own", "Your PR", { at: review.createdAt ?? null });
       return make("reviewed", "own", updated ? "Your PR · updated" : "Your PR");
     }
     if (!reviewed) {
@@ -275,6 +333,12 @@ export function computeTurn(review: TurnInput, options: TurnOptions = defaultTur
   }
 }
 
+/** "3 new comments in 2 threads", or "2 new comments" when that's one a thread, as Comments' Needs you counts them. */
+export function newCommentsText(fresh: Pick<NonNullable<TurnSignals["newComments"]>, "count" | "threads">): string {
+  const threads = fresh.threads && fresh.threads !== fresh.count ? ` in ${fresh.threads} thread${fresh.threads === 1 ? "" : "s"}` : "";
+  return `${fresh.count} new comment${fresh.count === 1 ? "" : "s"}${threads}`;
+}
+
 /** Whether the head's checks are done, or have been pending or expected so long they never will be. */
 export function ciSettled(s: TurnSignals, now = Date.now()): boolean {
   return (s.ci !== "pending" && s.ci !== "expected") || now - (s.headSeenAt ?? now) >= CI_STALE_MS;
@@ -290,7 +354,8 @@ export function feedbackProgress(review: TurnInput): { done: number; total: numb
   const t = review.signals?.threads;
   const nits = t?.nonBlocking ? { nits: t.nonBlocking } : {};
   if (a && a.total > 0 && a.headSha === head) return { done: a.addressed, total: a.total, source: "assistant", ...nits };
-  if (t && t.total > 0) return { done: t.resolved + t.answered, total: t.total, source: "threads", ...nits };
+  // On your own PR, an answered thread waits for your reply: it isn't progress.
+  if (t && t.total > 0 && !review.ownPr) return { done: t.resolved + t.answered, total: t.total, source: "threads", ...nits };
   return null;
 }
 

@@ -19,7 +19,7 @@ const reviews = [
   { targetKey: "pr-waiting", title: "Waiting on the author", repo: "acme/web", number: 4, status: "ready", turn: turn("waiting", "waiting", 1) },
   { targetKey: "pr-blocking", title: "Blocks merge", repo: "acme/web", number: 2, status: "ready", turn: turn("needs", "re-requested", 1, true) },
 ];
-const context = { threadId: null, projectId: null, openPanel: () => false };
+const context = { threadId: null, projectId: null, experimental_panel: { openTab: () => false, toggleTab: () => false, close: () => false } };
 
 /** The plugin's palette commands, by id, and its app overlay, which handles them, mounted with these RPCs. */
 async function load(rpc: Record<string, (input: any) => unknown> = {}, paletteCommands = true) {

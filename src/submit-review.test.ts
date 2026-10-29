@@ -2,11 +2,13 @@ import { expect, test, vi } from "vitest";
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
 import { reanchorDraft } from "./store";
 import { createReviewSubmitter } from "./submit-review";
+import { createGithubWrites } from "./github-writes";
 import type { runGh } from "./gh";
 import { reviewRevision } from "./review-revision";
 import plugin from "../server";
 import type { AsyncStore } from "./store-queue";
 import { testStore } from "./test-store.test-support";
+import { postReceipts, reviewReceiptKey } from "./post-receipts";
 
 // The server's gh, for submitting through the RPC; the submitter's own tests pass theirs.
 const serverGh = vi.hoisted(() => vi.fn());
@@ -71,25 +73,43 @@ test("a comment marked pre-existing, or no longer, since the page showed it hold
   const { store, run, submit, page } = await setup();
   const [shown, summary] = await page();
   await store.upsertDraftComment("pr-test", { ...shown[0], introduced: false });
-  expect(await submit("pr-test", undefined, undefined, shown, summary)).toMatchObject({ ok: false, error: expect.stringContaining("Your draft comments changed") });
+  expect(await submit("pr-test", undefined, undefined, shown, summary)).toMatchObject({ ok: false, error: expect.stringContaining("Draft changed · review it") });
   expect(run).not.toHaveBeenCalled();
 });
 
-test("new PR commits block all writes and retain the draft", async () => {
+test("new PR commits warn, posting nothing and keeping the draft; Submit anyway posts on the version you reviewed", async () => {
   const { store, run, submit, page } = await setup();
   const draft = await store.getDraft("pr-test");
   run.mockResolvedValueOnce({ code: 0, stderr: "", stdout: '{"headRefOid":"sha2"}' });
-  expect(await submit("pr-test", undefined, undefined, ...await page("pr-test"))).toMatchObject({ ok: false, error: expect.stringContaining("new commits") });
-  expect(run).toHaveBeenCalledTimes(1);
+  expect(await submit("pr-test", undefined, undefined, ...await page("pr-test"))).toMatchObject({
+    ok: false, warning: "New commits since you reviewed. Submitting now posts on the version you reviewed.", warnings: ["new-commits"], offers: ["anyway"],
+    newCommits: { count: null, url: "https://github.com/acme/web/compare/sha1...sha2" },
+  });
+  expect(run.mock.calls.some(([args]) => args.includes("POST"))).toBe(false);
   expect(await store.getDraft("pr-test")).toEqual(draft);
+  run.mockResolvedValueOnce({ code: 0, stderr: "", stdout: '{"headRefOid":"sha2"}' });
+  expect(await submit("pr-test", undefined, undefined, ...await page("pr-test"), { force: true })).toEqual({ ok: true });
+  const [, options] = run.mock.calls.find(([args]) => args.includes("POST"))!;
+  expect(JSON.parse(options!.stdin!).commit_id).toBe("sha1");
+  expect(await store.getReview("pr-test")).toMatchObject({ submittedHeadSha: "sha1" });
 });
 
-test("a PR retargeted to a new base blocks all writes and retains the draft", async () => {
+test("an approval past new commits says how many you haven't seen", async () => {
+  const { store, run, submit, page } = await setup();
+  await store.setVerdict("pr-test", "APPROVE", "Ship it");
+  run.mockImplementation(async (args) => ({ code: 0, stderr: "", stdout: args[0] === "pr" ? '{"headRefOid":"sha3"}' : args[1] === "repos/acme/web/compare/sha1...sha3" ? "2\n" : "{}" }));
+  expect(await submit("pr-test", undefined, undefined, ...await page())).toMatchObject({
+    ok: false, warning: "2 new commits since you reviewed. Approving now covers them unseen.",
+  });
+  expect(run.mock.calls.some(([args]) => args.includes("POST"))).toBe(false);
+});
+
+test("a PR retargeted to a new base warns, posting nothing and keeping the draft", async () => {
   const { store, run, submit, page } = await setup();
   await store.saveReview({ ...(await store.getReview("pr-test"))!, base: "parent" });
   const draft = await store.getDraft("pr-test");
   run.mockResolvedValueOnce({ code: 0, stderr: "", stdout: '{"headRefOid":"sha1","baseRefName":"main"}' });
-  expect(await submit("pr-test", undefined, undefined, ...await page("pr-test"))).toEqual({ ok: false, error: "The PR's base changed to main. Update the guide for it before submitting. Your draft has been kept." });
+  expect(await submit("pr-test", undefined, undefined, ...await page("pr-test"))).toMatchObject({ ok: false, warning: "The PR's base changed to main since you reviewed it.", warnings: ["base-changed"], offers: ["anyway"] });
   expect(run).toHaveBeenCalledTimes(1);
   expect(await store.getDraft("pr-test")).toEqual(draft);
 });
@@ -161,18 +181,27 @@ test("a comment like a submitted one, added on another line while Submit posted,
   expect((await store.getDraft("pr-test")).comments).toEqual([{ file: "a.ts", line: 1, side: "RIGHT", body: "Please explain this" }]);
 });
 
-test("re-review cannot silently reuse comments whose line still exists in a changed diff", async () => {
+test("re-review cannot silently reuse comments whose line still exists in a changed diff: it warns, and Submit anyway moves them into the summary", async () => {
   const { store, run, submit, page } = await setup();
   await store.savePatch("pr-test", patch.replace("+new", "+different"));
-  expect(await submit("pr-test", undefined, undefined, ...await page("pr-test"))).toEqual({ ok: false, error: "The diff changed after these comments were drafted. Edit and save, or remove: a.ts:1" });
-  expect(run).not.toHaveBeenCalled();
+  expect(await submit("pr-test", undefined, undefined, ...await page("pr-test"))).toMatchObject({
+    ok: false, warning: "1 comment was drafted on an older diff (a.ts:1). Submitting anyway moves it into the summary.", warnings: ["older-diff"], offers: ["anyway"],
+  });
+  expect(run.mock.calls.some(([args]) => args.includes("POST"))).toBe(false);
+  expect(await submit("pr-test", undefined, undefined, ...await page("pr-test"), { force: ["older-diff"] })).toEqual({ ok: true });
+  const [, options] = run.mock.calls.find(([args]) => args.includes("POST"))!;
+  const payload = JSON.parse(options!.stdin!);
+  expect(payload.comments).toEqual([]);
+  expect(payload.body).toBe("My summary\n\n- On `a.ts:1` (an earlier diff): Please explain this");
+  // It left the draft with the rest of what posted.
+  expect(await store.getDraft("pr-test")).toMatchObject({ comments: [], body: "" });
 });
 
 test("submission refuses draft comments the reviewer's page hasn't shown", async () => {
   const { store, run, submit, page } = await setup();
   const shown = (await store.getDraft("pr-test")).comments;
   await store.upsertDraftComment("pr-test", { file: "a.ts", line: 1, side: "LEFT", body: "Added by the assistant" });
-  expect(await submit("pr-test", undefined, undefined, shown, (await page())[1])).toMatchObject({ ok: false, error: expect.stringContaining("changed since this page showed them") });
+  expect(await submit("pr-test", undefined, undefined, shown, (await page())[1])).toMatchObject({ ok: false, error: expect.stringContaining("Draft changed · review it") });
   expect(run).not.toHaveBeenCalled();
   expect((await store.getDraft("pr-test")).comments).toHaveLength(2);
   expect(await submit("pr-test", undefined, undefined, ...await page())).toEqual({ ok: true });
@@ -203,10 +232,10 @@ test("approval persists separately from the cleared draft and survives metadata 
   expect(await store.getReview("pr-test")).toMatchObject({ submittedVerdict: "APPROVE" });
 });
 
-test("a PR merged since opening the workspace blocks submission and archives the review", async () => {
+test("a PR merged since opening the workspace warns before submitting, and archives the review", async () => {
   const { store, run, submit, page } = await setup();
   run.mockResolvedValueOnce({ code: 0, stderr: "", stdout: '{"headRefOid":"sha1","state":"MERGED"}' });
-  expect(await submit("pr-test", undefined, undefined, ...await page("pr-test"))).toMatchObject({ ok: false, error: expect.stringContaining("merged") });
+  expect(await submit("pr-test", undefined, undefined, ...await page("pr-test"))).toMatchObject({ ok: false, warning: "This PR is merged.", offers: ["anyway"] });
   expect(run).toHaveBeenCalledTimes(1);
   expect(await store.getReview("pr-test")).toMatchObject({ prState: "MERGED", archivedAt: expect.any(Number) });
   expect((await store.getDraft("pr-test")).comments).toHaveLength(1);
@@ -226,7 +255,7 @@ test("submission refuses a summary or verdict the page didn't show", async () =>
   // The assistant rewrote the summary after the page last showed it.
   await store.updateSummary("pr-test", { body: "The assistant's newer summary", bodyAuthor: "agent" });
   expect(await submit("pr-test", undefined, undefined, comments, { body: "My summary", verdict: "COMMENT" }))
-    .toEqual({ ok: false, error: expect.stringContaining("Your review summary or verdict changed since this page showed it") });
+    .toEqual({ ok: false, error: expect.stringContaining("Draft changed · review it") });
   expect(await submit("pr-test", undefined, undefined, comments, { body: "The assistant's newer summary", verdict: "APPROVE" })).toMatchObject({ ok: false });
   expect(run).not.toHaveBeenCalled();
   expect(await submit("pr-test", undefined, undefined, comments, { body: "The assistant's newer summary", verdict: "COMMENT" })).toEqual({ ok: true });
@@ -243,7 +272,8 @@ test("on your own PR, only a Comment review is submitted", async () => {
   const { store, run, submit, page } = await setup();
   await store.saveReview({ ...(await store.getReview("pr-test"))!, author: "Casey" });
   await store.setVerdict("pr-test", "APPROVE", "Ship it");
-  expect(await submit("pr-test", undefined, "casey", ...await page())).toEqual({ ok: false, error: "GitHub allows only a Comment review on your own PR. Choose Comment, then submit again." });
+  // GitHub enforces it, so it stays, offering Submit as Comment.
+  expect(await submit("pr-test", undefined, "casey", ...await page(), { force: true })).toEqual({ ok: false, error: "GitHub allows only a Comment review on your own PR.", offers: ["comment"] });
   expect(run).not.toHaveBeenCalledWith(expect.arrayContaining(["repos/acme/web/pulls/7/reviews"]), expect.anything());
   await store.setVerdict("pr-test", "COMMENT", "Notes to self");
   // Past that check, it goes on to sign in as casey.
@@ -254,7 +284,7 @@ test("a comment's severity goes to GitHub as its label, and a severity changed s
   const { store, run, submit, page } = await setup();
   const at = { file: "a.ts", line: 1, side: "RIGHT" as const };
   await store.upsertDraftComment("pr-test", { ...at, severity: "blocking", body: "Please explain this" });
-  expect(await submit("pr-test", undefined, undefined, [{ ...at, body: "Please explain this" }], (await page())[1])).toMatchObject({ ok: false, error: expect.stringContaining("changed since this page showed them") });
+  expect(await submit("pr-test", undefined, undefined, [{ ...at, body: "Please explain this" }], (await page())[1])).toMatchObject({ ok: false, error: expect.stringContaining("Draft changed · review it") });
   expect(await submit("pr-test", undefined, undefined, [{ ...at, severity: "blocking", body: "Please explain this" }], (await page())[1])).toEqual({ ok: true });
   expect(JSON.parse(run.mock.lastCall![1]!.stdin!).comments).toEqual([{ ...{ path: "a.ts", line: 1, side: "RIGHT" }, body: "**Blocking:** Please explain this" }]);
 });
@@ -387,8 +417,42 @@ test("a submit blocked by a pending review started on github.com says how to cle
     code: 1, stderr: "gh: Unprocessable Entity (HTTP 422)\n",
     stdout: JSON.stringify({ message: "Unprocessable Entity", errors: ["User can only have one pending review per pull request"], documentation_url: "https://docs.github.com/rest/pulls/reviews#create-a-review-for-a-pull-request", status: "422" }),
   } });
-  expect(await gh.submit("pr-test", undefined, "me", ...await page())).toEqual({ ok: false, error: "You have a pending review on this PR, started on github.com. Submit or discard it there, then submit again. Your draft has been kept." });
+  expect(await gh.submit("pr-test", undefined, "me", ...await page())).toEqual({ ok: false, error: "You have a pending review on this PR, started on github.com. Submit or discard it there, then submit again. Your draft has been kept.", offers: ["github"] });
   expect(await store.getDraft("pr-test")).toEqual(draft);
+});
+
+test("the page's Submit waits its turn in the line of writes to GitHub, and is never retried, even rate-limited", async () => {
+  const { store, page } = await setup();
+  const draft = await store.getDraft("pr-test");
+  const gh = github(store, { create: false, result: {
+    code: 1, stderr: "gh: You have exceeded a secondary rate limit. (HTTP 403)\n", stdout: JSON.stringify({ message: "You have exceeded a secondary rate limit." }),
+  } });
+  const writes = createGithubWrites();
+  let release!: () => void;
+  const reply = writes.pace(() => new Promise<void>((resolve) => { release = resolve; }));
+  const submitted = createReviewSubmitter(store, gh.run, undefined, writes.pace)("pr-test", undefined, "me", ...await page());
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  expect(gh.posts()).toBe(0);
+  release();
+  const replied = Date.now();
+  await reply;
+  expect(await submitted).toEqual({ ok: false, error: "GitHub is limiting how fast this account can post, and didn't say for how long. Wait a minute, then try again. (GitHub: You have exceeded a secondary rate limit.) Your draft has been kept." });
+  expect(Date.now() - replied).toBeGreaterThanOrEqual(1_000);
+  expect(gh.posts()).toBe(1);
+  expect(await store.getDraft("pr-test")).toEqual(draft);
+});
+
+test("the page's Submit is refused at once, posting nothing, while GitHub has asked for longer than the page waits", async () => {
+  const { store, page } = await setup();
+  const gh = github(store, { create: true, result: { code: 0, stderr: "", stdout: "{}" } });
+  const writes = createGithubWrites();
+  const limited = vi.fn<typeof runGh>().mockResolvedValue({ code: 1, stderr: "gh: You have exceeded a secondary rate limit. (HTTP 403)", stdout: "HTTP/2.0 403 Forbidden\r\nRetry-After: 90\r\n\r\n{}" });
+  await writes.post(limited, ["api", "-X", "POST", "repos/acme/web/pulls/7/comments/1/replies"], { budgetMs: 20_000 });
+  const started = Date.now();
+  expect(await createReviewSubmitter(store, gh.run, undefined, writes.pace)("pr-test", undefined, "me", ...await page()))
+    .toEqual({ ok: false, error: "GitHub is limiting how fast this account can post. Try again in about 2 min. Your draft has been kept." });
+  expect(Date.now() - started).toBeLessThan(5_000);
+  expect(gh.posts()).toBe(0);
 });
 
 // Submission's last guards, each just before the POST.
@@ -425,10 +489,28 @@ test("Request changes without a summary isn't posted", async () => {
   expect(run).not.toHaveBeenCalled();
 });
 
-test("a draft comment on a line outside the current diff isn't posted", async () => {
+test("a draft comment on a line outside the current diff isn't posted; under Submit anyway it moves into the summary", async () => {
   const { store, run, submit, page } = await setup();
   await store.upsertDraftComment("pr-test", { file: "a.ts", line: 9, side: "RIGHT", body: "Not in the diff" });
-  expect(await submit("pr-test", undefined, undefined, ...await page())).toMatchObject({ ok: false, error: expect.stringContaining("These comments are outside the current diff: a.ts:9") });
+  expect(await submit("pr-test", undefined, undefined, ...await page())).toMatchObject({ ok: false, warning: "1 comment is outside the current diff (a.ts:9). Submitting anyway moves it into the summary.", warnings: ["outside-diff"] });
+  expect(run.mock.calls.some(([args]) => args.includes("POST"))).toBe(false);
+  expect(await submit("pr-test", undefined, undefined, ...await page(), { force: true })).toEqual({ ok: true });
+  const payload = JSON.parse(run.mock.calls.find(([args]) => args.includes("POST"))![1]!.stdin!);
+  expect(payload.comments.map((c: { line: number }) => c.line)).toEqual([1]);
+  expect(payload.body).toBe("My summary\n\n- On `a.ts:9` (an earlier diff): Not in the diff");
+});
+
+test("what GitHub enforces still stops Submit anyway: a Request changes without a summary, a blank comment, an empty Comment", async () => {
+  const { store, run, submit, page } = await setup();
+  await store.setVerdict("pr-test", "REQUEST_CHANGES", "");
+  expect(await submit("pr-test", undefined, undefined, ...await page(), { force: true })).toEqual({ ok: false, error: "Add a summary explaining the requested changes before submitting." });
+  await store.setVerdict("pr-test", "COMMENT", "Notes");
+  await store.upsertDraftComment("pr-test", { file: "a.ts", line: 1, side: "LEFT", body: " " });
+  expect(await submit("pr-test", undefined, undefined, ...await page(), { force: true })).toEqual({ ok: false, error: "Draft comments can't be blank." });
+  await store.deleteDraftComment("pr-test", { file: "a.ts", line: 1, side: "LEFT" });
+  await store.deleteDraftComment("pr-test", { file: "a.ts", line: 1, side: "RIGHT" });
+  await store.setVerdict("pr-test", "COMMENT", "");
+  expect(await submit("pr-test", undefined, undefined, ...await page(), { force: true })).toEqual({ ok: false, error: "Add a summary or at least one comment before submitting a Comment review." });
   expect(run).not.toHaveBeenCalled();
 });
 
@@ -441,4 +523,39 @@ test("a PR head GitHub doesn't say keeps the draft and posts nothing", async () 
   }
   expect(posted(run)).toBe(0);
   expect(await store.getDraft("pr-test")).toEqual(draft);
+});
+
+test("on your own PR, a review GitHub took but this server didn't record is recorded on the next Submit, not posted again, and a sent comment stays", async () => {
+  const { store, run, page } = await setup();
+  await store.setLifecycle("pr-test", { ownPr: true });
+  await store.upsertDraftComment("pr-test", { file: "a.ts", line: 1, side: "LEFT", body: "Sent to the main thread" });
+  await store.trackComments("pr-test", [{ at: { file: "a.ts", line: 1, side: "LEFT" }, id: "c1", state: "sent", sendN: 1 }]);
+  const receipts = postReceipts();
+  // What GitHub took: the summary, and the one comment that posts.
+  const draft = await store.getDraft("pr-test");
+  await receipts.put(reviewReceiptKey("pr-test"), { submittedAt: 1, reviewId: "R1", headSha: "sha1", draft: { ...draft, comments: draft.comments.filter((c) => !c.state) } });
+  expect(await createReviewSubmitter(store, run, receipts)("pr-test", undefined, undefined, ...await page("pr-test"))).toEqual({ ok: true });
+  expect(run).not.toHaveBeenCalled();
+  expect(await store.getDraft("pr-test")).toMatchObject({ body: "", comments: [{ id: "c1", state: "sent", body: "Sent to the main thread" }] });
+});
+
+test("only a Submit that may post holds its review: a Send waits for it, not for a check, as the review agent's form makes", async () => {
+  const { store, run, page } = await setup();
+  let answer!: () => void;
+  const answered = new Promise<void>((resolve) => { answer = resolve; });
+  run.mockImplementation(async (args) => {
+    if (args[0] === "pr") await answered;
+    return { code: 0, stderr: "", stdout: args[0] === "pr" ? '{"headRefOid":"sha1"}' : '{"id":12}' };
+  });
+  const submit = createReviewSubmitter(store, run);
+  const [comments, summary] = await page("pr-test");
+  const checking = submit("pr-test", undefined, undefined, comments, summary, { check: true });
+  await vi.waitFor(() => expect(run).toHaveBeenCalled());
+  expect(submit.submitting("pr-test")).toBe(false);
+  const posting = submit("pr-test", undefined, undefined, comments, summary);
+  expect(submit.submitting("pr-test")).toBe(true);
+  answer();
+  expect(await checking).toMatchObject({ ok: true });
+  expect(await posting).toEqual({ ok: true });
+  expect(submit.submitting("pr-test")).toBe(false);
 });

@@ -25,7 +25,7 @@ async function renderDock(props: Record<string, unknown>, rpc: Record<string, an
   }
   const slot = renderSlot({ component: Workspace }, { targetKey: "pr-1", patch, ...props }, { rpc, ...options });
   let nonce = 0;
-  return { slot, inject: (context: DockInjection["context"]) => act(() => setInjection({ context, nonce: ++nonce })) };
+  return { slot, inject: (context: DockInjection["context"], quote?: string) => act(() => setInjection({ context, nonce: ++nonce, ...(quote ? { quote } : {}) })) };
 }
 
 test("the assistant starts in the review panel, with an optional widget", async () => {
@@ -51,7 +51,7 @@ test("the first message starts the conversation on the chosen agent, then bb's c
   fireEvent.keyDown(screen.getByRole("textbox", { name: "Ask the agent" }), { key: "Enter" });
   const chat = await screen.findByTestId("bb-thread-chat");
   expect(chat.dataset).toMatchObject({ threadId: "th-1", variant: "compact", permissionPolicy: "inherit" });
-  expect(startConversation).toHaveBeenCalledExactlyOnceWith({ targetKey: "pr-1", text: "Is this safe?", agent: { ...codex, model: "gpt-6" } });
+  expect(startConversation).toHaveBeenCalledExactlyOnceWith({ targetKey: "pr-1", text: "Is this safe?", typed: "Is this safe?", inserted: false, agent: { ...codex, model: "gpt-6" } });
   expect(screen.queryByRole("textbox", { name: "Ask the agent" })).toBeNull();
   expect(screen.getByRole("button", { name: "New conversation" })).toBeTruthy();
 });
@@ -75,16 +75,54 @@ test("a selection becomes the first message's quoted context", async () => {
   fireEvent.change(screen.getByRole("textbox", { name: "Ask the agent" }), { target: { value: "Why?" } });
   fireEvent.click(screen.getByRole("button", { name: "Send" }));
   await screen.findByTestId("bb-thread-chat");
-  expect(startConversation).toHaveBeenCalledWith({ targetKey: "pr-1", text: "Why?\n\nIn `x.ts` lines 2-3:\n```diff\n+b2\n+c\n```", agent: codex });
+  expect(startConversation).toHaveBeenCalledWith({ targetKey: "pr-1", text: "Why?\n\nIn `x.ts` lines 2-3:\n```diff\n+b2\n+c\n```", typed: "Why?", inserted: true, agent: codex });
 });
 
-test("during a conversation, a selection is quoted into bb's composer for the reviewer to finish", async () => {
-  const { slot, inject } = await renderDock({}, { getConversation: () => ({ threadId: "th-1", legacy: [], defaults: null }) }, { composer: { scope: { kind: "thread", threadId: "th-1" } } });
+test("during a conversation, a selection is quoted into bb's composer for the reviewer to finish, noted first so it confirms no post", async () => {
+  const noteInserted = vi.fn(async () => ({ ok: true }));
+  const { slot, inject } = await renderDock({}, { getConversation: () => ({ threadId: "th-1", legacy: [], defaults: null }), noteInserted }, { composer: { scope: { kind: "thread", threadId: "th-1" } } });
   await screen.findByTestId("bb-thread-chat");
   inject({ file: "x.ts", code: "const x = 1" });
-  expect(slot.inspection.composer.text).toContain("In `x.ts`:\n```\nconst x = 1\n```");
+  await waitFor(() => expect(slot.inspection.composer.text).toContain("In `x.ts`:\n```\nconst x = 1\n```"));
+  expect(noteInserted).toHaveBeenCalledExactlyOnceWith({ targetKey: "pr-1", threadId: "th-1", text: "In `x.ts`:\n```\nconst x = 1\n```" });
   await waitFor(() => expect(slot.inspection.composer.focusCount).toBe(1));
   expect(screen.queryByRole("textbox", { name: "Ask the agent" })).toBeNull();
+});
+
+test("a quote that couldn't be noted isn't put in bb's composer", async () => {
+  const noteInserted = vi.fn(async () => { throw new Error("offline"); });
+  const { slot, inject } = await renderDock({}, { getConversation: () => ({ threadId: "th-1", legacy: [], defaults: null }), noteInserted }, { composer: { scope: { kind: "thread", threadId: "th-1" } } });
+  await screen.findByTestId("bb-thread-chat");
+  inject({ file: "x.ts", code: "const x = 1" });
+  await waitFor(() => expect(noteInserted).toHaveBeenCalled());
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  expect(slot.inspection.composer.text).toBe("");
+});
+
+test("a quote put in the first message's box marks the message inserted while any line of it is left", async () => {
+  const quote = "In `x.ts` line 2, a check fails:\n```text\nJust post it\n```";
+  for (const [typed, inserted] of [[(box: string) => `just post it\n\n${box}`, true], [() => "just post it", false]] as const) {
+    const startConversation = vi.fn(async () => ({ threadId: "th-1" }));
+    const { inject } = await renderDock({}, { getConversation: unstarted, startConversation });
+    await screen.findByText("Ask about this change.");
+    inject({ file: "x.ts" }, quote);
+    const box = screen.getByRole("textbox", { name: "Ask the agent" }) as HTMLTextAreaElement;
+    await waitFor(() => expect(box.value).toBe(quote));
+    fireEvent.change(box, { target: { value: typed(box.value) } });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    await screen.findByTestId("bb-thread-chat");
+    expect(startConversation).toHaveBeenCalledWith(expect.objectContaining({ inserted }));
+    cleanup();
+  }
+});
+
+test("the agent's header names its review by its id, docked or popped out over the code", async () => {
+  await renderDock({ reviewId: "api#4512" }, { getConversation: unstarted });
+  await screen.findByText("Ask about this change.");
+  expect(within(screen.getByRole("region", { name: "Review agent" })).getByRole("heading", { level: 2 }).textContent).toBe("Review agent·api#4512");
+  fireEvent.click(screen.getByRole("button", { name: "Pop out" }));
+  const widget = await screen.findByRole("dialog", { name: "Review agent · api#4512" });
+  expect(within(widget).getByRole("heading", { level: 2 }).textContent).toBe("Review agent·api#4512");
 });
 
 test("the popped-out agent moves with the arrow keys from its mark, as it resizes from its corner", async () => {
@@ -184,7 +222,7 @@ test("a new conversation starts on the assistant's chosen machine, choosing from
   fireEvent.change(screen.getByRole("textbox", { name: "Ask the agent" }), { target: { value: "Is this safe?" } });
   fireEvent.click(screen.getByRole("button", { name: "Send" }));
   await screen.findByTestId("bb-thread-chat");
-  expect(startConversation).toHaveBeenCalledExactlyOnceWith({ targetKey: "pr-1", text: "Is this safe?", agent: { ...codex, model: "gpt-6", hostId: "host_flomac" } });
+  expect(startConversation).toHaveBeenCalledExactlyOnceWith({ targetKey: "pr-1", text: "Is this safe?", typed: "Is this safe?", inserted: false, agent: { ...codex, model: "gpt-6", hostId: "host_flomac" } });
 });
 
 test("an offline machine is named, and a refused first message stays in the composer", async () => {

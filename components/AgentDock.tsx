@@ -6,6 +6,7 @@ import type { rpcContract } from "../src/rpc-contract";
 import type { AgentMessage, AgentMessageContext } from "../src/store";
 import type { AgentChoice } from "../src/agent";
 import { contextLabel, contextQuote } from "../src/assistant-context";
+import { carries, insertLines } from "../src/post-preview";
 import { composing } from "../lib/composing";
 import { linkImages } from "../lib/link-images";
 import { cn } from "../lib/utils";
@@ -23,6 +24,8 @@ import { Badge, SpeakerMark } from "./ui/badge";
 export interface DockInjection { context: AgentMessageContext; quote?: string; nonce: number; }
 export interface AgentDockProps {
   targetKey: string;
+  /** The review's id (lib/review-identity.ts), which its header names it by, docked or popped out over the code. */
+  reviewId?: string;
   /** The review's patch, for quoting selected lines. */
   patch: string;
   injection?: DockInjection;
@@ -58,7 +61,7 @@ function loadPersisted(targetKey: string): Persisted | null {
 // This controller stays mounted when changing tabs or presentation. A review's
 // conversation is a hidden bb thread shown with ThreadChat; until it exists, a
 // first-message composer chooses its agent.
-export const AgentDock = memo(function AgentDock({ targetKey, patch, injection, container, active = true, popOut = true, closeLabel = "Close panel", onDock, onCollapse }: AgentDockProps) {
+export const AgentDock = memo(function AgentDock({ targetKey, reviewId, patch, injection, container, active = true, popOut = true, closeLabel = "Close panel", onDock, onCollapse }: AgentDockProps) {
   const rpc = useRpc<typeof rpcContract>();
   const composers = useComposers();
   const scopeProps = usePortalScopeProps();
@@ -83,6 +86,8 @@ export const AgentDock = memo(function AgentDock({ targetKey, patch, injection, 
   const readRevision = useRef(0);
   // An injection from before this mount was already handled.
   const handledInjection = useRef(injection?.nonce ?? null);
+  // Quotes put in the first message's box: a message still carrying one confirms no post (src/asking.ts).
+  const quoted = useRef<string[]>([]);
   const visible = active || mode === "widget";
   const threadId = conversation?.threadId ?? null;
   const hostId = conversation?.defaults?.hostId;
@@ -125,17 +130,23 @@ export const AgentDock = memo(function AgentDock({ targetKey, patch, injection, 
       handledInjection.current = injection.nonce;
       const { quote } = injection;
       // A quote goes into the first message's box, unsent, after anything typed there.
-      if (quote) setInput((typed) => typed.trim() ? `${typed.trimEnd()}\n\n${quote}` : quote);
-      else setChip(injection.context);
+      if (quote) {
+        quoted.current.push(quote);
+        setInput((typed) => typed.trim() ? `${typed.trimEnd()}\n\n${quote}` : quote);
+      } else setChip(injection.context);
       requestAnimationFrame(() => composerRef.current?.focus());
       return;
     }
     const composer = composers.find((candidate) => candidate.scope.kind === "thread" && candidate.scope.threadId === threadId);
     if (!composer) return; // ThreadChat's composer has not registered yet.
     handledInjection.current = injection.nonce;
-    composer.insert(injection.quote ?? contextQuote(injection.context, patch), { at: "end", block: true });
-    requestAnimationFrame(() => composer.focus());
-  }, [injection, conversation, threadId, composers, patch]);
+    const text = injection.quote ?? contextQuote(injection.context, patch);
+    // Noted first, so the message that carries it confirms no post (src/asking.ts); unnoted, it isn't put there.
+    rpc.call("noteInserted", { targetKey, threadId, text }).then(() => {
+      composer.insert(text, { at: "end", block: true });
+      requestAnimationFrame(() => composer.focus());
+    }, () => toast.error("Couldn’t add that to the chat. Try again."));
+  }, [injection, conversation, threadId, composers, patch, rpc, targetKey]);
 
   async function start() {
     const message = input.trim();
@@ -143,8 +154,9 @@ export const AgentDock = memo(function AgentDock({ targetKey, patch, injection, 
     locked.current = true; setBusy(true);
     try {
       const quote = chip ? contextQuote(chip, patch) : "";
-      const result = await rpc.call("startConversation", { targetKey, text: quote ? `${message}\n\n${quote}` : message, agent });
-      if (mounted.current) { setConversation({ ...conversation, threadId: result.threadId }); setInput(""); setChip(null); }
+      const inserted = !!quote || quoted.current.some((text) => carries(message, insertLines(text)));
+      const result = await rpc.call("startConversation", { targetKey, text: quote ? `${message}\n\n${quote}` : message, typed: message, inserted, agent });
+      if (mounted.current) { setConversation({ ...conversation, threadId: result.threadId }); setInput(""); setChip(null); quoted.current = []; }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "The agent couldn’t start");
     } finally {
@@ -230,7 +242,7 @@ export const AgentDock = memo(function AgentDock({ targetKey, patch, injection, 
             event.preventDefault(); setRect((rect) => clampRect({ ...rect, x: rect.x + step.dx, y: rect.y + step.dy }, bounds()));
           }} className="flex rounded-sm focus-visible:outline focus-visible:outline-ring"><Icon name="Sparkles" className="size-4 text-(--ansi-13)" aria-hidden /></span>
         : <Icon name="Sparkles" className="size-4 text-(--ansi-13)" aria-hidden />}
-      <h2 className="text-sm font-medium">Review agent</h2>
+      <h2 className="flex min-w-0 items-baseline gap-1.5 text-sm font-medium"><span className="shrink-0">Review agent</span>{reviewId && <><span aria-hidden className="text-subtle-foreground">·</span><span className="truncate font-mono text-[11px] font-normal text-muted-foreground">{reviewId}</span></>}</h2>
       {(threadId || conversation?.legacy.length) ? <Button ref={resetRef} variant="ghost" size="icon" className="ml-auto size-7 pointer-coarse:size-11" aria-label="New conversation" onPointerDown={(event) => event.stopPropagation()} onClick={() => setConfirmingReset(true)}><Icon name="MessageSquarePlus" className="size-3.5" aria-hidden /></Button> : null}
       {popOut && <Button variant="ghost" size="sm" className={cn("pointer-coarse:h-11", !(threadId || conversation?.legacy.length) && "ml-auto")} onPointerDown={(event) => event.stopPropagation()} onClick={mode === "widget" ? dock : () => setMode("widget")}>
         <Icon name={mode === "widget" ? "Minimize2" : "Maximize2"} className="size-3.5" aria-hidden />{mode === "widget" ? "Dock" : "Pop out"}
@@ -248,7 +260,7 @@ export const AgentDock = memo(function AgentDock({ targetKey, patch, injection, 
     {body}
   </>;
   // Below z-50, where bb's own popovers (such as ThreadChat's model picker) open.
-  const widget = mode === "widget" && createPortal(<div role="dialog" aria-label="Review agent" {...scopeProps} className="fixed z-[49] flex flex-col overflow-hidden rounded-lg border border-border shadow-2xl" style={{ left: rect.x, top: rect.y, width: rect.w, height: rect.h, backgroundColor: "rgb(from var(--background) r g b / 1)" }}>
+  const widget = mode === "widget" && createPortal(<div role="dialog" aria-label={reviewId ? `Review agent · ${reviewId}` : "Review agent"} {...scopeProps} className="fixed z-[49] flex flex-col overflow-hidden rounded-lg border border-border shadow-2xl" style={{ left: rect.x, top: rect.y, width: rect.w, height: rect.h, backgroundColor: "rgb(from var(--background) r g b / 1)" }}>
     {panel}
     <div role="separator" tabIndex={0} aria-label="Resize agent widget" aria-orientation="horizontal" onPointerDown={(event) => startGesture(event, "resize")} onKeyDown={(event) => {
       const step = arrowStep(event.key);

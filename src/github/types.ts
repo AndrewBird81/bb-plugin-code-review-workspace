@@ -75,6 +75,32 @@ export interface PrFacts {
   mention: { at: number; by: string } | null;
   /** Commit oids on the PR, oldest first (the last 100). */
   commits: string[];
+  /** Others' review summaries and comments on the PR itself, oldest first; absent from reads before 1.8.0. */
+  conversation?: PrConversationItem[];
+  /** When you last commented on the PR, or wrote a review summary, as far as the reads' windows show; 0 for not there. */
+  conversationRepliedAt?: number;
+}
+
+/**
+ * Someone else's review summary, or comment on the PR itself rather than on a line, as your own PR's Comments shows
+ * it. A review's inline comments are its threads', so only its summary is here.
+ */
+export interface PrConversationItem {
+  /** GitHub's node id: Send names it, as it does a thread's. */
+  id: string;
+  kind: "review" | "comment";
+  author: string;
+  bot: boolean;
+  /** A review's state: CHANGES_REQUESTED, COMMENTED or APPROVED. */
+  state?: string;
+  body: string;
+  at: number;
+  url: string | null;
+  /**
+   * It waits for your reply: a person's, posted since your last comment or review summary on the PR, and not an
+   * approval.
+   */
+  waiting: boolean;
 }
 
 /** A PR's read: its facts, null when GitHub can't find it, or "forbidden" when GitHub refuses access (permissions, SSO). */
@@ -109,9 +135,17 @@ export interface FeedbackThread {
   status: "resolved" | "question" | "answered" | "open";
   /** That latest reply from someone else after the viewer's last comment. */
   replyAt: number | null;
+  /** On the viewer's own PR, a thread someone else started: who, and whether a bot. Absent: the viewer started it. */
+  author?: string;
+  authorBot?: true;
+  /**
+   * On the viewer's own PR, a thread whose latest comment that isn't a bot's isn't the viewer's: how many comments came
+   * since the viewer's last there, bots' aside, and the latest's time and author. Absent: it doesn't need a reply.
+   */
+  needsReply?: { comments: number; at: number; by: string };
 }
 
-/** A PR the viewer was asked to review or has reviewed, from search. */
+/** A PR the viewer was asked to review, has reviewed, or wrote, from search. */
 export interface DiscoveredPr {
   repo: string;
   number: number;
@@ -124,4 +158,7 @@ export interface DiscoveredPr {
   requested: boolean;
   /** The viewer has reviewed it. */
   reviewed: boolean;
+  /** The viewer wrote it: found by the search for your own PRs, with its head branch. */
+  own?: true;
+  head?: string | null;
 }

@@ -47,7 +47,7 @@ test("agents on a chosen machine run in its personal workspace", async () => {
   const { bb, harness, store } = await host();
   await store.savePreferences({ ...defaultPreferences, guideAgent: { hostId: "host_flomac", providerId: "claude-code", model: "claude-opus-5-5", reasoningLevel: "high", permissionMode: "auto" } }, 0);
   await generateGuide(bb, store, "pr-1", "proj_work");
-  await startConversation(bb, store, { targetKey: "pr-1", text: "Why?", agent: { hostId: "host_maxbook", ...codex } });
+  await startConversation(bb, store, { targetKey: "pr-1", text: "Why?", agent: { hostId: "host_maxbook", ...codex }, kind: "ask" });
   const [guide, assistant] = harness.inspection.sdk.callsTo("threads.spawn").map(([args]) => args as any);
   expect(guide).toMatchObject({ projectId: "proj_personal", environment: { type: "host", hostId: "host_flomac", workspace: { type: "personal" } }, providerId: "claude-code", title: "Generate guide: pr-1" });
   expect(assistant).toMatchObject({ projectId: "proj_personal", environment: { type: "host", hostId: "host_maxbook", workspace: { type: "personal" } }, providerId: "codex" });
@@ -62,7 +62,7 @@ test("an agent whose machine is offline or removed fails at once with the reason
   for (const hostId of ["host_gone", "host_missing"]) {
     expect(await machineUnavailable(bb, { hostId }, "guide writer")).toBe("The machine chosen for the guide writer was removed. Choose another in Review settings.");
   }
-  await expect(startConversation(bb, store, { targetKey: "pr-1", text: "Why?", agent: { hostId: "host_old", ...codex } }))
+  await expect(startConversation(bb, store, { targetKey: "pr-1", text: "Why?", agent: { hostId: "host_old", ...codex }, kind: "ask" }))
     .rejects.toThrow("FloMac Original is offline. Wake it, or choose another machine for the review assistant in Review settings.");
   expect(harness.inspection.sdk.callsTo("threads.spawn")).toEqual([]);
   expect(await store.getAssistantThread("pr-1")).toBeNull();

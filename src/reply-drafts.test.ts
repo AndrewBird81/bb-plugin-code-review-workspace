@@ -42,7 +42,7 @@ test("replyToThread with the thread's id clears its drafted reply once the reply
   await store.setReplyDraft("pr-1", "PRRT_other", "Later", "reviewer");
   const channels = published();
   expect(await call("replyToThread", { targetKey: "pr-1", inReplyTo: 11, body: "Agreed", threadId: "PRRT_bob", account: "casey" })).toEqual({ ok: true });
-  expect(runGh).toHaveBeenCalledWith(["api", "-X", "POST", "repos/acme/web/pulls/1/comments/11/replies", "--input", "-"], { stdin: JSON.stringify({ body: "Agreed" }), timeoutMs: 0, authToken: "tok" });
+  expect(runGh).toHaveBeenCalledWith(["api", "-X", "POST", "repos/acme/web/pulls/1/comments/11/replies", "--input", "-", "-i"], { stdin: JSON.stringify({ body: "Agreed" }), timeoutMs: 300_000, authToken: "tok" });
   expect([...(await store.listReplyDrafts("pr-1")).keys()]).toEqual(["PRRT_other"]);
   expect(channels()).toContain("feedback:pr-1");
 });
@@ -62,7 +62,7 @@ test("replyToThread from pages without the thread's id posts as before and leave
   await store.setReplyDraft("pr-1", "PRRT_bob", "Agreed", "reviewer");
   const channels = published();
   expect(await call("replyToThread", { targetKey: "pr-1", inReplyTo: 11, body: "Agreed", account: "casey" })).toEqual({ ok: true });
-  expect(runGh).toHaveBeenCalledWith(["api", "-X", "POST", "repos/acme/web/pulls/1/comments/11/replies", "--input", "-"], { stdin: JSON.stringify({ body: "Agreed" }), timeoutMs: 0, authToken: "tok" });
+  expect(runGh).toHaveBeenCalledWith(["api", "-X", "POST", "repos/acme/web/pulls/1/comments/11/replies", "--input", "-", "-i"], { stdin: JSON.stringify({ body: "Agreed" }), timeoutMs: 300_000, authToken: "tok" });
   expect((await store.listReplyDrafts("pr-1")).get("PRRT_bob")?.body).toBe("Agreed");
   expect(channels()).not.toContain("feedback:pr-1");
 });

@@ -26,6 +26,11 @@ export function targetKey(t: ReviewTarget, scope?: { projectId: string; cwd: str
   return `ref-${hash}`;
 }
 
+/** A local review's key: its folder, as bb's environment, and its branch. One review per folder and branch, however many threads work there. */
+export function featureKey(environmentId: string, branch: string): string {
+  return `br-${createHash("sha1").update(JSON.stringify([environmentId, branch])).digest("hex").slice(0, 16)}`;
+}
+
 /**
  * The key of the saved review of a PR: its own, else, for a renamed or transferred repository, the one the sync keeps
  * under the old name with the PR's new link. The PR's own key when neither is saved.

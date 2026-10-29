@@ -9,6 +9,7 @@ import { defaultPreferences } from "./preferences";
 import { queueStore, type AsyncStore } from "./store-queue";
 import { startPlugin } from "./plugin-store.test-support";
 import { testStore } from "./test-store.test-support";
+import { ASSISTANT_WRITE_TOOL_NAMES } from "./server-modules";
 
 vi.mock("./store-queue", async (original) => {
   const actual = await original<typeof import("./store-queue")>();
@@ -242,7 +243,7 @@ test("agents.configure exposes tools/skill only to this plugin's own generation 
     baseConfigContext("code-review-workspace", "Review agent: pr-1", "assistant-1"),
   );
   expect(agentThread.tools.map((t) => t.name)).toEqual(["read_review_patch", "list_review_files", "list_draft_comments", "add_draft_comment", "edit_draft_comment", "delete_draft_comment", "set_review_summary", "reply_in_discussion",
-    "list_feedback", "read_changes_since_review", "read_pr_context", "read_file", "assess_feedback", "draft_thread_reply"]);
+    "list_feedback", "read_changes_since_review", "read_pr_context", "read_file", "assess_feedback", "draft_thread_reply", ...ASSISTANT_WRITE_TOOL_NAMES]);
   expect(agentThread.skills).toEqual([]);
 
   // An unrelated same-plugin thread still gets nothing.

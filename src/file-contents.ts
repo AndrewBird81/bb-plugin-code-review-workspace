@@ -1,14 +1,17 @@
 // A changed file's whole old and new contents, so the diff can show the code around its hunks.
 import { readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
-import type { ReviewMeta } from "./store";
+import type { BbPluginApi } from "@get-bb/plugin-sdk";
+import { z } from "zod";
+import type { FeatureReview, ReviewMeta } from "./store";
 import { ghErrorMessage, type runGh, type runGit } from "./gh";
 import { patchRows, type PatchFile } from "./patch";
 import { declaredGenerated } from "./classify";
 import { NO_DIFF } from "./pr-snapshot";
+import { callGit } from "./env-diff";
 
 export type FileContentsResult = { ok: true; old: string | null; new: string | null } | { ok: false; error: string };
-/** `missing`: GitHub has no such file at that commit. */
+/** `missing`: GitHub, or the folder, has no such file at that commit. */
 export type Read = { text: string } | { error: string; missing?: boolean };
 
 /** Larger files stay as the diff: pierre would draw them as plain text, and they'd fill the panel's memory. */
@@ -74,6 +77,35 @@ export async function workingTreeFile(cwd: string, path: string): Promise<Read> 
   }
 }
 
+const fileSide = z.discriminatedUnion("outcome", [
+  z.object({ outcome: z.literal("available"), file: z.object({ content: z.string(), contentEncoding: z.enum(["base64", "utf8"]), sizeBytes: z.number() }) }),
+  z.object({ outcome: z.literal("unavailable"), code: z.string(), message: z.string() }),
+]);
+
+/**
+ * A file of a local review's folder, on whichever machine it's on (`bb git file`): the old side at the commit its diff
+ * starts from, the new side as the folder has it now.
+ */
+export async function readFeatureFile(bb: BbPluginApi | undefined, feature: Pick<FeatureReview, "environmentId" | "machine" | "mergeBaseRef">, side: "old" | "new", path: string): Promise<Read> {
+  if (!bb) return { error: `Couldn’t read ${path}: BB’s Git plugin isn’t reachable from here.` };
+  if (!feature.mergeBaseRef) return { error: "This review hasn’t read its folder’s changes yet." };
+  try {
+    const out = await callGit(bb, "fileSide", { environmentId: feature.environmentId, query: { target: "all", mergeBaseRef: feature.mergeBaseRef, path, side } }, fileSide);
+    if (out.outcome === "unavailable") {
+      if (out.code === "file_too_large") return tooLarge(path);
+      return out.code === "ENOENT" ? { error: `${path} isn’t in the folder${side === "old" ? " at the diff’s base" : ""}.`, missing: true } : { error: `Couldn’t read ${path}: ${out.message}` };
+    }
+    if (out.file.sizeBytes > MAX_FILE_BYTES) return tooLarge(path);
+    if (out.file.contentEncoding !== "utf8") return { error: `${path} isn’t text, so it shows as the diff only.` };
+    return { text: out.file.content };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    // bb fails a read at a commit that hasn't the file with git's own words, where the folder hasn't it says ENOENT.
+    if (/exists on disk, but not in '|does not exist in '/.test(message)) return { error: `${path} isn’t in the folder at the diff’s base.`, missing: true };
+    return { error: `Couldn’t read ${path} from ${feature.machine}: ${message}` };
+  }
+}
+
 /** Where a local review's diff starts and ends: `a...b` from their merge base, `a..b` from a, and a single ref against the working tree (null). */
 export async function localRevs(git: typeof runGit, review: ReviewMeta): Promise<{ from: string; to: string | null } | { error: string }> {
   // Each side goes to git first among its arguments, so none may read as an option.
@@ -87,7 +119,7 @@ export async function localRevs(git: typeof runGit, review: ReviewMeta): Promise
 }
 
 /** A changed file's old and new contents (null for a side it doesn't exist on), when they agree with its diff. */
-export async function readFileContents(gh: { runGh: typeof runGh; runGit: typeof runGit }, review: ReviewMeta, file: PatchFile): Promise<FileContentsResult> {
+export async function readFileContents(gh: { runGh: typeof runGh; runGit: typeof runGit; bb?: BbPluginApi }, review: ReviewMeta, file: PatchFile): Promise<FileContentsResult> {
   const rows = patchRows(file.text);
   if (rows.some((row) => row.kind === "header" && /^(Binary files |GIT binary patch)/.test(row.text))) return { ok: false, error: "A binary file shows as the diff only." };
   // GitHub sent no diff for it, so it may be binary, and there's no diff to check its contents against.
@@ -109,6 +141,10 @@ export async function readFileContents(gh: { runGh: typeof runGh; runGit: typeof
       return "error" in sha ? sha : githubFile(gh.runGh, repo, sha.text, oldPath);
     };
     readNew = () => githubFile(gh.runGh, repo, headSha, file.path);
+  } else if (review.feature) {
+    const { feature } = review;
+    readOld = () => readFeatureFile(gh.bb, feature, "old", oldPath);
+    readNew = () => readFeatureFile(gh.bb, feature, "new", file.path);
   } else {
     const { cwd } = review;
     if (!cwd || !review.gitRef) return { ok: false, error: "This review has no checkout to read the file from." };
@@ -135,7 +171,7 @@ const declaredCache = new Map<string, string[]>();
  * The changed files the repo's root .gitattributes marks generated or vendored, read at the diff's old side
  * (a PR's merge base), so a change can't mark its own code generated.
  */
-export async function readGeneratedFiles(gh: { runGh: typeof runGh; runGit: typeof runGit }, review: ReviewMeta, paths: string[]): Promise<string[]> {
+export async function readGeneratedFiles(gh: { runGh: typeof runGh; runGit: typeof runGit; bb?: BbPluginApi }, review: ReviewMeta, paths: string[]): Promise<string[]> {
   let attributes: Read;
   if (review.kind === "pr") {
     if (!review.repo || !review.base || !review.headSha) return [];
@@ -155,6 +191,8 @@ export async function readGeneratedFiles(gh: { runGh: typeof runGh; runGit: type
       if (declaredCache.size > CACHE_SIZE) declaredCache.delete(declaredCache.keys().next().value!);
     }
     return declaredCache.get(declared)!;
+  } else if (review.feature) {
+    attributes = await readFeatureFile(gh.bb, review.feature, "old", ".gitattributes");
   } else {
     if (!review.cwd || !review.gitRef) return [];
     const revs = await localRevs(gh.runGit, review);

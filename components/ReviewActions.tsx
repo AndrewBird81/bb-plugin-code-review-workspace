@@ -3,7 +3,8 @@ import { useBbNavigate, useRpc } from "@get-bb/plugin-sdk/app";
 import { toast } from "sonner";
 import type { rpcContract } from "../src/rpc-contract";
 import { reviewState, type ReviewItem } from "../lib/review-state";
-import { defaultName, NAME_LIMIT, reviewName } from "../lib/review-name";
+import { defaultName, NAME_LIMIT } from "../lib/review-name";
+import { reviewIdentity } from "../lib/review-identity";
 import { canSnooze, canSnoozeUntil, snoozeLabel } from "../lib/turn";
 import { updateDraftRecovery } from "../lib/draft-recovery";
 import { forgetReview } from "../lib/panel-state";
@@ -17,8 +18,11 @@ import { MENU_ITEM, SnoozeChoices } from "./SnoozeChoices";
 import { TOUCH_CONTROL, TOUCH_TARGET } from "./touch";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "./ui/dialog";
 
-/** An item a page adds to a review's menu. `keys`: its key, shown at its right where there's a keyboard. */
-export type ReviewMenuItem = { label: string; icon: IconName; onSelect: () => void; keys?: string };
+/**
+ * An item a page adds to a review's menu. `keys`: its key, shown at its right where there's a keyboard. `description`:
+ * what it does beyond its label, for screen readers. `agent`: it starts an agent, so its icon takes the agent's tone.
+ */
+export type ReviewMenuItem = { label: string; icon: IconName; onSelect: () => void; keys?: string; description?: string; agent?: boolean };
 
 /**
  * What can be done to a review from its menu or its row in the list, each said in a toast. Snooze, Pin, Rename and
@@ -66,16 +70,18 @@ export function useReviewActions(review: ReviewItem, onChanged?: () => void) {
 }
 
 /**
- * Review actions (⋯): the page's own first (`items`, such as Update guide), then Build the guide, Snooze ›, Pin, Rename…
- * and Archive, then Open on GitHub and the page's `trailing` items, then Delete…, which asks first. A tracked review
+ * Review actions (⋯): the page's own first (`items`, such as Update guide), then Build the guide, Snooze ›, Pin, Rename…,
+ * the page's `afterRename` items, and Archive, then Open on GitHub and the page's `trailing` items, then Delete…, which asks first. A tracked review
  * builds its guide; a review you gave can wait until its author responds, and any request until a time you pick.
  */
-export function ReviewActions({ review, items, trailing, pinnable = false, onChanged, onMoved, onDeleted, describedBy, className }: {
+export function ReviewActions({ review, items, afterRename, trailing, pinnable = false, onChanged, onMoved, onDeleted, describedBy, className }: {
   review: ReviewItem;
   /** Offer Pin: Settings shows reviews in BB's thread list. */
   pinnable?: boolean;
   /** Listed first, such as the workspace's Update guide. */
   items?: ReviewMenuItem[];
+  /** Listed after Rename…, such as a local review's Rewrite guide: what starts an agent isn't where the menu opens. */
+  afterRename?: ReviewMenuItem[];
   /** Listed after Open on GitHub, such as Keyboard shortcuts. */
   trailing?: ReviewMenuItem[];
   onChanged?: () => void;
@@ -99,7 +105,8 @@ export function ReviewActions({ review, items, trailing, pinnable = false, onCha
   const [draft, setDraft] = useState("");
   const nameInput = useRef<HTMLInputElement>(null);
   const originalId = useId();
-  const title = reviewName(review);
+  // As every page and list calls it: a local review with no name goes by its guide's title.
+  const title = reviewIdentity(review).name;
   const original = defaultName(review);
   const turn = reviewState(review);
   // GitHub state archives merged and closed PRs, and those you can no longer read or are no longer asked to review: only
@@ -131,15 +138,15 @@ export function ReviewActions({ review, items, trailing, pinnable = false, onCha
     switched.current = true;
     setView(next);
   };
-  const item = (entry: ReviewMenuItem) => <Button key={entry.label} variant="ghost" size="sm" aria-keyshortcuts={entry.keys} className={MENU_ITEM} onClick={() => pick(entry.onSelect)}>
-    <Icon name={entry.icon} aria-hidden />{entry.label}{entry.keys && <kbd aria-hidden className="ml-auto hidden font-sans text-xs text-subtle-foreground pointer-fine:inline">{entry.keys}</kbd>}
+  const item = (entry: ReviewMenuItem) => <Button key={entry.label} variant="ghost" size="sm" aria-keyshortcuts={entry.keys} aria-description={entry.description} className={MENU_ITEM} onClick={() => pick(entry.onSelect)}>
+    <Icon name={entry.icon} className={cn(entry.agent && "text-(--ansi-13)")} aria-hidden />{entry.label}{entry.keys && <kbd aria-hidden className="ml-auto hidden font-sans text-xs text-subtle-foreground pointer-fine:inline">{entry.keys}</kbd>}
   </Button>;
 
   async function saveName(event: FormEvent) {
     event.preventDefault();
     if (actions.busy) return;
-    // Empty, or what it's called anyway, puts the PR's title or ref back.
-    const name = draft.trim() === original ? "" : draft.trim();
+    // Empty, or what it's called anyway, puts the PR's title or ref back; a local review's guide title, unchanged, stays its guide's.
+    const name = draft.trim() === original || (!review.name && draft.trim() === title) ? "" : draft.trim();
     if (name === (review.name ?? "")) { setRenaming(false); return; }
     if (await actions.rename(name)) setRenaming(false);
   }
@@ -178,6 +185,7 @@ export function ReviewActions({ review, items, trailing, pinnable = false, onCha
             </Button>}
           {pin && item({ label: review.pinnedAt ? "Unpin" : "Pin", icon: review.pinnedAt ? "PinOff" : "Pin", onSelect: () => void actions.setPinned(!review.pinnedAt) })}
           {item({ label: "Rename…", icon: "Edit", onSelect: () => { setDraft(title); setRenaming(true); } })}
+          {afterRename?.map(item)}
           {archivable && item({ label: review.userArchivedAt ? "Unarchive" : "Archive", icon: review.userArchivedAt ? "ArchiveRestore" : "Archive", onSelect: () => void moving(actions.setArchived(!review.userArchivedAt)) })}
           <div role="separator" className="my-1 h-px bg-border" />
           {review.url && <Button variant="ghost" size="sm" className={MENU_ITEM} onClick={() => pick(() => navigate.openUrl(review.url!))}>

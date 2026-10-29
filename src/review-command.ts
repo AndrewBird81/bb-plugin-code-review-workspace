@@ -16,6 +16,9 @@ import {
   ghRepoViewArgs, gitDiffArgs, ghErrorMessage,
 } from "./gh";
 import type { AsyncStore } from "./store-queue";
+import { defaultName, NAME_LIMIT } from "../lib/review-name";
+import { identityIn, placeFacts, type PlaceFacts } from "./review-places";
+import { runFeatureCommand } from "./feature-review";
 
 interface Deps {
   bb: BbPluginApi;
@@ -26,14 +29,19 @@ interface Ctx { projectId?: string; threadId?: string; cwd?: string }
 
 /** The usage, with `bb review list` while Help agents in your threads use bb review is on. */
 const usage = (list: boolean) => [
-  "usage: bb review <pr-url | owner/repo#n | pr-number | git-ref> [--base <ref>] [--context <text>]",
+  "usage: bb review [<pr-url | owner/repo#n | pr-number | git-ref> [--base <ref>]] [--context <text>] [--name <text>]",
   "       bb review comment <list | add | edit | delete> …   (see bb review comment --help)",
   "       bb review summary <review> [--body <text>] …        (see bb review summary --help)",
   ...list ? ["       bb review list [--json]                             (see bb review list --help)"] : [],
+  "       bb review ask <review> <text>                       (see bb review ask --help)",
+  "       bb review approve <review…> [--body <text>]         (see bb review approve --help)",
   "       bb review storage <status | verify | migrate | export-sqlite>  (see bb review storage --help)",
   "",
-  "  A git ref named comment, summary, list or storage is given as refs/heads/<name>.",
+  "  With no PR or ref, it reviews this thread's folder: its committed, uncommitted and new files on its branch, on any",
+  "  machine. One review per folder and branch, addressed to the top thread working there; run again, it opens as it is.",
+  "  A git ref named comment, summary, list, ask, approve or storage is given as refs/heads/<name>.",
   "  --context  text for the assistant's automatic review, such as the ticket the change implements. It's kept with the review; '' removes it.",
+  "  --name     your name for the review, shown in bb instead of the PR's title or the ref; '' puts that back. GitHub, and the agents, keep the PR's title.",
 ].join("\n");
 const CONTEXT_LIMIT = 12_000;
 
@@ -50,6 +58,7 @@ export async function runReviewCommand(deps: Deps, argv: string[], ctx: Ctx, own
   let input: string | undefined;
   let base: string | undefined;
   let context: string | undefined;
+  let name: string | undefined;
   for (let i = 0; i < argv.length; i++) {
     const value = argv[i];
     if (value === "--help" || value === "-h") return { exitCode: 0, stdout: USAGE };
@@ -61,9 +70,23 @@ export async function runReviewCommand(deps: Deps, argv: string[], ctx: Ctx, own
       if (context !== undefined || i + 1 >= argv.length) return { exitCode: 2, stderr: "--context requires text, given once. Pass '' to remove a review's context." };
       context = argv[++i];
       if (context.length > CONTEXT_LIMIT) return { exitCode: 2, stderr: "--context is limited to 12,000 characters." };
+    } else if (value === "--name") {
+      if (name !== undefined || i + 1 >= argv.length) return { exitCode: 2, stderr: "--name requires text, given once. Pass '' to go back to the PR's title or the ref." };
+      // On one line, as a title is.
+      name = argv[++i].replace(/\s+/g, " ").trim();
+      if (name.length > NAME_LIMIT) return { exitCode: 2, stderr: `--name is limited to ${NAME_LIMIT} characters.` };
     } else if (value.trim().startsWith("-") || input !== undefined) {
       return { exitCode: 2, stderr: `Unexpected argument: ${value}` };
     } else input = value.trim();
+  }
+  // No PR or ref: the folder this thread works in. A blank one is a mistake.
+  if (input === undefined) {
+    if (base) return { exitCode: 2, stderr: "--base goes with a git ref. With no ref, bb review compares this thread's folder with its own base." };
+    const changed = (key: string) => {
+      deps.bb.realtime.publish(`review:${key}`, { ts: Date.now() });
+      deps.bb.realtime.publish("reviews", { ts: Date.now() });
+    };
+    return runFeatureCommand({ ...deps, changed }, { context, name, inThreads }, ctx, ownReview);
   }
   if (!input) return { exitCode: 2, stderr: USAGE };
   if (!ctx.projectId) return { exitCode: 2, stderr: "Run `bb review` inside a project thread." };
@@ -82,6 +105,10 @@ export async function runReviewCommand(deps: Deps, argv: string[], ctx: Ctx, own
   if (ownReview !== undefined && target.kind === "ref" && key !== ownReview) return { exitCode: 2, stderr: NOT_OWN_REVIEW };
   // The context reaches its agents as from the thread that started the review: a review's own agent read the PR's text.
   if (ownReview !== undefined && context !== undefined) return { exitCode: 2, stderr: "A review's own agent can't set the review's context." };
+  // Your name for it is yours: a review's own agent read the PR's text.
+  if (ownReview !== undefined && name !== undefined) return { exitCode: 2, stderr: "A review's own agent can't rename the review." };
+  // Where local reviews' code is, for what the command says (src/review-places.ts): asked of bb before the store's lock.
+  const facts: PlaceFacts = await placeFacts(deps.bb, [target]);
   const now = Date.now();
   let unattended = ownReview !== undefined;
 
@@ -131,13 +158,25 @@ export async function runReviewCommand(deps: Deps, argv: string[], ctx: Ctx, own
     const open = appUrl ? `Open ${appUrl.replace(/\/+$/, "")}/plugins/${deps.bb.pluginId}/review/${key}` : "Open the Code Review Workspace panel";
     // What the automatic review goes by (src/agent.ts startAutomaticReview, src/generate.ts): no review runs on a merged
     // or closed PR, nor once you've reviewed it, and one skipped for your click runs when you click Run review.
+    // No name, or the one it has anyway, goes back to the PR's title or ref, as Rename does.
+    let unnamed = false;
+    if (name !== undefined) {
+      const named = await tx.getReview(key);
+      unnamed = !!named?.name && !name;
+      if (named) await tx.setLifecycle(key, { name: name && name !== defaultName(named) ? name : null });
+    }
     const review = await tx.getReview(key);
     const state = review?.startedPrState ?? review?.prState;
+    // Which review, as its window's title says it, with its key, which other commands take. The name is quoted, as a
+    // PR's title is its author's words.
+    const identity = review && identityIn(facts, await tx.listReviews(), review);
+    const which = identity ? `${identity.id}${identity.line === identity.id || identity.name === key ? "" : ` ${JSON.stringify(identity.name)}`} (${key})` : key;
     const ended = state === "MERGED" || state === "CLOSED" ? state.toLowerCase() : null;
     const watch = ended ? "to watch it build" : "to watch it build and review";
-    const lines = [current ? `The review of ${key} is up to date. ${open} to review it.`
-      : building ? `The review of ${key} is already building. ${open} ${watch}.`
-      : `Review started for ${key}. ${open} ${watch}.`];
+    const lines = [current ? `The review of ${which} is up to date. ${open} to review it.`
+      : building ? `The review of ${which} is already building. ${open} ${watch}.`
+      : `Review started for ${which}. ${open} ${watch}.`];
+    if (unnamed) lines.push("Removed your name for the review.");
     if (context !== undefined && !context.trim()) lines.push("Removed the review's context.");
     else if (context !== undefined) lines.push(
       !automaticReviewPrompt((await tx.getPreferences()).preferences) ? "Automatic review is off in Review settings, so no review starts with this context. The assistant can still read it with the PR's."
@@ -148,7 +187,7 @@ export async function runReviewCommand(deps: Deps, argv: string[], ctx: Ctx, own
       : current ? "The guide is current, so the automatic review won't run again. Paste the context into Ask agent instead."
       : "The assistant's automatic review will include this context.");
     // Open pages hear of a review started, rebuilding, or back from Archive at once, not when its guide is done.
-    return { exitCode: 0, stdout: lines.join("\n"), told: !(building || current) || !!existing!.userArchivedAt };
+    return { exitCode: 0, stdout: lines.join("\n"), told: !(building || current) || !!existing!.userArchivedAt || name !== undefined };
   };
   let done: Awaited<ReturnType<typeof finish>> | undefined;
   /** Settings, when GitHub must say first whether the PR's author lets agents start. */

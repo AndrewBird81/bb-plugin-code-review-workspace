@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { cn } from "../../lib/utils";
 import { Icon } from "../ui/icon";
 import { InlineCode } from "../ui/inline-code";
-import { plainLine } from "./look";
+import { CUT_CODE, plainLine } from "./look";
 
 /**
  * A comment in the code folded to one line (Fold comments, `i`): its icon, who, its state or severity, its first line,
@@ -14,7 +14,7 @@ export function CommentPill({ frame, icon, who, words, tag, badge, briefBadge, t
   frame: string;
   icon: ReactNode;
   who: string | null;
-  /** Its state, in words: "Agent draft · not submitted". */
+  /** Its state, in words: "Agent draft · not submitted"; `code` in it, as in a thread's note on a sent comment ("Done · Renamed `a`"), shows as code. */
   words: string;
   /** Its severity, in words: "Blocking". */
   tag?: string | null;
@@ -40,11 +40,11 @@ export function CommentPill({ frame, icon, who, words, tag, badge, briefBadge, t
         <span className="flex min-w-0 flex-1 items-center gap-1.5 pointer-coarse:@max-[600px]/review:flex-col pointer-coarse:@max-[600px]/review:items-start pointer-coarse:@max-[600px]/review:gap-1">
           <span className="flex max-w-full min-w-0 items-center gap-1.5">
             {who && <span className="shrink-0 font-medium text-foreground">{who}</span>}
-            <span className="min-w-0 truncate">{words}{tag && <span className="pointer-coarse:@max-[600px]/review:hidden"> · {tag}</span>}</span>
+            <span className={cn("min-w-0 truncate", CUT_CODE)}><InlineCode text={words} />{tag && <span className="pointer-coarse:@max-[600px]/review:hidden"> · {tag}</span>}</span>
             {badge && <span className="flex shrink-0 pointer-coarse:@max-[600px]/review:hidden">{badge}</span>}
           </span>
           {/* A step quieter than who: at 80% a light theme's first line fell to about 4:1. */}
-          <span className="max-w-full min-w-0 flex-1 truncate text-foreground/90 pointer-coarse:@max-[600px]/review:flex-none">
+          <span className={cn("max-w-full min-w-0 flex-1 truncate text-foreground/90 pointer-coarse:@max-[600px]/review:flex-none", CUT_CODE)}>
             <span aria-hidden className="mr-1.5 text-subtle-foreground pointer-coarse:@max-[600px]/review:hidden">·</span>
             {tag && <span className="hidden font-medium text-muted-foreground pointer-coarse:@max-[600px]/review:inline">{tag} · </span>}
             {badge && <span className="mr-1.5 hidden align-middle pointer-coarse:@max-[600px]/review:inline-flex">{briefBadge ?? badge}</span>}

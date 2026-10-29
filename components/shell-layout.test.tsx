@@ -57,7 +57,7 @@ async function renderWorkspace({ opened = true, notes = "" }: { opened?: boolean
     getConversation: () => ({ threadId: null, legacy: [], defaults: null }),
     markSeen: () => ({ ok: true }),
   } as any });
-  await slot.findByRole("main", { name: "Review" });
+  await slot.findByRole("main", { name: /^Review\b/ });
   // The commands sit in the band, where BB's title bar didn't take them.
   const comments = await slot.findByRole("button", { name: "Comments" });
   return { slot, comments };

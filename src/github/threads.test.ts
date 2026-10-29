@@ -117,6 +117,10 @@ test("fetchMyThreads stops at the last page", async () => {
   const run = vi.fn(async () => ({ code: 0, stderr: "", stdout: JSON.stringify(page([thread("me", [])])) }));
   await fetchMyThreads(run, "cli/cli", 1, "me");
   expect(run).toHaveBeenCalledTimes(1);
+  // Every comment's author says whether it's a bot, the thread's first too: GitHub names bots without "[bot]".
+  const query = (run.mock.calls[0] as unknown as [string[]])[0].find((arg) => arg.startsWith("query="))!;
+  expect(query).toContain("first:comments(first:1){nodes{id databaseId author{__typename login}");
+  expect(query).toContain("recent:comments(last:10){nodes{id author{__typename login}");
 });
 
 test("fetchMyThreads rejects on a failed or unreadable response", async () => {
@@ -175,7 +179,7 @@ test("fetchMyThreads reads a thread you started after the first 300, and stops a
 test("a pre-existing comment's label is the severity after its Pre-existing mark", () => {
   const posted = toGithubReviewPayload({
     verdict: "COMMENT", body: "", comments: [{ file: "src/a.ts", line: 3, side: "RIGHT", severity: "nit", introduced: false, body: "Rename this to `count`." }],
-  } as unknown as Draft, true).comments[0].body;
+  } as unknown as Draft, true, false).comments[0].body;
   expect(posted).toBe("**Pre-existing:** **Nit:** Rename this to `count`.");
   expect(threadLabel(posted)).toEqual({ label: "Nit", nonBlocking: true });
   expect(threadLabel("**Pre-existing:** **Blocking:** drops writes")).toEqual({ label: "Blocking", nonBlocking: false });
@@ -188,4 +192,61 @@ test("a pre-existing comment's label is the severity after its Pre-existing mark
     body: posted, createdAt: 0, isResolved: false, resolvedBy: null, isOutdated: false, replies: [], status: "open", replyAt: null,
   }]);
   expect(signals.threads).toMatchObject({ total: 0, open: 0, nonBlocking: 1 });
+});
+
+// Your own PR (S6): everyone's threads, and a thread needs your reply when its latest comment that isn't a bot's isn't yours.
+
+test("on your own PR, everyone's threads are kept, and one someone else started needs your reply", () => {
+  const threads = parseMyThreads(page([thread("bob", []), { ...thread("me", []), id: "PRRT_2" }]), "me", "me");
+  expect(threads.map((t) => [t.id, t.author, t.status, t.needsReply])).toEqual([
+    ["PRRT_1", "bob", "question", { comments: 1, at: Date.parse(at(0)), by: "bob" }],
+    ["PRRT_2", undefined, "open", undefined],
+  ]);
+});
+
+test("on your own PR, your reply answers a thread, and a teammate's comment after it asks again, counting every comment since yours", () => {
+  const own = (later: Array<[unknown, string, number]>, first = "bob") => parseMyThreads(page([thread(first, later)]), "me", "Me")[0];
+  expect(own([[user("me"), "Done.", 1]])).toMatchObject({ author: "bob", status: "open" });
+  expect(own([[user("me"), "Done.", 1]]).needsReply).toBeUndefined();
+  expect(own([[user("me"), "Done.", 1], [user("bob"), "Thanks", 2], [user("carol"), "Why not a map?", 3]])).toMatchObject({
+    status: "question", replyAt: Date.parse(at(3)), needsReply: { comments: 2, at: Date.parse(at(3)), by: "carol" },
+  });
+  // Your own thread, which a teammate answered.
+  expect(own([[user("bob"), "Agreed", 1]], "me")).toMatchObject({ status: "answered", needsReply: { comments: 1, by: "bob" } });
+  expect(own([[user("bob"), "Agreed", 1]], "me").author).toBeUndefined();
+});
+
+test("on your own PR, a bot's comments never ask for your reply, whether it started the thread or came last", () => {
+  const own = (node: unknown) => parseMyThreads(page([node]), "me", "me")[0];
+  // GitHub's GraphQL names bots without "[bot]": only __typename tells them.
+  const copilot = bot("copilot-pull-request-reviewer");
+  const started = thread("x", [[bot("coderabbitai"), "Also here", 1]]);
+  const botThread = { ...started, first: { nodes: [{ ...started.first.nodes[0], author: copilot }] }, recent: { nodes: [{ ...started.recent.nodes[0], author: copilot }, ...started.recent.nodes.slice(1)] } };
+  expect(own(botThread)).toMatchObject({ author: "copilot-pull-request-reviewer", authorBot: true, status: "open" });
+  expect(own(botThread).needsReply).toBeUndefined();
+  expect(own(thread("me", [[bot("github-actions"), "Lint failed", 1]])).needsReply).toBeUndefined();
+  // A person's comment after a bot's still does; the bot's isn't counted.
+  expect(own(thread("me", [[user("bob"), "Can you look?", 1], [bot("github-actions"), "ci", 2]]))).toMatchObject({ needsReply: { comments: 1, at: Date.parse(at(1)), by: "bob" } });
+});
+
+test("on your own PR, a resolved thread needs nothing", () => {
+  const t = parseMyThreads(page([thread("bob", [], { isResolved: true })]), "me", "me")[0];
+  expect(t).toMatchObject({ author: "bob", status: "resolved" });
+  expect(t.needsReply).toBeUndefined();
+});
+
+test("on a teammate's PR, only your threads are kept, read as before", () => {
+  const nodes = [thread("bob", [[user("alice"), "Fixed", 1]]), { ...thread("me", [[user("alice"), "Fixed", 1]]), id: "PRRT_2" }];
+  const threads = parseMyThreads(page(nodes), "me", "alice");
+  expect(threads.map((t) => [t.id, t.status])).toEqual([["PRRT_2", "answered"]]);
+  expect(threads[0]).not.toHaveProperty("author");
+  expect(threads[0]).not.toHaveProperty("needsReply");
+});
+
+test("threadSignals counts what waits for your reply on your own PR, and adds nothing on a teammate's", () => {
+  const nodes = [thread("bob", [[user("carol"), "+1", 2]]), { ...thread("me", [[user("dan"), "Hm?", 5]]), id: "PRRT_2" }, { ...thread("x", []), id: "PRRT_3", first: { nodes: [{ id: "c0", databaseId: 1, author: bot("github-actions"), body: "Lint", createdAt: at(6) }] } }];
+  const own = threadSignals(parseMyThreads(page(nodes), "me", "me"), true);
+  expect(own.newComments).toEqual({ count: 3, threads: 2, at: Date.parse(at(5)), by: "dan" });
+  expect(threadSignals(parseMyThreads(page([thread("me", [])]), "me", "me"), true).newComments).toBeNull();
+  expect(threadSignals(parseMyThreads(page(nodes), "me", "alice"))).not.toHaveProperty("newComments");
 });

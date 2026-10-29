@@ -9,6 +9,7 @@ import { skipRun } from "./agent";
 import { mayRunUnattended } from "../lib/trust";
 import { existsSync } from "node:fs";
 import type { AsyncStore } from "./store-queue";
+import { readForGuide } from "./feature-review";
 
 interface Deps {
   bb: BbPluginApi; store: AsyncStore;
@@ -38,6 +39,7 @@ async function rerun(deps: Deps, targetKey: string, options: { notify?: boolean;
   if (unavailable) return { ok: false, error: unavailable };
 
   let patch = "";
+  let saveRead: ((tx: AsyncStore) => Promise<void>) | undefined;
   if (m.kind === "pr" && m.number && m.repo) {
     try {
       const snapshot = await readPrSnapshot(deps.gh.runGh, m.number, m.repo);
@@ -57,6 +59,12 @@ async function rerun(deps: Deps, targetKey: string, options: { notify?: boolean;
     } catch (error) {
       return { ok: false, error: error instanceof Error ? error.message : "Couldn't load the PR." };
     }
+  } else if (m.feature && m.kind === "ref") {
+    // A folder's review reads its folder, on whichever machine it's on, and keeps what it read with the guide.
+    const read = await readForGuide(deps.bb, m);
+    if (!read || "error" in read) return { ok: false, error: read?.error ?? "Review has no re-runnable target." };
+    patch = read.patch;
+    saveRead = read.save;
   } else if (m.kind === "ref" && m.gitRef) {
     if (!m.cwd) return { ok: false, error: "Rebuilding a local review's guide needs its original working dir; re-run `bb review` in the terminal." };
     const diff = await deps.gh.runGit(gitDiffArgs(m.gitRef), { cwd: m.cwd });
@@ -76,6 +84,7 @@ async function rerun(deps: Deps, targetKey: string, options: { notify?: boolean;
       // A guide started while GitHub or git answered, as by bb review, is building this review already: one writer, not two.
       if ((await tx.getReview(targetKey))?.status === "generating") return { ok: true };
       run = await rebuildReview(deps, tx, { ...m, projectId }, patch, options);
+      await saveRead?.(tx);
       return { ok: true };
     });
   } finally {
@@ -101,6 +110,33 @@ export async function rebuildReview(deps: Pick<Deps, "bb" | "store">, tx: AsyncS
   await tx.rebaseDraftComments(targetKey, await reanchorDraft(tx, targetKey, previous, next));
   await pruneDiffs(tx, (await tx.getReview(targetKey))!);
   return beginGuide(deps.bb, tx, deps.store, targetKey, m.projectId, options);
+}
+
+/**
+ * Update: read a local review's code again and show it, the comments following their lines, without the guide writer.
+ * The guide stays as it was written; Rewrite guide (rerunReview) writes a new one.
+ */
+export async function updateReview(deps: Pick<Deps, "store" | "gh">, targetKey: string): Promise<{ ok: boolean; error?: string }> {
+  const m = await deps.store.getReview(targetKey);
+  if (!m) return { ok: false, error: "This review no longer exists." };
+  if (m.kind !== "ref" || !m.gitRef) return { ok: false, error: "Only a local review updates without its guide. Use Update guide." };
+  if (!m.cwd) return { ok: false, error: "Updating a local review needs its original working dir; re-run `bb review` in the terminal." };
+  const diff = await deps.gh.runGit(gitDiffArgs(m.gitRef), { cwd: m.cwd });
+  if (diff.code !== 0) return { ok: false, error: diff.stderr || "git diff failed" };
+  if (!diff.stdout.trim()) return { ok: false, error: "No changes found." };
+  return deps.store.exclusive(async (tx) => {
+    const now = await tx.getReview(targetKey);
+    if (!now) return { ok: false, error: "This review was deleted." };
+    // The guide being written is for the diff it was given: an Update meanwhile would show it another.
+    if (now.status === "generating") return { ok: false, error: "The guide writer is writing this review’s guide. Update once it’s done." };
+    const previous = await tx.patch(targetKey);
+    const next = ensureGitHeaders(diff.stdout);
+    await tx.savePatch(targetKey, next);
+    // The comments follow their lines into the new diff, as on a rebuild.
+    await tx.rebaseDraftComments(targetKey, await reanchorDraft(tx, targetKey, previous, next));
+    await pruneDiffs(tx, now);
+    return { ok: true };
+  });
 }
 
 /**

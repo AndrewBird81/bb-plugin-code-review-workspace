@@ -3,6 +3,7 @@ import { createFakePluginHost, makeQueueEntry, makeThreadResponse } from "@get-b
 import plugin from "../server";
 import { runGh } from "./gh";
 import { testStore } from "./test-store.test-support";
+import { MARK_PART } from "./agent-chat.test-support";
 
 vi.mock("./gh", async (original) => ({ ...await original<typeof import("./gh")>(), runGh: vi.fn() }));
 
@@ -28,7 +29,7 @@ async function host({ conversation = true } = {}) {
   await store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, repo: "acme/web", status: "ready", createdAt: 1, headSha: "sha1", projectId: "p1" });
   await store.savePatch("pr-1", patch);
   if (conversation) await store.setAssistantThread("pr-1", "assistant");
-  const ask = (input: Record<string, unknown>) => harness.behavior.callRpc("askAgent", { targetKey: "pr-1", ...at, ...input }) as Promise<any>;
+  const ask = (input: Record<string, unknown>) => harness.behavior.callRpc("askAgent", { targetKey: "pr-1", ...at, inserted: false, ...input }) as Promise<any>;
   const tool = (name: string, input: Record<string, unknown>) => harness.behavior.callAgentTool(name, input, { threadId: "assistant" }) as Promise<any>;
   const sent = () => harness.inspection.sdk.callsTo("threads.send").map(([args]) => args as any);
   const signals = (channel: string) => harness.inspection.realtimeSignals.filter((signal) => signal.channel === channel).length;
@@ -41,7 +42,7 @@ test("asking about a draft comment sends the reviewer's message to the assistant
   const result = await ask({ body: "It can't: b is 3." });
   expect(result.discussions).toEqual([{ ...at, waiting: true, entries: [{ author: "reviewer", kind: "message", body: "It can't: b is 3.", createdAt: expect.any(Number) }] }]);
   const [message] = sent();
-  expect(message).toMatchObject({ threadId: "assistant", mode: "queue-if-active", input: [{ type: "text", text: "On `a.ts:3`: It can't: b is 3." }, { type: "text", visibility: "agent-only" }] });
+  expect(message).toMatchObject({ threadId: "assistant", mode: "queue-if-active", input: [{ type: "text", text: "On `a.ts:3`: It can't: b is 3." }, { type: "text", visibility: "agent-only" }, MARK_PART] });
   const context: string = message.input[1].text;
   for (const part of ["reviewer's discussion at a.ts:3 (RIGHT side)", 'reply_in_discussion on file "a.ts", line 3, side RIGHT', "edit_draft_comment or delete_draft_comment", "added by an agent:\nCan this overflow?", "+const c = b * 2;", "one short line"]) expect(context).toContain(part);
   // The draft itself doesn't change, and nothing reaches GitHub.
@@ -121,7 +122,7 @@ test("without a conversation, asking starts one on the default agent; a new conv
   const { store, ask, harness, signals } = await host({ conversation: false });
   await ask({ body: "What does this do?" });
   const [spawn] = harness.inspection.sdk.callsTo("threads.spawn")[0] as [any];
-  expect(spawn).toMatchObject({ title: "Review agent: pr-1", model: "opus", input: [{ type: "text", text: "On `a.ts:3`: What does this do?" }, { type: "text", visibility: "agent-only" }] });
+  expect(spawn).toMatchObject({ title: "Review agent: web#1 · pr-1", model: "opus", input: [{ type: "text", text: "On `a.ts:3`: What does this do?" }, { type: "text", visibility: "agent-only" }, MARK_PART] });
   expect(await store.getAssistantThread("pr-1")).toBe("assistant");
   expect(signals("conversation:pr-1")).toBe(1);
   await harness.behavior.callRpc("newConversation", { targetKey: "pr-1" });
@@ -258,7 +259,8 @@ test("the reviewer's own comment changes only in the turn that carries their ask
   expect((await tool("edit_draft_comment", { ...at, body: "Theirs." })).isError).toBe(true);
   await harness.behavior.emitThreadEvent("message.dispatched", { entry: row });
   expect(await tool("edit_draft_comment", { ...at, body: "Short." })).toBe("Updated the reviewer's draft comment on a.ts:3, as they asked.");
-  expect((await store.getDraft("pr-1")).comments).toEqual([{ ...at, body: "Short." }]);
+  // Marked as the agent's edit of your comment.
+  expect((await store.getDraft("pr-1")).comments).toEqual([{ ...at, body: "Short.", editedBy: "agent" }]);
   expect(await harness.behavior.callRpc("undoAgentChange", { targetKey: "pr-1", ...at })).toMatchObject({ draft: { comments: [{ ...at, body: "Mine." }] } });
   // Once the turn ends, it's the reviewer's again.
   await idle();

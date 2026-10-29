@@ -70,9 +70,9 @@ test("adding never replaces a comment; editing and deleting change only the one 
   await store.savePatch("pr-1", patch.replace("export { a };", "export { a, b };"));
   await store.setLifecycle("pr-1", { commentAsks: [{ file: "a.ts", line: 3, side: "RIGHT", ask: { threadId: "assistant", state: "running", at: Date.now() } }] });
   expect(await call("edit_draft_comment", { file: "a.ts", line: 3, body: "Mine, reworded" })).toBe("Updated the reviewer's draft comment on a.ts:3, as they asked.");
-  expect((await store.getDraft("pr-1")).comments[0]).toEqual({ file: "a.ts", line: 3, side: "RIGHT", chapterId: "c1", body: "Mine, reworded" });
+  expect((await store.getDraft("pr-1")).comments[0]).toEqual({ file: "a.ts", line: 3, side: "RIGHT", chapterId: "c1", body: "Mine, reworded", editedBy: "agent" });
   expect(await store.staleDraftComments("pr-1")).toHaveLength(2);
-  expect(await call("list_draft_comments", {})).toContain("added by the reviewer · drafted against an older diff, so submitting refuses it\n  Mine, reworded");
+  expect(await call("list_draft_comments", {})).toContain("added by the reviewer · drafted against an older diff, so Submit warns, and moves it into the summary if submitted anyway\n  Mine, reworded");
   expect(error(await call("edit_draft_comment", { file: "a.ts", line: 2, body: "x" }))).toBe("There's no draft comment on a.ts:2.");
 
   expect(await call("delete_draft_comment", { file: "a.ts", line: 2, side: "LEFT" })).toBe("Deleted the draft comment on a.ts:2 (LEFT side).");

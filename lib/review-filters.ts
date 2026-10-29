@@ -56,8 +56,9 @@ const VERDICT: Record<string, string> = { APPROVE: "Approved", REQUEST_CHANGES: 
 export function valuesOf(review: ReviewItem, field: ValueField): string[] {
   const [owner, name] = review.repo?.split("/") ?? [];
   switch (field) {
-    // As its row says it, but for whether the PR changed since your review: Approved · updated is Approved.
-    case "status": return [reviewState(review).label.replace(/ · updated$/, "")];
+    // As its row says it, but for whether the PR changed since your review, or how many comments wait on your PR:
+    // Approved · updated is Approved, and Your PR · 3 new comments is Your PR.
+    case "status": return [reviewState(review).label.replace(/ · (updated|\d+ new comments?( in \d+ threads?)?)$/, "")];
     case "author": return review.author ? [review.author] : [];
     case "reviewers": return review.prReviewers ?? [];
     case "teams": return review.prTeams ?? [];

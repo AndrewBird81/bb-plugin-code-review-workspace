@@ -1,0 +1,235 @@
+// @vitest-environment jsdom
+// The main thread beside the diff: the Main thread tab, from BB's title bar and a phone's dock, showing the thread that
+// writes the code with BB's chat, which thread and machine it is, and Change main thread; and Send now on a comment's card.
+import { afterEach, expect, test, vi } from "vitest";
+import { cleanup, fireEvent, waitFor, within } from "@testing-library/react";
+import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
+import { toast } from "sonner";
+import { defaultPreferences } from "../src/preferences";
+import { patchReviewState } from "../lib/panel-state";
+import { updateComments } from "./comments/store";
+import type { ReviewLinks } from "../lib/review-links";
+
+vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() }, Toaster: () => null }));
+vi.mock("@pierre/diffs/react", () => ({ FileDiff: () => <div data-testid="filediff" /> }));
+
+const restores: (() => void)[] = [];
+afterEach(() => { cleanup(); localStorage.clear(); sessionStorage.clear(); vi.clearAllMocks(); restores.splice(0).forEach((restore) => restore()); });
+
+/** Every ResizeObserver reports this size, and media queries answer for a screen this size. */
+function fakeSize(width: number, height: number) {
+  const original = globalThis.ResizeObserver;
+  globalThis.ResizeObserver = class {
+    constructor(private notify: ResizeObserverCallback) {}
+    observe(target: Element) { this.notify([{ target, contentRect: { width, height } } as unknown as ResizeObserverEntry], this as unknown as ResizeObserver); }
+    unobserve() {}
+    disconnect() {}
+  } as unknown as typeof ResizeObserver;
+  const matchMedia = vi.spyOn(window, "matchMedia").mockImplementation((query: string) => {
+    const max = query.match(/max-(width|height): (\d+)px/);
+    const matches = !!max && (max[1] === "width" ? width : height) <= Number(max[2]);
+    return { matches, media: query, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, onchange: null, dispatchEvent: () => false } as MediaQueryList;
+  });
+  const root = document.documentElement;
+  Object.defineProperty(root, "clientWidth", { configurable: true, value: width });
+  Object.defineProperty(root, "clientHeight", { configurable: true, value: height });
+  restores.push(() => { globalThis.ResizeObserver = original; matchMedia.mockRestore(); delete (root as { clientWidth?: number }).clientWidth; delete (root as { clientHeight?: number }).clientHeight; });
+}
+
+const patch = "diff --git a/src/a.ts b/src/a.ts\n--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1 +1 @@\n-a\n+aa\n";
+const guide = { title: "Guide", intent: "Snoozes checks.", unplacedFiles: [] as string[], sections: [{ id: "c1", title: "Snooze", overview: "Waits.", diffs: [{ file: "src/a.ts", summary: "Waits a day." }] }] };
+/** A folder's review of acme/api at feat/snooze, on MaxBook, its main thread `coder`. */
+const folderReview = {
+  targetKey: "br-1", kind: "ref", status: "ready", createdAt: 1, title: "Build snooze", gitRef: "feat/snooze", projectId: "p1",
+  feature: { environmentId: "env1", hostId: "h1", machine: "MaxBook", path: "/Users/me/src/api", branch: "feat/snooze", baseRef: "main", repo: "acme/api" },
+  mainThread: { threadId: "coder", environmentId: "env1", origin: "adopted", since: 1 }, sourceThreadId: "coder",
+  place: { repo: "acme/api", machine: "MaxBook", path: "/Users/me/src/api" },
+};
+const MAIN = { thread: { threadId: "coder", title: "Build snooze", state: "open", machine: "MaxBook" } };
+
+function handlers(review: Record<string, unknown>, rpc: Record<string, unknown> = {}) {
+  return {
+    setReviewPresence: () => ({ ok: true }),
+    getReviewBundle: () => ({ review, guide: structuredClone(guide), patch, revision: "r1" }),
+    getChecks: () => ({ bucket: "none", checks: [] }),
+    getPreferences: () => ({ preferences: defaultPreferences, revision: 0 }),
+    getFileViews: () => ({ views: [] }),
+    checkFeature: () => ({ state: "current", alsoActive: [], hidden: [], flagged: [] }),
+    checkForUpdates: () => ({ hasNewCommits: false }),
+    getDraft: () => ({ draft: { targetKey: review.targetKey, verdict: "COMMENT", body: "", comments: [{ file: "src/a.ts", line: 1, side: "RIGHT", body: "Here." }] }, stale: [] }),
+    getReviewerNotes: () => ({ body: "", revision: 0 }),
+    getConversation: () => ({ threadId: null, legacy: [], defaults: null }),
+    getSourceThread: () => MAIN,
+    markSeen: () => ({ ok: true }),
+    ...rpc,
+  };
+}
+
+/** The review's page at `width` × `height`, and BB's title bar, as the host renders it apart from the page. */
+async function renderReview(review: Record<string, unknown>, size: [number, number], rpc: Record<string, unknown> = {}) {
+  fakeSize(...size);
+  patchReviewState(review.targetKey as string, { activeId: "c1" });
+  const app = await loadPluginApp(() => import("../app"));
+  const registration = app.navPanels[0]!;
+  const options = { rpc: handlers(review, rpc) as any, sidebarThreads: { threads: [{ id: "coder", displayTitle: "Build snooze", status: "active" }] } as any };
+  const bar = renderSlot({ component: registration.headerContent! }, { subPath: review.targetKey as string }, options);
+  const page = renderSlot(registration, { subPath: review.targetKey as string }, options);
+  await page.findByTestId("filediff");
+  return { bar, page };
+}
+
+test("BB's title bar opens the Main thread tab beside the diff: the main thread's own chat, which can't widen its permissions, named with its machine", async () => {
+  const getSourceThread = vi.fn(() => MAIN);
+  const { bar, page } = await renderReview(folderReview, [1440, 1000], { getSourceThread });
+  const button = await bar.findByRole("button", { name: "Main thread" });
+  expect(button.getAttribute("aria-pressed")).toBe("false");
+  fireEvent.click(button);
+  const tab = await page.findByRole("region", { name: "Main thread" });
+  expect(within(tab).getByRole("heading", { level: 2 }).textContent).toBe("Main thread·api:feat/snooze");
+  const chat = await within(tab).findByTestId("bb-thread-chat");
+  expect(chat.dataset).toMatchObject({ threadId: "coder", variant: "compact", permissionPolicy: "inherit" });
+  // Which thread, on which machine, and that it's working now, so a Send waits.
+  expect(within(tab).getByText("MaxBook")).toBeTruthy();
+  expect(within(tab).getByText(/Working: a Send waits for its turn/)).toBeTruthy();
+  expect(getSourceThread).toHaveBeenCalledWith({ targetKey: "br-1" });
+  await waitFor(() => expect(bar.getByRole("button", { name: "Main thread" }).getAttribute("aria-pressed")).toBe("true"));
+  fireEvent.click(within(tab).getByRole("button", { name: "Open in BB" }));
+  expect(page.inspection.navigateCalls).toContainEqual({ method: "toThread", threadId: "coder" });
+  bar.lifecycle.unmount();
+  page.lifecycle.unmount();
+});
+
+test("on a phone, the dock has Main thread, which opens the tab as its sheet", async () => {
+  const { page, bar } = await renderReview(folderReview, [390, 844]);
+  const dock = within(page.getByRole("group", { name: "Review commands" }));
+  fireEvent.click(dock.getByRole("button", { name: "Main thread" }));
+  const sheet = await page.findByRole("dialog", { name: "Main thread" });
+  expect((await within(sheet).findByTestId("bb-thread-chat")).dataset.threadId).toBe("coder");
+  expect(within(sheet).getByRole("button", { name: "Close" })).toBeTruthy();
+  expect(dock.getByRole("button", { name: "Main thread" }).getAttribute("aria-pressed")).toBe("true");
+  page.lifecycle.unmount();
+  bar.lifecycle.unmount();
+});
+
+test("a review with no main thread, or with Send to thread off, has no Main thread tab", async () => {
+  const { page, bar } = await renderReview({ ...folderReview, mainThread: null, sourceThreadId: null }, [1440, 1000]);
+  await bar.findByRole("button", { name: "Ask agent" });
+  expect(bar.queryByRole("button", { name: "Main thread" })).toBeNull();
+  page.lifecycle.unmount();
+  bar.lifecycle.unmount();
+  const off = await renderReview(folderReview, [390, 844], { getPreferences: () => ({ preferences: { ...defaultPreferences, knobs: { ...defaultPreferences.knobs, sendToThread: false } }, revision: 0 }) });
+  await waitFor(() => expect(within(off.page.getByRole("group", { name: "Review commands" })).queryByRole("button", { name: "Main thread" })).toBeNull());
+  off.page.lifecycle.unmount();
+  off.bar.lifecycle.unmount();
+});
+
+/** The tab on its own, in a workspace showing `review`, with BB's thread list `threads`. */
+async function renderTab(review: Record<string, unknown>, rpc: Record<string, unknown>, threads: unknown[] = []) {
+  fakeSize(1440, 1000);
+  const { WorkspaceProvider } = await import("../lib/workspace-context");
+  const { testWorkspace } = await import("./draft-tray.test-support");
+  const { MainThreadPanel } = await import("./MainThreadPanel");
+  const api = testWorkspace(review.targetKey as string, { review: review as any, mainThread: { threadId: "coder", title: "Build snooze", machine: "MaxBook" } });
+  const component = () => <WorkspaceProvider api={api}><MainThreadPanel active reviewId="api:feat/snooze" onClose={() => {}} /></WorkspaceProvider>;
+  return renderSlot({ component }, {}, { rpc: rpc as any, sidebarThreads: { threads } as any });
+}
+const listed = (id: string, displayTitle: string, over: Record<string, unknown> = {}) => ({ id, displayTitle, projectId: "p1", status: "idle", isHidden: false, isArchived: false, environment: { id: "env1" }, ...over });
+
+test("Change main thread lists the threads working in the folder, and the one you choose gets your Sends from now on", async () => {
+  const setMainThread = vi.fn(async () => ({ ok: true }));
+  const getSourceThread = vi.fn(() => MAIN);
+  const slot = await renderTab(folderReview, { getSourceThread, setMainThread }, [
+    listed("coder", "Build snooze"), listed("docs", "Fix the docs", { status: "active" }), listed("away", "Elsewhere", { environment: { id: "env9" } }),
+    listed("agent", "Review agent", { isHidden: true }), listed("old", "Old work", { isArchived: true }),
+  ]);
+  fireEvent.click(await slot.findByRole("button", { name: "Change main thread" }));
+  const menu = within(await slot.findByRole("menu", { name: "Change main thread" }));
+  expect(menu.getAllByRole("menuitemradio").map((item) => [item.textContent, item.getAttribute("aria-checked")])).toEqual([["Build snooze", "true"], ["Fix the docsWorking now", "false"]]);
+  fireEvent.click(menu.getByRole("menuitemradio", { name: /Fix the docs/ }));
+  await waitFor(() => expect(setMainThread).toHaveBeenCalledWith({ targetKey: "br-1", threadId: "docs" }));
+  await waitFor(() => expect(toast.success).toHaveBeenCalledWith("Your Sends go to Fix the docs now."));
+  await waitFor(() => expect(getSourceThread).toHaveBeenCalledTimes(2));
+  slot.lifecycle.unmount();
+});
+
+test("Change main thread can start a fresh thread here, which gets your Sends from then on", async () => {
+  const setMainThread = vi.fn(async () => ({ ok: true }));
+  const slot = await renderTab(folderReview, { getSourceThread: () => MAIN, setMainThread }, [listed("coder", "Build snooze")]);
+  fireEvent.click(await slot.findByRole("button", { name: "Change main thread" }));
+  const menu = within(await slot.findByRole("menu", { name: "Change main thread" }));
+  expect(menu.getAllByRole("menuitemradio")).toHaveLength(1);
+  fireEvent.click(menu.getByRole("menuitem", { name: "Start a fresh thread here" }));
+  await waitFor(() => expect(setMainThread).toHaveBeenCalledWith({ targetKey: "br-1", fresh: true }));
+  await waitFor(() => expect(toast.success).toHaveBeenCalledWith("Started a fresh thread: your Sends go there now."));
+  slot.lifecycle.unmount();
+});
+
+test("a main thread that's archived shows its conversation with no box to write in, and one deleted says what the next Send does", async () => {
+  const archived = await renderTab(folderReview, { getSourceThread: () => ({ thread: { ...MAIN.thread, state: "archived" } }) });
+  expect((await archived.findByTestId("bb-thread-chat")).dataset.variant).toBe("timeline");
+  expect(archived.getByText(/This thread is archived\. Your next Send offers to unarchive it or start a fresh thread/)).toBeTruthy();
+  archived.lifecycle.unmount();
+  const gone = await renderTab(folderReview, { getSourceThread: () => ({ thread: { threadId: "coder", title: null, state: "gone" } }) });
+  expect((await gone.findByRole("status")).textContent).toBe("The main thread was deleted. Your next Send starts a fresh thread, or choose another with Change.");
+  expect(gone.queryByTestId("bb-thread-chat")).toBeNull();
+  gone.lifecycle.unmount();
+});
+
+/** A draft comment's card in Comments, its row opened, in a review whose main thread is `coder`, with `links`. */
+async function renderCard(rpc: Record<string, unknown>, comment: Record<string, unknown> = {}, links: Partial<ReviewLinks> = {}) {
+  fakeSize(1440, 1000);
+  await loadPluginApp(() => import("../app"));
+  const { DraftTray } = await import("./draft-tray.test-support");
+  const { ReviewLinksContext } = await import("../lib/review-links");
+  const draft = { targetKey: "k", verdict: "COMMENT", body: "", comments: [{ file: "src/a.ts", line: 2, side: "RIGHT", body: "Rename this.", ...comment }] };
+  updateComments("k", { expanded: "draft:src/a.ts:2:RIGHT" });
+  const component = () => <ReviewLinksContext.Provider value={{ status: { posts: false, own: true }, editor: null, ...links }}>
+    <DraftTray targetKey="k" activeChapterId="c1" activeFiles={["src/a.ts"]} reviewRevision="r1" isLocal review={{ targetKey: "k", kind: "ref", sourceThreadId: "coder" } as any} workspace={{ mainThread: { threadId: "coder", title: "Build snooze", machine: "MaxBook" } }} />
+  </ReviewLinksContext.Provider>;
+  const slot = renderSlot({ component }, {}, { rpc: { setReviewPresence: () => ({ ok: true }), getReviewerNotes: () => ({ body: "", revision: 0 }), getDraft: () => ({ draft, stale: [], discussions: [] }), getSourceThread: () => MAIN, ...rpc } as any });
+  await slot.findByText("Draft saved");
+  return within(await slot.findByRole("article", { name: "Draft comment on src/a.ts:2" }));
+}
+
+test("Send now on a comment's card sends it alone, and says when the main thread is busy and gets it after its turn", async () => {
+  const sendNow = vi.fn(async () => ({ ok: true, sent: { id: "c7", sendN: 2, threadId: "coder", title: "Build snooze", delivery: "queued" } }));
+  const card = await renderCard({ sendNow });
+  fireEvent.click(card.getByRole("button", { name: "Send now to Build snooze (main thread) on MaxBook" }));
+  await waitFor(() => expect(sendNow).toHaveBeenCalledWith({ targetKey: "k", comment: { file: "src/a.ts", line: 2, side: "RIGHT" } }));
+  await waitFor(() => expect(toast.success).toHaveBeenCalledWith("Queued for Build snooze: it’s busy, and gets the comment when its turn ends."));
+});
+
+test("Send now's warning shows on the card with its choices, and Send anyway sends it", async () => {
+  const sendNow = vi.fn()
+    .mockResolvedValueOnce({ ok: false, warning: "This is @alice’s PR, not yours. Your review on GitHub stays as it is.", offers: ["anyway"] })
+    .mockResolvedValueOnce({ ok: true, sent: { id: "c7", sendN: 1, threadId: "coder", title: "Build snooze", delivery: "sent" } });
+  const card = await renderCard({ sendNow });
+  fireEvent.click(card.getByRole("button", { name: "Send now to Build snooze (main thread) on MaxBook" }));
+  const alert = await card.findByRole("alert");
+  expect(alert.textContent).toContain("This is @alice’s PR, not yours.");
+  fireEvent.click(within(alert).getByRole("button", { name: "Send anyway" }));
+  await waitFor(() => expect(sendNow).toHaveBeenLastCalledWith({ targetKey: "k", comment: { file: "src/a.ts", line: 2, side: "RIGHT" }, force: true }));
+  await waitFor(() => expect(toast.success).toHaveBeenCalledWith("Sent the comment to Build snooze."));
+  expect(card.queryByRole("alert")).toBeNull();
+});
+
+test("a sent comment says which Send carried it, to which thread, on its row, and its card offers no Send now until it changes", async () => {
+  const card = await renderCard({}, { id: "c7", state: "sent", sendN: 2 }, {
+    status: { posts: false, own: true, sends: [{ n: 2, at: Date.now() - 120_000, threadId: "coder", ids: ["c7"] }], sent: { at: 1, threadId: "coder", title: "Build snooze", comments: [] } },
+  });
+  expect(within(document.body).getByRole("button", { name: /^Sent to Build snooze · Send 2 · src\/a\.ts:2/ })).toBeTruthy();
+  expect(card.queryByRole("button", { name: /^Send now/ })).toBeNull();
+});
+
+test("on your PR whose folder a fixer took over, Change offers a fresh thread, not one here: the server starts a fixer at the PR's head", async () => {
+  const setMainThread = vi.fn(async () => ({ ok: true }));
+  const rehomed = { ...folderReview, targetKey: "pr-12", kind: "pr", repo: "acme/api", number: 12, ownPr: true,
+    feature: { ...folderReview.feature, environmentId: "env_fix", workBranch: "bb/fix" }, mainThread: { threadId: "coder", environmentId: "env_fix", origin: "fresh", since: 2, fixer: { sha: "a".repeat(40), at: 2 } } };
+  const slot = await renderTab(rehomed, { getSourceThread: () => MAIN, setMainThread }, [listed("coder", "Build snooze", { environment: { id: "env_fix" } })]);
+  fireEvent.click(await slot.findByRole("button", { name: "Change main thread" }));
+  const menu = within(await slot.findByRole("menu", { name: "Change main thread" }));
+  expect(menu.queryByRole("menuitem", { name: "Start a fresh thread here" })).toBeNull();
+  fireEvent.click(menu.getByRole("menuitem", { name: "Start a fresh thread" }));
+  await waitFor(() => expect(setMainThread).toHaveBeenCalledWith({ targetKey: "pr-12", fresh: true }));
+  slot.lifecycle.unmount();
+});

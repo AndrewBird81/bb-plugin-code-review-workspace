@@ -1,5 +1,5 @@
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
-import { UrlLink, useRpc } from "@get-bb/plugin-sdk/app";
+import { UrlLink, useBbNavigate, useRpc } from "@get-bb/plugin-sdk/app";
 import { toast } from "sonner";
 import type { rpcContract } from "../../src/rpc-contract";
 import { SUMMARY_AT, VERDICT_LABEL, verdictPicked, type Verdict } from "../../src/draft";
@@ -9,7 +9,10 @@ import { readOf } from "../../lib/agent-coverage";
 import { readDraftRecovery } from "../../lib/draft-recovery";
 import { useKnob } from "../../lib/settings";
 import { needsOrder, reviewState, type ReviewItem } from "../../lib/review-state";
-import { reviewName } from "../../lib/review-name";
+import { reviewIdentity } from "../../lib/review-identity";
+import { pushAnywayOffered, pushFlagText, pushTarget } from "../../lib/push";
+import { showNotPushed } from "../../lib/main-thread";
+import { Marked, Mono, updateThenClear } from "../shell/PushNotices";
 import { statusWhy } from "../../lib/status-line";
 import { cn } from "../../lib/utils";
 import { useWorkspace } from "../../lib/workspace-context";
@@ -21,7 +24,7 @@ import { age, timeAgo } from "../time-ago";
 import { TOUCH_CONTROL, TOUCH_TARGET } from "../touch";
 import { Button, buttonVariants } from "../ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "../ui/dialog";
-import { Icon } from "../ui/icon";
+import { Icon, type IconName } from "../ui/icon";
 import { InlineCode } from "../ui/inline-code";
 import { MetaLine } from "../MetaLine";
 import { Clamped } from "./CommentCard";
@@ -61,9 +64,9 @@ export function FinishView({ shown, revision }: {
   const notes = usePrivateNotes(targetKey, shown);
   // What the last Submit here sent, for its receipt.
   const [sent, setSent] = useState<{ comments: number; at: number } | null>(null);
-  const submit = (confirmed = false) => {
-    if (confirmed || !(d.doubts.length || d.approvingBlocked)) setSent({ comments: d.draft.comments.length, at: Date.now() });
-    void d.submit(confirmed);
+  const submit = (confirmed = false, choice?: "anyway" | "comment") => {
+    if (confirmed || !(d.doubts.length || d.approvingBlocked)) setSent({ comments: d.posting.length, at: Date.now() });
+    void d.submit(confirmed, choice);
   };
   // It didn't go: there's no receipt to show.
   useEffect(() => { if (d.status.error) setSent(null); }, [d.status.error]);
@@ -100,7 +103,10 @@ export function FinishView({ shown, revision }: {
             {isPr && <Verdicts revision={revision} />}
             {isPr ? <GoesToGitHub items={items} replyDrafts={items.filter((item) => item.kind === "thread" && item.replyDraft).length} onList={openList} />
               : <Part title="Stays in BB"><p className="text-sm text-muted-foreground">{d.hint}</p>{notes.show && <PrivateNotes targetKey={targetKey} />}</Part>}
-            {(d.isLocal || d.ownPr) && <FixHandoff targetKey={targetKey} comments={d.sortedComments} revision={revision} />}
+            {(d.isLocal || d.ownPr || api.mainThread) && <FixHandoff targetKey={targetKey} comments={d.sortedComments} revision={revision} />}
+            <Push />
+            {d.isLocal && <OpenPr />}
+            <AgentActivity />
             {isPr && notes.show && <Part title="Stays in BB"><PrivateNotes targetKey={targetKey} /></Part>}
           </div>
           {!d.isLocal && <SubmitFoot onSubmit={submit} />}
@@ -116,6 +122,138 @@ function Part({ title, children }: { title: string; children: ReactNode }) {
     <h3 className="px-0.5 text-[11px] font-semibold uppercase tracking-wider text-subtle-foreground">{main}{rest && <span className="font-normal normal-case tracking-normal"> · {rest}</span>}</h3>
     {children}
   </section>;
+}
+
+/**
+ * Push, on a local review of a branch in a GitHub repo, while Send to thread is on (src/push.ts): the main thread commits
+ * what you reviewed, the review checks the commit, and the thread pushes exactly it. It shows where that stands:
+ * waiting on the commit, the commit not what you reviewed (Update first, or Push anyway), pushing, pushed, or flagged.
+ */
+function Push() {
+  const { targetKey, review, reload, panel } = useWorkspace();
+  const rpc = useRpc<typeof rpcContract>();
+  const navigate = useBbNavigate();
+  const sendOn = useKnob("sendToThread");
+  const [busy, setBusy] = useState<"push" | "anyway" | "update" | "dismiss" | null>(null);
+  // What went wrong, or that there was nothing to push.
+  const [said, setSaid] = useState<{ text: string; error: boolean } | null>(null);
+  // A local review's folder, or on your PR, the thread fixing it, a fixer's or the folder it became a PR from.
+  const target = pushTarget(review);
+  if (!sendOn || typeof target === "string") return null;
+  const who = target.fixer ? "the fixer" : "the main thread";
+  const run = review.push ?? null;
+  const sha = run?.sha ? run.sha.slice(0, 7) : "";
+  async function act(what: NonNullable<typeof busy>, call: () => Promise<{ ok: boolean; error?: string; note?: string }>, done?: string) {
+    if (busy) return;
+    setBusy(what);
+    setSaid(null);
+    try {
+      const result = await call();
+      if (!result.ok) setSaid({ text: result.error ?? "Something went wrong. Try again.", error: true });
+      else if (result.note) setSaid({ text: result.note, error: false });
+      else if (done) toast.success(done);
+      await reload();
+    } catch (e) {
+      setSaid({ text: e instanceof Error ? e.message : "Something went wrong. Try again.", error: true });
+    } finally { setBusy(null); }
+  }
+  // Push anyway goes on the warning shown: its commit, when it has one.
+  const push = (force = false) => act(force ? "anyway" : "push", () => rpc.call("push", { targetKey, ...force && run ? { force, at: run.at, ...run.sha ? { sha: run.sha } : {} } : {} }));
+  const dismiss = () => act("dismiss", () => rpc.call("dismissPush", { targetKey }));
+  // On your PR, what you review before it's pushed is Not pushed yet: Update first opens it.
+  const update = () => target.pr ? act("update", async () => {
+    showNotPushed(targetKey);
+    panel.open("main");
+    return rpc.call("dismissPush", { targetKey });
+  }) : act("update", () => updateThenClear(rpc, targetKey), "Updated. Review what changed, then Push.");
+  const spinner = (on: boolean, icon: IconName) => <Icon name={on ? "Loading" : icon} className={cn("size-4", on && "animate-spin motion-reduce:animate-none")} aria-hidden />;
+  const pushButton = (label: string) => <Button variant="outline" size="sm" className={cn("gap-1.5", TOUCH_CONTROL, BUSY)} aria-disabled={!!busy || undefined} onClick={() => void push()}>
+    {spinner(busy === "push", "ArrowUp")}{busy === "push" ? "Asking the main thread…" : label}
+  </Button>;
+  const quiet = (label: string, onClick: () => void) => <Button variant="ghost" size="sm" className={cn("text-muted-foreground hover:text-foreground", TOUCH_CONTROL, BUSY)} aria-disabled={!!busy || undefined} onClick={onClick}>{label}</Button>;
+  const cancel = (label = "Cancel") => quiet(label, () => void dismiss());
+  const updateButton = (label: string, filled: boolean) => <Button size="sm" variant={filled ? "default" : "outline"} className={cn("gap-1.5", !filled && "text-foreground", TOUCH_CONTROL, BUSY)} aria-disabled={!!busy || undefined} onClick={() => void update()}>{spinner(busy === "update", "ArrowReloadHorizontal")}{label}</Button>;
+  const branch = <Mono text={run?.head ?? target.head} />;
+  const flag = pushFlagText(run);
+  const secrets = new Set(run?.secrets ?? []);
+  const files = [...new Set([...run?.files ?? [], ...secrets])];
+  return <Part title="Push">
+    {run?.state === "committing" ? <div className="space-y-2">
+      <p role="status" className="flex gap-1.5 text-sm text-muted-foreground"><Icon name="Loading" className="mt-0.5 size-4 shrink-0 animate-spin motion-reduce:animate-none" aria-hidden />Waiting for {who} to commit. The review checks the commit before anything is pushed.</p>
+      {cancel()}
+    </div>
+    : run?.state === "mismatch" ? <div role="alert" className="space-y-2 rounded-lg border border-warning/25 bg-warning/10 p-2.5 text-xs leading-relaxed text-warning-text">
+      <p><span className="font-medium">Not pushed.</span> {run.warning ? <Marked text={run.warning} /> : <><Mono text={sha} /> isn’t what you reviewed.</>}</p>
+      {files.length > 0 && <ul className="list-disc space-y-0.5 pl-5">{files.slice(0, 5).map((file) => <li key={file}><Mono text={file} />{secrets.has(file) && <span className="font-medium"> · may hold secrets</span>}</li>)}{files.length > 5 && <li>and {files.length - 5} more</li>}</ul>}
+      <div className="flex flex-wrap gap-2">
+        {/* GitHub being ahead isn't something Update fixes; a commit the check couldn't place has nothing to push anyway. */}
+        {!(run.behind && !files.length) && updateButton("Update first", true)}
+        {pushAnywayOffered(run) && <Button size="sm" variant="outline" className={cn("gap-1.5 text-foreground", TOUCH_CONTROL, BUSY)} aria-disabled={!!busy || undefined} onClick={() => void push(true)}>{spinner(busy === "anyway", "ArrowUp")}Push anyway</Button>}
+        {cancel()}
+      </div>
+    </div>
+    : run?.state === "pushing" ? <div className="space-y-2">
+      <p role="status" className="flex gap-1.5 text-sm text-muted-foreground"><Icon name="Loading" className="mt-0.5 size-4 shrink-0 animate-spin motion-reduce:animate-none" aria-hidden /><span>Pushing <Mono text={sha} /> to {branch}. The review checks GitHub when {who} finishes.</span></p>
+      {cancel("Stop waiting")}
+    </div>
+    // The strip under the band says it as it happens; here it's a status, so it isn't said twice.
+    : flag ? <div role="status" className={cn("space-y-2 rounded-lg border p-2.5 text-xs leading-relaxed", run?.flag === "unrequested" ? "border-border bg-muted/40 text-foreground" : "border-warning/25 bg-warning/10 text-warning-text")}>
+      <p><Marked text={flag} /></p>
+      <div className="flex flex-wrap gap-2">
+        {run?.flag === "unrequested" ? !target.pr && updateButton("Update", false) : <>
+          {pushButton("Push again")}
+          <Button variant="outline" size="sm" className={cn("text-foreground", TOUCH_CONTROL)} onClick={() => navigate.toThread(run!.threadId)}>Open main thread</Button>
+        </>}
+        {cancel("Got it")}
+      </div>
+    </div>
+    : <>
+      {run?.state === "pushed" ? <p role="status" className="flex gap-1.5 text-sm"><Icon name="CircleCheck" className="mt-0.5 size-4 shrink-0 text-diff-added" aria-hidden /><span>Pushed <Mono text={sha} /> to {branch}{timeAgo(run.at) && <span className="text-muted-foreground"> · {timeAgo(run.at)}</span>}</span></p>
+        : <p className="text-sm text-muted-foreground">{target.fixer ? "The fixer" : "The main thread"} commits what you reviewed{target.pr ? " in Not pushed yet" : ""}, the review checks it, then it’s pushed to {branch}. Never forced.</p>}
+      {pushButton("Push")}
+    </>}
+    {said?.error && <p role="alert" className="flex gap-1.5 text-xs text-destructive-text"><Icon name="AlertCircle" className="mt-0.5 size-3.5 shrink-0" aria-hidden />{said.text}</p>}
+    {said && !said.error && <p role="status" className="flex gap-1.5 text-xs text-muted-foreground"><Icon name="Info" className="mt-0.5 size-3.5 shrink-0" aria-hidden /><span><Marked text={said.text} /></span></p>}
+  </Part>;
+}
+
+/**
+ * Open PR, on a local review of a branch in a GitHub repo, while Settings lets the review agent act: it drafts the PR's
+ * title and description, shown in the Post form in its chat, whose click opens it. The server says when the branch
+ * needs Push first.
+ */
+function OpenPr() {
+  const { targetKey, review, panel } = useWorkspace();
+  const rpc = useRpc<typeof rpcContract>();
+  const acts = useKnob("reviewAgentActs");
+  const [busy, setBusy] = useState(false);
+  // What went wrong, or what has to happen first, as pushing the branch: an ordinary "not yet", said as such.
+  const [said, setSaid] = useState<{ text: string; error: boolean } | null>(null);
+  const feature = review.kind === "ref" ? review.feature : null;
+  if (!acts || !feature?.repo || feature.prReview) return null;
+  const setError = (text: string) => setSaid({ text, error: true });
+  async function open() {
+    if (busy) return;
+    setBusy(true);
+    setSaid(null);
+    try {
+      const result = await rpc.call("openPr", { targetKey });
+      if (!result.ok) setSaid(result.note ? { text: result.note, error: false } : { text: result.error ?? "Couldn’t ask the review agent. Try again.", error: true });
+      else if (result.note) toast.info(result.note);
+      else panel.open("agent");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn’t ask the review agent. Try again.");
+    } finally { setBusy(false); }
+  }
+  return <Part title="Open a PR">
+    <p className="text-sm text-muted-foreground">The review agent drafts a PR from <Mono text={feature.branch} /> in <Mono text={feature.repo} />, and shows you its title and description before it opens.</p>
+    <Button variant="outline" size="sm" className={cn("gap-1.5", TOUCH_CONTROL, BUSY)} aria-disabled={busy || undefined} onClick={() => void open()}>
+      <Icon name={busy ? "Loading" : "GitPullRequest"} className={cn("size-4", busy && "animate-spin motion-reduce:animate-none")} aria-hidden />
+      {busy ? "Asking the agent…" : "Open PR"}
+    </Button>
+    {said?.error && <p role="alert" className="flex gap-1.5 text-xs text-destructive-text"><Icon name="AlertCircle" className="mt-0.5 size-3.5 shrink-0" aria-hidden />{said.text}</p>}
+    {said && !said.error && <p role="status" className="flex gap-1.5 text-xs text-muted-foreground"><Icon name="Info" className="mt-0.5 size-3.5 shrink-0" aria-hidden /><span><Marked text={said.text} /></span></p>}
+  </Part>;
 }
 
 /** The verdict, the agent's suggestion with Switch to it, and its two ways into the draft: Use as draft and Request what's left. */
@@ -226,16 +364,21 @@ function Row({ icon, tone = "neutral", children, action }: { icon: ReactNode; to
   </li>;
 }
 
-/** Goes to GitHub: the comments and their severities, who wrote them, what holds Submit back, and the reply drafts that post on their own. */
+/**
+ * Goes to GitHub: the comments that post and their severities, who wrote them, what holds Submit back, and the reply
+ * drafts that post on their own. On your own change, those sent to the main thread, resolved or dismissed don't post.
+ */
 function GoesToGitHub({ items, replyDrafts, onList }: { items: readonly CommentItem[]; replyDrafts: number; onList: (filter: CommentFilter, id?: string | null) => void }) {
   const d = useDraft();
   const { reveal, showLocation } = useWorkspace();
-  const comments = d.draft.comments;
+  const comments = d.posting;
+  // Sent to fix from your own change, resolved or dismissed: they stay in BB.
+  const held = d.draft.comments.length - comments.length;
   const agent = comments.filter((comment) => comment.author === "agent").length;
-  const older = items.filter((item) => item.kind === "draft" && item.state === "older-diff");
+  const older = items.filter((item) => item.kind === "draft" && item.state === "older-diff" && item.posts);
   // As MoveToSummary offers it.
   const movable = useKnob("moveToSummary") && d.editable;
-  const blocking = items.find((item) => item.kind === "draft" && d.blocks(item.comment));
+  const blocking = items.find((item) => item.kind === "draft" && item.posts && d.blocks(item.comment));
   const link = (label: string, onClick: () => void) => <Button variant="ghost" size="sm" aria-label={label} className={cn("size-8 shrink-0 px-0 text-muted-foreground", TOUCH_CONTROL)} onClick={onClick}><Icon name="ChevronRight" aria-hidden /></Button>;
   const fix = (label: string, onClick: () => void) => <Button variant="outline" size="sm" className={cn("h-7 shrink-0 px-2 text-xs", TOUCH_CONTROL)} onClick={onClick}>{label}</Button>;
   return (
@@ -269,22 +412,41 @@ function GoesToGitHub({ items, replyDrafts, onList }: { items: readonly CommentI
           The agent suggests Approve but read {readOf(d.unreadApproval)}
         </Row>}
       </ul>
+      {held > 0 && <p className="px-0.5 text-xs text-muted-foreground">{held} sent to fix won’t post to GitHub. Reopen {held === 1 ? "it" : "one"} to post it.</p>}
     </Part>
   );
 }
 
-/** Submit, pinned: the verdict on it, where it posts and as whom, or why it waits; and the one more ask when in doubt. */
-function SubmitFoot({ onSubmit }: { onSubmit: (confirmed?: boolean) => void }) {
+/**
+ * Submit, pinned: the verdict on it, where it posts and as whom, or why it waits; the one more ask when in doubt; and
+ * what GitHub or the server held it back for, in words, with what to do: Submit anyway, Submit as Comment, Open it on GitHub.
+ */
+function SubmitFoot({ onSubmit }: { onSubmit: (confirmed?: boolean, choice?: "anyway" | "comment") => void }) {
   const { review } = useWorkspace();
   const d = useDraft();
-  const blocked = d.busy || d.rebuilding || !d.hasReview || d.writing || d.needsSummary || d.staleComments.length > 0;
+  // Comments on an older diff don't hold it: Submit warns, and Submit anyway moves them into the summary.
+  const blocked = d.busy || d.rebuilding || !d.hasReview || d.writing || d.needsSummary;
   // While it posts, Submit keeps the focus it was clicked with.
   const unavailable = { disabled: blocked && !d.busy, "aria-disabled": d.busy || undefined };
   const where = review.repo && review.number ? `${review.repo}#${review.number}` : null;
   const ready = d.hint === "Drafts stay in BB until you submit.";
+  const warned = d.warned;
+  // While it posts, the choice keeps the focus it was clicked with.
+  const choosing = { "aria-disabled": d.busy || undefined };
+  const dismiss = () => { d.setWarned(null); requestAnimationFrame(() => d.submitRef.current?.focus()); };
   return (
     <footer className="shrink-0 space-y-2 border-t border-border p-3">
-      {d.confirming ? <div role="alert" className="space-y-2 rounded-lg border border-warning/25 bg-warning/10 p-2.5 text-xs leading-relaxed text-warning-text">
+      {warned ? <div role="alert" className="space-y-2 rounded-lg border border-warning/25 bg-warning/10 p-2.5 text-xs leading-relaxed text-warning-text">
+        <p><span className="font-medium">Not submitted.</span> {warned.text.replace(/\s*Your draft (has been kept|is still here)\.$/, "")} Your draft is kept.</p>
+        <div className="flex flex-wrap gap-2">
+          {warned.offers.includes("anyway") && <Button size="sm" className={cn(TOUCH_CONTROL, BUSY)} {...choosing} onClick={() => { if (!d.busy) onSubmit(true, "anyway"); }}>{d.draft.verdict === "APPROVE" ? "Approve anyway" : "Submit anyway"}</Button>}
+          {warned.newCommits && <UrlLink href={warned.newCommits.url} className={cn(buttonVariants({ size: "sm", variant: "outline" }), "text-foreground", TOUCH_CONTROL)}>{warned.newCommits.count ? `See the ${plural(warned.newCommits.count, "commit")}` : "See the new commits"}</UrlLink>}
+          {warned.offers.includes("comment") && <Button size="sm" className={cn(TOUCH_CONTROL, BUSY)} {...choosing} onClick={() => { if (!d.busy) onSubmit(true, "comment"); }}>Submit as Comment</Button>}
+          {warned.offers.includes("github") && where && <UrlLink href={review.url ?? `https://github.com/${where.replace("#", "/pull/")}`} className={cn(buttonVariants({ size: "sm" }), TOUCH_CONTROL)}><Icon name="Github" className="size-4" aria-hidden />Open it on GitHub</UrlLink>}
+          <Button ref={d.confirmCancelRef} size="sm" variant="ghost" className={cn("text-muted-foreground hover:text-foreground", TOUCH_CONTROL)} onClick={dismiss}>Cancel</Button>
+        </div>
+      </div>
+      : d.confirming ? <div role="alert" className="space-y-2 rounded-lg border border-warning/25 bg-warning/10 p-2.5 text-xs leading-relaxed text-warning-text">
         <p>{d.approvingBlocked ? `Approve with ${plural(d.blockingCount, "blocking comment")}?` : `Submit ${VERDICT_LABEL[d.draft.verdict]}${d.commentCount ? ` with ${plural(d.commentCount, "comment")}` : ""}?`} {d.doubts.join(" ")}</p>
         <div className="flex flex-wrap gap-2">
           <Button size="sm" className={cn(TOUCH_CONTROL, BUSY)} {...unavailable} onClick={() => { if (!blocked) onSubmit(true); }}>Submit anyway</Button>
@@ -297,6 +459,36 @@ function SubmitFoot({ onSubmit }: { onSubmit: (confirmed?: boolean) => void }) {
         </Button>}
       <p className="text-xs leading-relaxed text-muted-foreground">{ready && where ? <>Posts to {where}{d.account ? <> as @{d.account}</> : null}.</> : d.hint}</p>
     </footer>
+  );
+}
+
+/** What the review agent did on GitHub when you asked, newest first, a line each: "Posted reply on src/a.ts:12 · 2m ago". */
+function AgentActivity() {
+  const { review } = useWorkspace();
+  const navigate = useBbNavigate();
+  const [all, setAll] = useState(false);
+  const entries = review.activity ?? [];
+  if (!entries.length) return null;
+  // Folded only from 5 up, so Show all never hides a single line.
+  const folds = entries.length >= 5;
+  const shown = [...entries].reverse().slice(0, all || !folds ? undefined : 3);
+  return (
+    <Part title="Agent activity">
+      <ul className="space-y-1.5">
+        {shown.map((entry, index) => <li key={`${entry.at}-${index}`} className="flex items-start gap-1.5">
+          <Icon name="Sparkles" className="mt-0.5 size-3 shrink-0 text-(--ansi-13)" aria-hidden />
+          <MetaLine className="min-w-0" items={[
+            <span className="whitespace-normal break-words text-foreground">{entry.text}</span>,
+            timeAgo(entry.at),
+            entry.asking === "relayed" ? entry.from
+              ? <span className="whitespace-normal">asked from <button type="button" className={cn("relative italic text-primary hover:underline", TOUCH_TARGET)} onClick={() => navigate.toThread(entry.from!)}>{entry.fromTitle ?? "another thread"} ↗</button></span>
+              : "asked from another thread" : null,
+            entry.url ? <UrlLink href={entry.url} aria-label={`${entry.text}, on GitHub`} className={cn("relative text-primary hover:underline", TOUCH_TARGET)}>View</UrlLink> : null,
+          ]} />
+        </li>)}
+      </ul>
+      {folds && <Button variant="ghost" size="sm" aria-expanded={all} className={cn("-ml-2 h-7 px-2 text-xs text-muted-foreground", TOUCH_CONTROL)} onClick={() => setAll(!all)}>{all ? "Show fewer" : `Show all ${entries.length}`}</Button>}
+    </Part>
   );
 }
 
@@ -331,6 +523,7 @@ function LastReview() {
 
 /** After Submit: what went where, and the next review that needs you. */
 function Receipt({ sent }: { sent: { comments: number; at: number } | null }) {
+  const localDiffChanges = useKnob("localDiffChanges");
   const api = useWorkspace();
   const { review, targetKey } = api;
   const d = useDraft();
@@ -371,8 +564,8 @@ function Receipt({ sent }: { sent: { comments: number; at: number } | null }) {
         <h3 className="px-0.5 text-[11px] font-semibold uppercase tracking-wider text-subtle-foreground">Next in Needs review</h3>
         <div className="flex min-h-11 items-center gap-2 rounded-lg border border-border bg-card py-1.5 pl-3 pr-1.5">
           <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-medium"><InlineCode text={reviewName(next)} /></p>
-            <p className="truncate text-xs text-muted-foreground">{[statusWhy(next)?.text, next.number ? `#${next.number}` : null, age(reviewState(next).at ?? next.createdAt)].filter(Boolean).join(" · ")}</p>
+            <p className="truncate text-sm font-medium"><InlineCode text={reviewIdentity(next).name} /></p>
+            <p className="truncate text-xs text-muted-foreground">{[statusWhy(next, { localDiffChanges })?.text, next.number ? `#${next.number}` : null, age(reviewState(next).at ?? next.createdAt)].filter(Boolean).join(" · ")}</p>
           </div>
           <Button size="sm" className={cn("shrink-0", TOUCH_CONTROL)} onClick={() => void api.leave(next.targetKey)}>Open</Button>
         </div>

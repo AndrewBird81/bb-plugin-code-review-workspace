@@ -6,7 +6,7 @@ import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
 import { canonical, dumpStoreReads, type StoreEntities } from "../scripts/store-reads";
 import { pgTestSql, testPgUrl } from "./db/pg-test.test-support";
 import { sqliteSql, type Sql } from "./db/sql";
-import type { CommentLocation, DraftComment } from "./draft";
+import { COMMENT_STATES, type Claim, type CommentLocation, type DraftComment } from "./draft";
 import type { FeedbackThread } from "./github/types";
 import { defaultPreferences } from "./preferences";
 import { createStore, storeOn, type ReviewLifecycle, type ReviewMeta } from "./store";
@@ -62,7 +62,15 @@ function comment(r: Rng): DraftComment {
     ...(r.bool(0.3) ? { evidence: r.pick(TEXTS) } : {}),
     ...(r.bool(0.2) ? { introduced: false as const } : {}),
     ...(r.bool(0.2) ? { chapterId: `c${r.int(1, 3)}` } : {}),
+    // The server's own fields, which a save keeps from the comment there.
+    ...(r.bool(0.3) ? { id: `c${r.int(1, 3)}`, state: r.pick(COMMENT_STATES), sendN: r.int(1, 25) } : {}),
+    ...(r.bool(0.2) ? { claim: claim(r) } : {}),
+    ...(r.bool(0.2) ? { editedBy: "agent" as const } : {}),
   };
+}
+
+function claim(r: Rng): Claim {
+  return { outcome: r.pick(["done", "declined"] as const), note: r.pick(TEXTS), ...(r.bool() ? { commit: r.pick(HEADS) } : {}), threadId: r.pick([null, ...THREADS]), at: r.pick(TIMES), ...(r.bool(0.3) ? { inferred: true as const } : {}) };
 }
 
 function lifecycle(r: Rng): ReviewLifecycle {
@@ -73,6 +81,25 @@ function lifecycle(r: Rng): ReviewLifecycle {
     { signals: null, assessment: null, reviewBodies: [{ state: "COMMENTED", at: r.pick(TIMES), body: r.pick(TEXTS) }] },
     { commentAsks: [{ ...location(r), ask: { threadId: r.pick([null, ...THREADS]), state: "queued", queuedMessageId: "m1", at: r.pick(TIMES) } }] },
     { prSize: { additions: r.int(0, 9), deletions: r.int(0, 9), files: r.int(0, 3) }, ownPr: r.pick([null, true, false]) },
+    {
+      feature: r.pick([null, { environmentId: "env-1", hostId: "host-1", machine: r.pick(TEXTS), path: "/repo", branch: "feature", baseRef: r.pick(HEADS), repo: r.pick([null, "acme/web"]), ...(r.bool() ? { pausedOn: "other" } : {}), ...(r.bool(0.3) ? { folderGone: true } : {}) }]),
+      mainThread: r.pick([null, { threadId: r.pick(THREADS), environmentId: "env-1", origin: r.pick(["adopted", "fresh", "forked"] as const), since: r.pick(TIMES) }]),
+      implementers: r.bool() ? [] : [{ threadId: r.pick(THREADS), environmentId: "env-1", origin: "fresh", since: r.pick(TIMES), ...(r.bool() ? { branch: "bb/fix-thr_x" } : {}) }],
+      letPush: r.bool(), includeHidden: FILES.filter(() => r.bool(0.2)),
+    },
+    {
+      push: r.pick([null, { state: r.pick(["committing", "mismatch", "pushing", "pushed", "flagged"] as const), at: r.pick(TIMES), threadId: r.pick(THREADS), repo: "acme/web", head: "feature",
+        ...(r.bool() ? { sha: r.pick(HEADS) } : {}), ...(r.bool(0.3) ? { warning: r.pick(TEXTS), files: FILES.filter(() => r.bool()) } : {}), ...(r.bool(0.3) ? { flag: r.pick(["differs", "unrequested"] as const), remote: r.pick([null, ...HEADS]) } : {}) }]),
+      remoteHead: r.pick([null, { repo: "acme/web", head: "feature", sha: r.pick([null, ...HEADS]), at: r.pick(TIMES) }]),
+      notPushedSeen: r.pick([null, { environmentId: "env-1", base: r.pick(HEADS), at: r.pick(TIMES) }]),
+    },
+    {
+      // Past the 20 Sends and 100 actions a review keeps, at times.
+      sends: Array.from({ length: r.int(0, 25) }, (_, i) => ({ n: i + 1, at: r.pick(TIMES), threadId: r.pick(THREADS), ids: [`c${i + 1}`], ...(r.bool(0.1) ? { patch: r.pick(PATCHES) } : {}), ...(r.bool(0.2) ? { readyAt: r.pick(TIMES), checkedAt: r.pick(TIMES) } : {}), ...(r.bool(0.2) ? { letPush: true as const } : {}), ...(r.bool(0.1) ? { coverClosed: true as const } : {}) })),
+      threadSends: r.bool() ? {} : { t1: { id: "c2", sendN: r.int(1, 25), ...(r.bool() ? { claim: claim(r) } : {}) } },
+      activity: Array.from({ length: r.pick([0, 2, 104]) }, (_, i) => ({ at: i, text: `Posted reply ${i}`, asking: r.pick(["direct", "relayed", "unattended"] as const), ...(r.bool(0.2) ? { from: r.pick(THREADS) } : {}) })),
+      readyToApprove: r.pick([null, { action: r.pick(["approve", "merge", "close"] as const), verdict: r.pick([null, "APPROVE"] as const), body: r.pick(TEXTS), comments: [], headSha: r.pick(HEADS), token: "t1", from: r.pick([null, ...THREADS]), at: r.pick(TIMES) }]),
+    },
   ]);
 }
 
@@ -91,7 +118,7 @@ function randomCall(r: Rng, made: Made): Call {
   const k = r.pick(KEYS);
   const at = location(r);
   const call = (name: string, run: Call["run"]): Call => ({ name: `${name} ${k}`, run });
-  switch (r.int(0, 51)) {
+  switch (r.int(0, 53)) {
     case 0: case 1: {
       const meta: ReviewMeta = {
         targetKey: k, kind: k.startsWith("pr") ? "pr" : "ref", status: r.pick(["generating", "ready", "error", "tracked"] as const), createdAt: r.pick(TIMES),
@@ -161,7 +188,7 @@ function randomCall(r: Rng, made: Made): Call {
     case 35: { const thread = r.pick(THREADS); return call("setAssistantThread", (s) => s.setAssistantThread(k, thread)); }
     case 36: return call("clearAssistantThread", (s) => s.clearAssistantThread(k));
     case 37: { const head = r.pick(HEADS), patch = r.pick(PATCHES); return call("saveSnapshot", (s) => s.saveSnapshot(k, head, patch)); }
-    case 38: { const keep = HEADS.filter(() => r.bool()); return call("pruneSnapshots", (s) => s.pruneSnapshots(k, keep)); }
+    case 38: { const keep = [...HEADS, "send:1", "send:2"].filter(() => r.bool()); return call("pruneSnapshots", (s) => s.pruneSnapshots(k, keep)); }
     case 39: {
       const threads = ["t1", "t2"].filter(() => r.bool(0.7)).map((id) => feedbackThread(r, id)), updated = r.pick([null, ...TIMES]);
       return call("saveFeedbackThreads", (s) => s.saveFeedbackThreads(k, threads, updated));
@@ -205,6 +232,15 @@ function randomCall(r: Rng, made: Made): Call {
       const id = r.pick(["v1", "v2"]), name = r.pick(TEXTS), filters = r.pick([[], [{ field: "author", values: ["alice"] }], [{ field: "updated", days: 7 }]]);
       return r.bool(0.7) ? call("saveFilterView", (s) => s.saveFilterView({ id, name, filters })) : call("deleteFilterView", (s) => s.deleteFilterView(id));
     }
+    case 51: {
+      const changes = LOCATIONS.filter(() => r.bool(0.1)).map((l) => ({ at: l, ...(r.bool() ? { id: `c${r.int(1, 3)}` } : {}), state: r.pick([undefined, ...COMMENT_STATES]), ...(r.bool() ? { sendN: r.int(1, 25) } : {}), ...(r.bool(0.3) ? { claim: claim(r) } : {}), ...(r.bool(0.2) ? { editedBy: r.pick([undefined, "agent" as const]) } : {}) }));
+      return call("trackComments", (s) => s.trackComments(k, changes));
+    }
+    case 52: {
+      const head = r.pick([...HEADS, "send:1", "send:2"]);
+      const files = { revisions: Object.fromEntries(FILES.filter(() => r.bool(0.4)).map((file) => [file, `rev-${r.int(1, 3)}`])), hidden: FILES.filter(() => r.bool(0.2)).map((path) => ({ path, reason: r.pick(["secret", "binary", "large"] as const) })) };
+      return r.bool(0.7) ? call("saveSnapshotFiles", (s) => s.saveSnapshotFiles(k, head, files)) : call("getSnapshotFiles", (s) => s.getSnapshotFiles(k, head));
+    }
     default: {
       if (r.bool(0.5)) {
         // Mostly at the saved revision; otherwise a stale one, which is refused.
@@ -236,6 +272,8 @@ async function tableRows(sql: Sql, tables: readonly string[]) {
   return rows;
 }
 
+// Snapshots by head, and the files kept beside each.
+const SNAPSHOT_HEADS = [...HEADS, "send:1", "send:2"].flatMap((head) => [head, `${head}:files`]);
 const T0 = 1_800_000_000_000;
 const STEPS = 120;
 
@@ -272,7 +310,7 @@ describe.skipIf(!testPgUrl)("the Store on SQLite and on Postgres (CRW_TEST_PG_UR
     });
     // Every review and thread the calls name; the dump adds the comment locations its reads return.
     const entities = (): StoreEntities => ({
-      reviews: KEYS.map((targetKey) => ({ targetKey, generationIds: made.generations.get(targetKey) ?? [], snapshotHeads: HEADS, assessmentHeads: HEADS, locations: [] })),
+      reviews: KEYS.map((targetKey) => ({ targetKey, generationIds: made.generations.get(targetKey) ?? [], snapshotHeads: SNAPSHOT_HEADS, assessmentHeads: HEADS, locations: [] })),
       threadIds: THREADS,
     });
     for (let step = 1; step <= STEPS; step++) {

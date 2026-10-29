@@ -63,8 +63,8 @@ test("on a phone there's no band: the dock holds the review's commands, and the 
   const slot = await renderWorkspace();
   expect(slot.queryByRole("navigation", { name: "Breadcrumb" })).toBeNull();
   const dock = within(slot.getByRole("group", { name: "Review commands" }));
-  for (const name of ["All reviews", "Chapters: Chapter 1 of 1, Parsing, 0 of 1 files viewed", "Comments", "Ask agent"]) expect(dock.getByRole("button", { name })).toBeTruthy();
-  fireEvent.click(dock.getByRole("button", { name: /^Chapters:/ }));
+  for (const name of ["All reviews", "pr-42, Chapters: Chapter 1 of 1, Parsing, 0 of 1 files viewed", "Comments", "Ask agent"]) expect(dock.getByRole("button", { name })).toBeTruthy();
+  fireEvent.click(dock.getByRole("button", { name: /^pr-42, Chapters:/ }));
   const sheet = within(slot.getByRole("dialog", { name: "Chapters" }));
   fireEvent.click(sheet.getByRole("button", { name: "Review actions" }));
   // Without a keyboard, no Keyboard shortcuts.
@@ -78,7 +78,7 @@ test("on a phone there's no band: the dock holds the review's commands, and the 
 test("on a phone the chapters sheet's header holds Chapters | All files, and the files viewed share the progress's row", async () => {
   fakeSize(390, 844);
   const slot = await renderWorkspace();
-  fireEvent.click(within(slot.getByRole("group", { name: "Review commands" })).getByRole("button", { name: /^Chapters:/ }));
+  fireEvent.click(within(slot.getByRole("group", { name: "Review commands" })).getByRole("button", { name: /^pr-42, Chapters:/ }));
   const sheet = within(slot.getByRole("dialog", { name: "Chapters" }));
   const nav = within(sheet.getByRole("navigation", { name: "Chapters" }));
   expect(nav.queryByRole("button", { name: "All files" })).toBeNull();
@@ -93,7 +93,7 @@ test("on a phone the chapters sheet's header holds Chapters | All files, and the
 test("as BB remounts the page, as a phone turns, the new one has the chapters open, Find's text and the focus; later, nothing opens by itself", async () => {
   fakeSize(390, 844);
   let slot = await renderWorkspace();
-  fireEvent.click(within(slot.getByRole("group", { name: "Review commands" })).getByRole("button", { name: /^Chapters:/ }));
+  fireEvent.click(within(slot.getByRole("group", { name: "Review commands" })).getByRole("button", { name: /^pr-42, Chapters:/ }));
   const find = slot.getByRole("dialog", { name: "Chapters" }).querySelector<HTMLInputElement>("[data-find-box]")!;
   find.focus();
   fireEvent.change(find, { target: { value: "rows" } });
@@ -117,8 +117,8 @@ test("under a phone's sheet the code is inert: a scroll of it keeps the line a r
   const slot = await renderWorkspace();
   const place = { file: "src/a.ts", index: "1,1", offset: 12 };
   keep("pr-42", { place });
-  fireEvent.click(within(slot.getByRole("group", { name: "Review commands" })).getByRole("button", { name: /^Chapters:/ }));
-  const code = slot.getByRole("main", { name: "Review" });
+  fireEvent.click(within(slot.getByRole("group", { name: "Review commands" })).getByRole("button", { name: /^pr-42, Chapters:/ }));
+  const code = slot.getByRole("main", { name: /^Review\b/ });
   expect(code.hasAttribute("inert")).toBe(true);
   fireEvent.scroll(code.querySelector(":scope > .overflow-y-auto")!);
   await new Promise((done) => setTimeout(done, 250));
@@ -133,7 +133,7 @@ test("as BB remounts the page, the line put back stays the place while it's put 
   keep("pr-42", { place });
   slot.lifecycle.unmount();
   slot = await renderWorkspace();
-  const code = slot.getByRole("main", { name: "Review" }).querySelector<HTMLElement>(":scope > .overflow-y-auto")!;
+  const code = slot.getByRole("main", { name: /^Review\b/ }).querySelector<HTMLElement>(":scope > .overflow-y-auto")!;
   fireEvent.scroll(code);
   // Nor where the focus comes back in the code.
   code.appendChild(document.createElement("textarea")).focus();
@@ -150,7 +150,7 @@ async function remountAt(place: { file: string; index: string; offset: number },
   patchReviewState("pr-42", { scrollTop: top });
   slot.lifecycle.unmount();
   const again = await renderWorkspace();
-  return { slot: again, code: again.getByRole("main", { name: "Review" }).querySelector<HTMLElement>(":scope > .overflow-y-auto")! };
+  return { slot: again, code: again.getByRole("main", { name: /^Review\b/ }).querySelector<HTMLElement>(":scope > .overflow-y-auto")! };
 }
 
 test("as BB remounts the page, a line not drawn yet, as in a large chapter, is looked for in its file, and gone to once it draws", async () => {
@@ -176,7 +176,7 @@ test("as BB remounts the page, a line whose file has gone from the chapter is lo
 test("as BB remounts the page, a tap outside the code, as on the dock, ends putting the line back: the code stays where it goes, and that's the place", async () => {
   const { slot, code } = await remountAt({ file: "src/gone.ts", index: "1,1", offset: 12 }, 400);
   await waitFor(() => expect(code.scrollTop).toBe(400));
-  fireEvent.pointerDown(within(slot.getByRole("group", { name: "Review commands" })).getByRole("button", { name: /^Chapters:/ }));
+  fireEvent.pointerDown(within(slot.getByRole("group", { name: "Review commands" })).getByRole("button", { name: /^pr-42, Chapters:/ }));
   code.scrollTop = 120;
   fireEvent.scroll(code);
   await new Promise((done) => setTimeout(done, 250));
@@ -191,7 +191,7 @@ test("the code's scroll saved after its box has gone, as BB remounts the page, k
   const slot = await renderWorkspace();
   const place = { file: "src/a.ts", index: "1,1", offset: 12 };
   keep("pr-42", { place });
-  const code = slot.getByRole("main", { name: "Review" }).querySelector<HTMLElement>(":scope > .overflow-y-auto")!;
+  const code = slot.getByRole("main", { name: /^Review\b/ }).querySelector<HTMLElement>(":scope > .overflow-y-auto")!;
   fireEvent.scroll(code);
   Object.defineProperty(code, "isConnected", { configurable: true, get: () => false });
   await new Promise((done) => setTimeout(done, 250));
@@ -207,7 +207,7 @@ test("on a phone the diff's options are behind the chapters sheet's Diff options
   // The chapter's end marks it viewed.
   expect(main.queryByRole("button", { name: "Mark chapter viewed" })).toBeNull();
   expect(main.getByRole("button", { name: "Mark viewed and finish" })).toBeTruthy();
-  fireEvent.click(slot.getByRole("button", { name: /^Chapters:/ }));
+  fireEvent.click(slot.getByRole("button", { name: /^pr-42, Chapters:/ }));
   fireEvent.click(within(slot.getByRole("dialog", { name: "Chapters" })).getByRole("button", { name: "Diff options" }));
   const wrap = await slot.findByRole("switch", { name: "Wrap long lines" });
   expect(wrap.getAttribute("aria-checked")).toBe("true");
@@ -224,7 +224,7 @@ test("on a phone the chapters, Comments and the agent share one sheet above the 
   // The panel left open on a bigger screen doesn't open over the code.
   expect(slot.queryByRole("dialog")).toBeNull();
   const dock = within(slot.getByRole("group", { name: "Review commands" }));
-  const chaptersTab = dock.getByRole("button", { name: /^Chapters:/ });
+  const chaptersTab = dock.getByRole("button", { name: /^pr-42, Chapters:/ });
   fireEvent.click(chaptersTab);
   // Not modal: the dock under it stays in reach, its tabs switching the sheet; the code behind it doesn't.
   const sheet = slot.getByRole("dialog", { name: "Chapters" });
@@ -243,7 +243,7 @@ test("on a phone the chapters, Comments and the agent share one sheet above the 
   fireEvent.click(chaptersTab);
   fireEvent.click(within(slot.getByRole("dialog", { name: "Chapters" })).getByRole("button", { name: "Overview" }));
   expect(slot.queryByRole("dialog")).toBeNull();
-  expect(dock.getByRole("button", { name: "Chapters: Overview" })).toBeTruthy();
+  expect(dock.getByRole("button", { name: "pr-42, Chapters: Overview" })).toBeTruthy();
   slot.lifecycle.unmount();
 });
 
@@ -263,13 +263,13 @@ test("a phone held sideways keeps its band to 40px: All reviews and the chapter,
   slot.lifecycle.unmount();
 });
 
-test("on a wide screen the band shows the review's title beside the chapter, then Fold comments and Diff options", async () => {
+test("on a wide screen the band shows the review's id beside the chapter, then Fold comments and Diff options", async () => {
   // The code keeps 912px between the chapters and the panel.
   fakeSize(1600, 900);
   const slot = await renderWorkspace();
   const crumbs = within(slot.getByRole("navigation", { name: "Breadcrumb" }));
   expect(crumbs.getByRole("button", { name: "All reviews" }).textContent).toBe("All reviews");
-  expect(crumbs.getByRole("button", { name: "Parse rows" })).toBeTruthy();
+  expect(crumbs.getByRole("button", { name: "pr-42" })).toBeTruthy();
   expect(crumbs.getByText("Chapter 1 of 1: Parsing, 0 of 1 files viewed")).toBeTruthy();
   // The diff's settings are behind Diff options; the chapter's end and the chapters mark it viewed.
   const controls = within(band(slot)).getAllByRole("button").map((button) => button.getAttribute("aria-label"));
@@ -354,7 +354,7 @@ test("where the browser can't go full screen, as on an iPhone, Full screen cover
   expect((root as HTMLElement).style.getPropertyValue("--gr-safe-top")).toMatch(/^max\(0px, env\(safe-area-inset-top\) - 0px\)$/);
   expect(root.className).not.toContain("--gr-safe-bottom");
   expect(slot.getByRole("group", { name: "Review commands" }).className).toContain("var(--gr-safe-bottom,0px)");
-  fireEvent.click(slot.getByRole("button", { name: /^Chapters:/ }));
+  fireEvent.click(slot.getByRole("button", { name: /^pr-42, Chapters:/ }));
   fireEvent.click(within(slot.getByRole("dialog", { name: "Chapters" })).getByRole("button", { name: "Review actions" }));
   expect(root.contains(await slot.findByRole("button", { name: "Review settings…" }))).toBe(true);
   fireEvent.keyDown(document.activeElement!, { key: "Escape" });

@@ -1,13 +1,16 @@
 // Your feedback, the PR's diffs at the commits that matter, and the assistant's
 // check, assembled for Comments and the assistant's tools.
+import { NOT_PUSHED } from "../lib/push";
 import type { ReviewMeta } from "./store";
 import type { runGh } from "./gh";
 import { ghErrorMessage, ghPrHeadArgs } from "./gh";
 import { diffTooLarge, readFilesPatch, readPrDiff } from "./pr-snapshot";
 import { ensureGitHeaders, splitPatchByFile } from "./patch";
+import { diffFilesHead } from "./env-diff";
 import { interdiff, type FileInterdiff } from "./interdiff";
 import { firstLine, type AssessmentItem, type FeedbackItem, type FeedbackView } from "../lib/feedback";
 import { baselineOf, type AssessmentSummary } from "../lib/turn";
+import { sendBaselineOf, sendKey, sendOf } from "../lib/send-baseline";
 import type { Verdict } from "./draft";
 import { threadLabel } from "./github/threads";
 import type { AsyncStore } from "./store-queue";
@@ -24,9 +27,15 @@ export const guideBehind = (review: ReviewMeta) =>
 
 /**
  * The PR's diff at a commit: saved, the review's own diff, the PR's diff while its head is that commit, or
- * reconstructed by comparing the base branch with that commit.
+ * reconstructed by comparing the base branch with that commit. A Send's, `send:<n>`, is only ever its snapshot.
  */
 export async function diffAt(store: AsyncStore, run: Run, review: ReviewMeta, sha: string): Promise<string> {
+  const send = sendOf(sha);
+  if (send !== null) {
+    const saved = await store.getSnapshot(review.targetKey, sha);
+    if (saved === null) throw new Error(`The diff Send ${send} went at isn’t kept anymore.`);
+    return saved;
+  }
   // Saved, or the review's own diff, saved as that commit's, in one turn.
   const stored = await store.exclusive(async (tx) => {
     const saved = await tx.getSnapshot(review.targetKey, sha);
@@ -76,12 +85,15 @@ async function compareDiff(run: Run, repo: string, base: string, sha: string): P
   return patch;
 }
 
-/** The diffs this review still needs: its guide's, your review's, and the PR's head. */
-const keptDiffs = (review: ReviewMeta) => [review.headSha, baselineOf(review).sha, headOf(review)].filter((sha): sha is string => !!sha);
+/** The diffs this review still needs: its guide's, your review's, the PR's head, and each Send's it keeps. */
+const keptDiffs = (review: ReviewMeta) => [review.headSha, baselineOf(review).sha, headOf(review), ...(review.sends ?? []).map((send) => sendKey(send.n))]
+  .filter((sha): sha is string => !!sha);
 
-/** Keep the diffs this review still needs. */
+/** Keep the diffs this review still needs, and a local review's diff's files. */
 export async function pruneDiffs(store: AsyncStore, review: ReviewMeta) {
-  await store.pruneSnapshots(review.targetKey, keptDiffs(review));
+  // A folder's diff's files, and what Not pushed yet showed, for Push.
+  const live = [...review.feature ? [diffFilesHead(await store.patchHash(review.targetKey))] : [], ...review.notPushedSeen ? [NOT_PUSHED] : []];
+  await store.pruneSnapshots(review.targetKey, [...keptDiffs(review), ...live]);
 }
 
 /** How long a review stays out of play (merged, closed, or archived) before its stored diffs are dropped. */
@@ -101,6 +113,14 @@ export async function pruneOldDiffs(store: AsyncStore, now: number): Promise<str
     const pruned: string[] = [];
     for (const review of await tx.listReviews()) {
       const since = Math.min(review.archivedAt ?? Infinity, review.userArchivedAt ?? Infinity);
+      // A local review whose folder bb removed has nothing to read again, and nothing waits on it once archived.
+      const folderGone = review.kind === "ref" && !!review.feature?.folderGone && !!review.archivedAt;
+      if (folderGone && now - since >= PRUNE_AFTER && !(await tx.getDraft(review.targetKey)).comments.length && await tx.hasPatch(review.targetKey)) {
+        await tx.dropPatch(review.targetKey);
+        await tx.pruneSnapshots(review.targetKey, []);
+        pruned.push(review.targetKey);
+        continue;
+      }
       if (review.kind !== "pr" || review.status !== "ready" || !review.headSha || now - since < PRUNE_AFTER) continue;
       if (review.prState !== "MERGED" && review.prState !== "CLOSED" || headOf(review) !== review.headSha) continue;
       if (!await tx.hasPatch(review.targetKey) || (await tx.getDraft(review.targetKey)).comments.length) continue;
@@ -119,12 +139,16 @@ const compared = new WeakMap<AsyncStore, Map<string, { key: string; since: Since
 const COMPARED_REVIEWS = 8;
 
 /**
- * The displayed diff compared with the diff at your last review, or at `from`, a commit you picked;
- * null when there's nothing to compare. An added file's patch is left out: the page has its whole diff already.
+ * The displayed diff compared with the diff at your last review, or at `from`, a commit you picked or a Send's
+ * `send:<n>`; null when there's nothing to compare. An added file's patch is left out: the page has its whole diff
+ * already. A Send's needs no head: it's compared with the diff the review shows, whatever it's of.
  */
 export async function sinceReview(store: AsyncStore, run: Run, review: ReviewMeta, from?: string): Promise<SinceReview | null> {
-  const baseline = from ? { sha: from, at: null, verdict: null } : baselineOf(review);
-  if (!baseline.sha || !review.headSha || baseline.sha === review.headSha) return null;
+  const send = sendOf(from);
+  const sent = send === null ? null : sendBaselineOf(review, send);
+  if (send !== null && !sent) throw new Error(`Send ${send} isn’t kept anymore.`);
+  const baseline = sent ? { sha: sent.key, at: sent.at, verdict: null } : from ? { sha: from, at: null, verdict: null } : baselineOf(review);
+  if (!baseline.sha || !sent && (!review.headSha || baseline.sha === review.headSha)) return null;
   const cache = compared.get(store) ?? new Map<string, { key: string; since: SinceReview }>();
   compared.set(store, cache);
   const key = JSON.stringify([baseline, await store.patchHash(review.targetKey)]);

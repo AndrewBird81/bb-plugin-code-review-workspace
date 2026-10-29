@@ -53,7 +53,7 @@ test("a rebuild's notice offers Stop, which puts the guide back and says so", as
     Object.assign(state, { status: "ready", guide: true });
     return { ok: true, restored: true };
   }));
-  await page.findByRole("main", { name: "Review" });
+  await page.findByRole("main", { name: /^Review\b/ });
   // The guide is rebuilt: the workspace keeps the one it showed, under the notice.
   Object.assign(state, { status: "generating", guide: false });
   await page.emitRealtime("review:pr-42", {});

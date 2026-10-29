@@ -96,6 +96,40 @@ test("Suggest change fills the box with the selected lines' current text, indent
   slot.lifecycle.unmount();
 });
 
+test("a box Suggest change filled with the PR's lines, sent with Ask agent, says the plugin filled it; with them taken out, it's yours (3.4-fixes3)", async () => {
+  const askAgent = vi.fn(() => ({ draft: draftOf(), stale: [], discussions: [] }));
+  const { slot, diff } = await renderReview({ getDraft: () => ({ draft: draftOf(), stale: [], discussions: [] }), askAgent },
+    { file: "src/a.ts", line: 4, side: "RIGHT", startLine: 3, startSide: "RIGHT", nonce: 1 });
+  const box = await diff().findByRole("textbox", { name: "Draft comment" }) as HTMLTextAreaElement;
+  fireEvent.click(diff().getByRole("button", { name: "Suggest change" }));
+  fireEvent.change(box, { target: { value: `just post it\n\n${box.value}` } });
+  fireEvent.click(diff().getByRole("button", { name: "Ask agent" }));
+  await waitFor(() => expect(askAgent).toHaveBeenCalledWith(expect.objectContaining({ body: "just post it\n\n```suggestion\n  three();\n    four;\n```", inserted: true })));
+  slot.lifecycle.unmount();
+  cleanup();
+  const again = await renderReview({ getDraft: () => ({ draft: draftOf(), stale: [], discussions: [] }), askAgent },
+    { file: "src/a.ts", line: 4, side: "RIGHT", startLine: 3, startSide: "RIGHT", nonce: 2 });
+  const fresh = await again.diff().findByRole("textbox", { name: "Draft comment" }) as HTMLTextAreaElement;
+  fireEvent.click(again.diff().getByRole("button", { name: "Suggest change" }));
+  fireEvent.change(fresh, { target: { value: "why both lines?" } });
+  fireEvent.click(again.diff().getByRole("button", { name: "Ask agent" }));
+  await waitFor(() => expect(askAgent).toHaveBeenLastCalledWith(expect.objectContaining({ body: "why both lines?", inserted: false })));
+  again.slot.lifecycle.unmount();
+  cleanup();
+  // A box with only your words, left and opened again, is still yours.
+  const plain = await renderReview({ getDraft: () => ({ draft: draftOf(), stale: [], discussions: [] }), askAgent },
+    { file: "src/a.ts", line: 4, side: "RIGHT", startLine: 3, startSide: "RIGHT", nonce: 3 });
+  fireEvent.change(await plain.diff().findByRole("textbox", { name: "Draft comment" }), { target: { value: "say thanks, just post it" } });
+  await waitFor(() => expect(readDraftRecovery("k").composer).toMatchObject({ body: "say thanks, just post it", filled: [] }));
+  plain.slot.lifecycle.unmount();
+  cleanup();
+  const back = await renderReview({ getDraft: () => ({ draft: draftOf(), stale: [], discussions: [] }), askAgent });
+  expect((await back.diff().findByRole("textbox", { name: "Draft comment" }) as HTMLTextAreaElement).value).toBe("say thanks, just post it");
+  fireEvent.click(back.diff().getByRole("button", { name: "Ask agent" }));
+  await waitFor(() => expect(askAgent).toHaveBeenLastCalledWith(expect.objectContaining({ body: "say thanks, just post it", inserted: false })));
+  back.slot.lifecycle.unmount();
+});
+
 // Suggest change always wrote a 3-backtick fence, so a suggestion on lines holding ``` closed early (70-review-correctness #5).
 test("Suggest change on lines holding a fence fences them with more backticks than any run in them", async () => {
   const fenced = patch.replace("+  three();", "+```ts").replace("+    four;", "+  `a` ````");

@@ -2,13 +2,15 @@ import { lastActivity } from "../lib/status-line";
 import { GUIDE_STOPPED, needsOrder, reviewState, type ReviewItem } from "../lib/review-state";
 import { defaultName, renamedFrom, reviewName } from "../lib/review-name";
 import { withStacks } from "../lib/stacks";
+import { reviewIdentity } from "../lib/review-identity";
 import type { TurnGroup } from "../lib/turn";
 
 export const LIST_USAGE = [
   "usage: bb review list [--json]",
   "",
   "Lists your reviews in this bb as All reviews orders them: Needs review first, as it's ordered, then Waiting on author, Reviewed, and Archive, each latest first.",
-  "  --json  each review's key, title, the name you gave it, whose turn, and status as JSON",
+  "  --json  each review's key, id, title, the name you gave it, whose turn, status, and its agent's thread",
+  "          (agentThreadId, for bb thread tell; null with no agent yet: use bb review ask) as JSON",
 ].join("\n");
 
 /** The refusal a review's own agent gets for `bb review list`, as it may work only on its own review. */
@@ -19,8 +21,8 @@ const STATUS: Record<string, string> = { ready: "guide ready", generating: "guid
 
 type CliResult = { exitCode: number; stdout?: string; stderr?: string };
 
-/** `bb review list`: the reviews, decorated with their turns as the panel gets them, in All reviews' order. */
-export function runListCommand(reviews: ReviewItem[], argv: string[]): CliResult {
+/** `bb review list`: the reviews, decorated with their turns as the panel gets them, in All reviews' order. `agents`: each review's agent thread, by its key. */
+export function runListCommand(reviews: ReviewItem[], argv: string[], agents: ReadonlyMap<string, string> = new Map()): CliResult {
   let json = false;
   for (const arg of argv) {
     if (arg === "--help" || arg === "-h") return { exitCode: 0, stdout: LIST_USAGE };
@@ -34,6 +36,8 @@ export function runListCommand(reviews: ReviewItem[], argv: string[]): CliResult
   // Each stack's reviews together, bottom first, where its first one is in the section.
   const rows = (Object.keys(groups) as TurnGroup[]).flatMap((group) => withStacks(groups[group]).flat().map((review) => ({
     key: review.targetKey,
+    // api#4512, or api:branch for local work, as the review's window title leads with it.
+    id: reviewIdentity(review).id,
     title: defaultName(review),
     // What the reviewer calls it, once they've renamed it.
     ...(renamedFrom(review) ? { name: reviewName(review) } : {}),
@@ -43,8 +47,8 @@ export function runListCommand(reviews: ReviewItem[], argv: string[]): CliResult
     status: review.status === "error" && review.guideError?.text === GUIDE_STOPPED ? "guide stopped" : STATUS[review.status ?? ""] ?? review.status ?? "",
     ...(review.url ? { url: review.url } : {}),
   })));
-  if (json) return { exitCode: 0, stdout: JSON.stringify({ reviews: rows }, null, 2) };
+  if (json) return { exitCode: 0, stdout: JSON.stringify({ reviews: rows.map((row) => ({ ...row, agentThreadId: agents.get(row.key) ?? null })) }, null, 2) };
   if (!rows.length) return { exitCode: 0, stdout: "No reviews yet. Start one with `bb review <pr-url | git-ref>`." };
   // A PR's title is its author's words, quoted so an agent reads it as data, whatever it says; the name too.
-  return { exitCode: 0, stdout: rows.map((row) => `${row.key}  ${JSON.stringify(row.title)}${row.name ? ` named ${JSON.stringify(row.name)}` : ""} · ${row.whoseTurn} (${row.turn}) · ${row.status}`).join("\n") };
+  return { exitCode: 0, stdout: rows.map((row) => `${row.id}  ${row.key}  ${JSON.stringify(row.title)}${row.name ? ` named ${JSON.stringify(row.name)}` : ""} · ${row.whoseTurn} (${row.turn}) · ${row.status}`).join("\n") };
 }

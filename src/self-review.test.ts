@@ -1,6 +1,7 @@
 import { expect, test, vi } from "vitest";
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
 import { testStore } from "./test-store.test-support";
+import { MARK_PART } from "./agent-chat.test-support";
 
 const runGh = vi.hoisted(() => vi.fn());
 vi.mock("./gh", async (orig) => ({ ...(await orig<any>()), runGh }));
@@ -31,5 +32,6 @@ test("someone else's PR gets the ordinary automatic review", async () => {
   await store.saveReview({ targetKey: "pr-1", kind: "pr", repo: "acme/web", number: 1, author: "alice", status: "ready", createdAt: 1, projectId: "p1" });
   await store.setLifecycle("pr-1", { authorAssociation: "MEMBER" });
   await startAutomaticReview(bb, store, "pr-1");
-  expect(input(harness)).toHaveLength(1);
+  // The prompt, and the plugin's mark alone after it: no self-review note.
+  expect(input(harness)).toEqual([expect.objectContaining({ text: expect.any(String) }), MARK_PART]);
 });

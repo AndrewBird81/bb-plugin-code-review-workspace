@@ -62,7 +62,7 @@ async function renderWorkspace({ review = {}, rpc = {}, bundle = {}, opened = tr
     ...rpc,
   };
   const slot = renderSlot(app.navPanels[0]!, { subPath: "pr-42" }, { rpc: handlers as any });
-  await slot.findByRole("main", { name: "Review" });
+  await slot.findByRole("main", { name: /^Review\b/ });
   return { slot, rpc: handlers };
 }
 type Slot = Awaited<ReturnType<typeof renderWorkspace>>["slot"];
@@ -721,7 +721,7 @@ test("with the agent popped out, Ask agent asks it there, leaving the side panel
   localStorage.setItem("gr:agentdock:pr-42", JSON.stringify({ mode: "widget", rect: { x: 100, y: 100, w: 400, h: 500 } }));
   const { slot } = await renderWorkspace();
   await slot.findByText("aa");
-  const widget = within(await slot.findByRole("dialog", { name: "Review agent" }));
+  const widget = within(await slot.findByRole("dialog", { name: /^Review agent/ }));
   await widget.findByRole("textbox", { name: "Ask the agent" });
   press("a");
   // The file you're on is the question's context.

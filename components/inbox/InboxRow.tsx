@@ -1,6 +1,7 @@
 import { useId, useRef, useState } from "react";
 import { reviewState, type ReviewItem } from "../../lib/review-state";
-import { renamedFrom, reviewName } from "../../lib/review-name";
+import { renamedFrom } from "../../lib/review-name";
+import { reviewIdentity } from "../../lib/review-identity";
 import { lastActivity, statusLine } from "../../lib/status-line";
 import { useKnob } from "../../lib/settings";
 import { canSnooze, canSnoozeUntil } from "../../lib/turn";
@@ -20,8 +21,8 @@ import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover";
 const MAX_LABELS = 3;
 
 /**
- * A review in the inbox, on two lines: its title (your name for it, with the PR's title on hover), repository and
- * number, and age (in Needs review, how long it's been your turn; elsewhere, its last activity), then its status line.
+ * A review in the inbox, on two lines: its title (your name for it, with the PR's title on hover), its id,
+ * and age (in Needs review, how long it's been your turn; elsewhere, its last activity), then its status line.
  * The whole row opens it. Where there's a fine pointer, hovering shows Snooze, Pin and Archive with Review actions; on
  * touch, Review actions is always there.
  */
@@ -37,6 +38,7 @@ export function InboxRow({ review, pinnable, short = false, onOpen, onChanged }:
   const titleId = useId();
   const actions = useReviewActions(review, onChanged);
   const unattendedAgents = useKnob("unattendedAgents");
+  const localDiffChanges = useKnob("localDiffChanges");
   const [snoozeOpen, setSnoozeOpen] = useState(false);
   const rowRef = useRef<HTMLDivElement>(null);
   /**
@@ -56,9 +58,15 @@ export function InboxRow({ review, pinnable, short = false, onOpen, onChanged }:
     (rows[at + 1] ?? rows[at - 1] ?? section?.querySelector<HTMLElement>("h2 button"))?.focus();
   }
   const moving = async (action: Promise<boolean>) => { const from = document.activeElement; if (await action) keepFocus(from); };
-  const title = reviewName(review);
+  const identity = reviewIdentity(review);
+  // As every page and list calls it: a local review with no name goes by its guide's title.
+  const title = identity.name;
   const labels = review.prLabels ?? [];
-  const where = review.repo ? `${review.repo}${review.number ? ` #${review.number}` : ""}` : review.gitRef && title !== review.gitRef ? review.gitRef : null;
+  // The review's id, its repository in full on hover, and a local review's machine: api#4512, or api:feat/x · MaxBook.
+  const machine = review.kind === "ref" ? review.place?.machine : undefined;
+  const where = review.number || review.kind === "ref" ? <span title={identity.repo ? `${identity.repo}${identity.idTail}` : undefined}>
+    <span className="font-mono">{identity.id}</span>{machine && <span className="text-subtle-foreground"> · </span>}{machine}
+  </span> : null;
   const when = age(turn.group === "needs" ? turn.at ?? review.createdAt : lastActivity(review));
   // Only the reviewer's own archive can be undone, and a review already in Archive can't be archived.
   const archivable = review.userArchivedAt ? !(review.prState === "MERGED" || review.prState === "CLOSED" || review.archivedAt) : turn.group !== "archive";
@@ -80,13 +88,13 @@ export function InboxRow({ review, pinnable, short = false, onOpen, onChanged }:
               <InlineCode text={title} />
               {pinnable && review.pinnedAt && <Icon name="Pin" className="ml-1.5 inline size-3.5 align-[-2px] text-muted-foreground" aria-label="Pinned" />}
             </span>
-            {where && <span className="hidden shrink-0 font-mono text-[11px] text-subtle-foreground @min-[720px]/inbox:inline">{where}</span>}
+            {where && <span className="hidden shrink-0 text-[11px] text-muted-foreground @min-[720px]/inbox:inline">{where}</span>}
             {when && <span className="w-7 shrink-0 text-right text-xs tabular-nums text-subtle-foreground">{when}</span>}
           </span>
           {/* Narrow, where the PR is follows its status, which comes first when there's no room for both. The labels end the
               line, under the age. */}
           <span className="mt-0.5 flex min-w-0 items-center gap-3">
-            <StatusLine parts={statusLine(review, { knobs: { unattendedAgents } })} after={where ? { content: <span className="font-mono text-[11px] text-subtle-foreground">{where}</span>, className: "@min-[720px]/inbox:hidden" } : undefined}
+            <StatusLine parts={statusLine(review, { knobs: { unattendedAgents, localDiffChanges } })} after={where ? { content: <span className="text-[11px] text-muted-foreground">{where}</span>, className: "@min-[720px]/inbox:hidden" } : undefined}
               className="min-w-0 flex-1 text-xs leading-4 text-muted-foreground" />
             {labels.length > 0 && <span className="hidden max-w-[45%] shrink-0 items-center gap-1 overflow-hidden @min-[560px]/inbox:flex">
               <span className="sr-only">Labels: </span>

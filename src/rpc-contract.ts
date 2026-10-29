@@ -1,7 +1,7 @@
 import { defineRpcContract } from "@get-bb/plugin-sdk";
 import { z } from "zod";
 import { releaseRpc } from "./plugin-updates";
-import { SEVERITIES } from "./draft";
+import { COMMENT_STATES, SEVERITIES, SUBMIT_WARNINGS } from "./draft";
 import { REMOVAL_NOTE_LIMIT, REMOVAL_REASONS } from "../lib/removal-reasons";
 import { NAME_LIMIT } from "../lib/review-name";
 import { DATE_FIELDS, VALUE_FIELDS, VIEW_NAME_LIMIT } from "../lib/filter-fields";
@@ -45,12 +45,37 @@ const commentShape = z
     evidence: z.string().max(600).optional(),
     // A problem in code the PR didn't change (Settings' Keep pre-existing problems apart).
     introduced: z.literal(false).optional(),
+    // A page that sends a comment back as it read it sends the server's own fields too; the saved comment's stand.
+    id: z.string().optional(), state: z.enum(COMMENT_STATES).optional(), sendN: z.number().int().optional(), claim: z.unknown().optional(),
+    editedBy: z.literal("agent").optional(),
   })
   .strict();
 
 const location = { file: z.string(), line: lineNumber, side: z.enum(["LEFT", "RIGHT"]) };
 // What Send to thread adds to what it sends (src/fix-handoff.ts): your message, as long as a summary may be, and the summary.
 const sendExtras = { message: z.string().max(65_000).optional(), includeSummary: z.boolean().optional() };
+// Where a Send goes past its warning (src/loop.ts): force, past it, as on a PR you don't own; thread, when the main
+// thread is archived or deleted, or its folder gone, as the warning offered: unarchive it and send, or a fresh thread;
+// on a PR with no thread working on it, a fresh thread at its head, or a fork of the thread that wrote it.
+const routeChoices = { force: z.boolean().optional(), thread: z.enum(["unarchive", "fresh", "fork"]).optional() };
+// A Send's own choices: letPush, Let it push when done for this Send, else the review's setting, and where it goes.
+const sendChoices = { letPush: z.boolean().optional(), ...routeChoices };
+/**
+ * A Send that didn't go: why, and what it offers. anyway: the same call with force sends it; unarchive, fresh and fork:
+ * with force and that thread.
+ */
+const sendWarning = z.object({
+  ok: z.literal(false), warning: z.string(), offers: z.array(z.enum(["anyway", "unarchive", "fresh", "fork"])).optional(),
+  // With fresh offered: where that thread starts, "in ~/src/api".
+  freshWhere: z.string().optional(),
+  // With fork offered: the thread it forks, by its title.
+  forkFrom: z.string().optional(),
+  // On a PR, where the Send can go, as a choice (src/loop.ts FixerChoice).
+  choice: z.object({
+    why: z.enum(["archived", "deleted", "none", "folder-gone"]), thread: z.string().nullable(), machine: z.string().nullable(),
+    folder: z.string().optional(), note: z.string().optional(),
+  }).optional(),
+});
 const syncHealth = z.object({
   lastReadAt: z.number().nullable(),
   error: z.object({ kind: z.enum(["auth", "rate-limit", "partial", "teams", "gh-missing", "other"]), at: z.number(), count: z.number().optional(), retryAt: z.number().optional() }).nullable(),
@@ -71,11 +96,14 @@ const draftOutput = z.object({
   draft: z.any(),
   stale: z.array(z.object(location)),
   discussions: z.array(discussion),
+  // What the review agent's check found of each sent comment, by its id, against the Send that last carried it.
+  checks: z.record(z.string(), z.object({ verdict: z.enum(["addressed", "partial", "not_addressed", "disputed", "unclear"]), evidence: z.string() })).optional(),
 });
 
 export const rpcContract = defineRpcContract({
   ...releaseRpc,
-  getSetupStatus: { input: z.null(), output: z.object({ account: z.string().nullable(), githubCli: z.boolean(), agentAvailable: z.boolean().nullable(), projectAvailable: z.boolean().nullable() }) },
+  /** missingScopes: the scopes posting needs that gh's token lacks; "unlisted" when GitHub didn't list them, as for a fine-grained token; null when it couldn't be asked. */
+  getSetupStatus: { input: z.null(), output: z.object({ account: z.string().nullable(), githubCli: z.boolean(), agentAvailable: z.boolean().nullable(), projectAvailable: z.boolean().nullable(), missingScopes: z.union([z.array(z.string()), z.literal("unlisted")]).nullable().optional() }) },
   /** patch is null when it's the one knownRevision names, which the page already shows. */
   getReviewBundle: {
     input: z.object({ targetKey: z.string(), knownRevision: z.string().optional() }).strict(),
@@ -172,7 +200,8 @@ export const rpcContract = defineRpcContract({
    */
   replyToThread: {
     input: z.object({ targetKey: z.string(), inReplyTo: z.number().int(), body: z.string().min(1), threadId: z.string().optional(), account: z.string().optional() }).strict(),
-    output: z.object({ ok: z.boolean(), error: z.string().optional() }),
+    // alreadyPosted: GitHub has this reply, posted in the last 15 minutes, so it wasn't sent again and its draft stays.
+    output: z.object({ ok: z.boolean(), error: z.string().optional(), alreadyPosted: z.boolean().optional() }),
   },
   /** Only a thread of this review's PR. */
   resolveThread: {
@@ -186,7 +215,7 @@ export const rpcContract = defineRpcContract({
   /** hasNewCommits: the guide is behind the PR, by new commits or, with baseChanged, a new base branch. */
   checkForUpdates: {
     input: targetKey,
-    // localChanged: a local review's diff, run again, differs from its guide's.
+    // localChanged: a local review's diff, run again, differs from the diff it shows.
     output: z.object({ hasNewCommits: z.boolean(), current: z.string().optional(), stored: z.string().optional(), baseChanged: z.object({ from: z.string(), to: z.string() }).optional(), localChanged: z.boolean().optional() }),
   },
   rereview: {
@@ -219,7 +248,8 @@ export const rpcContract = defineRpcContract({
   getDraft: { input: targetKey, output: draftOutput },
   saveDraftComment: {
     // `replaces`: the line's comment the box saw, null for none; a save over another one, written since, is refused.
-    input: z.object({ targetKey: z.string(), revision: z.string().optional(), comment: commentShape, replaces: z.string().nullable().optional() }).strict(),
+    // `restore`, Undo after Remove with replaces null: the comment keeps its id, and where its fix stood, as sent back.
+    input: z.object({ targetKey: z.string(), revision: z.string().optional(), comment: commentShape, replaces: z.string().nullable().optional(), restore: z.boolean().optional() }).strict(),
     output: draftOutput,
   },
   removeDraftComment: {
@@ -227,8 +257,9 @@ export const rpcContract = defineRpcContract({
     output: draftOutput,
   },
   // A message from a line's discussion, or the summary's (src/draft.ts SUMMARY_AT), to the review assistant, which answers there.
+  // inserted: the plugin wrote any of body, by filling the box or composing it, so it confirms no post.
   askAgent: {
-    input: z.object({ targetKey: z.string(), ...location, startLine: startLine.optional(), body: z.string().trim().min(1).max(20_000) }).strict(),
+    input: z.object({ targetKey: z.string(), ...location, startLine: startLine.optional(), body: z.string().trim().min(1).max(20_000), inserted: z.boolean() }).strict(),
     output: draftOutput,
   },
   /** Ask the review agent for a closer pass over a medium- or high-risk chapter, at high effort; its comments arrive in the draft. */
@@ -267,11 +298,24 @@ export const rpcContract = defineRpcContract({
       targetKey: z.string(), revision: z.string().optional(), account: z.string().optional(),
       // The comments, summary, and verdict the page shows; submission refuses a draft that no longer matches.
       comments: z.array(z.object({ file: z.string(), line: z.number().int(), side: z.enum(["LEFT", "RIGHT"]), startLine: z.number().int().optional(), startSide: z.enum(["LEFT", "RIGHT"]).optional(), severity: z.enum(SEVERITIES).optional(), introduced: z.literal(false).optional(), body: z.string() })),
+      // Of those, the ones the page shows as posting: not one sent to fix from your own change, resolved or dismissed.
+      // Submission refuses a draft whose comments that post differ; without it, one with any comment sent.
+      posting: z.array(z.object(location).strict()).optional(),
       body: z.string(),
       verdict: z.enum(["APPROVE", "REQUEST_CHANGES", "COMMENT"]),
+      // Submit anyway: past the warnings it names, as the page showed them, such as new commits since you read it. What
+      // GitHub refuses still stops it.
+      force: z.union([z.boolean(), z.array(z.enum(SUBMIT_WARNINGS))]).optional(),
+      // Submit as Comment: the draft's verdict becomes Comment, then it's submitted, as on your own PR.
+      asComment: z.boolean().optional(),
     }).strict(),
-    // url: the posted review on GitHub.
-    output: z.object({ ok: z.boolean(), error: z.string().optional(), url: z.string().optional() }),
+    // url: the posted review on GitHub. warning: it didn't post, and force posts it. offers: what the page can do next,
+    // beside the warning or the error: Submit anyway, Submit as Comment, Open it on GitHub.
+    // warnings: what each warning is, to pass back as force. newCommits: how many, and GitHub's compare of them.
+    output: z.object({
+      ok: z.boolean(), error: z.string().optional(), url: z.string().optional(), warning: z.string().optional(), offers: z.array(z.enum(["anyway", "comment", "github"])).optional(),
+      warnings: z.array(z.enum(SUBMIT_WARNINGS)).optional(), newCommits: z.object({ count: z.number().nullable(), url: z.string() }).optional(),
+    }),
   },
 
   // Per-file "Viewed" state
@@ -301,28 +345,189 @@ export const rpcContract = defineRpcContract({
     }),
   },
   startConversation: {
-    input: z.object({ targetKey: z.string(), text: z.string().min(1), agent: agentChoiceSchema }).strict(),
+    // typed: what you typed, without the file or lines quoted after it, which are the PR's words. inserted: the plugin put
+    // a quote or context in it, so it confirms no post.
+    input: z.object({ targetKey: z.string(), text: z.string().min(1), typed: z.string(), inserted: z.boolean(), agent: agentChoiceSchema }).strict(),
     output: z.object({ threadId: z.string() }),
   },
-  newConversation: { input: targetKey, output: z.object({ ok: z.boolean() }) },
-  // A visible coding thread that fixes draft comments on your own PR or a local review; the draft stays.
-  startFixThread: {
-    input: z.object({ targetKey: z.string(), comments: z.array(z.object(location).strict()).min(1) }).strict(),
-    output: z.object({ threadId: z.string(), title: z.string() }),
+  // Text the dock is about to put in the conversation's composer: a message that carries it confirms no post.
+  noteInserted: {
+    input: z.object({ targetKey: z.string(), threadId: z.string().min(1), text: z.string().min(1).max(200_000) }).strict(),
+    output: z.object({ ok: z.literal(true) }),
   },
-  // The thread `bb review` ran in, which Finish review's Send to thread sends comments to (src/fix-handoff.ts).
+  newConversation: { input: targetKey, output: z.object({ ok: z.boolean() }) },
+  // A visible coding thread that fixes draft comments; the draft stays. On a PR you don't own it warns, and force starts it.
+  startFixThread: {
+    input: z.object({ targetKey: z.string(), comments: z.array(z.object(location).strict()).min(1), force: z.boolean().optional() }).strict(),
+    output: z.union([z.object({ ok: z.literal(true), threadId: z.string(), title: z.string() }), sendWarning]),
+  },
+  // The review's main thread, which its Sends go to (src/loop.ts): the top thread in its folder, or the thread `bb review`
+  // ran in, and the machine it works on when that's known.
   getSourceThread: {
     input: targetKey,
-    output: z.object({ thread: z.object({ threadId: z.string(), title: z.string().nullable(), state: z.enum(["open", "archived", "gone"]) }).nullable() }),
+    output: z.object({ thread: z.object({ threadId: z.string(), title: z.string().nullable(), state: z.enum(["open", "archived", "gone"]), machine: z.string().nullable().optional() }).nullable() }),
   },
+  // Send: the comments, each with an id, to the main thread, threadId (a fresh one, when it started one), as Send sendN.
+  // threads: on your own PR, threads, review summaries and comments on GitHub that go with them, by GitHub's id.
   sendToSourceThread: {
-    input: z.object({ targetKey: z.string(), comments: z.array(z.object(location).strict()).min(1), ...sendExtras }).strict(),
-    output: z.object({ ok: z.literal(true), delivery: z.enum(["sent", "queued"]), title: z.string().nullable() }),
+    input: z.object({ targetKey: z.string(), comments: z.array(z.object(location).strict()), threads: z.array(z.string().min(1)).max(100).optional(), ...sendExtras, ...sendChoices }).strict()
+      .refine((input) => input.comments.length > 0 || !!input.threads?.length, "Choose a comment to send."),
+    // skipped: GitHub items left out, as the review no longer has them.
+    output: z.union([z.object({ ok: z.literal(true), delivery: z.enum(["sent", "queued"]), title: z.string().nullable(), threadId: z.string().optional(), sendN: z.number().int().optional(), skipped: z.number().int().optional() }), sendWarning]),
   },
-  // With no comments in the draft: tells the source thread you approve the change as is, at the revision the page shows.
+  // Tells the main thread you approve the change as is, at the revision the page shows. With comments not yet sent, or
+  // told already for this diff, it warns.
   sendApprovalToSourceThread: {
-    input: z.object({ targetKey: z.string(), revision: z.string().optional(), ...sendExtras }).strict(),
-    output: z.object({ ok: z.literal(true), delivery: z.enum(["sent", "queued"]), title: z.string().nullable() }),
+    input: z.object({ targetKey: z.string(), revision: z.string().optional(), ...sendExtras, ...routeChoices }).strict(),
+    // recorded: no thread could be told, the main thread being gone, so it's only recorded, as you chose.
+    output: z.union([z.object({ ok: z.literal(true), delivery: z.enum(["sent", "queued"]), title: z.string().nullable(), threadId: z.string().optional(), recorded: z.literal(true).optional() }), sendWarning]),
+  },
+
+  // The loop with the thread that fixes your change: Send now, the fixes' states, a local review's folder, push and
+  // open a PR. `warning`: it didn't act, and the same call with `force` does.
+  /**
+   * Send one comment to the review's main thread now, a draft comment or, on your own PR, a GitHub thread: it gets an
+   * id the thread reports on. letPush, force and thread are this Send's, as on sendToSourceThread.
+   */
+  sendNow: {
+    input: z.object({
+      targetKey: z.string(),
+      comment: z.union([z.object(location).strict(), z.object({ threadId: z.string().min(1) }).strict()]),
+      ...sendChoices,
+    }).strict(),
+    // sent: the comment's id, the Send's number, and the thread it went to.
+    output: z.object({
+      ok: z.boolean(), error: z.string().optional(), warning: z.string().optional(), offers: sendWarning.shape.offers, freshWhere: sendWarning.shape.freshWhere, forkFrom: sendWarning.shape.forkFrom, choice: sendWarning.shape.choice,
+      sent: z.object({ id: z.string(), sendN: z.number().int(), threadId: z.string(), title: z.string().nullable(), delivery: z.enum(["sent", "queued"]) }).optional(),
+    }),
+  },
+  /** The reviewer resolves a comment as fixed, or dismisses it as won't fix: nothing else does. */
+  resolveComment: {
+    input: z.object({ targetKey: z.string(), ...location, state: z.enum(["resolved", "dismissed"]) }).strict(),
+    output: draftOutput,
+  },
+  /**
+   * Open a sent, resolved or dismissed comment again: it goes with the next Send. undo, right after Resolve or Dismiss:
+   * it's as it was before that click, as the server recorded it then, with its report, and goes with no Send.
+   */
+  reopenComment: { input: z.object({ targetKey: z.string(), ...location, undo: z.boolean().optional() }).strict(), output: draftOutput },
+  /** Ask the review agent to check the fixes of the comments sent, each against the diff it was sent at. */
+  checkFixes: { input: targetKey, output: z.object({ ok: z.boolean(), error: z.string().optional() }) },
+  /** Read a local review's folder again, and move the comments with their lines; the guide stays. */
+  updateFeature: { input: targetKey, output: z.object({ ok: z.boolean(), error: z.string().optional() }) },
+  /** Write a local review's guide again, for its diff now. */
+  rewriteGuide: { input: targetKey, output: z.object({ ok: z.boolean(), error: z.string().optional() }) },
+  /**
+   * Have the main thread commit the changes you reviewed, then push that commit (src/push.ts); where it stands is the
+   * review's `push`. force: Push anyway, past the warning that the commit isn't what you reviewed, on the commit `sha`
+   * the page showed and the warning it answers, by when it came (`at`); the push itself is never a force-push. note: nothing was asked, as when GitHub has the commit already.
+   */
+  push: {
+    input: z.object({ targetKey: z.string(), force: z.boolean().optional(), sha: z.string().regex(/^[0-9a-f]{40}$/).optional(), at: z.number().optional() }).strict(),
+    output: z.object({ ok: z.boolean(), error: z.string().optional(), warning: z.string().optional(), note: z.string().optional(), delivery: z.enum(["sent", "queued"]).optional() }),
+  },
+  /** Clear the review's Push: Got it to what it says, or Cancel while it waits. Nothing is told to the main thread. */
+  dismissPush: { input: targetKey, output: z.object({ ok: z.boolean(), error: z.string().optional() }) },
+  /**
+   * Ask the review agent to draft the PR's title and description, shown in a Post form whose Post opens the PR. note:
+   * what happened instead, as when the branch has a PR already, which the review then becomes; or, not ok, what has to
+   * happen first, as pushing the branch.
+   */
+  openPr: { input: targetKey, output: z.object({ ok: z.boolean(), error: z.string().optional(), note: z.string().optional() }) },
+  /** The review's Let it push when done: on, a Send leaves out "Don't push until I say", unless it says otherwise. */
+  setLetPush: {
+    input: z.object({ targetKey: z.string(), letPush: z.boolean() }).strict(),
+    output: z.object({ ok: z.boolean(), error: z.string().optional() }),
+  },
+  /** Send to this thread from now on: one working in the review's folder; with fresh, a new one started there. */
+  setMainThread: {
+    input: z.union([z.object({ targetKey: z.string(), threadId: z.string().min(1) }).strict(), z.object({ targetKey: z.string(), fresh: z.literal(true) }).strict()]),
+    output: z.object({ ok: z.boolean(), error: z.string().optional() }),
+  },
+  /**
+   * Not pushed yet, on a PR: what the folder of its main thread, a fixer's or its own, has that the PR's head on GitHub
+   * doesn't, committed or not (src/own-pr.ts); or, with no such folder, or one that can't be read now, why.
+   */
+  getNotPushed: {
+    input: targetKey,
+    output: z.union([
+      z.object({
+        state: z.literal("available"), patch: z.string(), base: z.string(), branch: z.string(), machine: z.string().nullable(), threadId: z.string(),
+        hidden: z.array(z.object({ path: z.string(), reason: z.enum(["secret", "binary", "large"]) })), notice: z.string().nullable(),
+      }),
+      z.object({ state: z.enum(["none", "offline", "gone", "unavailable"]), message: z.string() }),
+    ]),
+  },
+  /** Stop showing Branch kept for a fixer's branch, once you've deleted it or chosen to keep it. */
+  dismissKeptBranch: {
+    input: z.object({ targetKey: z.string(), branch: z.string().min(1) }).strict(),
+    output: z.object({ ok: z.boolean(), error: z.string().optional() }),
+  },
+  /** Include files the secrets filter keeps out of a local review's diff, by path; with included false, keep them out again. */
+  includeHidden: {
+    input: z.object({ targetKey: z.string(), files: z.array(z.string().min(1)).min(1).max(1000), included: z.boolean() }).strict(),
+    output: z.object({ ok: z.boolean(), error: z.string().optional() }),
+  },
+  /**
+   * A local review's folder now, for its notices: as the review shows it, `changedFiles` changed since, paused on
+   * another `branch`, its machine offline, gone, or unreadable (`message`); the other threads working there; the files it
+   * keeps out, and committed ones that look like secrets; the review its PR had already, if any; and, paused, the review
+   * of the branch the folder is on, if any (src/feature-review.ts).
+   */
+  checkFeature: {
+    input: targetKey,
+    output: z.object({
+      state: z.enum(["current", "changed", "paused", "offline", "gone", "unavailable"]),
+      changedFiles: z.number().int().optional(),
+      branch: z.string().nullable().optional(),
+      message: z.string().optional(),
+      alsoActive: z.array(z.object({ threadId: z.string(), title: z.string() })),
+      hidden: z.array(z.object({ path: z.string(), reason: z.enum(["secret", "binary", "large"]) })),
+      flagged: z.array(z.string()),
+      prReview: z.string().optional(),
+      branchReview: z.string().optional(),
+    }),
+  },
+  /** Got it: stop warning about these committed files that look like secrets, in this review. */
+  dismissFlagged: {
+    input: z.object({ targetKey: z.string(), files: z.array(z.string().min(1)).min(1).max(1000) }).strict(),
+    output: z.object({ ok: z.boolean(), error: z.string().optional() }),
+  },
+  /** Review the branch a local review's folder is on now, in that branch's own review, addressed to the same main thread. */
+  reviewFolderBranch: { input: targetKey, output: z.object({ ok: z.boolean(), error: z.string().optional(), targetKey: z.string().optional() }) },
+
+  // BB's thread pages (src/thread-surfaces.ts): Review changes above a thread's message box, and the Review tab.
+  /** Review changes: the review of the folder the thread works in, at its branch now, started or opened as it is, as bb review with no arguments. */
+  reviewThreadChanges: { input: z.object({ threadId: z.string().min(1) }).strict(), output: z.object({ ok: z.boolean(), error: z.string().optional(), targetKey: z.string().optional() }) },
+  /** The reviews not archived, by the threads and the folder each is linked to; whether Review changes is on; the plugin's own agents' threads. */
+  threadLinks: {
+    input: z.null(),
+    output: z.object({
+      reviewChangesLine: z.boolean(),
+      reviews: z.array(z.object({
+        targetKey: z.string(), createdAt: z.number(), main: z.string().nullable(), threads: z.array(z.string()),
+        folder: z.object({ environmentId: z.string(), branch: z.string(), paused: z.boolean() }).nullable(),
+      })),
+      agents: z.array(z.string()),
+    }),
+  },
+  /** One review as a thread page shows it, with its place for its id, and how many of its comments are open; null once it's gone. */
+  threadReview: { input: targetKey, output: z.object({ review: z.any().nullable(), open: z.number().int().min(0) }) },
+
+  // What posts as you on GitHub from the review agent's work.
+  /**
+   * Post Ready to approve rows, each the one its token names, one after another, never past a warning. A row whose PR
+   * has commits since it was asked is held, unless alsoHeld (Approve them too), which posts it on the head it was asked on.
+   */
+  approveReady: {
+    input: z.object({ rows: z.array(z.object({ targetKey: z.string(), token: z.string().min(1) }).strict()).min(1).max(100), alsoHeld: z.boolean().optional() }).strict(),
+    // commits: a held row's commits since it was asked, when GitHub said.
+    output: z.object({ results: z.array(z.object({ targetKey: z.string(), outcome: z.enum(["posted", "held", "failed"]), error: z.string().optional(), url: z.string().optional(), commits: z.number().nullable().optional() })) }),
+  },
+  /** Don't approve: take a Ready to approve row, the one its token names, out of Needs review. */
+  dismissReady: {
+    input: z.object({ targetKey: z.string(), token: z.string().min(1) }).strict(),
+    output: z.object({ ok: z.boolean(), error: z.string().optional() }),
   },
 
   // GitHub account indicator + switcher
@@ -366,7 +571,7 @@ export const rpcContract = defineRpcContract({
   /** Post a reply to one of your threads on GitHub, as the account the page verified (see replyToThread), and clear its drafted reply. */
   replyToFeedback: {
     input: z.object({ targetKey: z.string(), threadId: z.string(), body: z.string().trim().min(1).max(65_000), account: z.string().optional() }).strict(),
-    output: z.object({ ok: z.boolean(), error: z.string().optional(), feedback: z.any().optional() }),
+    output: z.object({ ok: z.boolean(), error: z.string().optional(), feedback: z.any().optional(), alreadyPosted: z.boolean().optional() }),
   },
   saveReplyDraft: {
     input: z.object({ targetKey: z.string(), threadId: z.string(), body: z.string().max(65_000) }).strict(),
@@ -389,11 +594,11 @@ export const rpcContract = defineRpcContract({
 
   /**
    * The displayed diff compared with the diff at your last review (src/interdiff.ts FileInterdiff[]).
-   * baseline null: you haven't reviewed it, or it's the same commit.
+   * baseline null: you haven't reviewed it, or it's the same commit. A Send's baseline has `sha` "send:<n>".
    */
   getSinceReview: {
-    // from: compare with the diff at this commit instead, one of getPrCommits'.
-    input: z.object({ targetKey: z.string(), from: z.string().regex(/^[0-9a-f]{7,40}$/).optional() }).strict(),
+    // from: compare with the diff at this commit instead, one of getPrCommits', or at a Send, as "send:<n>".
+    input: z.object({ targetKey: z.string(), from: z.string().regex(/^([0-9a-f]{7,40}|send:\d+)$/).optional() }).strict(),
     output: z.object({
       baseline: z.object({ sha: z.string(), at: z.number().nullable(), verdict: z.string().nullable() }).nullable(),
       files: z.array(z.any()),

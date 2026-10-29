@@ -1,10 +1,11 @@
 // read_pr_context: what the PR says about itself, what others already said on it,
 // and the repo's own review rules, for the guide writer and the review assistant.
 // Everything the PR's author or other people wrote is fenced as untrusted.
+import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import { ghPrChecksJsonArgs, type runGh, type runGit } from "./gh";
-import { gitFile, localRevs } from "./file-contents";
+import { gitFile, localRevs, readFeatureFile } from "./file-contents";
 import { compileGlob, globMatches, type Glob } from "./glob";
-import type { ReviewMeta } from "./store";
+import type { FeatureReview, ReviewMeta } from "./store";
 import { parseChecks } from "./threads";
 import { parseAllThreads } from "./github/threads";
 import { untrusted } from "./untrusted";
@@ -128,10 +129,10 @@ function readChecks(out: { stdout: string; stderr: string }) {
  * `reviewMd`: Read REVIEW.md, the knob; off, the agents read AGENTS.md, CLAUDE.md and Copilot's instructions only.
  * `author` is what the read said of a PR's author's trust; null for a local review or a partial read.
  */
-export async function readPrContext(deps: { runGh: Run; runGit: typeof runGit }, review: ReviewMeta, files: readonly string[], context: string | null, { reviewMd }: { reviewMd: boolean }): Promise<{ text: string; author: AuthorTrust | null }> {
+export async function readPrContext(deps: { runGh: Run; runGit: typeof runGit; bb?: BbPluginApi }, review: ReviewMeta, files: readonly string[], context: string | null, { reviewMd }: { reviewMd: boolean }): Promise<{ text: string; author: AuthorTrust | null }> {
   const { sections, author } = review.kind === "pr" && review.repo && review.number
     ? await pullRequestContext(deps.runGh, review, files, reviewMd)
-    : { sections: await localContext(deps.runGit, review, files, reviewMd), author: null };
+    : { sections: review.feature ? await featureContext(deps.bb, review.feature, files, reviewMd) : await localContext(deps.runGit, review, files, reviewMd), author: null };
   if (context) sections.push(`Context from the thread that started this review:\n${untrusted("review context", context)}`);
   return { text: sections.join("\n\n"), author };
 }
@@ -179,10 +180,10 @@ async function pullRequestContext(run: Run, review: ReviewMeta, files: readonly 
   const resolved = others.length - open.length;
   if (open.length) {
     const rows = open.slice(0, 30).map((t) => [
-      `- @${t.author}${t.bot ? " (bot)" : ""} on ${t.path ?? "the PR"}${t.line ? `:${t.line}` : ""}${t.isOutdated ? " (outdated)" : ""}: ${oneLine(t.body, 500)}`,
+      `- [${t.id}] @${t.author}${t.bot ? " (bot)" : ""} on ${t.path ?? "the PR"}${t.line ? `:${t.line}` : ""}${t.isOutdated ? " (outdated)" : ""}: ${oneLine(t.body, 500)}`,
       ...(t.latestReply ? [`  latest reply, @${t.latestReply.author}${t.latestReply.bot ? " (bot)" : ""}: ${oneLine(t.latestReply.body, 300)}`] : []),
     ].join("\n"));
-    sections.push(`Other people's open review threads (${open.length}${open.length > 30 ? ", the first 30" : ""}; ${resolved} resolved). Don't repeat what they raise:\n${untrusted("review threads", rows.join("\n"))}`);
+    sections.push(`Other people's open review threads (${open.length}${open.length > 30 ? ", the first 30" : ""}; ${resolved} resolved), each with its id. Don't repeat what they raise:\n${untrusted("review threads", rows.join("\n"))}`);
   } else sections.push(`Other people's open review threads: none (${resolved} resolved).`);
 
   const base = pr.baseRef?.target;
@@ -194,6 +195,23 @@ async function pullRequestContext(run: Run, review: ReviewMeta, files: readonly 
     ...reviewRules.map((path, i): [string, string | undefined] => [path, base?.[`rules${i}`]?.object?.text])],
     `at the base commit ${String(base?.oid ?? pr.baseRefName).slice(0, 7)}`, changed.length ? `This PR changes ${changed.join(", ")}` : null));
   return { sections, author: authorTrust(pr, viewer) };
+}
+
+/**
+ * A folder's review: its instructions at the commit its diff starts from. Scoped instructions aren't read, as nothing
+ * lists a directory at a commit on the folder's machine.
+ */
+async function featureContext(bb: BbPluginApi | undefined, feature: FeatureReview, files: readonly string[], reviewMd: boolean): Promise<string[]> {
+  const sections = [`A local review of the branch ${feature.branch} in ${feature.path} on ${feature.machine}, with its uncommitted and untracked changes; there's no PR.`];
+  if (!feature.mergeBaseRef) return sections;
+  const read = async (path: string): Promise<[string, string | null]> => {
+    const out = await readFeatureFile(bb, feature, "old", path);
+    return [path, "text" in out ? out.text : null];
+  };
+  const rules = await Promise.all([...instructionFiles(reviewMd), ...reviewMd ? reviewRulesPaths(files) : []].map(read));
+  const changed = changedInstructions(files, reviewMd);
+  sections.push(...describeInstructions(rules, `at ${feature.mergeBaseRef.slice(0, 7)}, where the diff starts`, changed.length ? `This diff changes ${changed.join(", ")}` : null));
+  return sections;
 }
 
 async function localContext(run: typeof runGit, review: ReviewMeta, files: readonly string[], reviewMd: boolean): Promise<string[]> {

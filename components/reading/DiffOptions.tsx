@@ -2,7 +2,7 @@ import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode 
 import { useFullscreenPortalContainer } from "../../lib/portal-scope";
 import { cn } from "../../lib/utils";
 import { OVERVIEW, useWorkspace } from "../../lib/workspace-context";
-import { CompareMenu, compareLabel, compareProblem, lastReviewed, useCommits } from "../ComparePicker";
+import { CompareMenu, compareLabel, compareProblem, sinceFrom, useCommits } from "../ComparePicker";
 import { TOUCH_COMPACT, TOUCH_CONTROL } from "../touch";
 import { Button } from "../ui/button";
 import { Hint } from "../ui/hint";
@@ -115,9 +115,9 @@ export function DiffOptions({ threads, compareInBand = false, foldInBand = false
   const close = () => { setOpen(false); setPage("options"); };
   const tablet = layout.mode === "tablet";
   const isPr = review.kind === "pr";
-  const lastReview = lastReviewed(compare);
+  const since = sinceFrom(compare, review);
   // Without a compare select in the band, the comparison is here: switched on and off, and picked from the commits.
-  const comparing = !compareInBand && (!!lastReview || !!compare.from);
+  const comparing = !compareInBand && since !== undefined;
   const picking = !compareInBand && isPr && !comparing;
   return (
     <Popover open={open} onOpenChange={(next) => { setOpen(next); if (!next) setPage("options"); }}>
@@ -134,8 +134,8 @@ export function DiffOptions({ threads, compareInBand = false, foldInBand = false
           {comparing && <div className="border-b border-border pb-1">
             <div className={cn(row, "hover:bg-transparent")}>
               Show changes
-              <Segmented label="Show changes" value={compare.narrowed ? "since" : "all"} onChange={(value) => value === "all" ? compare.setNarrowed(false) : compare.pick(compare.from)}
-                options={[{ value: "all", label: "All" }, { value: "since", label: compareLabel(true, compare.from) }]} />
+              <Segmented label="Show changes" value={compare.narrowed ? "since" : "all"} onChange={(value) => value === "all" ? compare.setNarrowed(false) : compare.pick(since ?? null)}
+                options={[{ value: "all", label: "All" }, { value: "since", label: compareLabel(true, since ?? null) }]} />
             </div>
             {compare.error && <p role="status" className="flex items-center gap-1.5 px-2 pb-1.5 text-xs text-destructive-text"><Icon name="AlertCircle" className="size-3.5 shrink-0" aria-hidden />{compareProblem(compare)}</p>}
             {isPr && <Link label="Since a commit…" end={<Icon name="ChevronRight" className="size-4" aria-hidden />} onSelect={() => turn("compare")} />}

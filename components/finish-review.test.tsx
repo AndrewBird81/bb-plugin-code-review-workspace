@@ -16,7 +16,7 @@ const { toast } = await import("sonner");
 // jsdom has no scrollIntoView, which Show's reveal lands with.
 Element.prototype.scrollIntoView ??= () => {};
 
-afterEach(() => { cleanup(); localStorage.clear(); sessionStorage.clear(); vi.clearAllMocks(); });
+afterEach(() => { cleanup(); localStorage.clear(); sessionStorage.clear(); vi.clearAllMocks(); vi.useRealTimers(); });
 
 const now = Date.now();
 const patch = "diff --git a/src/a.ts b/src/a.ts\n--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1,2 +1,2 @@\n one\n-two\n+TWO\n";
@@ -73,7 +73,7 @@ async function renderWorkspace({ review = {}, rpc = {} }: { review?: Record<stri
     return result;
   }) as unknown as typeof handlers.submitReview;
   const slot = renderSlot(app.navPanels[0]!, { subPath: "pr-42" }, { rpc: handlers as any });
-  await slot.findByRole("main", { name: "Review" });
+  await slot.findByRole("main", { name: /^Review\b/ });
   await slot.findByTestId("filediff");
   return { slot, rpc: handlers };
 }
@@ -524,6 +524,22 @@ test("on your own PR it offers Comment only, and Fix in a new thread beside Subm
   slot.lifecycle.unmount();
 });
 
+test("on your own PR, Finish counts only the comments that post: one sent to fix stays in BB, and Submit says so", async () => {
+  const sentToFix = [{ ...comments[0], id: "c1", state: "sent", sendN: 1 }, comments[1]];
+  const { slot, rpc } = await renderWorkspace({ review: { ownPr: true }, rpc: { getDraft: vi.fn(() => ({ draft: draftOf({ comments: structuredClone(sentToFix) }), stale: [] })) } });
+  const view = await finish(slot);
+  expect(view.getByText("1 comment").parentElement!.textContent).toBe("1 comment ·\u00a01 nit");
+  expect(view.getByText("1 sent to fix won’t post to GitHub. Reopen it to post it.")).toBeTruthy();
+  // The blocking one is with the main thread: nothing here blocks.
+  expect(submit(view).textContent).toBe("Submit to GitHub · Comment");
+  fireEvent.click(submit(view));
+  await waitFor(() => expect(rpc.submitReview).toHaveBeenCalled());
+  // What the page shows goes as it is, for the server's check; it posts only what's open.
+  expect((rpc.submitReview as any).mock.calls[0][0].comments).toHaveLength(2);
+  expect(await view.findByText("1 comment")).toBeTruthy();
+  slot.lifecycle.unmount();
+});
+
 test("a closed PR keeps its unsubmitted draft to read, with nothing to submit", async () => {
   const { slot } = await renderWorkspace({ review: { prState: "CLOSED", archivedAt: 1 } });
   fireEvent.keyDown(document.body, { key: "s" });
@@ -541,7 +557,7 @@ test("a closed PR keeps its unsubmitted draft to read, with nothing to submit", 
 test("a closed PR's last chapter ends at its archived review, not at finishing it", async () => {
   const setFilesViewed = vi.fn(() => ({ ok: true, previous: [] }));
   const { slot } = await renderWorkspace({ review: { prState: "MERGED", archivedAt: 1 }, rpc: { setFilesViewed } });
-  const main = within(slot.getByRole("main", { name: "Review" }));
+  const main = within(slot.getByRole("main", { name: /^Review\b/ }));
   expect(main.queryByRole("button", { name: /Finish review|Mark viewed and finish/ })).toBeNull();
   // Marking it viewed stays on the chapter; the archived review is the button beside it.
   fireEvent.click(main.getByRole("button", { name: "Mark viewed" }));
@@ -636,3 +652,338 @@ test("with Show what the agent checked off, Finish review says nothing of what t
   await waitFor(() => expect(rpc.submitReview).toHaveBeenCalled());
   slot.lifecycle.unmount();
 }, 15_000);
+
+// What the server holds Submit back for: in plain words, with what to do next.
+
+test("new commits since you reviewed hold Submit with a warning in plain words, See the commits, and Submit anyway posts past exactly that warning", async () => {
+  const submitReview = vi.fn()
+    .mockResolvedValueOnce({ ok: false, warning: "2 new commits since you reviewed. Submitting now posts on the version you reviewed.", warnings: ["new-commits"], offers: ["anyway"], newCommits: { count: 2, url: "https://github.com/acme/web/compare/a...b" } })
+    .mockResolvedValueOnce({ ok: true });
+  const { slot, rpc } = await renderWorkspace({ rpc: { submitReview } });
+  const view = await finish(slot);
+  fireEvent.click(submit(view));
+  const alert = await view.findByRole("alert");
+  expect(alert.textContent).toBe("Not submitted. 2 new commits since you reviewed. Submitting now posts on the version you reviewed. Your draft is kept.Submit anywaySee the 2 commitsCancel");
+  expect(within(alert).getByRole("link", { name: "See the 2 commits" }).getAttribute("href")).toBe("https://github.com/acme/web/compare/a...b");
+  await waitFor(() => expect(document.activeElement?.textContent).toBe("Cancel"));
+  fireEvent.click(within(alert).getByRole("button", { name: "Submit anyway" }));
+  await slot.findByRole("region", { name: "Submitted review" });
+  expect(rpc.submitReview).toHaveBeenLastCalledWith(expect.objectContaining({ force: ["new-commits"] }));
+  slot.lifecycle.unmount();
+});
+
+test("GitHub allows only a Comment on your own PR: Submit as Comment submits it as one, in one step", async () => {
+  const submitReview = vi.fn()
+    .mockResolvedValueOnce({ ok: false, error: "GitHub allows only a Comment review on your own PR.", offers: ["comment"] })
+    .mockResolvedValueOnce({ ok: true });
+  const { slot, rpc } = await renderWorkspace({ rpc: { submitReview, getDraft: vi.fn(() => ({ draft: draftOf({ verdict: "APPROVE", body: "Ready." }), stale: [] })) } });
+  const view = await finish(slot);
+  fireEvent.click(submit(view));
+  fireEvent.click(view.getByRole("button", { name: "Submit anyway" }));
+  const alert = await view.findByRole("alert");
+  expect(alert.textContent).toContain("Not submitted. GitHub allows only a Comment review on your own PR. Your draft is kept.");
+  expect(within(alert).queryByRole("button", { name: "Submit anyway" })).toBeNull();
+  fireEvent.click(within(alert).getByRole("button", { name: "Submit as Comment" }));
+  await slot.findByRole("region", { name: "Submitted review" });
+  expect(rpc.submitReview).toHaveBeenLastCalledWith(expect.objectContaining({ asComment: true }));
+  slot.lifecycle.unmount();
+});
+
+test("an unsent review of yours on GitHub offers to open it there, in the same voice; Cancel returns to Submit", async () => {
+  const { slot } = await renderWorkspace({ rpc: { submitReview: vi.fn(() => ({ ok: false, error: "You have a pending review on this PR, started on github.com. Submit or discard it there, then submit again. Your draft has been kept.", offers: ["github"] })) } });
+  const view = await finish(slot);
+  fireEvent.click(submit(view));
+  const alert = await view.findByRole("alert");
+  expect(alert.textContent).toContain("Not submitted. You have a pending review on this PR, started on github.com. Submit or discard it there, then submit again. Your draft is kept.");
+  expect(within(alert).getByRole("link", { name: "Open it on GitHub" }).getAttribute("href")).toBe("https://github.com/acme/web/pull/42");
+  fireEvent.click(within(alert).getByRole("button", { name: "Cancel" }));
+  await waitFor(() => expect(view.queryByRole("alert")).toBeNull());
+  await waitFor(() => expect(document.activeElement).toBe(submit(view)));
+  slot.lifecycle.unmount();
+});
+
+test("Agent activity lists what the review agent did on GitHub, newest first, a line each with its age and a link, folding from 5", async () => {
+  // The ages count from `now`, however long the file took to get here.
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(now);
+  const activity = [
+    { at: now - 4 * 60_000, text: "Marked as a draft", asking: "direct" },
+    { at: now - 3 * 60_000, text: "Posted reply on src/a.ts:12", asking: "direct", url: "https://github.com/acme/web/pull/42#discussion_r1" },
+    { at: now - 2 * 60_000, text: "Added label bug", asking: "relayed", from: "thr_x", fromTitle: "Fix login race" },
+    { at: now - 60_000, text: "Requested review from flocasts/live-dev", asking: "direct" },
+    { at: now - 30_000, text: "Marked ready for review", asking: "direct" },
+  ];
+  const { slot } = await renderWorkspace({ review: { activity } });
+  const view = await finish(slot);
+  const part = view.getByRole("heading", { name: "Agent activity" }).parentElement!;
+  const lines = () => within(part).getAllByRole("listitem").map((li) => li.textContent?.replace(/\u00a0/g, " "));
+  expect(lines()).toEqual(["Marked ready for review · just now", "Requested review from flocasts/live-dev · 1m ago", "Added label bug · 2m ago · asked from Fix login race ↗"]);
+  expect(within(part).getByRole("button", { name: "Fix login race ↗" })).toBeTruthy();
+  fireEvent.click(within(part).getByRole("button", { name: "Show all 5" }));
+  expect(lines().slice(-2)).toEqual(["Posted reply on src/a.ts:12 · 3m ago · View", "Marked as a draft · 4m ago"]);
+  expect(within(part).getByRole("link", { name: "Posted reply on src/a.ts:12, on GitHub" }).getAttribute("href")).toBe("https://github.com/acme/web/pull/42#discussion_r1");
+  slot.lifecycle.unmount();
+});
+
+test("on an approval, the button past a warning says Approve anyway", async () => {
+  const submitReview = vi.fn().mockResolvedValueOnce({ ok: false, warning: "The PR's base changed to main since you reviewed it.", warnings: ["base-changed"], offers: ["anyway"] });
+  const { slot } = await renderWorkspace({ rpc: { submitReview, getDraft: vi.fn(() => ({ draft: draftOf({ verdict: "APPROVE", body: "Ready.", comments: [] }), stale: [] })) } });
+  const view = await finish(slot);
+  fireEvent.click(submit(view));
+  const anyway = view.queryByRole("button", { name: "Submit anyway" });
+  if (anyway) fireEvent.click(anyway);
+  const alert = await view.findByRole("alert");
+  await waitFor(() => expect(within(alert).getByRole("button", { name: "Approve anyway" })).toBeTruthy());
+  slot.lifecycle.unmount();
+});
+
+/** A local review of feat/qa in acme/web, on MaxBook. */
+const folderReview = { kind: "ref", gitRef: "feat/qa", place: { repo: "acme/web", machine: "MaxBook", path: "/Users/me/web" }, feature: { environmentId: "env1", hostId: "h", machine: "MaxBook", path: "/Users/me/web", branch: "feat/qa", baseRef: "main", repo: "acme/web" } };
+
+test("a local review of a branch in a GitHub repo offers Open PR, which asks the review agent to draft it and opens its chat", async () => {
+  const openPr = vi.fn(() => ({ ok: true }));
+  const { slot } = await renderWorkspace({ review: folderReview, rpc: { openPr } });
+  const view = await finish(slot);
+  expect(view.getByRole("heading", { name: "Open a PR" })).toBeTruthy();
+  expect(view.getByText(/shows you its title and description before it opens/).textContent).toBe("The review agent drafts a PR from feat/qa in acme/web, and shows you its title and description before it opens.");
+  fireEvent.click(view.getByRole("button", { name: "Open PR" }));
+  await waitFor(() => expect(openPr).toHaveBeenCalledWith({ targetKey: "pr-42" }));
+  expect(await slot.findByRole("region", { name: "Review agent" })).toBeTruthy();
+  slot.lifecycle.unmount();
+});
+
+test("Open PR on a branch that isn't on GitHub yet says to push it first, as a muted note, not an error", async () => {
+  const note = "`feat/qa` isn’t on GitHub yet. Push it first with **Push** above, then open the PR.";
+  const { slot } = await renderWorkspace({ review: folderReview, rpc: { openPr: vi.fn(() => ({ ok: false, note })) } });
+  const view = await finish(slot);
+  fireEvent.click(view.getByRole("button", { name: "Open PR" }));
+  const said = (await view.findByText((_, el) => el?.tagName === "P" && el.textContent === "feat/qa isn’t on GitHub yet. Push it first with Push above, then open the PR."));
+  expect(within(said).getByText("Push").tagName).toBe("STRONG");
+  expect(said.getAttribute("role")).toBe("status");
+  expect(said.className).toContain("text-muted-foreground");
+  expect(view.queryByRole("alert")).toBeNull();
+  expect(view.getByRole("button", { name: "Open PR" })).toBeTruthy();
+  slot.lifecycle.unmount();
+});
+
+test("Open PR that fails says why, as an alert", async () => {
+  const error = "This folder’s repo is a fork; open its PR on GitHub.";
+  const { slot } = await renderWorkspace({ review: folderReview, rpc: { openPr: vi.fn(() => ({ ok: false, error })) } });
+  const view = await finish(slot);
+  fireEvent.click(view.getByRole("button", { name: "Open PR" }));
+  expect((await view.findByRole("alert")).textContent).toBe(error);
+  slot.lifecycle.unmount();
+});
+
+test("Open PR on a branch with a PR already says so: the review is now that PR's", async () => {
+  const note = "feat/qa has PR #7 on GitHub already, so none was opened. This review is now its review, with its comments.";
+  const { slot } = await renderWorkspace({ review: folderReview, rpc: { openPr: vi.fn(() => ({ ok: true, note })) } });
+  const view = await finish(slot);
+  fireEvent.click(view.getByRole("button", { name: "Open PR" }));
+  await waitFor(() => expect(toast.info).toHaveBeenCalledWith(note));
+  slot.lifecycle.unmount();
+});
+
+test("no Open PR on a ref's review, a folder with no GitHub repo, or with the review agent drafting only", async () => {
+  for (const [review, knobs] of [
+    [{ kind: "ref", gitRef: "main...x" }, defaultKnobs],
+    [{ ...folderReview, feature: { ...folderReview.feature, repo: null } }, defaultKnobs],
+    [folderReview, { ...defaultKnobs, reviewAgentActs: false }],
+  ] as const) {
+    const { slot } = await renderWorkspace({ review, rpc: { getPreferences: () => ({ preferences: { ...defaultPreferences, knobs }, revision: 0 }) } });
+    const view = await finish(slot);
+    expect(view.queryByRole("button", { name: "Open PR" })).toBeNull();
+    slot.lifecycle.unmount();
+    cleanup();
+  }
+});
+
+test("a local review that becomes its PR's while open says so in a notice, as its id changes", async () => {
+  let review: Record<string, unknown> = folderReview;
+  const { slot } = await renderWorkspace({ rpc: { getReviewBundle: () => ({ review: { targetKey: "pr-42", status: "ready", createdAt: 1, title: "Parse rows", ...review }, guide: structuredClone(guide), patch, revision: "r1" }) } });
+  const text = "This review is now web#7, the PR’s. It was web:feat/qa; your comments came with it.";
+  expect(slot.queryByText(text)).toBeNull();
+  review = { kind: "pr", repo: "acme/web", number: 7, url: "https://github.com/acme/web/pull/7", headSha: "c0ffee", feature: folderReview.feature };
+  await slot.emitRealtime("review:pr-42", {});
+  // A notice in the page's flow, covering nothing, until Got it.
+  const notice = (await slot.findByText(text)).closest("[role=status]")!;
+  expect(notice).toBeTruthy();
+  fireEvent.click(within(notice as HTMLElement).getByRole("button", { name: "Got it" }));
+  await waitFor(() => expect(slot.queryByText(text)).toBeNull());
+  slot.lifecycle.unmount();
+});
+
+/** A local review whose Push stands as `push`, read again on each reload, and the RPCs Push calls. */
+async function renderPush(push: Record<string, unknown> | null, rpc: Record<string, unknown> = {}, review: Record<string, unknown> = folderReview) {
+  const state = { push };
+  const calls = {
+    push: vi.fn((): any => ({ ok: true, delivery: "sent" })),
+    dismissPush: vi.fn(() => { state.push = null; return { ok: true }; }),
+    updateFeature: vi.fn(() => ({ ok: true })),
+    ...rpc,
+  };
+  const { slot } = await renderWorkspace({ rpc: { ...calls, getReviewBundle: () => ({ review: { targetKey: "pr-42", status: "ready", createdAt: 1, title: "Parse rows", ...review, push: state.push }, guide: structuredClone(guide), patch, revision: "r1" }) } });
+  const view = await finish(slot);
+  return { slot, view, state, calls, part: () => view.getByRole("heading", { name: "Push" }).closest("section")! as HTMLElement };
+}
+const HEAD = "abc1234def5678abc1234def5678abc1234def56";
+
+test("Push on a local review says what it does, asks the main thread, and then waits on its commit, with Cancel", async () => {
+  const { slot, view, state, calls, part } = await renderPush(null);
+  expect(within(part()).getByText(/the review checks it/).textContent).toBe("The main thread commits what you reviewed, the review checks it, then it’s pushed to feat/qa. Never forced.");
+  // The branch breaks only after its / or -, never mid-word.
+  const branch = within(part()).getByText(/the review checks it/).querySelector(".font-mono")!;
+  expect(branch.className).toContain("[overflow-wrap:anywhere]");
+  expect(branch.innerHTML).toMatch(/feat\/<\/span><span><wbr>qa/);
+  // It comes before Open a PR, which needs the branch on GitHub.
+  const headings = view.getAllByRole("heading").map((h) => h.textContent);
+  expect(headings.indexOf("Push")).toBeLessThan(headings.indexOf("Open a PR"));
+  state.push = { state: "committing", at: now, threadId: "coder", repo: "acme/web", head: "feat/qa" };
+  fireEvent.click(within(part()).getByRole("button", { name: "Push" }));
+  await waitFor(() => expect(calls.push).toHaveBeenCalledWith({ targetKey: "pr-42" }));
+  expect((await within(part()).findByRole("status")).textContent).toBe("Waiting for the main thread to commit. The review checks the commit before anything is pushed.");
+  fireEvent.click(within(part()).getByRole("button", { name: "Cancel" }));
+  await waitFor(() => expect(calls.dismissPush).toHaveBeenCalledWith({ targetKey: "pr-42" }));
+  expect(await within(part()).findByRole("button", { name: "Push" })).toBeTruthy();
+  slot.lifecycle.unmount();
+});
+
+test("a commit that isn't what you reviewed: Not pushed, which files, the secret named, then Update first, or Push anyway", async () => {
+  const mismatch = { state: "mismatch", at: now, threadId: "coder", repo: "acme/web", head: "feat/qa", sha: HEAD, warning: "2 files changed since you reviewed. **.env may hold secrets** and would go to GitHub. Ask the main thread to take it out of the commit, or Include it to review it.", files: [".env", "src/a.ts"], secrets: [".env"] };
+  const { slot, state, calls, part } = await renderPush(mismatch);
+  const alert = within(part()).getByRole("alert");
+  expect(alert.textContent).toContain("Not pushed. 2 files changed since you reviewed. .env may hold secrets and would go to GitHub. Ask the main thread to take it out of the commit, or Include it to review it.");
+  expect(within(alert).getByText(".env may hold secrets").tagName).toBe("STRONG");
+  expect(within(alert).getAllByRole("listitem").map((li) => li.textContent)).toEqual([".env · may hold secrets", "src/a.ts"]);
+  // Update first leads; Push anyway still goes.
+  expect(within(alert).getAllByRole("button").map((b) => b.textContent)).toEqual(["Update first", "Push anyway", "Cancel"]);
+  expect(within(alert).getByRole("button", { name: "Push anyway" }).className).toContain("border");
+  const { warning: _warning, files: _files, secrets: _secrets, ...rest } = mismatch;
+  state.push = { ...rest, state: "pushing" };
+  fireEvent.click(within(alert).getByRole("button", { name: "Push anyway" }));
+  // On the commit shown.
+  await waitFor(() => expect(calls.push).toHaveBeenCalledWith({ targetKey: "pr-42", force: true, at: now, sha: HEAD }));
+  expect((await within(part()).findByRole("status")).textContent).toBe("Pushing abc1234 to feat/qa. The review checks GitHub when the main thread finishes.");
+  // Stop waiting, as when the thread is archived mid-push.
+  fireEvent.click(within(part()).getByRole("button", { name: "Stop waiting" }));
+  await waitFor(() => expect(calls.dismissPush).toHaveBeenCalledWith({ targetKey: "pr-42" }));
+  slot.lifecycle.unmount();
+  cleanup();
+
+  const again = await renderPush(mismatch);
+  fireEvent.click(within(again.part()).getByRole("button", { name: "Update first" }));
+  await waitFor(() => expect(again.calls.dismissPush).toHaveBeenCalled());
+  expect(again.calls.updateFeature).toHaveBeenCalledWith({ targetKey: "pr-42" });
+  expect(toast.success).toHaveBeenCalledWith("Updated. Review what changed, then Push.");
+  expect(await within(again.part()).findByRole("button", { name: "Push" })).toBeTruthy();
+  again.slot.lifecycle.unmount();
+});
+
+test("pushed says so; GitHub not at the commit, or a push no one asked for, is flagged in Finish and on the review, until Got it", async () => {
+  const pushed = await renderPush({ state: "pushed", at: now, threadId: "coder", repo: "acme/web", head: "feat/qa", sha: HEAD });
+  expect(within(pushed.part()).getByRole("status").textContent).toMatch(/^Pushed abc1234 to feat\/qa · /);
+  pushed.slot.lifecycle.unmount();
+  cleanup();
+
+  const differs = await renderPush({ state: "flagged", flag: "differs", at: now, threadId: "coder", repo: "acme/web", head: "feat/qa", sha: HEAD, remote: "f00dbabef00d" });
+  const text = "GitHub’s feat/qa is at f00dbab, not abc1234. The push may have failed: check the main thread.";
+  // A status in Finish: the strip's notice is the alert, so it's said once.
+  expect(within(differs.part()).getByRole("status").textContent).toContain(text);
+  expect(within(differs.part()).queryByRole("alert")).toBeNull();
+  for (const name of ["Push again", "Open main thread", "Got it"]) expect(within(differs.part()).getByRole("button", { name })).toBeTruthy();
+  const warned = differs.slot.getByRole("alert", { name: "Push not on GitHub" });
+  for (const name of ["Push again", "Open main thread", "Got it"]) expect(within(warned).getByRole("button", { name })).toBeTruthy();
+  differs.slot.lifecycle.unmount();
+  cleanup();
+
+  const unrequested = await renderPush({ state: "flagged", flag: "unrequested", at: now, threadId: "coder", repo: "acme/web", head: "feat/qa", remote: "f00dbabef00d" });
+  const said = "feat/qa has new commits on GitHub (now f00dbab) that didn’t come from Push. A teammate, CI or a thread may have pushed them.";
+  expect(within(unrequested.part()).getByRole("status").textContent).toBe(`${said}UpdateGot it`);
+  expect(within(unrequested.part()).queryByRole("button", { name: "Push again" })).toBeNull();
+  // On the review too, as news rather than an alarm, with Update and Got it.
+  const notice = unrequested.slot.getByRole("status", { name: "New commits on GitHub" });
+  expect(notice.textContent).toContain(said);
+  expect(unrequested.slot.queryByRole("alert", { name: "New commits on GitHub" })).toBeNull();
+  expect(within(notice).getByRole("button", { name: "Update" })).toBeTruthy();
+  fireEvent.click(within(notice).getByRole("button", { name: "Got it" }));
+  await waitFor(() => expect(unrequested.calls.dismissPush).toHaveBeenCalledWith({ targetKey: "pr-42" }));
+  await waitFor(() => expect(unrequested.slot.queryByRole("status", { name: "New commits on GitHub" })).toBeNull());
+  unrequested.slot.lifecycle.unmount();
+});
+
+test("Push with nothing to push says so as a note; one that can't start says why as an alert", async () => {
+  const note = "Nothing to push. GitHub already has `abc1234` on `feat/qa`.";
+  const { slot, part } = await renderPush(null, { push: vi.fn(() => ({ ok: true, note })) });
+  fireEvent.click(within(part()).getByRole("button", { name: "Push" }));
+  const said = await within(part()).findByText((_, el) => el?.tagName === "P" && el.textContent === "Nothing to push. GitHub already has abc1234 on feat/qa.");
+  expect(said.getAttribute("role")).toBe("status");
+  expect(within(said).getByText("abc1234").closest(".font-mono")).toBeTruthy();
+  slot.lifecycle.unmount();
+  cleanup();
+
+  const error = "This review has no main thread to commit and push. Choose one in Main thread.";
+  const failing = await renderPush(null, { push: vi.fn(() => ({ ok: false, error })) });
+  fireEvent.click(within(failing.part()).getByRole("button", { name: "Push" }));
+  expect((await within(failing.part()).findByRole("alert")).textContent).toBe(error);
+  failing.slot.lifecycle.unmount();
+});
+
+test("no Push on a PR's review, a folder with no GitHub repo or gone, or with Send to thread off", async () => {
+  for (const [review, knobs] of [
+    [{}, defaultKnobs],
+    [{ ...folderReview, feature: { ...folderReview.feature, repo: null } }, defaultKnobs],
+    [{ ...folderReview, feature: { ...folderReview.feature, folderGone: true } }, defaultKnobs],
+    [folderReview, { ...defaultKnobs, sendToThread: false }],
+  ] as const) {
+    const { slot } = await renderWorkspace({ review, rpc: { getPreferences: () => ({ preferences: { ...defaultPreferences, knobs }, revision: 0 }) } });
+    const view = await finish(slot);
+    expect(view.queryByRole("heading", { name: "Push" })).toBeNull();
+    slot.lifecycle.unmount();
+    cleanup();
+  }
+});
+
+test("a commit the check couldn't place offers no Push anyway; GitHub ahead of the folder offers Push anyway but no Update first", async () => {
+  const unplaced = await renderPush({ state: "mismatch", at: now, threadId: "coder", repo: "acme/web", head: "feat/qa", warning: "The folder is at `f00dbab`, not `abc1234`, the commit reported.", files: [] });
+  const alert = within(unplaced.part()).getByRole("alert");
+  expect(alert.textContent).toContain("Not pushed. The folder is at f00dbab, not abc1234, the commit reported.");
+  expect(within(alert).getAllByRole("button").map((b) => b.textContent)).toEqual(["Update first", "Cancel"]);
+  unplaced.slot.lifecycle.unmount();
+  cleanup();
+
+  const behind = await renderPush({ state: "mismatch", at: now, threadId: "coder", repo: "acme/web", head: "feat/qa", behind: true, warning: "GitHub has commits on `feat/qa` that this folder doesn’t. Pull first, or Push anyway to try." });
+  const warned = within(behind.part()).getByRole("alert");
+  expect(within(warned).getAllByRole("button").map((b) => b.textContent)).toEqual(["Push anyway", "Cancel"]);
+  fireEvent.click(within(warned).getByRole("button", { name: "Push anyway" }));
+  // On the warning shown, by when it came.
+  await waitFor(() => expect(behind.calls.push).toHaveBeenCalledWith({ targetKey: "pr-42", force: true, at: now }));
+  behind.slot.lifecycle.unmount();
+});
+
+/** Your PR, acme/web#42 from feat/qa, with a fixer at work in its own folder. */
+const fixerReview = { kind: "pr", repo: "acme/web", number: 42, head: "feat/qa", ownPr: true, mainThread: { threadId: "fixer", environmentId: "env_fix", origin: "fresh", since: 1, branch: "bb/fixes-thr_fix", fixer: { sha: "9e9e9e9", at: 1 } } };
+
+test("on your PR with a fixer, Push says the fixer commits what Not pushed yet shows, and Update first opens Not pushed yet", async () => {
+  const ready = await renderPush(null, {}, fixerReview);
+  expect(within(ready.part()).getByText(/the review checks it/).textContent).toBe("The fixer commits what you reviewed in Not pushed yet, the review checks it, then it’s pushed to feat/qa. Never forced.");
+  ready.slot.lifecycle.unmount();
+  cleanup();
+
+  const getNotPushed = vi.fn(async () => ({ state: "none", message: "Nothing waiting." }));
+  const getSourceThread = vi.fn(() => ({ thread: { threadId: "fixer", title: "Fixes for web#42", state: "open", machine: "MaxBook" } }));
+  const mismatch = { state: "mismatch", at: now, threadId: "fixer", repo: "acme/web", head: "feat/qa", sha: HEAD, warning: "1 file changed since you reviewed.", files: ["src/a.ts"] };
+  const { slot, calls, part } = await renderPush(mismatch, { getNotPushed, getSourceThread }, fixerReview);
+  fireEvent.click(within(part()).getByRole("button", { name: "Update first" }));
+  await waitFor(() => expect(calls.dismissPush).toHaveBeenCalledWith({ targetKey: "pr-42" }));
+  expect(calls.updateFeature).not.toHaveBeenCalled();
+  expect(await slot.findByRole("tabpanel", { name: "Not pushed yet" })).toBeTruthy();
+  slot.lifecycle.unmount();
+});
+
+test("on your PR with a fixer, new commits on GitHub that didn't come from Push name the fixer among who may have pushed them", async () => {
+  const { slot, part } = await renderPush({ state: "flagged", flag: "unrequested", fixer: true, at: now, threadId: "fixer", repo: "acme/web", head: "feat/qa", remote: HEAD }, {}, fixerReview);
+  const said = "feat/qa has new commits on GitHub (now abc1234) that didn’t come from Push. The fixer, a teammate or CI may have pushed them.";
+  expect(within(part()).getByRole("status").textContent).toContain(said);
+  expect(slot.getByRole("status", { name: "New commits on GitHub" }).textContent).toContain(said);
+  slot.lifecycle.unmount();
+});

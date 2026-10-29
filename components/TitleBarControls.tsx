@@ -10,6 +10,7 @@ import type { WorkspaceApi } from "../lib/workspace-context";
 import { CompactViewportOverrideProvider } from "./ui/hooks/use-compact-viewport";
 import { Button } from "./ui/button";
 import { Hint } from "./ui/hint";
+import { REWRITE_GUIDE } from "./shell/ReviewNotices";
 import { useMediaQuery } from "./ui/hooks/use-media-query";
 import { Icon } from "./ui/icon";
 import { ReviewActions, type ReviewMenuItem } from "./ReviewActions";
@@ -25,7 +26,7 @@ export type TitleBarPlacement = "title" | "band";
 let focusToggle: { to: TitleBarPlacement; until: number } | null = null;
 
 /**
- * The review's commands: Comments, Ask agent, Finish review, Review actions (⋯) and Full screen; on All reviews, the
+ * The review's commands: Comments, Ask agent, Main thread (with one), Finish review, Review actions (⋯) and Full screen; on All reviews, the
  * list's. BB renders it in its title bar (navPanel headerContent) with the page's subPath, apart from the page, so it
  * reads the workspace from the store. A plain function, not memo: the SDK takes only a function as a slot's component.
  */
@@ -78,6 +79,12 @@ function ReviewControls({ api, placement }: { api: WorkspaceApi; placement: Titl
             {tier !== "icons" && "Ask agent"}
           </Button>
         </Hint>
+        {api.mainThread && <Hint label="Main thread: the thread that writes the code, and gets your Sends" container={container}>
+          <Button variant="ghost" size="sm" aria-label="Main thread" aria-pressed={panel.view === "main"} aria-controls={controls} className={tier === "labeled" ? labeled : icon} onClick={() => panel.toggle("main")}>
+            <Icon name="Code" aria-hidden />
+            {tier === "labeled" && "Main thread"}
+          </Button>
+        </Hint>}
         {status && <Hint label={keyHint("Finish review", "s", api.shortcuts)} container={container}>
           <Button variant="ghost" size="sm" aria-label={`Finish review: ${VERDICT_LABEL[status.verdict]}, ${comments} comment${comments === 1 ? "" : "s"}`} aria-pressed={panel.view === "finish"} aria-controls={controls} aria-keyshortcuts={ariaKeys("s", api.shortcuts)} className={labeled} onClick={() => panel.view === "finish" ? panel.close() : api.openFinish()}>
             <Icon name="Github" aria-hidden />
@@ -112,7 +119,8 @@ function ReviewControls({ api, placement }: { api: WorkspaceApi; placement: Titl
 }
 
 /**
- * Review actions (⋯): the workspace's Update or Rebuild guide first, then the review's own, with the workspace's Keyboard
+ * Review actions (⋯): the workspace's Update or Rebuild guide first, then the review's own, a local review's Rewrite guide
+ * after its Rename…, so the menu doesn't open on what starts the guide writer, with the workspace's Keyboard
  * shortcuts and Review settings… after Open on GitHub. An archived review's guide isn't rebuilt. A phone, without a
  * mouse to say a keyboard may be there, has no Keyboard shortcuts; an iPad keeps them, for its keyboard. Neither has
  * them while Settings turns single-key shortcuts off.
@@ -120,10 +128,12 @@ function ReviewControls({ api, placement }: { api: WorkspaceApi; placement: Titl
 export function ReviewMenu({ api, className }: { api: WorkspaceApi; className?: string }) {
   const fine = useMediaQuery("(any-pointer: fine)");
   const keys = api.shortcuts && (fine || !phoneWindow());
-  const items: ReviewMenuItem[] = api.review.archivedAt ? [] : [{ label: api.newCommits ? "Update guide" : "Rebuild guide", icon: "ArrowReloadHorizontal", onSelect: () => void api.rebuild() }];
+  const local = api.review.kind === "ref";
+  const items: ReviewMenuItem[] = api.review.archivedAt || local ? [] : [{ label: api.newCommits ? "Update guide" : "Rebuild guide", icon: "ArrowReloadHorizontal", onSelect: () => void api.rebuild() }];
+  const afterRename: ReviewMenuItem[] = api.review.archivedAt || !local ? [] : [{ label: "Rewrite guide", icon: "Sparkles", agent: true, description: REWRITE_GUIDE, onSelect: () => void api.rebuild() }];
   const trailing: ReviewMenuItem[] = [
     ...(keys ? [{ label: "Keyboard shortcuts", icon: "CircleQuestion", keys: "?", onSelect: api.showShortcuts } satisfies ReviewMenuItem] : []),
     { label: "Review settings…", icon: "Settings", onSelect: () => void api.leave(`settings/${api.targetKey}`) },
   ];
-  return <ReviewActions review={api.review} className={className} pinnable={api.pinnable} items={items} trailing={trailing} onChanged={() => void api.reload()} onDeleted={() => void api.leave()} />;
+  return <ReviewActions review={api.review} className={className} pinnable={api.pinnable} items={items} afterRename={afterRename} trailing={trailing} onChanged={() => void api.reload()} onDeleted={() => void api.leave()} />;
 }

@@ -37,10 +37,11 @@ export function Omnibox({ query, onQuery, reviews, onOpen, placeholder, onCancel
   const [error, setError] = useState<string | null>(null);
   const [focused, setFocused] = useState(false);
   const shortcuts = useKnob("singleKeyShortcuts");
+  const localDiffChanges = useKnob("localDiffChanges");
   const suggestionId = useId(), errorId = useId(), hintId = useId();
   const link = parsePrLink(query);
   const listed = link ? reviews.find((review) => review.repo?.toLowerCase() === link.repo && review.number === link.number) : undefined;
-  const listedWhy = listed ? statusWhy(listed) : null;
+  const listedWhy = listed ? statusWhy(listed, { localDiffChanges }) : null;
 
   async function take() {
     if (!link || starting) return;

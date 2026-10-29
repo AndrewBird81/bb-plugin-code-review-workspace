@@ -51,7 +51,7 @@ async function renderWorkspace(stored: unknown) {
     markSeen: vi.fn(() => ({ ok: true })),
   };
   const slot = renderSlot(app.navPanels[0]!, { subPath: "pr-42" }, { rpc: handlers as any });
-  await slot.findByRole("main", { name: "Review" });
+  await slot.findByRole("main", { name: /^Review\b/ });
   return slot;
 }
 type Slot = Awaited<ReturnType<typeof renderWorkspace>>;

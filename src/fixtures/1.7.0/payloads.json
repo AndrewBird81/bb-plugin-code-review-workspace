@@ -1,0 +1,14 @@
+{
+  "pr-86f279ce9c29f106-7": {
+    "plain": "{\"event\":\"REQUEST_CHANGES\",\"body\":\"One blocker: errors are dropped.\",\"comments\":[{\"path\":\"api.ts\",\"line\":2,\"side\":\"RIGHT\",\"body\":\"**Should fix:** Cap the retries.\"},{\"path\":\"api.ts\",\"line\":3,\"side\":\"RIGHT\",\"start_line\":2,\"start_side\":\"RIGHT\",\"body\":\"**Blocking:** This drops the error.\\n\\n```suggestion\\nsend().catch(report);\\n```\"},{\"path\":\"util.ts\",\"line\":1,\"side\":\"RIGHT\",\"start_line\":1,\"start_side\":\"LEFT\",\"body\":\"This wait was already too long.\"}]}",
+    "preExisting": "{\"event\":\"REQUEST_CHANGES\",\"body\":\"One blocker: errors are dropped.\",\"comments\":[{\"path\":\"api.ts\",\"line\":2,\"side\":\"RIGHT\",\"body\":\"**Should fix:** Cap the retries.\"},{\"path\":\"api.ts\",\"line\":3,\"side\":\"RIGHT\",\"start_line\":2,\"start_side\":\"RIGHT\",\"body\":\"**Blocking:** This drops the error.\\n\\n```suggestion\\nsend().catch(report);\\n```\"},{\"path\":\"util.ts\",\"line\":1,\"side\":\"RIGHT\",\"start_line\":1,\"start_side\":\"LEFT\",\"body\":\"**Pre-existing:** This wait was already too long.\"}]}"
+  },
+  "pr-86f279ce9c29f106-9": {
+    "plain": "{\"event\":\"COMMENT\",\"body\":\"\",\"comments\":[{\"path\":\"api.ts\",\"line\":2,\"side\":\"RIGHT\",\"body\":\"Use the shared constant.\"}]}",
+    "preExisting": "{\"event\":\"COMMENT\",\"body\":\"\",\"comments\":[{\"path\":\"api.ts\",\"line\":2,\"side\":\"RIGHT\",\"body\":\"Use the shared constant.\"}]}"
+  },
+  "ref-a4dccef214f9": {
+    "plain": "{\"event\":\"COMMENT\",\"body\":\"Looks right.\",\"comments\":[]}",
+    "preExisting": "{\"event\":\"COMMENT\",\"body\":\"Looks right.\",\"comments\":[]}"
+  }
+}

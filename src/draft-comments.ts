@@ -56,7 +56,7 @@ export async function describeComments(store: AsyncStore, targetKey: string): Pr
   return [
     `${comments.length} draft comment${comments.length === 1 ? "" : "s"}:`,
     ...comments.map((c) => [
-      `${c.file}:${linesOf(c)} ${c.startSide ? `${c.startSide}–` : ""}${c.side} · added by ${c.author === "agent" ? "an agent" : "the reviewer"}${c.severity === "none" ? "" : ` · ${c.severity}`}${c.introduced === false ? " · pre-existing" : ""}${c.stale ? " · drafted against an older diff, so submitting refuses it" : ""}`,
+      `${c.file}:${linesOf(c)} ${c.startSide ? `${c.startSide}–` : ""}${c.side} · added by ${c.author === "agent" ? "an agent" : "the reviewer"}${c.severity === "none" ? "" : ` · ${c.severity}`}${c.introduced === false ? " · pre-existing" : ""}${c.stale ? " · drafted against an older diff, so Submit warns, and moves it into the summary if submitted anyway" : ""}`,
       ...c.body.split("\n").map((line) => `  ${line}`),
     ].join("\n")),
   ].join("\n");
@@ -114,13 +114,14 @@ export async function addComment(store: AsyncStore, targetKey: string, input: Ne
 
 const before = (comment: DraftComment, startCode?: string): PreviousState => ({ body: comment.body, ...(comment.author ? { author: comment.author } : {}), ...(comment.severity ? { severity: comment.severity } : {}), ...(comment.evidence ? { evidence: comment.evidence } : {}), ...(comment.introduced === false ? { introduced: false as const } : {}), ...(comment.chapterId ? { chapterId: comment.chapterId } : {}), ...rangeOf(comment), ...(startCode === undefined ? {} : { startCode }) });
 
-const REVIEWERS = "The reviewer wrote this comment. Suggest the change in chat; they can ask on the comment to have you apply it. Nothing was changed.";
+export const REVIEWERS = "The reviewer wrote this comment. Suggest the change in chat; they can ask on the comment to have you apply it. Nothing was changed.";
 
 /**
  * Replace a comment's text, and with `startLine` its range's first line. Its severity changes with a label or `severity`,
- * how the agent checked it with `evidence`, and whether the PR introduced it with `introduced`. Its last line, author, and the diff it was drafted against stay. An agent's comment changes freely; the reviewer's only in the turn on `threadId` that carries their ask on it.
+ * how the agent checked it with `evidence`, and whether the PR introduced it with `introduced`. Its last line, author, and the diff it was drafted against stay. An agent's comment changes freely; the reviewer's only in the turn on `threadId` that carries their ask on it, or
+ * (`inChat`) in a turn the reviewer asked for it in chat, and it's then marked as the agent's edit.
  */
-export async function editComment(store: AsyncStore, targetKey: string, input: LocationInput & RangeInput & { body: string; code?: string; severity?: Severity | "none"; evidence?: string; introduced?: boolean }, threadId?: string): Promise<DraftResult> {
+export async function editComment(store: AsyncStore, targetKey: string, input: LocationInput & RangeInput & { body: string; code?: string; severity?: Severity | "none"; evidence?: string; introduced?: boolean }, threadId?: string, inChat = false): Promise<DraftResult> {
   return store.exclusive(async (tx) => {
     const refused = unchangeable(await tx.getReview(targetKey));
     if (refused) return { ok: false, error: refused };
@@ -128,7 +129,7 @@ export async function editComment(store: AsyncStore, targetKey: string, input: L
     const comment = (await tx.getDraft(targetKey)).comments.find((c) => sameLocation(c, at));
     if (!comment) return { ok: false, error: `There's no draft comment on ${where(at)}.` };
     const reviewers = comment.author !== "agent";
-    if (reviewers && !await asked(tx, targetKey, at, threadId)) return { ok: false, error: REVIEWERS };
+    if (reviewers && !inChat && !await asked(tx, targetKey, at, threadId)) return { ok: false, error: REVIEWERS };
     const { body, severity } = severityOf(input.body.trim(), input.severity ?? comment.severity);
     // How the agent checked is for its own comments.
     const evidence = reviewers ? undefined : input.evidence?.trim() || comment.evidence;
@@ -146,20 +147,21 @@ export async function editComment(store: AsyncStore, targetKey: string, input: L
     } else if (!await tx.editDraftComment(targetKey, at, body, severity ?? null, evidence ?? null, input.introduced)) return { ok: false, error: `There's no draft comment on ${where(at)}.` };
     // Undo puts old lines back only when this edit set new ones; a re-review may move them on its own.
     await tx.noteDiscussionChange(targetKey, at, "edited", { body: postedBody({ body, severity }), previous: previous && input.startLine !== undefined ? { ...previous, relined: true } : previous });
+    if (reviewers) await tx.trackComments(targetKey, [{ at, editedBy: "agent" }]);
     const lines = where({ ...at, ...range });
     return { ok: true, text: reviewers ? `Updated the reviewer's draft comment on ${lines}, as they asked.` : `Updated the draft comment on ${lines}.` };
   });
 }
 
-/** Delete a comment: an agent's freely, the reviewer's only in the turn on `threadId` that carries their ask on it. */
-export async function deleteComment(store: AsyncStore, targetKey: string, input: LocationInput, threadId?: string): Promise<DraftResult> {
+/** Delete a comment: an agent's freely, the reviewer's only in the turn on `threadId` that carries their ask on it, or (`inChat`) one they asked for it in chat. */
+export async function deleteComment(store: AsyncStore, targetKey: string, input: LocationInput, threadId?: string, inChat = false): Promise<DraftResult> {
   return store.exclusive(async (tx) => {
     const refused = unchangeable(await tx.getReview(targetKey));
     if (refused) return { ok: false, error: refused };
     const at = located(input);
     const comment = (await tx.getDraft(targetKey)).comments.find((c) => sameLocation(c, at));
     if (!comment) return { ok: false, error: `There's no draft comment on ${where(at)}.` };
-    if (comment.author !== "agent" && !await asked(tx, targetKey, at, threadId)) return { ok: false, error: REVIEWERS };
+    if (comment.author !== "agent" && !inChat && !await asked(tx, targetKey, at, threadId)) return { ok: false, error: REVIEWERS };
     if (!await tx.deleteDraftComment(targetKey, at)) return { ok: false, error: `There's no draft comment on ${where(at)}.` };
     await tx.noteDiscussionChange(targetKey, at, "removed", { body: "", previous: before(comment) });
     return { ok: true, text: `Deleted the draft comment on ${where({ ...at, ...rangeOf(comment) })}.` };

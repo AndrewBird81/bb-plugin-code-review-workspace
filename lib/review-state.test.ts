@@ -16,6 +16,8 @@ test("Needs review is in three parts: what came back to you, first reviews, and 
   expect(needsGroup(review("e", turn("own", 1)))).toBe("new");
   expect(needsGroup(review("f", turn("new", 1)))).toBe("new");
   expect(needsGroup(review("g", turn("team-requested", 1)))).toBe("team");
+  // A relayed approval has its own part, first.
+  expect(needsGroup(review("r", turn("ready-to-approve", 1)))).toBe("ready");
   // A failed guide keeps the reason underneath: one you reviewed is back to you.
   expect(needsGroup(review("h", turn("waiting", 1, { failed: true }), { submittedVerdict: "REQUEST_CHANGES", submittedAt: now - DAY }))).toBe("back");
   expect(needsGroup(review("i", turn("requested", 1, { failed: true })))).toBe("new");

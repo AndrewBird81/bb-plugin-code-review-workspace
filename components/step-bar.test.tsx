@@ -90,12 +90,12 @@ async function renderWorkspace(review: Record<string, unknown> = {}, moreThreads
     }] } }),
     getReplyDrafts: () => ({ drafts: [] }),
   } as any });
-  await slot.findByRole("main", { name: "Review" });
+  await slot.findByRole("main", { name: /^Review\b/ });
   return slot;
 }
 type Slot = Awaited<ReturnType<typeof renderWorkspace>>;
 const bar = (slot: Slot) => slot.queryByRole("toolbar", { name: "Step through comments" });
-const chapter = (slot: Slot) => slot.getByRole("group", { name: "Review commands" }).querySelector("[aria-label^='Chapters:']")?.getAttribute("aria-label");
+const chapter = (slot: Slot) => slot.getByRole("group", { name: "Review commands" }).querySelector("[aria-label^='pr-42, Chapters:']")?.getAttribute("aria-label");
 
 test("by touch, a comment tapped in the sheet closes it to show the comment, and the step bar steps through the list from there", async () => {
   phone();
@@ -105,13 +105,13 @@ test("by touch, a comment tapped in the sheet closes it to show the comment, and
   const sheet = within(await slot.findByRole("dialog", { name: "Comments" }));
   fireEvent.click(await sheet.findByRole("button", { name: "Draft · not submitted · src/b.ts:2" }));
   expect(slot.queryByRole("dialog")).toBeNull();
-  await waitFor(() => expect(chapter(slot)).toMatch(/^Chapters: Chapter 2 of 2, Caching/));
+  await waitFor(() => expect(chapter(slot)).toMatch(/^pr-42, Chapters: Chapter 2 of 2, Caching/));
   const steps = within(bar(slot)!);
   // All: Needs you, then not submitted, then on GitHub.
   expect(steps.getByRole("status").textContent).toBe("3 of 4 · All");
   fireEvent.click(steps.getByRole("button", { name: "Next comment" }));
   await waitFor(() => expect(steps.getByRole("status").textContent).toBe("4 of 4 · All"));
-  await waitFor(() => expect(chapter(slot)).toMatch(/^Chapters: Chapter 1 of 2, Parsing/));
+  await waitFor(() => expect(chapter(slot)).toMatch(/^pr-42, Chapters: Chapter 1 of 2, Parsing/));
   fireEvent.click(steps.getByRole("button", { name: "Next comment" }));
   await waitFor(() => expect(steps.getByRole("status").textContent).toBe("1 of 4 · All"));
   fireEvent.click(steps.getByRole("button", { name: "Previous comment" }));
@@ -189,7 +189,7 @@ test("beside a docked panel in under 600px of code on touch, as on an unfolded i
 test("while the step bar shows, the code ends above it, so a chapter's last buttons stay in reach", async () => {
   phone();
   const slot = await renderWorkspace();
-  const code = slot.getByRole("main", { name: "Review" }).querySelector(".overflow-y-auto")!;
+  const code = slot.getByRole("main", { name: /^Review\b/ }).querySelector(".overflow-y-auto")!;
   expect(code.className.split(" ")).toContain("pb-6");
   fireEvent.click(await within(slot.getByRole("group", { name: "Review commands" })).findByRole("button", { name: /^Comments/ }));
   fireEvent.click(await within(await slot.findByRole("dialog", { name: "Comments" })).findByRole("button", { name: "Draft · not submitted · src/a.ts:2" }));
@@ -312,7 +312,7 @@ test("your first scroll of the code puts the pill away", async () => {
   phone();
   const slot = await renderWorkspace(backToYou);
   await slot.findByRole("button", { name: "1 need you" });
-  fireEvent.touchMove(slot.getByRole("main", { name: "Review" }).querySelector(":scope > .overflow-y-auto")!);
+  fireEvent.touchMove(slot.getByRole("main", { name: /^Review\b/ }).querySelector(":scope > .overflow-y-auto")!);
   expect(slot.queryByRole("button", { name: "1 need you" })).toBeNull();
   slot.lifecycle.unmount();
 });

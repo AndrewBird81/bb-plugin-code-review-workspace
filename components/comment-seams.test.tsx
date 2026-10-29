@@ -69,7 +69,7 @@ async function renderWorkspace(review: Record<string, unknown> = {}) {
     getReviewThreads: () => ({ threads: [] }),
     markSeen: () => ({ ok: true }),
   } as any });
-  await slot.findByRole("main", { name: "Review" });
+  await slot.findByRole("main", { name: /^Review\b/ });
   return slot;
 }
 type Slot = Awaited<ReturnType<typeof renderWorkspace>>;

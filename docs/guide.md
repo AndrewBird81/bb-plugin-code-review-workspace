@@ -2,7 +2,7 @@
 
 Everything Code Review Workspace does, in the order you'll meet it. For what it is and how to install it, start with the [README](../README.md).
 
-Two agents work on each review. The **guide writer** is a hidden agent that writes the chaptered guide (**Guide writer agent** in Settings). The **review agent** drafts comments, the summary, and a suggested verdict, and answers you in **Ask agent** (**Review agent** in Settings).
+Two agents work on each review. The **guide writer** is a hidden agent that writes the chaptered guide (**Guide writer agent** in Settings). The **review agent** drafts comments, the summary, and a suggested verdict, answers you in **Ask agent**, and does review work on GitHub when you ask (**Review agent** in Settings).
 
 - [Install and first run](#install-and-first-run)
 - [Updates](#updates)
@@ -31,7 +31,7 @@ bb plugin install git:github.com/AndrewBird81/bb-plugin-code-review-workspace@^1
 2. Sign in on the BB server with `gh auth login --hostname github.com`. Check the account displayed in Code Review Workspace and its access to the repository. No token is pasted into the plugin.
 3. Paste a GitHub PR link into the box on **All reviews** and choose **Review**, or press Enter. Your BB agent writes the chaptered guide using its normal usage allowance. When the guide is ready, the review agent reviews the change, adds draft comments, and writes a review summary with the verdict it suggests. On PRs from outside your repository's members and collaborators, or whose branch is in someone else's fork, agents wait for your click (see [Who agents run for on their own](#who-agents-run-for-on-their-own)).
 4. The review opens on its Overview; **Start reading** takes you through the chapters. Edit or remove the agent's draft comments and summary, or ask it to change them, add your own, or ask the agent about a file or selection.
-5. Open **Finish review**, choose a verdict, and **Submit to GitHub**. Drafting, generating, and the agents never submit a review. Replies and resolve actions on existing GitHub threads are separate, immediate actions.
+5. Open **Finish review**, choose a verdict, and **Submit to GitHub**, or ask the review agent to submit it and click **Post** (see [Posting when you ask](#posting-when-you-ask)). Drafting and generating never submit a review. Replies and resolve actions on existing GitHub threads are separate, immediate actions.
 
 GitHub accounts:
 
@@ -62,9 +62,10 @@ What doesn't carry over: the small state kept outside the plugin's database. An 
 
 ## Local changes and the command line
 
-Run `bb review` in a BB thread. A PR URL, or `owner/repo#n`, works from a thread on any machine; a PR number or a local ref needs a project checkout on the BB server:
+Run `bb review` in a BB thread. With nothing after it, it reviews the folder that thread works in, on any machine. A PR URL, or `owner/repo#n`, works from a thread on any machine; a PR number or a local ref needs a project checkout on the BB server:
 
 ```sh
+bb review                              # this thread's folder: its branch's changes, uncommitted and new files included
 bb review https://github.com/acme/web/pull/42
 bb review acme/web#42                  # the same PR
 bb review 42                           # PR in the current repository
@@ -75,20 +76,36 @@ bb review https://github.com/acme/web/pull/42 --context 'Implements LIN-123: ret
 
 `bb review` must run in a project thread, and a review it starts runs in that thread's project.
 
+### A thread's folder
+
+`bb review` with no PR or ref reviews the folder the thread works in, on whichever machine it's on: everything its branch changed against its base, committed, uncommitted and new files alike. The base is the branch's PR's base once it has one, else the one BB keeps for the folder.
+
+- There's one review per folder and branch, however many threads and subagents work there. Run again, from any of them, it opens the review as it is: nothing is rebuilt.
+- **Review changes**, above a thread's message box in BB, after Changed files, does the same from the thread's page, while the folder has changes or a review. Once it has one, it reads "Review · 2 open", or "Review" with nothing open. A click starts the review the first time, then opens it as it is. **Review changes above a thread's message box** in Settings → Reading hides it. The plugin's own agents' threads don't get it.
+- A thread linked to a review, its main thread, a thread a Send went to, or a thread working in its folder, gets a **Review** tab beside its chat: the review's id and name, **Open review**, its comments, each saying where it stands, and the review agent's chat, or **Ask the review agent** while it has none. The tab reads no git, and stays with Review changes off.
+- The review is addressed to its main thread, the top thread working in that folder, which gets the comments you send. A subagent's call finds the thread that leads the work, even under an orchestrator in another folder; a live thread replaces an archived main thread, but not one BB can't read just then. The command says which.
+- It's named after the main thread, until its branch has a PR. Its id is the repository and branch, `api:snooze-checks`, and it shows the machine and folder.
+- New files that look like secrets (`.env*`, `*.pem`, `*.key`, `credentials*`), binaries and very large diffs stay out of the review and away from agents; a button naming each secret sends it to agents, and **Include** brings binaries in. Committed ones that look like secrets show, flagged, until you choose **Got it**.
+- The notice strip says when the folder changed, "3 files changed since your last update.", with **Update**, which shows the new code with your comments moved to their lines and keeps the guide (unless **Notice when a local review's code changes** is off). After an Update that showed new code, it says "The guide was written before your last Update." (or, after Include, "…before you changed which files are shown.") with **Rewrite guide**, which starts the guide writer; the notice stays until a new guide is accepted, and goes once the folder's removed or the review's archived. It also says when the folder is on another branch, which pauses the review until it's back, with **Open** or **Start a review of** that branch; when its machine is offline, keeping the folder as last read; when BB removed the folder; and which other threads are also editing it.
+- Once its branch has an open PR, the same review becomes the PR's, its diff the PR's at its head and your comments kept. If the PR already has a review, it links to it instead.
+- **Open PR**, in Finish review (or "open a PR" to the review agent), has the agent draft the PR's title and description and show them in the Post form, from the branch into its base, as you; its **Open PR** opens it on GitHub, and the review becomes the PR's: its id changes from `api:snooze-checks` to `api#4512` everywhere, and a notice says so. The branch must be on GitHub first: until it's pushed, Open PR says to use **Push**. A branch with a PR already makes the review that PR's instead; a fork's folder opens its PR on GitHub.
+- When BB removes the folder, a review that became a PR's goes on. A local one goes to Archive, unless comments are open or sent.
+- A review's own agent can't start one, and `--base` goes only with a ref.
+
 ### What each form reviews
 
 - **A single ref**, such as `bb review main`, runs `git diff main`: your working tree against the ref, uncommitted changes to tracked files included.
 - **A range**, such as `origin/main...HEAD` or `a..b`, runs `git diff` on that range, as git reads it: `...` starts at the merge base. It covers committed changes only.
 - **A ref with `--base`**, such as `bb review my-feature --base main`, runs `git diff main...my-feature`: what the branch changed since it left main, committed changes only.
-- **Untracked files are never included.** To review a new file, track it first, for example with `git add -N <file>`.
+- **Untracked files are never included** in a ref's review. To review a new file, track it first, for example with `git add -N <file>`, or review the thread's folder with `bb review` alone.
 - `--base` goes with a single ref: `bb review` refuses it beside a range.
 
-The checkout for a local review must exist on the BB server. A checkout only present on another enrolled machine is not supported by this release. Local reviews do not offer GitHub submission.
+A local ref's checkout must exist on the BB server; for a folder on another machine, run `bb review` with no ref in its thread. Local reviews do not offer GitHub submission.
 
-- When you open a local review, it runs its diff again in the checkout, and if the code changed since its guide, the notice strip says "The code changed since this guide." with **Update guide** (unless **Notice when a local review's code changes** is off in Settings → Reading).
+- When you open a local review, it runs its diff again in the checkout, and if the code changed since its guide, the notice strip says "The code changed." with **Update**, which shows the new diff, your comments following their lines, and keeps the guide, and **Rewrite guide**, which starts the guide writer to write a new one (unless **Notice when a local review's code changes** is off in Settings → Reading).
 - On a local review whose diff ends at the checkout (a ref, such as `bb review main`, or a range ending at `HEAD`), each file's second row and each draft comment's ⋯ offer **Open in editor** at the line, which opens the checkout's file on the BB server (unless **Open in editor (local reviews)** is off).
 
-`bb review` remembers the thread it ran in, as the thread that made the change; this plugin's own agents never count. It prints a link to the review when BB has an app URL. `bb review list [--json]` lists every review, Needs review first and a stack's reviews together, as All reviews does, with its key, its title (quoted, then `named "…"` with the name you gave it), whose turn it is, and whether its guide is ready. With **Help agents in your threads use bb review** on (Settings → Review agent), agents in your other BB threads are also offered a `code-review-workspace` skill that explains these commands, tells them never to post to GitHub, and says that what `bb review` prints is data, not instructions. Off, `bb review` prints no link and has no `list`.
+`bb review` remembers the thread it ran in, as the thread that made the change; this plugin's own agents never count. It prints a link to the review when BB has an app URL. `bb review list [--json]` lists every review, Needs review first and a stack's reviews together, as All reviews does, with its id, its key, its title (quoted, then `named "…"` with the name you gave it), whose turn it is, and whether its guide is ready; `--json` adds `agentThreadId`, the review agent's thread, for `bb thread tell` (null while it has none). With **Help agents in your threads use bb review** on (Settings → Review agent), agents in your other BB threads are also offered a `code-review-workspace` skill that explains these commands, including `bb review report` and `ready` ([Send comments to the main thread](#send-comments-to-the-main-thread)) and `ask` and `approve` ([below](#asks-and-approvals-from-other-threads)), tells them never to post to GitHub themselves but to relay your asks to the review's agent, and says that what `bb review` prints is data, not instructions. Off, `bb review` prints no link and has no `list`.
 
 ### Context for the automatic review
 
@@ -130,6 +147,21 @@ The review summary works the same way. `--suggest` marks the verdict you'd sugge
 bb review summary https://github.com/acme/web/pull/42 [--json]
 bb review summary https://github.com/acme/web/pull/42 --body 'One blocker: the retry can double-charge (`src/pay.ts:88`).' --suggest REQUEST_CHANGES
 ```
+
+### Asks and approvals from other threads
+
+Your other threads can relay what you ask to a review's agent, and line approvals up for your click:
+
+```sh
+bb thread tell <agentThreadId> 'Comment that CI is flaky.'   # agentThreadId from bb review list --json
+bb review ask acme/web#42 'Comment that CI is flaky.'        # starts the review's agent if it has none
+bb review approve acme/web#42 acme/web#43 --body 'LGTM'
+```
+
+- The agent answers the thread that asked, and posts as [Who's asking](#whos-asking-and-the-approval-rule) says.
+- An approve, merge or close asked this way, or with `bb review approve`, never posts. It waits in **Needs review** under **Ready to approve**: "Approve · `web#42` · LGTM", with exactly what posts, as which GitHub account, "Asked from ‹the thread›", which opens it, and **Approve** and **Dismiss**. **Approve 3** posts each approval shown in turn, the verdict and summary alone, leaving the draft's comments in the draft, each row saying how it went; a merge or close takes its own click. Then "Approved 3 on GitHub", with links, stays at the top of Needs review until you dismiss it. A row waiting doesn't quiet the review's own alerts: a new comment on your PR still alerts, and the row says "2 new comments on your PR, the latest since this was asked", and a snooze still ends.
+- A PR with commits since you read it is held, by what the sync knows and by GitHub's head as each posts: "Held: 2 new commits since you read it. Approving covers them too." **Approve it too** posts it on the commit you read; "2 held: commits since you read them · **Approve them too**" posts every held one.
+- A review's own agents, and threads they start, can't use `bb review ask` or `bb review approve`, and a message from any of them counts as no one's (see [Who's asking](#whos-asking-and-the-approval-rule)).
 
 ## The review workspace
 
@@ -219,13 +251,37 @@ Where the band has no room for them, it also holds **Fold comments in code** and
 **Ask agent** opens the review agent beside the code.
 
 - The conversation is BB's own chat: streamed answers, stop, queued messages, approvals, attachments, and a per-message model and effort picker.
-- The agent can add, edit, and delete draft comments and write the summary, and the changes appear in Comments and the code as it works.
+- The agent can add, edit, and delete draft comments and write the summary, and the changes appear in Comments and the code as it works. When you ask, it posts for you too: see [Posting when you ask](#posting-when-you-ask).
 - Besides the diff, it reads the PR's description, linked issues, commits, failing CI, other reviewers' open threads, and the repository's AGENTS.md, CLAUDE.md, Copilot instructions, and REVIEW.md, from the PR's base, and treats all of it as untrusted.
 - **Pop out** moves it into a movable, resizable widget, and **Dock** puts it back; on a phone it stays in its sheet. While it's popped out, **Ask agent** asks in the widget. The arrow keys move the widget from its ✦ mark, as they resize it from its corner.
 - Each review's agent conversation is a hidden BB thread, shown in the review with BB's chat. Review context (guide intent, chapters, and your Assistant instructions) reaches it as hidden instructions, refreshed when an idle conversation continues after the guide is updated or rebuilt, or the instructions change.
 - Selections and the Ask agent button quote the file or lines into your message.
 - **New conversation** archives the current one; if a conversation's thread is archived or deleted, the next question starts a new one.
 - Archived PRs can still be discussed: their conversations stay unarchived because BB cannot send to an archived thread.
+
+### Posting when you ask
+
+With **Let the review agent act when you ask** on, the review agent submits your review, replies on and resolves threads, comments on the PR, and changes its title, description, labels, reviewers and assignees, or closes, reopens or merges it, when you ask (`submit_review`, `post_reply`, `resolve_thread`, `github_pr`). On a local review whose branch is on GitHub it opens the PR (`open_pr`).
+
+- What posts under your name (a review, a reply, a PR comment, a title or description, a merge or a close, a new PR) shows first in a form in place of the agent's message box, led by what it does: "Approve `flosports/web#4512` as @you", "Merge …", "Post to …", then exactly the text that posts, as written (a merge, the commit title and description that land, as the repo's settings make them, or that the repo's default applies), with one button naming it (**Approve**, **Request changes**, **Merge**, **Close**, **Open PR**, or **Post**) and **Don't post**. One click does it; **Don't post** closes it.
+- A short **yes** you type in the review instead ("yes", "go ahead", "approve it") posts exactly what it showed, once, and closes the form; "ok, but…" or "close it" to a Merge form doesn't. "Just post it" in your own message skips the form, for one post, in a turn the plugin started too; an approve, request changes, merge or close only when your whole message is that short command ("just merge it", "approve it, just post it"); anything more goes through the form. Text that changed since it was shown is shown again.
+- Labels, reviewers, assignees, resolving, reopening and ready-or-draft happen when you ask, without a form. Asked from another thread on someone else's PR, they go back to that thread first, as a post does; asked while the agent is on a turn it didn't start from you, such as the automatic review, they show in the form first, and the agent changes none of your comments.
+- New commits since you reviewed, a changed base and similar warnings come back to you first, in a line; the agent posts past one only if you say so, and the form shows it. A merge happens only at the commit you reviewed: with commits since, Update the review first.
+- A risky ask gets one pushback and a better route, then happens your way: a merge while checks run offers to merge once they pass; a force-push, to send it to the main thread instead; merging a teammate's PR, or changing its labels, title or description, to suggest it in a comment. Where your GitHub role doesn't allow something, it says so and offers a reply instead.
+- Whose ask it is decides what happens: see [Who's asking](#whos-asking-and-the-approval-rule).
+- Every post goes through the server's paced line of writes to GitHub and onto **Agent activity** in Finish review: "Posted reply on src/a.ts:12 · 2m ago", with a link, and the thread a relayed ask came from.
+
+### Who's asking, and the approval rule
+
+**What you type in a review counts as yours. Asks relayed from your other threads count too, for replies, comments, Comment and Request changes reviews, and your PR's title, description, labels, reviewers and assignees. Approve, merge and close need your own message or click in that review.**
+
+Each of the review agent's turns is yours, relayed, or no one's:
+
+- **Yours:** what you type to the review agent, and what a click of yours writes to it, such as Ask agent on a line, Dig deeper, **Check fixes**, **Check now** or **Open PR**. The agent posts after the Post form, or your yes, as above.
+- **Relayed:** a message from another of your BB threads, with `bb thread tell <agentThreadId>`, `bb review ask` or `bb review approve`. A reply, a comment, a Comment or Request changes review, or your PR's title or description goes back to that thread first, exactly as it would post, with no form; that thread's short yes, your own yes in the review, or "just post it" in the ask posts it. An approve, merge or close waits in Needs review as [Ready to approve](#asks-and-approvals-from-other-threads) for your click.
+- **No one's:** turns the plugin starts on its own (the automatic review, new-commit checks, and the fix and feedback checks it runs itself; a click on **Run review** counts as one), turns bb starts on its own, such as a child thread's outcome arriving, a message from one of the review's own agents or a thread they started, an agent's message that names no thread, and any turn the plugin can't place. They only draft: the agent's verdict is marked as its suggestion, never picked for you, and nothing is posted, sent, or changed in your comments. A message you type into one while it runs is yours, but a change without text it asks for, such as a label, shows in the form first.
+- Only your own words count: in a message the plugin writes on your click, such as Dig deeper's, the PR's words (a chapter's title, a file's path) never count as your "yes" or "just post it". A message that carries any text the plugin put in it, such as a quoted selection, file or failing check in the agent's box or a comment box it filled, confirms nothing: use the Post form, or say yes in a message of your own.
+- How it tells: the plugin marks each message it sends the agent with a part only the agent sees, and reads bb's own record of who started each turn and which thread relayed a message. A thread's id comes from whoever sends the message, so this tells your threads from your typing, not you from someone else with a shell on your machine (see [What the agents can and can't do](#what-the-agents-can-and-cant-do)).
 
 ### Guides that stop or fail
 
@@ -235,12 +291,12 @@ Where the band has no room for them, it also holds **Fold comments in code** and
 
 ### Notices and Review actions
 
-- One notice strip under the band says what to know: "New commits since this guide was written." with **Update guide** (or, when a stacked PR is retargeted, "The PR's base changed from parent to main since this guide was written."), "The code changed since this guide." on a local review, a guide update that failed and why, or one waiting for its writer's machine to reconnect, what didn't run on its own and why, a GitHub account that GitHub refuses for the repository (not when GitHub just can't be reached), or "Reconnecting…" while the connection to BB is down; the review reloads once it's back. While a guide updates, its notice offers **Stop**, which keeps the guide you had. **+N** shows the rest.
-- **Review actions** (⋯) lists, in the same order everywhere: **Update guide** or **Rebuild guide**, **Snooze**, **Pin**, **Rename…**, **Archive**, **Open on GitHub**, **Keyboard shortcuts** (not on a phone), **Review settings…**, and **Delete…**.
+- One notice strip under the band says what to know: "New commits since this guide was written." with **Update guide** (or, when a stacked PR is retargeted, "The PR's base changed from parent to main since this guide was written."), "The code changed." on a local review, with **Update** and **Rewrite guide**, a folder's changes, branch, machine and other threads on a folder's review, a guide update that failed and why, or one waiting for its writer's machine to reconnect, what didn't run on its own and why, a GitHub account that GitHub refuses for the repository (not when GitHub just can't be reached), or "Reconnecting…" while the connection to BB is down; the review reloads once it's back. While a guide updates, its notice offers **Stop**, which keeps the guide you had. **+N** shows the rest.
+- **Review actions** (⋯) lists, in the same order everywhere: **Update guide** or **Rebuild guide** (on a PR), **Snooze**, **Pin**, **Rename…**, **Rewrite guide** (on a local review), **Archive**, **Open on GitHub**, **Keyboard shortcuts** (not on a phone), **Review settings…**, and **Delete…**.
 
 ### When the PR changes
 
-A review is pinned to the PR snapshot it was generated from. If the PR gets new commits, or a new base, as when a stacked PR is retargeted after its parent merges, choose **Update guide** before submitting: Submit refuses a review of an older commit or base, and keeps your draft.
+A review is pinned to the PR snapshot it was generated from. If the PR gets new commits, or a new base, as when a stacked PR is retargeted after its parent merges, choose **Update guide** before submitting. Submit warns first, keeping your draft: **Submit anyway** posts on the commit you reviewed, and an approval says how many commits it covers that you haven't seen.
 
 - Unsent draft comments follow their lines into the new diff, with their discussions with the agent: a comment follows its exact code, indentation included, to the nearest line holding it, and re-indented code only when the exact code is gone.
 - A comment whose line is gone, or on code as common as `}` whose neighbouring lines changed, is marked **Older diff**: edit and save it, remove it, or **Move to summary**, which adds it to your summary as a line ("On `src/api.ts:57` (an earlier diff): …") and removes the comment, with no Undo, before submitting.
@@ -302,7 +358,7 @@ Give them keys of your own where BB lets you. The commands need a BB that suppor
 
 - Every control is a 44px target on a touch screen, iPads included. The gutter's **+** shows only with a mouse or trackpad; on touch, tap a line, then another for a range.
 - On an iPad, the layout is the desktop's at touch sizes, and a docked panel that no longer fits after a resize hides, and docks again when there's room.
-- On a phone there's no band: a dock at the bottom holds **‹** (All reviews), the chapter you're on, **Comments**, **Ask agent**, and **Full screen**, and they open one sheet above it. Menus open as drawers from the bottom.
+- On a phone there's no band: a dock at the bottom holds **‹** (All reviews), the chapter you're on, **Comments**, **Ask agent**, **Main thread** while the review has one, and **Full screen**, and they open one sheet above it. Menus open as drawers from the bottom.
 
 Every layout detail, held either way and on foldables such as the iPhone Duo, is in [docs/devices.md](devices.md).
 
@@ -312,9 +368,9 @@ Every layout detail, held either way and on foldables such as the iPhone Duo, is
 
 **All reviews** has four sections, in the order you'll work them. Needs review starts open and the others closed; each remembers what you chose, in this browser.
 
-- **Needs review**: it's your turn. Reviews that came back to you (**Back to you**), new reviews and requests for your review (**New**), and **Team requests**, each longest-waiting first. **Blocks merge** marks a changes-requested review that's the only thing left, since everyone else approved; it comes first. Your own PRs show here as **Your PR** until you've reviewed them, then in Reviewed; they never wait on an author or alert.
+- **Needs review**: it's your turn. Approvals, merges and closes your other threads asked for (**Ready to approve**, see [Asks and approvals from other threads](#asks-and-approvals-from-other-threads)), reviews that came back to you (**Back to you**), new reviews and requests for your review (**New**), and **Team requests**, each longest-waiting first. **Blocks merge** marks a changes-requested review that's the only thing left, since everyone else approved; it comes first. Your own PR comes back to you as **Your PR · 3 new comments in 2 threads** when someone's comment waits for your reply, with an alert; a bot's comment never brings it back. One you started a review of shows here as **Your PR** until you've reviewed it; otherwise your PRs wait in Reviewed, never on an author.
 - **Waiting on author**: you requested changes, or commented with threads still open, and the author hasn't said they're done. Rows show progress (`2/5 addressed`, `+1 nit`), new commits, CI, outdated threads, and how long the author has been quiet. Snoozed reviews wait here too.
-- **Reviewed**: you approved, or commented with every thread resolved or answered. A push after your approval adds “updated” but doesn't bring it back.
+- **Reviewed**: you approved, or commented with every thread resolved or answered. A push after your approval adds “updated” but doesn't bring it back. Your own PRs with nothing waiting for your reply wait here too.
 - **Archive**: merged, closed, or archived by you; a PR found on GitHub that no longer requests you (**No longer requested**); and one GitHub hasn't found for 7 days (**Can't read on GitHub**).
 
 Rows and the box:
@@ -367,9 +423,18 @@ Code Review Workspace alerts only about what happens after it starts following a
 - **Back to Needs review** ends a snooze.
 - Snooze, Pin, Rename, and Archive can be undone from their toast.
 
+### Which review you're in
+
+- Every review goes by a short id: the repository's name and the PR's number, `api#4512`, or for local work the repository and branch, `api:feat/snooze-checks` (a bb branch reads as its slug: `bb/snooze-checks-thr_…` is `snooze-checks`). Where two repositories in your list share a name, the id names the owner, `flosports/api#4512`; where two local reviews of one branch are in different folders, it adds the end of the folder's path that tells them apart, `api:HEAD (thr_a-1/api)` for bb's worktrees; and where they're in one folder, as `main...feat` and `feat`, it says each ref as given.
+- BB's title bar, after the panel's name, and the window's title lead with it, then the review's name: `api#4512 › Fix login race` in the bar, `api#4512 · Fix login race` as the window's title. Each pane's bar names its own review, so two reviews in split panes, or two windows, read apart, and a long name is cut before the id is. In a window under 720px the bar shows them as one title, cut at its end.
+- A folder's review goes by its main thread's title, frozen when the review starts, then by its PR's once it has one. A local ref's review with no name of yours goes by its guide's title. Either goes by your name once you [rename](#rename) it.
+- The band keeps the id in a chip after ‹ on every page of the review. The name follows it in a chapter only where BB's title bar doesn't show it, in full screen or on a BB without page titles, and where the band has room. Short of room, the repository's name is cut first, and `#4512` never; hovering the chip shows the whole id, with the repository in full, and the name. On a phone, the dock's chapter tab has the id over the chapter.
+- The page bar of a review without a guide yet, the popped-out review agent, a PR's row in BB's thread list (its `#n`), Needs You alerts, review agent and **Fix in a new thread** threads, and what Send sends all name the review by its id. A local review's row in All reviews says its id and machine, `api:feat/x · MaxBook`, and its Overview the machine and folder of its checkout.
+
 ### Rename
 
-- **Rename…** in a review's **Review actions** menu (⋯) gives it a name of your own. All reviews, BB's thread list, the review's band, Needs You alerts, and the title of a **Fix in a new thread** thread use it in place of the PR's title. It stays in BB: the PR keeps its title on GitHub, and the agents read that one.
+- **Rename…** in a review's **Review actions** menu (⋯), the pencil beside the Overview's title, or `bb review <target> --name "…"` gives it a name of your own. All reviews, BB's thread list, the review's band and title, Needs You alerts, and the title of a **Fix in a new thread** thread use it in place of the PR's title.
+- The pencil shows on hover or focus with a mouse, and always on a touch screen. It turns the title into a box: Enter, or leaving the box, saves the name, and Esc leaves it as it was. A review's own agent can't rename it. It stays in BB: the PR keeps its title on GitHub, and the agents read that one.
 - The PR's title is under your name on the review's Overview, shows when you hover its row in All reviews or BB's thread list, and is in the Rename dialog with **Use PR title**. The find box matches either.
 - Your name stays when the author retitles the PR or pushes, and when the guide is rebuilt. **Use PR title**, or an empty name, puts the PR's title back, and Delete forgets it. A local review's name stands in for its ref the same way, with **Use ref**.
 
@@ -392,7 +457,7 @@ Comments shows all of it:
 - Your feedback's progress on the Overview opens it.
 - If you'd already written your own summary, the suggestion waits in **Finish review**: **Use as draft** puts it and its verdict in your draft. **Request what's left** drafts a Request changes listing what's still open.
 
-Nothing posts to GitHub until you choose Send reply, Resolve, or Submit. **Get a review ready before alerting you**, on by default, holds the alert for this, at most 10 minutes; off, the alert comes at once, and **Update guide** and **Check again** are a click away. Change the check's instructions with **Re-review check** in settings, or turn it off with **Run the re-review check**, which keeps them.
+Nothing posts to GitHub until you choose Send reply, Resolve, or Submit, or ask the review agent to post and confirm it. **Get a review ready before alerting you**, on by default, holds the alert for this, at most 10 minutes; off, the alert comes at once, and **Update guide** and **Check again** are a click away. Change the check's instructions with **Re-review check** in settings, or turn it off with **Run the re-review check**, which keeps them.
 
 ### Since your review
 
@@ -400,12 +465,13 @@ On a re-review, the diff opens on what changed since your review, however you ge
 
 - A switch in each chapter's intro flips between the two in one tap, on every device, and says how many of the chapter's files changed: "Since your review · 1 of 3 files | All changes". A chapter with nothing new says "Nothing changed in this chapter since your review".
 - **Since your review** shows only what changed since the commit you last reviewed, with new lines marked. It compares the PR's diff then with its diff now, so rebases and merges from the base branch don't show up as changes, and a diff that didn't change, as after a rebase, opens on all of it. Viewed marks survive a rebase, and chapters show how many of their files changed.
-- The compare select in the band says what the diff shows too: **All changes**, **Since your review**, or since a commit. Its menu lists your last review, then the PR's earlier commits: pick one to see what changed since it ("Since abc1234"). On a PR you haven't reviewed, **Compare with a commit…** in Diff options does the same. Where the band has no room for the select, Diff options holds the comparison. A comparison that fails says why.
+- The compare select in the band says what the diff shows too: **All changes**, **Since your review**, or since a commit. Its menu lists your last review, then the PR's earlier commits: pick one to see what changed since it ("Since abc1234"). On a PR you haven't reviewed, **Compare with a commit…** in Diff options does the same. Once you've sent comments to the main thread, the menu also lists **Since your last Send**, with the Send's number and when it went: what changed since the diff that Send went at, on a local review too. A newer Send lets that choice go, as a new push does. Where the band has no room for the select, Diff options holds the comparison. A comparison that fails says why, and the diff shows all changes.
 - What you choose holds for that review in this browser, a picked commit too, until the author pushes and its guide updates; then it opens on your Settings choice again. Opening a file or a line the comparison hides, from the chapters, a comment, or a Find result, shows all changes, and that holds too.
 
 ### Reviews found on GitHub
 
 - With **Track reviews from GitHub** on (the default), PRs where your review is requested, and open PRs you've reviewed that changed in the last 60 days (unless **Include PRs you've reviewed** is off), join the list without a guide; build one with **Build the guide** on its page or in its menu.
+- So do your own open PRs (unless **Include your own PRs** is off), with everyone's comments. Your PR of a branch you're reviewing locally doesn't join as another review: that local review becomes the PR's, or links to the PR's review if it already has one. No agent starts on them on its own.
 - Requests to a team you're on join only with **Include team requests** (off by default): teams can be asked for many reviews.
 - Turning on either switch fills the list with what it finds already there, without starting guides or alerting.
 - List patterns under **Start guides automatically** (`acme/*`, `acme/api`, or `*`, up to 50 lines) to have the guide ready by the time a request alerts you.
@@ -440,8 +506,9 @@ Needs You is optional. If it is disabled, missing, or restarting, Code Review Wo
 
 **Comments** (`c`, or **Comments** in BB's title bar) lists everything said about the change, beside the code, never instead of it: your draft comments and the agent's, everyone's GitHub threads, and your discussions with the agent.
 
-- Its chips, **All**, **Needs you**, **Not submitted**, and **On GitHub**, show a count each and filter the list; on a touch screen they wrap to a second row where they don't fit.
-- The list is grouped in that order: **Needs you** (a question for you, an author's reply, a thread the agent's check says isn't addressed, an agent reply draft, a comment on an older diff), **Not submitted · only in BB** (counted by severity, "1 blocking · 2 nits"), **On GitHub** (yours first, "Yours: 2 of 2 handled +1 nit", then other people's; resolved and outdated threads folded), and **Private · with the agent**, in reading order within each.
+- Its chips, **All**, **Needs you**, **Not submitted**, and **On GitHub**, show a count each and filter the list; on a touch screen they wrap to a second row where they don't fit. **Not submitted** counts what Submit posts.
+- Once you've sent a comment to the main thread, chips for where the fixes stand follow, on a local review too: **Open**, **Sent** (not reported yet), **Done** and **Declined** (as reported, or as the check found), **Resolved**, and **Dismissed**; then only chips that count any show, and they wrap. On your own PR, teammates' threads and reviews you sent are under Sent, Done and Declined too.
+- The list is grouped in that order: **Needs you** (a question for you, an author's reply, a thread the agent's check says isn't addressed, an agent reply draft, a comment on an older diff, and a comment you sent that the thread declined or the check found not or partly addressed), **Not submitted · only in BB** (**Comments** on a local review) (counted by severity, "1 blocking · 2 nits"), on a PR **Sent to fix · won't post** (comments a Send took from your own change, and any you resolved or dismissed, "1 sent · 2 done · 1 resolved"), **On GitHub** (yours first, "Yours: 2 of 2 handled +1 nit", then other people's; resolved and outdated threads folded), and **Private · with the agent**, in reading order within each.
 - Choosing a row shows its comment in the code, switching chapter and unfolding it if needed; its ⌄ opens the whole card in place, which is how file comments, outdated threads, and asks from your review summary read.
 - ↻ reads GitHub again. ⋯ **Comment options** holds **Hide nits** (remembered in this browser, in the code too), **Remove nits**, **Show resolved threads**, **Add comment by line…**, and **Open PR on GitHub**.
 - While you write a comment in the code, the list says where, with **Show in diff**.
@@ -452,9 +519,11 @@ Needs You is optional. If it is disabled, missing, or restarting, Code Review Wo
 Every comment is the same card in Comments and in the code, and says where it lives, in words as well as looks.
 
 - Anything only in BB is dashed and says so: "Draft · not submitted", "Agent draft · not submitted" for one an agent wrote, until you edit it, and "Older diff · not submitted".
-- A GitHub thread is solid, headed **On GitHub**, with who wrote each comment and when, who resolved it, and its state: "Waiting on author", "Author replied", "Question for you", "Resolved", "Outdated", or "File comment".
+- A GitHub thread is solid, headed **On GitHub**, with who wrote each comment and when, who resolved it, and its state: "Waiting on author", "Author replied", "Question for you", "Resolved", "Outdated", or "File comment". On your own PR, a thread whose latest comment isn't yours or a bot's reads "Needs your reply to @sam", naming whose comment waits, with whose thread it is beside the comment, and is in Needs you; the Overview's "3 new comments" opens them; your reply, or a resolve, settles it. Others' review summaries and comments on the PR show the same way, "Requested changes" or "Comment on the PR" beside them; your next comment on the PR settles them (see [Feedback on your own PR](#feedback-on-your-own-pr)). Threads only bots wrote in fold with the resolved ones, as "2 from bots".
 - A discussion with the agent is muted, with a lock: "Private · with the agent".
 - An agent's draft can fold **How the agent checked** under its words: what it read or ran to confirm the problem, with file:line. That stays in BB; submitting never sends it.
+- A comment you sent to the main thread says where its fix stands, one status a card: Sent, **Done** or **Declined** with the thread's note, "Looks done · not reported", **Resolved** or **Dismissed**, each with its icon. Under its words: which thread said so, "Reported by the main thread", another thread by its title, which opens it, "Reported from the command line", or "Found by the review agent's check", and the commit it named; then what the review agent's check found against that comment's Send, its badge and one line. A note's `code` shows as code, on the card, its folded pill and its row in the list; nothing else of Markdown does.
+- A sent comment's card leads its actions with **Resolve** (fixed), then **Reopen**, to send it again, once the thread reported on it or the check found it not or partly addressed, then **Dismiss** (won't be fixed), until it's reported done. A resolved or dismissed one offers **Reopen**. Only your click does any of them: no agent, command or report resolves a comment. Right after Resolve or Dismiss, its status reads "Resolved · **Undo**" for about 10 seconds, or until you leave the card; Undo puts it back as sent, with its report, or open if it was edited since, and doesn't send it again. A resolved or dismissed comment never goes with a Send, and keeps its id and what was reported; reopened, it goes with the next Send. **Remove** and **Undo** put a sent comment back with its id and where it stood. Only an open comment offers **Mark as pre-existing**.
 - Images in other people's comments and the agents' words show as links ("Image: alt"), HTML comments stay hidden as on GitHub, and HTML tags other than a few that only format show as text; in code it can't be sure is code, a `<` shows as `&lt;` (see [Untrusted text](#untrusted-text)).
 - `]` and `[` step through the list's current chip, across chapters; with Comments closed, a hint says where you are ("2 of 5 · Not submitted"), and on touch, after you open a comment from the list, a step bar does.
 
@@ -472,7 +541,7 @@ Every comment is the same card in Comments and in the code, and says where it li
 
 - Each line comment can have a severity: **Blocking**, **Should fix**, **Question**, or **Nit**. Set it in the comment box, or start the comment with its label, such as `**Blocking:**`; the card shows it, and GitHub gets the label in front of the comment.
 - Removing a comment shows a toast with **Undo**, which puts it back on the diff it was removed from; after a guide update, it says why it can't.
-- Changes from the review agent or `bb review comment` appear in Comments and the code as they happen. Agents can also edit and delete comments, and are told to change yours only when you ask. Nothing they do posts to GitHub.
+- Changes from the review agent or `bb review comment` appear in Comments and the code as they happen. Agents can also edit and delete comments, and change yours only when you ask, on the comment or, with **Let the review agent act when you ask** on, in chat. Nothing in the draft posts until you submit.
 - With **Keep pre-existing problems apart** on, the agent marks a problem in code the PR didn't change, and its card says **Pre-existing**, beside the severity. **Mark as pre-existing** and **Mark as from this PR** in a draft's card change it. A pre-existing comment doesn't count as blocking against Approve, Not submitted counts it apart ("· 1 pre-existing"), and it posts with "**Pre-existing:**" in front, as it does when you move it to the summary or send it to a coding thread.
 
 ### Discussions with the agent
@@ -494,22 +563,71 @@ What you write in a reply, on anyone's GitHub thread, waits as a reply draft ("R
 
 - **Summary · posted with your verdict:** the comment GitHub shows with your verdict, above the line comments. It works like a line comment. The review agent writes it, labeled "Agent summary · not submitted", and suggests a verdict; only you pick the verdict. **Edit** makes the summary yours, and **Remove** clears it. **Ask agent** opens a discussion with the agent under the summary: ask why, or say what to change, and the agent changes the summary there. **Undo** puts back its latest change. The agent never replaces a summary you wrote unless you ask on it, and then only while it answers that ask, not in work it was already doing. While it works on the summary, Edit waits; if the summary changes while you're editing it, the box says so before you save. When a summary the agent wrote no longer fits your comments, or the verdict you picked, it says so, with **Update**. With no summary, **Write summary** or **Ask agent to write it**. Since Move to summary can put an agent's words in it, the card shows any summary's images as links, yours too; GitHub gets it as written.
 - **Verdict:** Approve, Comment, or Request changes, the agent's suggestion marked with a sparkle. "Agent suggests …" shows its suggested summary, or its check's, with **Use as draft**, **Request what's left**, and, when you picked another verdict, **Switch to** it. Beside it, Finish review says how many of the changed files the agent read as the change leaves them ("Read 6 of 8 files", lockfiles and generated files aside) and folds **What it didn't check**, as the agent wrote it (unless **Show what the agent checked** is off). On your own PR only Comment is offered, as GitHub refuses the others.
-- **Goes to GitHub:** the comments and their severities, and anything to settle first, each with its fix: comments on an older diff (Submit waits until you edit and save them, remove them, or **Move to summary**), a Request changes without a summary (it waits for one), a verdict other than the agent's, or an approval with blocking comments. While you approve, it also flags files in high-risk chapters you haven't viewed ("2 files in high-risk chapters not viewed", with **Show**), and each medium- or high-risk chapter of 50 lines or more marked viewed faster than anyone reads ("Chapter 2 (high risk): 1,200 lines marked viewed in 3 min", past 500 lines an hour); lockfiles and generated files don't count. **Check before you approve** in Settings turns these off, and sets the pace. When the agent suggests Approve but didn't read every changed file, a row says so ("The agent suggests Approve but read 6 of 8 files", with **Show**). Pre-existing comments are counted apart. Reply drafts are listed too: they post on their own, with Send reply.
+- **Goes to GitHub:** the comments and their severities, and anything to settle first, each with its fix: comments on an older diff (edit or remove them, or **Move to summary**; Submit warns, and **Submit anyway** moves them into the summary), a Request changes without a summary (it waits for one), a verdict other than the agent's, or an approval with blocking comments. While you approve, it also flags files in high-risk chapters you haven't viewed ("2 files in high-risk chapters not viewed", with **Show**), and each medium- or high-risk chapter of 50 lines or more marked viewed faster than anyone reads ("Chapter 2 (high risk): 1,200 lines marked viewed in 3 min", past 500 lines an hour); lockfiles and generated files don't count. **Check before you approve** in Settings turns these off, and sets the pace. When the agent suggests Approve but didn't read every changed file, a row says so ("The agent suggests Approve but read 6 of 8 files", with **Show**). Pre-existing comments are counted apart. Reply drafts are listed too: they post on their own, with Send reply.
 - **Stays in BB:** **Private notes**, only if you have some (see [Upgrading from older versions](#upgrading-from-older-versions)).
-- **Submit to GitHub**, with your verdict on it ("Submit to GitHub · Approve · 1 blocking"), pinned at the foot, with where it posts and as whom. It asks once more (**Submit anyway**) when the verdict isn't the one the agent suggested, the agent's summary is out of date, or you approve with blocking comments, high-risk files not viewed, chapters read faster than your set pace, or files the agent didn't read; otherwise it's one click. It reads **Submitting…** while it posts, and waits while you're writing a comment or the summary. Submit refuses a draft whose comments, summary, or verdict changed since the page last showed them, or a page that doesn't send them. If GitHub's answer is lost or doesn't come within 5 minutes, Submit looks on GitHub for the review it just posted and finishes with it, rather than post it twice; if it can't check, it says to look at the PR before submitting again. If you started a pending review on github.com, Submit says to submit or discard it there, then submit again.
+- **Submit to GitHub**, with your verdict on it ("Submit to GitHub · Approve · 1 blocking"), pinned at the foot, with where it posts and as whom. It asks once more (**Submit anyway**) when the verdict isn't the one the agent suggested, the agent's summary is out of date, or you approve with blocking comments, high-risk files not viewed, chapters read faster than your set pace, or files the agent didn't read; otherwise it's one click. It reads **Submitting…** while it posts, and waits while you're writing a comment or the summary. Submit refuses a draft whose comments, summary, or verdict changed since the page last showed them, or a page that doesn't send them, and one with comments you sent to the main thread when it can't tell whether the PR is yours ("Couldn't tell whether this PR is yours, so nothing posted. Try again in a moment."), since that decides which of them post. Just before it posts, it checks again: a Resolve, Reopen or Send meanwhile gives "Draft changed · review it, then submit again.", and while a Send of the review's comments is going out, it says to submit again in a moment. If GitHub's answer is lost or doesn't come within 5 minutes, Submit looks on GitHub for the review it just posted and finishes with it, rather than post it twice; if it can't check, it says to look at the PR before submitting again. If you started a pending review on github.com, Submit says to submit or discard it there, with **Open it on GitHub**, then submit again. On your own PR, where GitHub takes only a Comment review, it offers **Submit as Comment**. Submit warns, with **Submit anyway**, on new commits or a new base since you reviewed, comments GitHub can't place (Submit anyway moves them into the summary), a closed or merged PR, or a guide still rebuilding; what GitHub refuses, such as Request changes without a summary, still stops it.
 
 After you submit, the panel reads **Review submitted**: the verdict, where it posted and as whom, **View on GitHub**, **Add another review**, and the next review in Needs review, with **Open**. A merged or closed PR's Comments ends with "Merged · Archived" and **Open**: its **Archived review**, with the unsubmitted draft and notes to read.
 
-### Hand comments to a coding thread
+### Send comments to the main thread
 
-These appear in Finish review on your own PR or a local review.
+A review started with `bb review` in a thread has a main thread: the top thread working in the review's folder, or for a PR or ref, the thread you ran it in. It's the thread that writes the code, and gets the comments you send. Nothing goes to GitHub.
 
-- **Fix in a new thread** hands the draft comments you choose to a visible BB thread in the review's project. Its first message lists each comment with its file, lines, severity, and code, and the branch and commit you reviewed. It runs on the **Review agent** setting, and is told not to push or change GitHub unless you ask in that thread. The draft isn't changed or submitted.
-- When you started the review with `bb review` in a thread, Finish review leads instead with **Send N comments to ‹thread›**, the thread that made the change, with "or Fix in a new thread" beside it. It sends only on your click, with the same picker and message, queued behind whatever that thread is doing, and asks it to reply with what it changed; nothing goes to GitHub. The picker also takes an optional message, sent before the comments, and **Include the summary**, unchecked, which adds the review summary after them.
-- Then it says "Sent to ‹thread›" or "Queued in ‹thread›", with **Open**, and each comment you sent says "Sent to ‹thread› · 2m" on its card, still not submitted, until you edit it.
-- With no comments in the draft, it offers **Send approval to ‹thread›** instead. It opens a small form: an optional message, and **Include the summary**, unchecked, when the draft has a summary. **Send** tells that thread "Approved", then your message and the summary if you add them, queued behind whatever it's doing; nothing goes to GitHub. It's offered once for each diff you review; add a comment and the comments go as above.
-- If that thread was archived or deleted, only Fix in a new thread is offered, and Finish review says why.
-- **Send comments to the thread that made the change** in Settings turns it off.
+The loop, for a thread's work in its folder:
+
+1. **Review changes** above the thread's message box, or `bb review` in the thread, starts the review ([A thread's folder](#a-threads-folder)).
+2. Read it and comment; the review agent drafts comments too.
+3. **Send** them, or **Send now** one: the main thread fixes each and reports it with `bb review report`.
+4. Once it has reported them all, the review comes back **Ready to re-review**, with the review agent's check of each fix. **Resolve** what's fixed, **Reopen** what isn't, comment again, and Send again: reopened comments go with the next Send.
+5. **Push** has the main thread commit what you reviewed and, once the review has checked that commit, push exactly it. Then **Open PR**: the review becomes the PR's, and teammates' comments on it go round the same loop ([Feedback on your own PR](#feedback-on-your-own-pr)).
+
+
+- **Send N to main thread** in Finish review sends the comments not sent yet, after whatever that thread is doing. Its picker takes the comments you keep, an optional message, sent before them, **Include the summary**, unchecked, which adds the review summary after them, and **Let it push when done**, the review's, off until you turn it on. Each comment goes with its id, file, lines and code; the message ends "Don't push until I say", unless you let it push, and says how to report on each comment. Under it, Finish review names the main thread and its machine, "Build snooze · MaxBook", with **Change main thread**: a local review and its main thread can share a title. On someone else's PR, **Let it push when done** asks once before it's on.
+- **Send now** on a comment's card, in the code or in Comments, sends that comment alone; its hint names the thread and machine.
+- Then Finish review says "Sent 2 comments to ‹thread›" with **Open**, or "Queued for ‹thread›: it's busy, and gets 2 comments when its turn ends", and each comment you sent says "Queued for ‹thread› · Send 2" until the thread takes it, then "Sent to ‹thread› · Send 2 · 2m", in place of its state: on your own change a comment is **Open** until a Send carries it, then Sent, then **Done** or **Declined** with the thread's note once it reports, and **Resolved** or **Dismissed** once you say. On your own PR, only open comments post with Submit: Finish review counts them, and says how many sent to fix won't post to GitHub. On a PR you don't own a Send changes nothing Submit posts: a sent comment stays "Draft · not submitted" too, and posts, unless you resolve or dismiss it. Edit it and it's open again, for the next Send; it keeps its id. Delete a queued Send from the thread's queue and its comments are open again.
+- A Send while the review is being submitted doesn't go: "Submitting this review; try again in a moment."
+- The thread reports on each comment with `bb review report <id> done|declined --note "…"`, from any thread, its subagents too, and runs `bb review ready` once it's finished. Another thread can run it too: the review then names that thread, or "the command line" for a shell outside any thread. The comment then says **Done** or **Declined**, with its note.
+- Once it has reported every comment you sent, or ran `bb review ready`, the review comes back **Ready to re-review**, in Needs review, with an alert that names it, `api:snooze-checks · Build snooze`, and says who did what, "The main thread reported all 3 comments you sent. Checked: 2 look fixed, 1 doesn't". First the review agent checks each fix against the code since its Send, once per Send, with **Get a review ready before alerting you** and **Run the re-review check** on; for a comment the thread didn't report, it fills in what the thread's last reply and the changes show, as "Looks done · not reported". The notice under the band says "Checking the fixes…" meanwhile, then what came back and what the check found, with **Check fixes**, or **Check again**.
+- A main thread goes idle whenever it hands work to subagents, so idle alone never means done: the review keeps waiting on it, under Waiting on author, and the notice says "1 of 6 reported. The main thread is idle but may still be waiting on subagents." with **Check now**, which has the review agent check the fixes so far.
+- Archived or deleted first, it won't report the rest: the review comes back to Needs review, "Main thread archived · 2 of 3 reported", with no alert and no check, and the notice offers **Check now** and **Send the rest to a fresh thread**, which sends the comments it didn't report to a fresh thread, the main thread from then on.
+- With no comments left to send, it offers **Send approval to ‹thread›**: an optional message and **Include the summary**, then "Approved", queued behind whatever that thread is doing.
+- Some Sends ask first, with the choices to go on:
+  - On someone else's PR: **Send anyway**. Your review on GitHub isn't changed.
+  - A main thread that's archived: **Unarchive and send**, or **Start a fresh thread** in its folder.
+  - A main thread that was deleted: **Start a fresh thread** in its folder, which becomes the main thread.
+  - A folder BB removed: **Start a fresh thread** in a new worktree from the branch; its uncommitted work went with the folder. The review then reads that worktree, and still pushes to its branch.
+  - Comments not sent yet, or an approval already sent for this diff, before **Send approval**: **Send anyway**. An approval never starts a thread: with the main thread or its folder gone, Send anyway only records it.
+- The **Main thread** tab, from BB's title bar or the phone's dock, shows the main thread's chat beside the diff, with its own permissions: which thread it is, on which machine, and whether it's working now, so a Send waits for its turn. **Change** picks another thread working in the folder, or **Start a fresh thread here**; **Open** opens it in BB.
+- Ask the review agent to fix a comment and it sends it with Send now, and says so. Say "you do it" and it writes the exact patch, which goes with that comment's Send for the main thread to apply as written: one thread writes the folder. A turn you didn't start sends nothing.
+- **Push**, in Finish review on a local review of a branch in a GitHub repo (or a message of just "push" to the review agent in the review; "push anyway" for Push anyway), pushes exactly what you reviewed:
+  - The main thread is told to commit the changes you reviewed and run `bb review report --commit <sha>`, and not to push. A folder with nothing to commit skips this: its head is the commit.
+  - The review checks that commit: the folder is at it, and each file the branch commits is as you reviewed it, large and binary files the review hid too. A secret-looking file the review hid, as a `.env`, counts as changed, and so does one an earlier commit on the branch added, since the push takes the branch's history to GitHub.
+  - It matches: the thread is told to push exactly it, `git push origin '<sha>:refs/heads/<branch>'`, never forced. After a fresh thread took over a removed folder, it still pushes to the review's branch.
+  - It doesn't: "Not pushed. 3 files changed since you reviewed.", naming a file that may hold secrets, with the files, **Update first**, which shows the new code, and **Push anyway**, which pushes the commit shown only while the folder is still at it. A commit the check couldn't place, as one the folder isn't at, can't be pushed anyway.
+  - GitHub has commits the folder doesn't: it says so before the thread is told anything, "Pull first, or Push anyway to try". A push without force may then be refused.
+  - GitHub at the commit already: "Nothing to push".
+  - When the main thread stops, the review reads the branch on GitHub: **Pushed**, or flagged when GitHub has another commit, with **Push again** and **Open main thread**. **Stop waiting** stops waiting for it.
+  - Commits on GitHub that didn't come from Push, and no Send let the thread push, are news, not an alarm: "has new commits on GitHub that didn't come from Push", in Finish review and under the band, with **Update** and **Got it**. A teammate, CI or a thread may have pushed them. The review keeps the last head on GitHub you accepted. The first time a review reads GitHub's branch, it takes that as the starting point; a read that fails doesn't count, and neither does the thread's commit report, which, finding GitHub already at the commit it reports, flags it as pushed first. After that, it moves only when your Push lands on its checked commit, when a Send with Let it push covers the move, or when you say Got it. A Send with Let it push covers pushes from when it's sent until the first read after the review comes back Ready to re-review, then never again; its thread failing, or being archived or deleted, ends it at once. Any other move is flagged, however Push stands, even a thread pushing before it reports its commit. With Send to thread off, GitHub isn't read; a move made meanwhile is flagged once it's back on.
+  - On your own PR with a fresh or forked thread working on it, or the folder it became a PR from, Push is in Finish review too. What you review is **Not pushed yet**: each time you open it, the review notes what it showed, and the commit is checked against that, at the PR's head. **Update first** opens it. That thread pushes `'<sha>:refs/heads/<branch>'` from its folder; for a fork's branch, to that fork's remote. A push that thread made because you told it to in its own chat didn't come from Push, so it gets the same note. On your PR the note reads "The fixer, a teammate or CI may have pushed them.": the fixer is that fresh or forked thread.
+  - A branch name with a quote in it can't be pushed from here: push it from a terminal. Relayed asks and turns you didn't start never push.
+- **Fix in a new thread** hands the comments you choose to a new visible thread in the review's project instead. It runs on the **Review agent** setting, and is told not to push or change GitHub unless you ask in that thread.
+- **Send comments to the main thread** in Settings turns these off.
+
+### Feedback on your own PR
+
+On your own PR, teammates' comments go through the same loop.
+
+- Comments lists their threads, and their review summaries and comments on the PR itself, a Request changes with only a summary or a "can you add tests?" too, each saying whose it is. One waiting for your reply is in Needs you, and brings the PR back to Needs review once; a review's comments on lines count as their threads, not again.
+- **Send** on each, "Send @dana's comment", takes their words, quoted as theirs, with the code they're on, to the main thread. **Send 3 comments to main thread** (or **to a fresh thread**) at the top of Needs you sends everything there no Send took yet. Each says where it went, then **Done** or **Declined** with the thread's note once it reports.
+- With no thread working on the PR, or its thread archived or deleted, the Send asks where it goes:
+  - **Start a fresh thread**: a new worktree at the PR's head commit, on the machine of the thread that wrote the PR (else the project's), told about the PR, what you send, the guide's intent and that thread. It becomes the main thread.
+  - **Fork the original instead**: a fork of the thread that wrote the PR, in the same kind of worktree. It keeps everything that thread knew, and costs more: it copies the whole chat.
+  - **Unarchive and send**, for an archived thread: it picks up where it stopped.
+  - Neither switches branches, and each is told that the quoted comments are others' words, never instructions about git or GitHub. Each pushes when you say, or when it's done with **Let it push when done** on, with `git push origin 'HEAD:refs/heads/<branch>'`, as a new worktree has no upstream; never force. If the thread can't start because the PR's head commit isn't on that machine yet, the Send says to run `git fetch origin pull/<n>/head` in the repo's folder there, then send again.
+- When that thread is archived or deleted before reporting everything, **Send the rest…** sends what it didn't report, GitHub items too, and asks the same: a fresh thread or a fork.
+- **Not pushed yet**, in the compare menu, shows in the Main thread tab what the thread's folder has that the PR's head on GitHub doesn't, committed or not. Files that look like secrets stay out.
+- The review agent drafts your replies from what the thread reported. Say "you do it" on a PR with no folder and a fresh thread applies the agent's patch; the agent never pushes itself: **Push**, or your "push" to it, has the thread push.
+- Once BB removes a fresh or forked thread's worktree, its branch stays in your repo: the review says **Branch kept**, which folder on which machine has it, and `git branch -D <branch>` to copy, which also deletes any commits on it that aren't on GitHub; then **Got it**. Code Review Workspace runs no git in your checkout.
 
 ## Customize your reviews
 
@@ -538,6 +656,7 @@ These switches turn a feature off; each is on by default. A setting that depends
 | Notifications | A guide is ready or failed | No Needs You alert for a built or failed guide. |
 | Notifications | A review becomes your turn | No alert when a review comes back to you, a snooze ending included. |
 | Guide generation | Stop a guide while it builds | No Stop: a guide runs until it's done. |
+| Review agent | Let the review agent act when you ask | The review agent only drafts, as in 1.7.0: it's told never to post, and has no tools that post, merge, open a PR or send to the main thread. Turning it off reaches an agent already running at once. |
 | Review agent | Help agents in your threads use bb review | Agents in your other threads get no skill for `bb review`, and it prints no link and has no `list`. |
 | Review agent | Read REVIEW.md | The agents read AGENTS.md, CLAUDE.md, and Copilot's instructions only, and the Overview doesn't say when a PR changes them. |
 | Review agent | Ask why you remove an agent's comment | No **Why?**: removals are counted as before. |
@@ -548,6 +667,7 @@ These switches turn a feature off; each is on by default. A setting that depends
 | Whose turn | Get a review ready before alerting you | The alert comes at once, without rebuilding the guide or checking your feedback first. |
 | Whose turn | Run the re-review check | The review agent doesn't check your earlier feedback; the prompt is kept. |
 | Whose turn | Include PRs you've reviewed | Only requests for your review join the list. |
+| Whose turn | Include your own PRs | Your PRs join only once you start a review of one; ones found before that you haven't started a review of go to Archive. |
 | Reading | Open on the Overview when a review comes back | It reopens where you left it. |
 | Reading | Single-key shortcuts | Only Esc works (see [Keyboard shortcuts](#keyboard-shortcuts)). |
 | Reading | Comment keys | `e`, `x`, `1`–`4`, `0`, and `r` do nothing. |
@@ -558,11 +678,12 @@ These switches turn a feature off; each is on by default. A setting that depends
 | Reading | Requirements | The Overview doesn't list them; the review agent still checks them. |
 | Reading | Commands in BB's command palette | The palette doesn't list them. |
 | Reading | Code owners | No Owned by or yours on files; the review agent still reads CODEOWNERS to know your files. |
+| Reading | Review changes above a thread's message box | Threads show no Review changes; `bb review` still starts a review, and a linked thread's Review tab stays. |
 | Reading | Notice when a local review's code changes | No notice; update a local review's guide from Review actions. |
 | Reading | Open in editor (local reviews) | Nothing offers it. |
 | Reading | CI failures in the code | No failure notes on lines; the Overview still lists failing checks. |
 | Reading | Comment on or ask about a failing check | A failing check's note and the Overview's failing checks offer View check only. |
-| Comments and Finish review | Send comments to the thread that made the change | Finish review offers Fix in a new thread only, and cards don't say what you sent. |
+| Comments and Finish review | Send comments to the main thread | Finish review offers Fix in a new thread only, cards have no Send now and don't say what you sent, and there's no Main thread tab. |
 | Comments and Finish review | Ask agent about selected text | Selecting text only selects it; selected lines still offer Comment and Ask agent. |
 | Comments and Finish review | Move comments on an older diff into the summary | You edit or remove them. |
 | Comments and Finish review | Check before you approve | Finish review doesn't flag unviewed high-risk files or chapters read faster than your set pace. |
@@ -643,23 +764,26 @@ Review metadata, patches, generated guides, and drafts are stored in this BB ins
 
 ### What the agents can and can't do
 
-The plugin starts its agents in hidden BB threads and gives each only its role's tools. None of these tools posts to GitHub, submits a review, sends a reply, or resolves a thread: only your click in the review does.
+The plugin starts its agents in hidden BB threads and gives each only its role's tools. Only the review agent's write tools, given while **Let the review agent act when you ask** is on, post to GitHub, and what posts under your name waits for your click on **Post** or your yes (see [Posting when you ask](#posting-when-you-ask)).
+
+**What's enforced, and what's only asked.** Everything this guide says the agents do or don't (posting only when you ask, the pushback, acting only on your words) is instructions to an agent that can have a shell on its machine, where `gh` is usually signed in: beyond the plugin's tools, it has what its provider and permission mode give it. Its instructions forbid GitHub writes from that shell, with `gh`, `gh api` or `git push`. Code enforces only what goes through the plugin's own tools and pages: who's asking, that what posts is exactly what the Post form showed, that only your click resolves, dismisses or reopens a comment, that on your own change only open comments post, the secrets filter on what agents read, and Push's check of a commit before the thread is told to push it. An agent with a shell can get round all of it, with `gh`, `git push`, or the plugin's own calls (`bb plugin rpc call code-review-workspace …`), and text in a PR could try to steer it there. With **Let the review agent act when you ask** off, the agent has no write tools and 1.7.0's rule to never post.
 
 - **The guide writer** reads the review's diff, its file list, what changed since your review, and the PR's context, and submits the guide (`read_review_patch`, `list_review_files`, `read_changes_since_review`, `read_pr_context`, `generate_review_guide`). The plugin rejects a guide that leaves a changed file out or places one twice.
 - **The review agent** reads the same, plus any file of the review at the PR's head, at the diff's start, or at the commit you last reviewed (`read_file`), your earlier feedback (`list_feedback`), and the local draft (`list_draft_comments`).
-- It can change only the local draft: add, edit, and delete draft comments, write the summary and suggest a verdict, reply in your discussions with it, record its check of your feedback, and draft replies to your threads for you to send (`add_draft_comment`, `edit_draft_comment`, `delete_draft_comment`, `set_review_summary`, `reply_in_discussion`, `assess_feedback`, `draft_thread_reply`).
-- It refuses to change a comment or summary you wrote, unless you asked on it.
+- In the local draft, it can add, edit, and delete draft comments, write the summary and suggest a verdict, reply in your discussions with it, record its check of your feedback, and draft replies to your threads for you to send (`add_draft_comment`, `edit_draft_comment`, `delete_draft_comment`, `set_review_summary`, `reply_in_discussion`, `assess_feedback`, `draft_thread_reply`).
+- With **Let the review agent act when you ask** on, it also posts to GitHub and sends to the main thread when you ask (`submit_review`, `post_reply`, `resolve_thread`, `github_pr`, `open_pr`, `send_now`), as [Posting when you ask](#posting-when-you-ask) and [Who's asking](#whos-asking-and-the-approval-rule) say. Each checks the switch as it runs.
+- It refuses to change a comment or summary you wrote, unless you asked on it, or asked in chat for a comment with the switch on.
 - Each review's agents work only on their own review.
-- Agents in your other BB threads get no tools from this plugin. With **Help agents in your threads use bb review** on, they get the `code-review-workspace` skill, and `bb review comment` and `bb review summary` change only the local draft.
-- **What the plugin doesn't limit:** beyond these tools, an agent has what its provider and permission mode give it, such as a shell on its machine. Its instructions forbid GitHub writes, but text in a PR could try to steer it. See below.
+- Agents in your other BB threads get no tools from this plugin. With **Help agents in your threads use bb review** on, they get the `code-review-workspace` skill, and `bb review comment` and `bb review summary` change only the local draft. `bb review ask` relays to a review's agent, and `bb review approve` only lines approvals up for your click.
 
-The review agent runs in the permission mode of its **Review agent** setting, on a machine whose `gh` login can usually write to GitHub. Its instructions forbid GitHub writes, but text in a PR could try to steer it, and the automatic review runs unattended; choose its permission mode with that in mind. The guide writer runs hidden and unattended too, using only Code Review Workspace's tools and one that reads a linked ticket; on Project defaults it runs at Accept Edits where its provider allows (see [Agents and machines](#agents-and-machines)). Claude Code, Codex, and OpenCode run at Accept Edits; pi runs only at Full, so an agent on pi runs at Full and can't be restricted, and Settings says so. The agents follow ticket references only in a trusted author's PR, and only ever read tickets: never write to an issue tracker or chat, or quote a private ticket into a draft. What agents write for GitHub is capped at 65,000 characters.
+The review agent runs in the permission mode of its **Review agent** setting, on a machine whose `gh` login can usually write to GitHub, and the automatic review runs unattended; choose its permission mode with that in mind. The guide writer runs hidden and unattended too, using only Code Review Workspace's tools and one that reads a linked ticket; on Project defaults it runs at Accept Edits where its provider allows (see [Agents and machines](#agents-and-machines)). Claude Code, Codex, and OpenCode run at Accept Edits; pi runs only at Full, so an agent on pi runs at Full and can't be restricted, and Settings says so. The agents follow ticket references only in a trusted author's PR, and only ever read tickets: never write to an issue tracker or chat, or quote a private ticket into a draft. What agents write for GitHub is capped at 65,000 characters.
 
 ### Which threads count as a review's agents
 
 - The review agent and the guide writer read only their own review's diff and PR context, and get their tools by the role the plugin recorded for their thread, whatever their thread is renamed to or its metadata says.
 - One brief window remains: while a review's agent or guide writer is being started, typically well under a second, another of this plugin's threads titled exactly as the new one would count as it.
 - A review's agent and guide writer can't use `bb review`, `bb review comment`, or `bb review summary` on another review, and a guide one starts on its own review doesn't count as your click. Neither can a review agent that New conversation replaced or found archived, nor an earlier guide writer, one a reload interrupted included, nor a review's thread that deleting the review couldn't stop or delete, and the **Suggest instruction changes** worker can't use them on any review.
+- A review's own agents, and threads they started, can't use `bb review ask`, `approve`, `report` or `ready`, and a message from any of them to a review agent counts as no one's.
 - `bb review` on a PR from one of your other BB threads counts as your click only for an author agents run for on their own (see below), and with **Start agents on their own** off only on your own PR; for anyone else, or when GitHub can't say, it builds the guide and leaves the run to your click.
 - These limits hold for agents running `bb review` as BB starts it in their thread: BB tells the plugin which thread runs a command, and an agent with a shell can hide that. An agent with a shell in another thread can still run `bb review` commands on any review, and change Settings through the plugin's calls, as the panel does.
 
@@ -701,7 +825,7 @@ The automatic review never starts on a PR already merged or closed. So agents st
 ### GitHub credentials
 
 - GitHub operations use the server's `gh` credentials. No token needs to be pasted into the plugin.
-- Replies, resolves, and unresolves post as the account the review verified, only on the review's own PR's threads.
+- Replies, resolves, and unresolves you click post as the account the review verified, only on the review's own PR's threads. What the review agent posts goes as the account `gh` uses now, which its Post form names.
 - Switching the account switches `gh` for everything on the BB server, other agents and terminals included, and the account menu says so. Switching starts each review afresh for the new account: its feedback check, held turn, click, skipped run, and alerts.
 - Grant only the repository access your team needs.
 - A shared BB server uses shared server credentials and plugin storage; it is not a multi-tenant review service.
@@ -709,7 +833,7 @@ The automatic review never starts on a PR already merged or closed. So agents st
 ### Storage
 
 - The reviews are kept in SQLite, in the plugin's `data.db` on the BB server, unless the **Storage** setting (`storageBackend`) is Postgres. Then they're in a schema of the Postgres database the plugin's settings name, signed in with a password kept as a BB secret, over TLS by default. Moving them is the BB operator's: see [Storage backends](operations.md#storage-backends). `bb review storage status` says where they are.
-- Reviews of PRs merged or closed for 30 days drop their stored diff to save space; the guide, draft, and notes stay, and opening one reads the diff from GitHub again. Open PRs, local reviews, guides for an earlier head, and drafts with comments keep theirs.
+- Reviews of PRs merged or closed for 30 days drop their stored diff to save space; the guide, draft, and notes stay, and opening one reads the diff from GitHub again. Open PRs, local reviews, guides for an earlier head, and drafts with comments keep theirs, but a folder's review archived for 30 days after BB removed its folder, with no comments, drops its diff for good.
 - New reviews use repository-scoped identifiers, preventing equal PR numbers in different repositories from overwriting each other.
 
 ## Upgrading from older versions
@@ -728,6 +852,7 @@ Notes for reviews and pages from before the current releases. New installs can s
 - **Setup checks fail.** **Settings → Ready to review** (or All reviews, with no reviews yet) says what's missing:
   - "GitHub CLI isn't on the BB server": install `gh` on the machine running BB, then check again.
   - "Sign in to GitHub on the BB server": run `gh auth login --hostname github.com` there. `gh auth status` shows which account `gh` uses.
+  - "Your GitHub token is missing `read:org`": posting needs `repo`, and team reviewers `read:org`. Run the `gh auth refresh` command it shows on the BB server. Fine-grained tokens don't list their scopes, so Setup says it didn't check them.
   - "No BB agent to write guides": connect an agent provider in BB's Settings.
   - "No BB project to run guides in": add a BB project before starting a review.
 - **All reviews can't read GitHub.** The list says why: GitHub CLI not on the BB server, `gh` not signed in, a rate limit (reading pauses for 15 minutes), or PRs or teams it can't see. Refresh's tooltip says when GitHub was last read.
@@ -735,9 +860,9 @@ Notes for reviews and pages from before the current releases. New installs can s
 - **A guide failed.** Its page says why under **What went wrong**, with **Try again**. `bb plugin logs code-review-workspace` keeps the error.
 - **"Waiting for the guide writer's machine".** The guide writer's machine is offline. The guide restarts when it reconnects, for up to 10 minutes; **Try again**, or choose another **Machine** in Settings. See [Guides that stop or fail](#guides-that-stop-or-fail).
 - **"Not run automatically: …".** The author isn't one agents run for on their own, or the branch is in someone else's fork. Click to run it, or see [Who agents run for on their own](#who-agents-run-for-on-their-own).
-- **Submit refuses.** New commits or a new base need **Update guide** first; comments on an older diff need editing, removing, or **Move to summary**; a pending review you started on github.com needs submitting or discarding there. See [When the PR changes](#when-the-pr-changes).
+- **Submit warns.** New commits or a new base: **Update guide** first (**See the 2 commits** shows them), or **Submit anyway** (**Approve anyway**) on the version you reviewed. Comments on an older diff: edit, remove, or **Move to summary**, or Submit anyway moves them. A pending review you started on github.com needs submitting or discarding there (**Open it on GitHub**). See [When the PR changes](#when-the-pr-changes).
 - **`bb review` refuses.** It must run in a project thread ("Run `bb review` inside a project thread."). A PR number or local ref needs a checkout on the BB server; pass the PR's URL instead.
-- **A new file is missing from a local review.** Untracked files are never included. Track it with `git add -N <file>`, then **Update guide**. See [What each form reviews](#what-each-form-reviews).
+- **A new file is missing from a local review.** A ref's review never includes untracked files: track it with `git add -N <file>`, then **Update**, or review the thread's folder with `bb review` alone (see [What each form reviews](#what-each-form-reviews)). A folder's review includes new files, but keeps secret-looking, binary and very large ones out until you bring them in (see [A thread's folder](#a-threads-folder)).
 - **No Needs review group in BB's thread list, or no palette commands.** They need a BB with app overlays, and their switches on (**Show reviews in the thread list**, **Commands in BB's command palette**). A BB update that changes the thread list may hide the group until the plugin catches up.
 - **No alerts.** Install Needs You 0.2.0-beta.3 or later, enable its **Extension activity**, and check **Settings → Notifications**.
 - **"Couldn’t open the review session. The plugin may be updating."** Try again in a moment. If it stays, run `bb review storage status` on the BB server: in maintenance, or while it can't open its Postgres storage, it says why, and so does `bb plugin list`. See [Maintenance mode](operations.md#maintenance-mode).
@@ -748,5 +873,5 @@ Notes for reviews and pages from before the current releases. New installs can s
 
 - **One review:** **Delete…** in its **Review actions** (⋯) removes its guide, drafts, private notes, and agent conversation, after confirmation. Nothing changes on GitHub.
 - **Pause the plugin:** `bb plugin disable code-review-workspace` stops it following your PRs and starting agents, and keeps its data.
-- **Remove the plugin:** `bb plugin remove code-review-workspace` deletes its settings, and can delete its reviews and drafts: BB 0.46 keeps `data.db`, but to keep them for sure, copy `data.db`, and any `data-export-…` or `data-backup-…` files beside it, off the server first. Reviews, replies, and resolves you already posted stay on GitHub. Reviews kept in Postgres stay there until the database's operator drops them; see [Removing the plugin](operations.md#removing-the-plugin).
+- **Remove the plugin:** `bb plugin remove code-review-workspace` deletes its settings, and can delete its reviews and drafts: BB may keep `data.db`, but to keep them for sure, copy `data.db`, and any `data-export-…` or `data-backup-…` files beside it, off the server first. Reviews, replies, and resolves you already posted stay on GitHub. Reviews kept in Postgres stay there until the database's operator drops them; see [Removing the plugin](operations.md#removing-the-plugin).
 - The `gh` sign-in on the BB server is GitHub CLI's own; sign out with `gh auth logout` if nothing else there needs it.

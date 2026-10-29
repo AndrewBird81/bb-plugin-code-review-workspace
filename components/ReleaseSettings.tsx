@@ -74,7 +74,7 @@ function ReadinessRow({ ok, children, action }: { ok: boolean | null; children: 
 /** What reviewing needs, checked. `account`: the control to switch GitHub accounts, beside the signed-in one. */
 export function SetupReadiness({ account }: { account?: ReactNode }) {
   const rpc = useRpc<typeof rpcContract>();
-  const [setup, setSetup] = useState<{ account: string | null; githubCli: boolean; agentAvailable: boolean | null; projectAvailable: boolean | null } | null>(null);
+  const [setup, setSetup] = useState<{ account: string | null; githubCli: boolean; agentAvailable: boolean | null; projectAvailable: boolean | null; missingScopes?: string[] | "unlisted" | null } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   async function check() {
@@ -89,6 +89,9 @@ export function SetupReadiness({ account }: { account?: ReactNode }) {
     {setup && <ul className="divide-y divide-border overflow-hidden rounded-lg border border-border text-sm">
       <ReadinessRow ok={setup.githubCli}>{setup.githubCli ? "GitHub CLI installed" : "Install GitHub CLI on the BB server."}</ReadinessRow>
       <ReadinessRow ok={!!setup.account} action={setup.account ? account : undefined}>{setup.account ? <>GitHub account: <strong>@{setup.account}</strong></> : <>Sign in on the BB server: <code className="break-all text-xs">gh auth login --hostname github.com</code></>}</ReadinessRow>
+      {setup.account && Array.isArray(setup.missingScopes) && setup.missingScopes.length ? <ReadinessRow ok={false}>Your GitHub token is missing {setup.missingScopes.map((scope, i) => <span key={scope}>{i ? " and " : ""}<code className="text-xs">{scope}</code></span>)}. Posting needs <code className="text-xs">repo</code>, and team reviewers need <code className="text-xs">read:org</code>. On the BB server, run <code className="break-all text-xs">gh auth refresh -h github.com -s {setup.missingScopes.join(",")}</code></ReadinessRow> : null}
+      {setup.account && setup.missingScopes === "unlisted" && <ReadinessRow ok={null}>Your GitHub token doesn’t list its scopes, as fine-grained tokens don’t, so they weren’t checked. If posting fails, check the token’s access to the repo.</ReadinessRow>}
+      {setup.account && setup.missingScopes === null && <ReadinessRow ok={null}>Couldn’t check your GitHub token’s scopes. Check setup again.</ReadinessRow>}
       <ReadinessRow ok={setup.agentAvailable}>{setup.agentAvailable === true ? "BB agent available" : setup.agentAvailable === false ? "Connect an agent provider in BB Settings before generating a guide." : "Couldn’t verify the agent provider. Check BB Settings."}</ReadinessRow>
       {setup.projectAvailable !== true && <ReadinessRow ok={setup.projectAvailable}>{setup.projectAvailable === false ? "Add a BB project before starting a review." : "Couldn’t verify the BB project. Check your project list."}</ReadinessRow>}
     </ul>}

@@ -1,22 +1,21 @@
 // What links a review to the code and the BB thread that made the change: where Open in editor opens a local review's
-// files, and the comments sent to the thread. The workspace provides it, so each card in the code reads it without the
-// whole draft.
+// files, and what its comments' status lines say of it, its Sends among them. The workspace provides it, so each card in
+// the code reads it without the whole draft.
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { useRpc } from "@get-bb/plugin-sdk/app";
 import type { rpcContract } from "../src/rpc-contract";
-import { sameLocation, type CommentLocation } from "../src/draft";
-import type { ReviewLifecycle } from "../src/store";
+import { POSTS, type StatusFacts } from "./comments";
 import type { ReviewItem } from "./review-state";
 import { useKnob } from "./settings";
 
 export interface ReviewLinks {
-  /** The comments sent to the review's source thread; null when none were, or Send to thread is off. */
-  sent: NonNullable<ReviewLifecycle["sent"]> | null;
+  /** What a draft comment's status line says of its review (lib/comment-status.ts): with Send to thread off, no Sends. */
+  status: StatusFacts;
   /** A local review's checkout and the BB server's host, where its files open; null for a PR, a diff that doesn't end at the checkout, or with Open in editor off. */
   editor: { hostId: string; root: string } | null;
 }
 
-export const ReviewLinksContext = createContext<ReviewLinks>({ sent: null, editor: null });
+export const ReviewLinksContext = createContext<ReviewLinks>({ status: POSTS, editor: null });
 
 /**
  * Whether a local review's diff ends at what its checkout holds, so its lines are the checkout's: a ref without `..`,
@@ -43,16 +42,16 @@ export function useReviewLinks(review: ReviewItem | null): ReviewLinks {
     return () => { current = false; };
   }, [rpc, root]);
   const sent = sendToThread ? review?.sent ?? null : null;
-  return useMemo(() => ({ sent, editor: root && hostId ? { hostId, root } : null }), [sent, root, hostId]);
+  const sends = sendToThread ? review?.sends ?? null : null;
+  const threadSends = sendToThread ? review?.threadSends ?? null : null;
+  const posts = review?.kind === "pr";
+  const own = review?.kind === "ref" || review?.ownPr === true || !!review?.feature;
+  const status = useMemo(() => ({ posts, own, sends, sent, threadSends }), [posts, own, sends, sent, threadSends]);
+  return useMemo(() => ({ status, editor: root && hostId ? { hostId, root } : null }), [status, root, hostId]);
 }
 
-/** Where and when the comment was sent, or null: null too once it's edited, or another takes its place, since. */
-export function useSentTo(at: CommentLocation & { body: string }): { threadId: string; title: string | null; at: number } | null {
-  const { sent } = useContext(ReviewLinksContext);
-  // A record from 0.8.0 has no body, so it matches by place alone.
-  const comment = sent?.comments.find((entry) => sameLocation(entry, at) && (entry.body === undefined || entry.body === at.body));
-  return sent && comment ? { threadId: sent.threadId, title: sent.title, at: comment.at } : null;
-}
+/** What a draft comment's status line says of its review: as the workspace provides it, or as before 1.8.0. */
+export const useStatusFacts = () => useContext(ReviewLinksContext).status;
 
 /** A local review's file on the BB server, for Open in editor; null where it can't open. */
 export function useEditorFile(file: string): { kind: "host"; hostId: string; path: string } | null {

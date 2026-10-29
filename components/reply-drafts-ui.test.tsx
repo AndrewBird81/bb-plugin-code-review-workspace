@@ -61,7 +61,7 @@ async function renderWorkspace(rpc: Record<string, unknown> = {}, drafts: unknow
     ...rpc,
   };
   const slot = renderSlot(app.navPanels[0]!, { subPath: "pr-42" }, { rpc: handlers as any });
-  await slot.findByRole("main", { name: "Review" });
+  await slot.findByRole("main", { name: /^Review\b/ });
   return { slot, rpc: handlers };
 }
 type Slot = Awaited<ReturnType<typeof renderWorkspace>>["slot"];
@@ -122,6 +122,19 @@ test("a reply that doesn't go keeps its text, as the thread's draft", async () =
   await waitFor(() => expect(toast.error).toHaveBeenCalledWith("GitHub said no"));
   expect((within(bobs).getByRole("textbox") as HTMLTextAreaElement).value).toBe("Not yet.");
   await waitFor(() => expect(rpc.saveReplyDraft).toHaveBeenCalledWith({ targetKey: "pr-42", threadId: "t2", body: "Not yet." }));
+  slot.lifecycle.unmount();
+});
+
+test("a reply GitHub already has says it wasn't sent again, and keeps its text to change", async () => {
+  const { slot, rpc } = await renderWorkspace({ replyToThread: vi.fn(() => ({ ok: true, alreadyPosted: true })) });
+  const bobs = await card(slot, 3);
+  fireEvent.click(within(bobs).getByRole("button", { name: "Reply" }));
+  fireEvent.change(within(bobs).getByRole("textbox"), { target: { value: "Done." } });
+  fireEvent.click(within(bobs).getByRole("button", { name: "Send reply" }));
+  await waitFor(() => expect(toast.info).toHaveBeenCalledWith("GitHub already has this reply, so it wasn’t sent again. Change it to send another."));
+  expect(toast.error).not.toHaveBeenCalled();
+  expect(rpc.replyToThread).toHaveBeenCalledTimes(1);
+  expect((within(bobs).getByRole("textbox") as HTMLTextAreaElement).value).toBe("Done.");
   slot.lifecycle.unmount();
 });
 

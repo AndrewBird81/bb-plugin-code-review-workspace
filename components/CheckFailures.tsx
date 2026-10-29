@@ -3,7 +3,7 @@ import { UrlLink, useRpc } from "@get-bb/plugin-sdk/app";
 import type { z } from "zod";
 import type { rpcContract } from "../src/rpc-contract";
 import { sameLocation, type CommentLocation } from "../src/draft";
-import { codeFence, untrusted } from "../src/untrusted";
+import { codeFence, inlineCode, untrusted } from "../src/untrusted";
 import { setCommentOpen, useCommentOpen } from "../lib/comments-fold";
 import { linkImages } from "../lib/link-images";
 import { useKnob } from "../lib/settings";
@@ -47,11 +47,11 @@ export function useCheckFailures(targetKey: string, headSha: string | null, ci?:
 }
 
 /**
- * A failing check quoted in Markdown: "> **‹check›** · ‹title›", then its message, every line quoted. The PR's code
- * writes the message, and your own comments show their images, so its images are links.
+ * A failing check quoted in Markdown: "> **‹check›** · ‹title›", then its message, every line of each quoted, however it
+ * breaks. The PR's code writes all three, and your own comments show their images, so its images are links.
  */
 function failureQuote(failure: Pick<CheckFailure, "check" | "title" | "message">): string {
-  return linkImages([`**${failure.check}**${failure.title ? ` · ${failure.title}` : ""}`, ...failure.message.trim().split("\n")].map((line) => `> ${line}`.trimEnd()).join("\n"));
+  return linkImages([`**${failure.check}**${failure.title ? ` · ${failure.title}` : ""}`, failure.message.trim()].join("\n").split(/\r\n?|\n/).map((line) => `> ${line}`.trimEnd()).join("\n"));
 }
 
 /** A failing check as the agent reads it: "‹check› · ‹title›", then its message, as data, since the PR's code writes it. */
@@ -71,7 +71,7 @@ function FailureActions({ failure }: { failure: CheckFailure }) {
     {draft?.editable && <button type="button" className={action} disabled={draft.busy || draft.writing} aria-label={`Comment on the ${failure.check} failure at ${failure.file}:${failure.line}`}
       onClick={() => draft.open(at, { body: `${failureQuote(failure)}\n\n`, severity: "blocking" })}>Comment</button>}
     <button type="button" className={`${action} text-(--ansi-13)`} aria-label={`Ask agent about the ${failure.check} failure at ${failure.file}:${failure.line}`}
-      onClick={() => askAgent({ file: failure.file, startLine: failure.line, endLine: failure.line, side: "additions", chapterId: activeId }, `In \`${failure.file}\` line ${failure.line}, a check fails:\n${failureData(failure)}`)}>Ask agent</button>
+      onClick={() => askAgent({ file: failure.file, startLine: failure.line, endLine: failure.line, side: "additions", chapterId: activeId }, `In ${inlineCode(failure.file)} line ${failure.line}, a check fails:\n${failureData(failure)}`)}>Ask agent</button>
   </>;
 }
 

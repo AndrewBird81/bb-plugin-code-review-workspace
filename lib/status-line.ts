@@ -8,6 +8,8 @@ import { GUIDE_STOPPED, reviewState, type ReviewItem } from "./review-state";
 import { notRunReason } from "./trust";
 import { defaultKnobs, type Knobs } from "./knobs";
 import { baselineOf, progressText, snoozeLabel, type TurnSignals } from "./turn";
+import { branchLabel } from "./review-identity";
+import { cameBackText, reportedText } from "./fixes";
 
 /** foreground: plain text that stands out, for what came back to you; the tones color only what changes your next move. */
 export type StatusTone = Tone | "foreground";
@@ -30,7 +32,8 @@ export interface StatusPart {
 const why = (text: string, tone: StatusTone, icon?: IconName, extra: Partial<StatusPart> = {}): StatusPart => ({ kind: "why", text, tone, ...(icon ? { icon } : {}), ...extra });
 
 /** Why the review is where it is: agent work under way, whose turn it is and why, or how it ended. */
-export function statusWhy(review: ReviewItem, now = Date.now()): StatusPart | null {
+/** `knobs`: the settings it reads, Notice when a local review's code changes for a folder's "3 files changed". */
+export function statusWhy(review: ReviewItem, knobs: Pick<Knobs, "localDiffChanges">, now = Date.now()): StatusPart | null {
   const turn = reviewState(review);
   const s = review.signals ?? {};
   const by = (prefix: string, login: string | null | undefined, otherwise: string) => login ? `${prefix} @${login}` : otherwise;
@@ -41,7 +44,8 @@ export function statusWhy(review: ReviewItem, now = Date.now()): StatusPart | nu
   // A first guide you stopped didn't fail: it waits for Build the guide, as its page says.
   if (turn.failed && review.guideError?.text === GUIDE_STOPPED) return why("Guide stopped", "neutral", "Route");
   if (turn.failed) return why("Guide failed", "danger", "AlertTriangle");
-  if (review.verifyingSince && turn.group !== "archive") return why("Checking your feedback…", "agent", "Loading", { busy: true });
+  // Check fixes is of the comments sent to fix, the only check a local review has; a PR's other checks, of your feedback.
+  if (review.verifyingSince && turn.group !== "archive") return why(review.verifyingFixes || review.kind !== "pr" ? "Checking the fixes…" : "Checking your feedback…", "agent", "Loading", { busy: true });
   switch (turn.reason) {
     case "re-requested": return why(by("Re-requested by", s.requestedBy, "Re-requested"), "foreground", "Repeat");
     case "requested": return why(by("Requested by", s.requestedBy, "Review requested"), "neutral", "UserRoundPlus");
@@ -58,7 +62,13 @@ export function statusWhy(review: ReviewItem, now = Date.now()): StatusPart | nu
     case "looks-ready": return why("Agent: all feedback addressed", "agent", "Sparkles");
     case "dismissed": return why("Your review was dismissed", "warning", "AlertCircle");
     case "own": return why("Your PR", "neutral", "UserRound");
-    case "new": return review.kind === "ref" ? why("Local review", "neutral", "GitBranch")
+    case "new-comments": return why(turn.label, "foreground", "MessageSquare", s.newComments?.by ? { detail: `The latest from @${s.newComments.by}` } : {});
+    case "ready-to-approve": return why("Ready to approve", "primary", "Check");
+    case "fixes-ready": return review.fixes ? why(`Ready to re-review · ${reportedText(review.fixes)}`, "foreground", "ArrowTurnBackward", { detail: cameBackText(review.fixes, review.sends?.at(-1)?.readyBy) }) : why("Ready to re-review", "foreground", "ArrowTurnBackward");
+    case "fixes-stopped": return why(turn.label, "foreground", turn.label.startsWith("Main thread deleted") ? "Trash2" : "Archive", { detail: "It won’t report the rest: check them, or send them to a fresh thread" });
+    case "fixes-sent": return why(turn.label, "neutral", "Send", { detail: "Sent to the main thread, which reports on each" });
+    // A folder's review says what changed in its folder since it was read, as last checked.
+    case "new": return review.kind === "ref" ? review.feature?.changedFiles && knobs.localDiffChanges ? why(`${review.feature.changedFiles} file${review.feature.changedFiles === 1 ? "" : "s"} changed`, "foreground", "FileDiff") : why("Local review", "neutral", "GitBranch")
       : review.status === "tracked" ? why("No guide yet", "neutral") : why("Guide ready", "neutral");
     case "waiting": return review.submittedVerdict === "COMMENT" ? why(`You commented${ago(turn.at)}`, "neutral", "MessageSquare")
       : why(`You requested changes${ago(turn.at)}`, "neutral", "FileDiff");
@@ -71,6 +81,8 @@ export function statusWhy(review: ReviewItem, now = Date.now()): StatusPart | nu
     case "archived": return why("Archived by you", "neutral", "Archive");
     case "unrequested": return why("No longer requested", "neutral");
     case "unreachable": return why("Can’t read on GitHub", "neutral", "EyeOff");
+    case "paused": return why(`Paused: on ${review.feature?.pausedOn ? branchLabel(review.feature.pausedOn) : "another branch"}`, "neutral", "GitBranch");
+    case "folder-gone": return why("Folder removed", "neutral", "Folder");
     default: return null;
   }
 }
@@ -78,7 +90,7 @@ export function statusWhy(review: ReviewItem, now = Date.now()): StatusPart | nu
 /** When anything last happened on the review: you reviewed it, the author pushed or replied, its turn changed, it was archived. */
 export function lastActivity(review: ReviewItem): number | null {
   const s = review.signals ?? {};
-  const at = Math.max(reviewState(review).at ?? 0, s.lastReviewAt ?? 0, s.headSeenAt ?? 0, s.replyAt ?? 0, review.submittedAt ?? 0, review.userArchivedAt ?? 0, review.archivedAt ?? 0);
+  const at = Math.max(reviewState(review).at ?? 0, s.lastReviewAt ?? 0, s.headSeenAt ?? 0, s.replyAt ?? 0, s.newComments?.at ?? 0, review.submittedAt ?? 0, review.userArchivedAt ?? 0, review.archivedAt ?? 0);
   return at || review.createdAt || null;
 }
 
@@ -95,13 +107,13 @@ const CHECKS: Record<"pass" | "fail" | "pending" | "expected", Pick<StatusPart, 
  * `passingChecks`. `ci` is the checks as just read, where a page has them, in place of the last sync's. `knobs` are the
  * current settings, which a run's reason for not starting may name.
  */
-export function statusLine(review: ReviewItem, { now = Date.now(), passingChecks = false, ci = review.signals?.ci, knobs = defaultKnobs }: { now?: number; passingChecks?: boolean; ci?: TurnSignals["ci"]; knobs?: Pick<Knobs, "unattendedAgents"> } = {}): StatusPart[] {
+export function statusLine(review: ReviewItem, { now = Date.now(), passingChecks = false, ci = review.signals?.ci, knobs }: { now?: number; passingChecks?: boolean; ci?: TurnSignals["ci"]; knobs: Pick<Knobs, "unattendedAgents" | "localDiffChanges"> }): StatusPart[] {
   const turn = reviewState(review);
   const s = review.signals ?? {};
   const parts: StatusPart[] = [];
   const done = turn.group === "archive";
   if (turn.blocking) parts.push({ kind: "blocking", text: "Blocks merge", tone: "warning", icon: "Lock", detail: "Everyone else approved: only your changes requested is left" });
-  const reason = statusWhy(review, now);
+  const reason = statusWhy(review, knobs, now);
   if (reason) parts.push(reason);
   if (review.skippedRun && !review.archivedAt) parts.push({ kind: "not-run", text: notRunReason(review, knobs), tone: "warning", icon: "Lock" });
   if (review.unreachable && turn.reason !== "unreachable") {

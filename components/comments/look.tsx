@@ -1,13 +1,16 @@
 // How a comment-like thing looks wherever it shows, in the code, the list, or Finish (spec §4): dashed with a colored
 // edge while it's only in BB, solid on GitHub with its author, muted with a lock when it's private. Never color alone:
 // its state is always in words too.
-import { CHECK_LABEL, STATE_LABEL, THREAD_FLAG_LABEL, type CommentCheck, type CommentItem, type ThreadItem } from "../../lib/comments";
+import { CHECK_LABEL, STATE_LABEL, THREAD_FLAG_LABEL, type CommentCheck, type CommentItem, type FixMark, type ThreadItem } from "../../lib/comments";
 import type { AssessmentVerdict } from "../../lib/feedback";
 import type { CommentLocation, DraftComment, Severity } from "../../src/draft";
 import { sameLocation } from "../../src/draft";
 import { cn } from "../../lib/utils";
 import { Badge, type Tone } from "../ui/badge";
 import { Icon, type IconName } from "../ui/icon";
+import { InlineCode } from "../ui/inline-code";
+import { age } from "../time-ago";
+import type { ReactNode } from "react";
 
 /** Whose words a not-submitted thing holds, which its edge's color says: yours, the agent's, or one on an older diff. */
 export type Edge = "yours" | "agent" | "older";
@@ -33,19 +36,48 @@ export function frameOf(item: CommentItem): string {
 }
 
 const DRAFT_ICON: Record<Edge, IconName> = { yours: "CircleDashed", agent: "Sparkles", older: "AlertTriangle" };
+/**
+ * A sent comment's icon, where its fix stands: the send arrow while it's out; a check once the thread reports it done,
+ * hollow where the review agent's check found it done unreported; a cross for declined, hollow the same way; a badge
+ * once you resolve it, and a box once you dismiss it.
+ */
+const MARK_ICON: Record<FixMark, { icon: IconName; text: string }> = {
+  sent: { icon: "Send", text: "text-primary" },
+  done: { icon: "Check", text: "text-diff-added" },
+  "looks-done": { icon: "CircleCheck", text: "text-muted-foreground" },
+  declined: { icon: "X", text: "text-muted-foreground" },
+  "looks-declined": { icon: "CircleX", text: "text-muted-foreground" },
+  resolved: { icon: "BadgeCheck", text: "text-diff-added" },
+  dismissed: { icon: "Archive", text: "text-muted-foreground" },
+};
 
-/** The icon that leads an item: a dashed circle, the agent's sparkle, a warning, GitHub's mark, or a lock. */
+/** The icon that leads an item: a dashed circle, the agent's sparkle, a warning, where a sent one's fix stands, GitHub's mark, or a lock. */
 export function ItemIcon({ item, className }: { item: CommentItem; className?: string }) {
   if (item.kind === "draft") {
     const edge: Edge = item.state === "older-diff" ? "older" : item.state === "agent-draft" ? "agent" : "yours";
-    return <Icon name={DRAFT_ICON[edge]} className={cn("size-3.5 shrink-0", EDGE_TEXT[edge], className)} aria-hidden />;
+    return <DraftIcon edge={edge} mark={item.state === "older-diff" ? undefined : item.mark} className={className} />;
   }
   if (item.kind === "private") return <Icon name="Lock" className={cn("size-3.5 shrink-0 text-subtle-foreground", className)} aria-hidden />;
   if (item.kind === "ask") return <Icon name="FileText" className={cn("size-3.5 shrink-0 text-muted-foreground", className)} aria-hidden />;
   return <Icon name="Github" className={cn("size-3.5 shrink-0 text-muted-foreground", className)} aria-hidden />;
 }
 
-export function DraftIcon({ edge, className }: { edge: Edge; className?: string }) {
+/**
+ * Where a sent comment's fix stands, its icon and its words, each part kept whole, so it wraps only between them
+ * ("Sent to ‹thread›" / "Send 1 · 30m"); a thread's note shows its `code`.
+ */
+export function FixStatus({ status, className }: { status: { label: string; at?: number; mark: FixMark }; className?: string }) {
+  const when = status.at === undefined ? null : age(status.at);
+  const parts = [...status.label.split(" · "), ...when ? [when] : []];
+  return <span className={cn("inline-flex min-w-0 items-baseline gap-1", className)}>
+    <Icon name={MARK_ICON[status.mark].icon} className={cn("size-3 shrink-0 self-center", MARK_ICON[status.mark].text)} aria-hidden />
+    <span className="min-w-0">{parts.map((part, i) => <span key={i} className="whitespace-nowrap">{i > 0 && " · "}<InlineCode text={part} /></span>).reduce<ReactNode[]>((all, part, i) => i ? [...all, <wbr key={`w${i}`} />, part] : [part], [])}</span>
+  </span>;
+}
+
+/** A draft's icon by who wrote it, or once sent, where its fix stands (`mark`). */
+export function DraftIcon({ edge, mark, className }: { edge: Edge; mark?: FixMark; className?: string }) {
+  if (mark && edge !== "older") return <Icon name={MARK_ICON[mark].icon} className={cn("size-3.5 shrink-0", MARK_ICON[mark].text, className)} aria-hidden />;
   return <Icon name={DRAFT_ICON[edge]} className={cn("size-3.5 shrink-0", EDGE_TEXT[edge], className)} aria-hidden />;
 }
 
@@ -55,13 +87,14 @@ const STATE_LOOK: Record<ThreadItem["state"], { tone: Tone; icon?: IconName }> =
   question: { tone: "primary" },
   resolved: { tone: "success", icon: "CircleCheck" },
   open: { tone: "neutral" },
+  "needs-reply": { tone: "primary", icon: "ArrowTurnBackward" },
 };
 
 /** A GitHub thread's state, then Outdated or File comment. */
 export function ThreadState({ item, size = "sm" }: { item: ThreadItem; size?: "sm" | "md" }) {
   const look = STATE_LOOK[item.state];
   return <>
-    <Badge tone={look.tone} size={size} icon={look.icon && <Icon name={look.icon} aria-hidden />}>{STATE_LABEL[item.state]}</Badge>
+    <Badge tone={look.tone} size={size} icon={look.icon && <Icon name={look.icon} aria-hidden />}>{item.label}</Badge>
     {item.outdated && <Badge size={size} icon={<Icon name="GitCommit" aria-hidden />}>{THREAD_FLAG_LABEL.outdated}</Badge>}
     {item.fileComment && <Badge size={size} icon={<Icon name="File" aria-hidden />}>{THREAD_FLAG_LABEL.fileComment}</Badge>}
   </>;
@@ -99,10 +132,17 @@ export function placeLabel(item: CommentItem): string | null {
 
 /** The words an item's row and pill lead with: its header's, though a draft's "not submitted" is its group's title. */
 export function itemWords(item: CommentItem): string {
-  if (item.kind === "draft") return item.state === "older-diff" ? item.label : item.state === "agent-draft" ? "Agent draft" : "Draft";
+  // A draft not submitted, in short; on your own change, its status line whole (lib/comments.ts draftStatus).
+  if (item.kind === "draft") return item.label !== STATE_LABEL[item.state] || item.state === "older-diff" ? item.label : item.state === "agent-draft" ? "Agent draft" : "Draft";
   if (item.kind === "thread") return [item.label, item.outdated ? THREAD_FLAG_LABEL.outdated : null, item.fileComment ? THREAD_FLAG_LABEL.fileComment : null].filter(Boolean).join(" · ");
   return item.label;
 }
+
+/**
+ * On a line cut short with an ellipsis, `code` keeps its type and color but not its box, which the cut would leave as a
+ * sliver, or with the ellipsis inside it.
+ */
+export const CUT_CODE = "[&_code]:bg-transparent [&_code]:px-0";
 
 /** A message's first line in plain words, for a row or pill: no quote marks or fences, no bold or italic markers. */
 export function plainLine(text: string): string {

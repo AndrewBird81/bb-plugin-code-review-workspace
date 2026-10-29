@@ -2,7 +2,10 @@
 // everyone's threads on GitHub, and your feedback (your threads' status, the agent's check, drafted replies, the
 // asks from your review summary). A thread joins its feedback by node id, the same in both. Pure, so the list, the
 // code, the title bar and Finish show and count the same things.
-import { isPreExisting, isSummary, linesOf, sameLocation, SEVERITIES, severityCounts, type CommentLocation, type Discussion, type Draft, type DraftComment, type Severity, type Verdict } from "../src/draft";
+import type { ReviewLifecycle, SendEntry } from "../src/store";
+import type { PrConversationItem } from "../src/github/types";
+import type { Claim } from "../src/draft";
+import { isPreExisting, isSummary, linesOf, postable, sameLocation, SEVERITIES, severityCounts, type CommentLocation, type Discussion, type Draft, type DraftComment, type Severity, type Verdict } from "../src/draft";
 import { threadLabel } from "../src/github/threads";
 import { chapterAt } from "../src/hunks";
 import { splitPatchByFile } from "../src/patch";
@@ -18,39 +21,67 @@ export type CommentState =
   | "draft" | "agent-draft" | "older-diff"
   // A discussion with the agent at a line without a comment.
   | "private"
-  // Your thread on GitHub; someone else's is open or resolved.
-  | "waiting" | "replied" | "question" | "resolved" | "open"
+  // Your thread on GitHub; someone else's is open or resolved. On your own PR, any thread whose latest comment isn't
+  // yours or a bot's needs your reply.
+  | "waiting" | "replied" | "question" | "resolved" | "open" | "needs-reply"
   // An ask from your earlier review summary.
   | "summary-ask";
 
 export const STATE_LABEL: Record<CommentState, string> = {
   draft: "Draft · not submitted", "agent-draft": "Agent draft · not submitted", "older-diff": "Older diff · not submitted",
   private: "Private · with the agent",
-  waiting: "Waiting on author", replied: "Author replied", question: "Question for you", resolved: "Resolved", open: "Open",
+  waiting: "Waiting on author", replied: "Author replied", question: "Question for you", resolved: "Resolved", open: "Open", "needs-reply": "Needs your reply",
   "summary-ask": "From your review summary",
 };
 /** Shown beside a thread's state. */
 export const THREAD_FLAG_LABEL = { outdated: "Outdated", fileComment: "File comment" } as const;
 /** The agent's check of your feedback, after its ✦. */
 export const CHECK_LABEL: Record<AssessmentVerdict, string> = {
-  addressed: "Addressed", partial: "Partial", not_addressed: "Not addressed", disputed: "Author disagrees", unclear: "Unclear",
+  addressed: "Addressed", partial: "Partly addressed", not_addressed: "Not addressed", disputed: "Author disagrees", unclear: "Unclear",
 };
 export const REPLY_DRAFT_LABEL: Record<Author, string> = { reviewer: "Reply draft · not sent", agent: "Agent reply draft · not sent" };
 export const SUMMARY_LABEL: Record<Author, string> = { reviewer: "Summary · not submitted", agent: "Agent summary · not submitted" };
 
 /** Why an item needs you, most urgent first. */
-export const NEEDS = ["older-diff", "question", "check", "replied", "reply-drafted"] as const;
+// declined: a comment you sent that the thread declined, which only your click settles.
+export const NEEDS = ["older-diff", "question", "needs-reply", "check", "declined", "replied", "reply-drafted"] as const;
 export type NeedReason = typeof NEEDS[number];
 // What the agent's check says needs another look.
 const UNADDRESSED = new Set<AssessmentVerdict>(["not_addressed", "partial", "disputed"]);
 
-export type GroupId = "needs-you" | "not-submitted" | "on-github" | "private";
+// fixes: on a PR, the draft comments a Send took from your own change, and those you resolved or dismissed: they don't post.
+export type GroupId = "needs-you" | "not-submitted" | "fixes" | "on-github" | "private";
 export const GROUP_TITLE: Record<GroupId, string> = {
-  "needs-you": "Needs you", "not-submitted": "Not submitted · only in BB", "on-github": "On GitHub", private: "Private · with the agent",
+  "needs-you": "Needs you", "not-submitted": "Not submitted · only in BB", fixes: "Sent to fix · won’t post", "on-github": "On GitHub", private: "Private · with the agent",
 };
-/** The list's chips: everything, or one group. */
-export type CommentFilter = "all" | "needs-you" | "not-submitted" | "on-github";
-export const FILTER_LABEL: Record<CommentFilter, string> = { all: "All", "needs-you": "Needs you", "not-submitted": "Not submitted", "on-github": "On GitHub" };
+
+/**
+ * Where a draft comment's fix stands, as the list's chips filter it: open (never sent, or edited or reopened since),
+ * sent and not reported, done or declined as reported or as the check found, resolved or dismissed by your click.
+ */
+export type FixState = "open" | "sent" | "done" | "declined" | "resolved" | "dismissed";
+export const FIX_STATES: readonly FixState[] = ["open", "sent", "done", "declined", "resolved", "dismissed"];
+export function fixState(comment: Pick<DraftComment, "state" | "claim">): FixState {
+  if (comment.state === "resolved" || comment.state === "dismissed") return comment.state;
+  if (comment.state !== "sent") return "open";
+  return comment.claim ? comment.claim.outcome : "sent";
+}
+/** Where an item's fix stands, for the chips: a draft comment's, or on your own PR a GitHub item's that went with a Send; null for others. */
+export function itemFix(item: CommentItem): FixState | null {
+  if (item.kind === "draft") return item.fix;
+  const mark = item.kind === "thread" ? item.sendStatus?.mark : undefined;
+  return !mark ? null : mark === "sent" ? "sent" : mark === "done" || mark === "looks-done" ? "done" : mark === "declined" || mark === "looks-declined" ? "declined" : null;
+}
+
+/** What the review agent's check found of each sent comment, by its id, against the Send that last carried it. */
+export type CommentChecks = Readonly<Record<string, { verdict: AssessmentVerdict; evidence: string }>>;
+/** The list's chips: everything, one group, or, once a comment was sent, where comments' fixes stand. */
+export type CommentFilter = "all" | "needs-you" | "not-submitted" | "on-github" | FixState;
+export const FILTER_LABEL: Record<CommentFilter, string> = {
+  all: "All", "needs-you": "Needs you", "not-submitted": "Not submitted", "on-github": "On GitHub",
+  open: "Open", sent: "Sent", done: "Done", declined: "Declined", resolved: "Resolved", dismissed: "Dismissed",
+};
+export const isFixFilter = (filter: CommentFilter): filter is FixState => (FIX_STATES as readonly string[]).includes(filter);
 
 /** Where an item is in the diff. */
 export interface CommentPlace {
@@ -87,7 +118,7 @@ export interface CommentCheck {
 interface ItemBase {
   /** "draft:" or "private:" and its file, line and side; a thread's node id, which Resolve and its drafted reply use; or "summary:<n>". */
   id: string;
-  /** Its header's words: STATE_LABEL of its state. */
+  /** Its header's words: STATE_LABEL of its state, and for one waiting for your reply, whose comment waits. */
   label: string;
   group: GroupId;
   needs: NeedReason | null;
@@ -106,6 +137,14 @@ interface ItemBase {
 export interface DraftItem extends ItemBase {
   kind: "draft";
   state: "draft" | "agent-draft" | "older-diff";
+  /** Where its fix stands, once sent, on your own change (draftStatus). */
+  mark?: FixMark;
+  /** Where its fix stands, for the list's chips: open until a Send takes it. */
+  fix: FixState;
+  /** It posts with Submit (src/draft.ts postable); on a local review, where nothing posts, always. */
+  posts: boolean;
+  /** Sent, resolved or dismissed: what the review agent's check found of it, against the Send that carried it. */
+  check: CommentCheck | null;
   comment: DraftComment;
   /** Your discussion with the agent about it, shown under it. */
   discussion: Discussion | null;
@@ -119,9 +158,13 @@ export interface PrivateItem extends ItemBase {
 
 export interface ThreadItem extends ItemBase {
   kind: "thread";
-  state: "waiting" | "replied" | "question" | "resolved" | "open";
+  state: "waiting" | "replied" | "question" | "resolved" | "open" | "needs-reply";
   /** You started it. */
   mine: boolean;
+  /** On your own PR, only bots wrote in it: On GitHub folds it, with the resolved and outdated. */
+  bot: boolean;
+  /** Waiting for your reply: whose comment waits, "@sam". */
+  waitingOn: string | null;
   /** The first comment's database id, which a reply answers. */
   replyTo: number | null;
   /** The first comment, then its replies, oldest first. */
@@ -137,9 +180,13 @@ export interface ThreadItem extends ItemBase {
   replyDraft: (ReplyDraft & { label: string }) | null;
   /** The thread on GitHub. */
   url: string | null;
-  /** The thread as GitHub listed it, and your feedback on it; at least one is there. */
+  /** The thread as GitHub listed it, and your feedback on it; at least one is there, but for a review summary or comment. */
   thread: ReviewThread | null;
   feedback: FeedbackItem | null;
+  /** On your own PR, a review summary or comment on the PR rather than a thread on a line, and a review's state; null for a thread. */
+  topLevel: { kind: "review" | "comment"; state: string | null } | null;
+  /** On your own PR, where its last Send took it, and what the thread reported (githubSendStatus); null if never sent. */
+  sendStatus: { label: string; at?: number; mark: FixMark } | null;
 }
 
 export interface AskItem extends ItemBase {
@@ -172,6 +219,14 @@ export interface CommentSources {
   prUrl?: string | null;
   /** A closed or merged PR: nothing on it needs you. */
   closed?: boolean;
+  /** Your own PR: everyone's threads are yours to answer, and `viewer` must be given, as `feedback` holds them all. */
+  ownPr?: boolean;
+  /** On your own PR, others' review summaries and comments on the PR, as the review last read them. */
+  conversation?: readonly PrConversationItem[] | null;
+  /** What a draft comment's status line says of the review; without it, as before 1.8.0. */
+  status?: StatusFacts;
+  /** getDraft's checks of sent comments, by id. */
+  checks?: CommentChecks;
 }
 
 const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
@@ -182,9 +237,98 @@ export const privateItemId = (at: CommentLocation) => `private:${keyOf(at)}`;
 const speaker = (author: Author) => author === "agent" ? "Agent" : "You";
 const STATE_OF: Record<"open" | "answered" | "question", ThreadItem["state"]> = { open: "waiting", answered: "replied", question: "question" };
 
+// A draft comment's one status line, the same on its card, its row and its pill. Where its comments post to GitHub (a
+// PR), an open one is a draft not submitted. On your own change a Send carries it to the main thread (src/loop.ts), so
+// it reads Open, Queued for or Sent to ‹thread› · Send n, Done or Declined as the thread reported, or Resolved; on a PR
+// you don't own a sent comment still posts, so it stays not submitted too.
+
+/** What a status line needs of its review: whether its comments post to GitHub, whether the change is yours, its Sends. */
+export interface StatusFacts {
+  /** A PR's review: open comments post with Submit. */
+  posts: boolean;
+  /** Your own change: a local review, a folder's review that became its PR, or your own PR. */
+  own: boolean;
+  sends?: readonly SendEntry[] | null;
+  /** 1.7.0's record of the last Send, which names its thread and lists what went before 1.8.0. */
+  sent?: ReviewLifecycle["sent"];
+  /** On your own PR, the threads, review summaries and comments on GitHub sent, by GitHub's id. */
+  threadSends?: ReviewLifecycle["threadSends"] | null;
+}
+
+/** As before 1.8.0: every comment posts, and none is yours to send. */
+export const POSTS: StatusFacts = { posts: true, own: false };
+
+/**
+ * Where a sent comment's fix stands, as its icon shows it: sent (or queued), done or declined as the thread reported, or
+ * as the review agent's check found it did without a report; then resolved or dismissed, by your click.
+ */
+export type FixMark = "sent" | "done" | "declined" | "looks-done" | "looks-declined" | "resolved" | "dismissed";
+
+/**
+ * A thread's report on a comment it was sent, as a status line says it: done or declined with its note, the thread's
+ * words without their closing full stop; one the review agent's check inferred, as the thread didn't report it, says so.
+ */
+function reportStatus(claim: Claim): { label: string; at: number; mark: FixMark } {
+  const done = claim.outcome === "done";
+  if (claim.inferred) return { label: `${done ? "Looks done" : "Looks declined"} · not reported`, at: claim.at, mark: done ? "looks-done" : "looks-declined" };
+  const note = claim.note?.trim().replace(/(?<!\.)\.$/, "");
+  return { label: `${done ? "Done" : "Declined"}${note ? ` · ${note}` : ""}`, at: claim.at, mark: done ? "done" : "declined" };
+}
+
+/**
+ * The status line, and when what it says happened, for a card to add how long ago; and on your own change, where a sent
+ * comment's fix stands (`mark`). A report's note is the thread's words, without its closing full stop.
+ */
+export function draftStatus(comment: DraftComment, state: DraftItem["state"], facts: StatusFacts): { label: string; at?: number; mark?: FixMark } {
+  const draft = facts.posts && (!facts.own || !comment.state || comment.state === "open");
+  const base = draft ? STATE_LABEL[state] : state === "older-diff" ? "Older diff" : comment.author === "agent" ? "Agent · Open" : "Open";
+  if (comment.state === "resolved") return { label: "Resolved", mark: "resolved" };
+  if (comment.state === "dismissed") return { label: "Dismissed", mark: "dismissed" };
+  // The thread's report on what it was sent; an edit opens it again, for the next Send.
+  if (comment.claim && comment.state === "sent") return reportStatus(comment.claim);
+  const send = comment.state === "sent" && comment.sendN !== undefined ? facts.sends?.find((entry) => entry.n === comment.sendN) : undefined;
+  if (send) {
+    const to = (facts.sent?.threadId === send.threadId ? facts.sent.title : null) ?? "the main thread";
+    const went = `${send.queued ? `Queued for ${to}` : `Sent to ${to}`} · Send ${send.n}`;
+    return { label: draft ? `${base} · ${went}` : went, at: send.at, ...draft ? {} : { mark: "sent" as const } };
+  }
+  // Sent before 1.8.0, as it reads now: 1.7.0's record.
+  const before = !comment.state ? facts.sent?.comments.find((entry) => sameLocation(entry, comment) && (entry.body === undefined || entry.body === comment.body)) : undefined;
+  if (before && facts.sent) {
+    const went = `Sent to ${facts.sent.title ?? "the thread that made the change"}`;
+    return { label: facts.posts ? `${base} · ${went}` : went, at: before.at };
+  }
+  return { label: base };
+}
+
+/**
+ * Where a thread, review summary or comment on GitHub went with a Send, and what the thread that took it reported: "Sent
+ * to Fixes for web#12 · Send 2", "Done · Renamed it". Null when it was never sent.
+ */
+export function githubSendStatus(id: string, facts: StatusFacts): { label: string; at?: number; mark: FixMark } | null {
+  const sent = facts.threadSends?.[id];
+  if (!sent) return null;
+  if (sent.claim) return reportStatus(sent.claim);
+  const send = facts.sends?.find((entry) => entry.n === sent.sendN);
+  if (!send) return null;
+  const to = (facts.sent?.threadId === send.threadId ? facts.sent.title : null) ?? "the main thread";
+  return { label: `${send.queued ? `Queued for ${to}` : `Sent to ${to}`} · Send ${send.n}`, at: send.at, mark: "sent" };
+}
+
+/** A review's state as its summary's header says it. */
+const REVIEW_STATE: Record<string, string> = { CHANGES_REQUESTED: "Requested changes", COMMENTED: "Review", APPROVED: "Approved" };
+/** What a review summary or a comment on the PR is, in a word or two: "Requested changes", "Comment on the PR". */
+export const topLevelLabel = (topLevel: NonNullable<ThreadItem["topLevel"]>) => topLevel.kind === "comment" ? "Comment on the PR" : REVIEW_STATE[topLevel.state ?? ""] ?? "Review";
+
 /** A draft comment's state: on an older diff whoever wrote it, else the agent's or yours. */
 export function draftState(comment: DraftComment, stale: readonly CommentLocation[]): DraftItem["state"] {
   return stale.some((location) => sameLocation(location, comment)) ? "older-diff" : comment.author === "agent" ? "agent-draft" : "draft";
+}
+
+/** A sent, resolved or dismissed comment's check, by its id; one reopened has none until it's sent again. */
+export function sentCheck(comment: DraftComment, checks: CommentChecks | undefined): CommentCheck | null {
+  const check = comment.id && (comment.state === "sent" || comment.state === "resolved" || comment.state === "dismissed") ? checks?.[comment.id] : undefined;
+  return check ? { verdict: check.verdict, label: CHECK_LABEL[check.verdict], evidence: check.evidence, fix: null } : null;
 }
 
 function checkOf(feedback: FeedbackItem | null): CommentCheck | null {
@@ -196,7 +340,8 @@ function checkOf(feedback: FeedbackItem | null): CommentCheck | null {
 
 /** Every comment-like item in a review, once each, in reading order: the whole PR's first, then by chapter, file and line. */
 export function buildItems(sources: CommentSources): CommentItem[] {
-  const { draft, threads, feedback, sections, patch, closed = false } = sources;
+  const { draft, threads, feedback, sections, patch, closed = false, ownPr = false } = sources;
+  const status = sources.status ?? POSTS;
   const order = sections.flatMap((section) => section.diffs.map((diff) => `${section.id}\0${diff.file}`));
   // For a file in more than one chapter, chapterAt splits the patch it's given: split it once here, and give it just that file's diff.
   let texts: Map<string, string> | undefined;
@@ -219,8 +364,17 @@ export function buildItems(sources: CommentSources): CommentItem[] {
   for (const comment of comments) {
     const state = draftState(comment, stale);
     const who = speaker(comment.author ?? "reviewer");
+    const facts = sources.status ?? POSTS;
+    const { label, mark } = draftStatus(comment, state, facts);
+    // One that doesn't post holds nothing back: an older diff only needs you where it would post. A sent one the check
+    // says isn't fixed, or the thread declined, waits for your click; one done and addressed doesn't.
+    const posts = !facts.posts || postable(comment, facts.own);
+    const fix = fixState(comment);
+    const check = sentCheck(comment, sources.checks);
+    const needs = state === "older-diff" && posts ? "older-diff" : comment.state !== "sent" ? null
+      : check && (check.verdict === "not_addressed" || check.verdict === "partial") ? "check" : fix === "declined" ? "declined" : null;
     add({
-      kind: "draft", id: draftItemId(comment), state, label: STATE_LABEL[state], ...needing(state === "older-diff" ? "older-diff" : null, "not-submitted"),
+      kind: "draft", id: draftItemId(comment), state, label, ...mark ? { mark } : {}, fix, posts, check, ...needing(needs, posts ? "not-submitted" : "fixes"),
       at: { file: comment.file, line: comment.line, side: comment.side, lines: linesOf(comment) }, chapterId: chapterOf(comment.file, comment.line, comment.side),
       who, latest: { who, body: comment.body, at: null }, nonBlocking: comment.severity === "nit",
       comment, discussion: discussions.find((discussion) => sameLocation(discussion, comment)) ?? null,
@@ -240,7 +394,7 @@ export function buildItems(sources: CommentSources): CommentItem[] {
   }
 
   const feedbackById = new Map((feedback?.items ?? []).map((item) => [item.id, item]));
-  const viewer = sources.viewer || threads.find((live) => feedbackById.has(live.id) && live.comments.length)?.comments[0].author || null;
+  const viewer = sources.viewer || (ownPr ? null : threads.find((live) => feedbackById.has(live.id) && live.comments.length)?.comments[0].author) || null;
   const replyDrafts = sources.replyDrafts ? new Map(sources.replyDrafts.map(({ threadId, ...reply }) => [threadId, reply])) : null;
   const person = (login: string, mine: boolean) => mine ? "You" : `@${login}`;
   /** A thread as GitHub listed it, your feedback on it, or both. */
@@ -254,13 +408,19 @@ export function buildItems(sources: CommentSources): CommentItem[] {
         return { author: comment.author, who: person(comment.author, mine), mine, bot: comment.bot ?? comment.author.toLowerCase().endsWith("[bot]"), body: comment.body, createdAt: comment.createdAt ?? null };
       })
       : stored ? [
-        { author: viewer ?? "", who: "You", mine: true, bot: false, body: stored.body, createdAt: stored.createdAt },
+        // On your own PR, someone else may have started it.
+        stored.author
+          ? { author: stored.author, who: person(stored.author, false), mine: false, bot: !!stored.authorBot, body: stored.body, createdAt: stored.createdAt }
+          : { author: viewer ?? "", who: "You", mine: true, bot: false, body: stored.body, createdAt: stored.createdAt },
         ...stored.replies.map((reply) => ({ author: reply.author, who: person(reply.author, reply.mine), mine: reply.mine, bot: reply.bot, body: reply.body, createdAt: reply.createdAt })),
       ] : [];
-    const mine = !!item || !!messages[0]?.mine;
-    // GitHub's read says whether it's resolved now; your feedback says who answered since your last comment.
+    const mine = ownPr ? !!messages[0]?.mine : !!item || !!messages[0]?.mine;
+    // GitHub's read says whether it's resolved now; your feedback says who answered since your last comment. On your
+    // own PR, the thread's latest comment that isn't a bot's says whether it waits for your reply.
     const resolved = live ? live.isResolved : stored!.isResolved;
-    const state = resolved ? "resolved" : !mine ? "open" : stored && stored.status !== "resolved" ? STATE_OF[stored.status] : "waiting";
+    const latestPerson = messages.filter((message) => !message.bot).at(-1);
+    const state = resolved ? "resolved" : ownPr ? latestPerson && !latestPerson.mine ? "needs-reply" : "open"
+      : !mine ? "open" : stored && stored.status !== "resolved" ? STATE_OF[stored.status] : "waiting";
     const outdated = live ? live.isOutdated : stored!.isOutdated;
     const fileComment = (live?.subjectType ?? stored?.subjectType) === "FILE";
     const path = live ? live.path : stored!.path;
@@ -272,20 +432,35 @@ export function buildItems(sources: CommentSources): CommentItem[] {
     const reply = replyDrafts ? replyDrafts.get(id) ?? null : item?.replyDraft ?? null;
     const check = checkOf(item);
     // Resolved, it's settled, whatever an earlier check said.
-    const needs = state === "resolved" ? null : state === "question" ? "question" : check && UNADDRESSED.has(check.verdict) ? "check" : state === "replied" ? "replied" : reply?.author === "agent" ? "reply-drafted" : null;
+    const needs = state === "resolved" ? null : state === "question" ? "question" : state === "needs-reply" ? "needs-reply" : check && UNADDRESSED.has(check.verdict) ? "check" : state === "replied" ? "replied" : reply?.author === "agent" ? "reply-drafted" : null;
     const tag = threadLabel(messages[0]?.body ?? "");
     const replyTo = live?.comments[0]?.databaseId ?? stored?.commentId ?? null;
     const last = messages.at(-1);
     add({
-      kind: "thread", id, state, label: STATE_LABEL[state], ...needing(needs, "on-github"),
+      // Waiting for your reply, it names whose comment waits: "Needs your reply to @sam".
+      kind: "thread", id, state, label: state === "needs-reply" ? `${STATE_LABEL[state]} to ${latestPerson!.who}` : STATE_LABEL[state], ...needing(needs, "on-github"),
+      waitingOn: state === "needs-reply" ? latestPerson!.who : null,
       at: path ? { file: path, line, side, lines: fileComment || shown === null ? null : line !== null && startLine !== null && startLine !== line ? `${startLine}–${line}` : `${shown}` } : null,
       chapterId: path ? chapterOf(path, line, side) : null,
       who: messages[0]?.who ?? person("unknown", mine), latest: last ? { who: last.who, body: last.body, at: last.createdAt } : null, nonBlocking: !!tag?.nonBlocking,
-      mine, replyTo, messages, resolvedBy: live?.resolvedBy ?? stored?.resolvedBy ?? null, outdated, fileComment, tag: tag?.label ?? null, check,
+      mine, bot: ownPr && messages.length > 0 && messages.every((message) => message.bot), replyTo, messages, resolvedBy: live?.resolvedBy ?? stored?.resolvedBy ?? null, outdated, fileComment, tag: tag?.label ?? null, check,
       replyDraft: reply ? { ...reply, label: REPLY_DRAFT_LABEL[reply.author] } : null,
       url: stored?.url ?? (sources.prUrl && replyTo !== null ? `${sources.prUrl}#discussion_r${replyTo}` : null),
-      thread: live, feedback: item,
+      thread: live, feedback: item, topLevel: null, sendStatus: ownPr ? githubSendStatus(id, status) : null,
     }, shown ?? 0);
+  }
+  // On your own PR, others' review summaries and comments on the PR: one waits for your reply as a thread does.
+  for (const said of ownPr ? sources.conversation ?? [] : []) {
+    const who = `@${said.author}`;
+    const topLevel = { kind: said.kind, state: said.state ?? null };
+    add({
+      kind: "thread", id: said.id, state: said.waiting ? "needs-reply" : "open", label: said.waiting ? `${STATE_LABEL["needs-reply"]} to ${who}` : topLevelLabel(topLevel),
+      ...needing(said.waiting ? "needs-reply" : null, "on-github"), waitingOn: said.waiting ? who : null,
+      at: null, chapterId: null, who, latest: { who, body: said.body, at: said.at }, nonBlocking: false,
+      mine: false, bot: said.bot, replyTo: null, messages: [{ author: said.author, who, mine: false, bot: said.bot, body: said.body, createdAt: said.at }],
+      resolvedBy: null, outdated: false, fileComment: false, tag: null, check: null, replyDraft: null, url: said.url,
+      thread: null, feedback: null, topLevel, sendStatus: githubSendStatus(said.id, status),
+    });
   }
   for (const live of threads) addThread(live, feedbackById.get(live.id) ?? null);
   const listed = new Set(threads.map((live) => live.id));
@@ -313,7 +488,7 @@ export function needsYou(items: readonly CommentItem[]): CommentItem[] {
 export interface CommentGroup {
   id: GroupId;
   title: string;
-  /** What its chip shows, folded items too: its chip's count. Not submitted counts every draft comment, as Submit does. */
+  /** What its chip shows, folded items too: its chip's count. Not submitted counts every draft comment that posts, as Submit does. */
   count: number;
   /** The line under its title: "1 blocking · 1 should fix · 2 nits" for drafts, "Yours: 2 of 2 handled +1 nit" on GitHub. */
   summary: string | null;
@@ -321,27 +496,33 @@ export interface CommentGroup {
   items: CommentItem[];
   /** Counted here but shown in Needs you under All: draft comments on an older diff. */
   elsewhere: number;
-  /** On GitHub, its resolved and outdated threads, folded under `label`: "2 resolved · 1 outdated". */
+  /** On GitHub, its resolved and outdated threads, and on your own PR bots', folded under `label`: "2 resolved · 1 outdated · 3 from bots". */
   folded: { label: string; items: CommentItem[] } | null;
 }
 
 /**
  * The list's groups in order, each in its own order, empty ones too so every chip has a count. Under All each item
- * shows once: Needs you, then drafts, then GitHub (yours first), then private discussions. Not submitted's chip also
- * shows the drafts on an older diff, which All shows under Needs you, so its count is what Submit sends. Pass the
+ * shows once: Needs you, then drafts, then those sent to fix that won't post, then GitHub (yours first), then private
+ * discussions. Not submitted's chip also shows the drafts on an older diff, which All shows under Needs you, so its
+ * count is what Submit sends. Pass the
  * items the list shows. `preExisting` (Settings' Keep pre-existing problems apart) adds Not submitted's "1 pre-existing".
+ * On your own PR (`ownPr`), On GitHub has no "Yours: …handled": no one answers your feedback there.
  */
-export function groups(items: readonly CommentItem[], preExisting = false): CommentGroup[] {
+export function groups(items: readonly CommentItem[], preExisting = false, ownPr = false): CommentGroup[] {
   const home = (id: GroupId) => items.filter((item) => item.group === id);
   const group = (id: GroupId, shown: CommentItem[], summary: string | null): CommentGroup => ({ id, title: GROUP_TITLE[id], count: shown.length, summary, items: shown, elsewhere: 0, folded: null });
   const drafts = home("not-submitted");
-  const everyDraft = items.filter((item) => item.kind === "draft");
+  // Every draft that posts, wherever All shows it.
+  const everyDraft = items.filter((item) => item.kind === "draft" && item.posts);
+  const fixes = home("fixes");
   const github = home("on-github");
   const yours = (item: CommentItem) => item.kind === "ask" || item.kind === "thread" && item.mine;
-  const folds = (item: CommentItem) => item.kind === "thread" && (item.state === "resolved" || item.outdated);
+  const folds = (item: CommentItem) => item.kind === "thread" && (item.state === "resolved" || item.outdated || item.bot);
   const ordered = [...github.filter(yours), ...github.filter((item) => !yours(item))];
   const folded = ordered.filter(folds);
   const resolved = folded.filter((item) => item.state === "resolved").length;
+  const outdated = folded.filter((item) => item.kind === "thread" && item.state !== "resolved" && item.outdated).length;
+  const bots = folded.length - resolved - outdated;
   const draftComments = everyDraft.flatMap((item) => item.kind === "draft" ? [item.comment] : []);
   const apart = preExisting ? draftComments.filter(isPreExisting).length : 0;
   return [
@@ -350,12 +531,22 @@ export function groups(items: readonly CommentItem[], preExisting = false): Comm
       ...group("not-submitted", drafts, [severityCounts(draftComments), apart ? `${apart} pre-existing` : ""].filter(Boolean).join(" · ") || null),
       count: everyDraft.length, elsewhere: everyDraft.length - drafts.length,
     },
+    group("fixes", fixes, fixCounts(fixes) || null),
     {
-      ...group("on-github", ordered.filter((item) => !folds(item)), yoursTally(items)), count: github.length,
-      folded: folded.length ? { label: [resolved ? `${resolved} resolved` : "", folded.length - resolved ? `${folded.length - resolved} outdated` : ""].filter(Boolean).join(" · "), items: folded } : null,
+      ...group("on-github", ordered.filter((item) => !folds(item)), ownPr ? null : yoursTally(items)), count: github.length,
+      folded: folded.length ? { label: [resolved ? `${resolved} resolved` : "", outdated ? `${outdated} outdated` : "", bots ? `${bots} from bots` : ""].filter(Boolean).join(" · "), items: folded } : null,
     },
     group("private", home("private"), null),
   ];
+}
+
+/** "1 sent · 2 done · 1 resolved": where draft comments' fixes stand. */
+export function fixCounts(items: readonly CommentItem[]): string {
+  const fixes = items.flatMap((item) => item.kind === "draft" ? [item.fix] : []);
+  return FIX_STATES.flatMap((state) => {
+    const n = fixes.filter((fix) => fix === state).length;
+    return n ? [`${n} ${FILTER_LABEL[state].toLowerCase()}`] : [];
+  }).join(" · ");
 }
 
 /** "Yours: 2 of 2 handled +1 nit": your blocking threads resolved or answered on GitHub, then your non-blocking ones. */
@@ -391,7 +582,7 @@ export function fileCounts(items: readonly CommentItem[]): Map<string, { notSubm
 /** What Submit posts, from the draft whatever the list shows, and the drafted replies, which post on their own. */
 export interface ToSend {
   verdict: Verdict;
-  /** The draft's comments, with those on an older diff, which hold Submit until they're edited or removed. */
+  /** The draft's comments that post, with those on an older diff, which hold Submit until they're edited or removed; on a local review, all of them. */
   comments: number;
   bySeverity: Record<Severity, number>;
   /** "1 blocking · 1 should fix · 2 nits". */
@@ -404,8 +595,8 @@ export interface ToSend {
   summary: Author | null;
 }
 
-export function toSend({ draft, threads, feedback, replyDrafts }: CommentSources): ToSend {
-  const comments = draft?.draft.comments ?? [];
+export function toSend({ draft, threads, feedback, replyDrafts, status = POSTS }: CommentSources): ToSend {
+  const comments = (draft?.draft.comments ?? []).filter((comment) => !status.posts || postable(comment, status.own));
   const stale = draft?.stale ?? [];
   const agent = comments.filter((comment) => comment.author === "agent").length;
   const known = new Set([...threads.map((thread) => thread.id), ...(feedback?.items ?? []).map((item) => item.id)]);
@@ -424,10 +615,12 @@ export function toSend({ draft, threads, feedback, replyDrafts }: CommentSources
 
 /**
  * What the list shows for one chip, or for All, in its order: All each item once by group; Not submitted every draft
- * comment in reading order; On GitHub's folded threads only while they show.
+ * comment that posts, and a fix's chip every draft comment whose fix stands so, each in reading order; On GitHub's
+ * folded threads only while they show.
  */
 export function shownItems(items: readonly CommentItem[], filter: CommentFilter = "all", showFolded = false): CommentItem[] {
-  if (filter === "not-submitted") return items.filter((item) => item.kind === "draft");
+  if (filter === "not-submitted") return items.filter((item) => item.kind === "draft" && item.posts);
+  if (isFixFilter(filter)) return items.filter((item) => itemFix(item) === filter);
   return groups(items)
     .filter(({ id }) => filter === "all" || id === filter)
     .flatMap((group) => [...group.items, ...(showFolded ? group.folded?.items ?? [] : [])]);

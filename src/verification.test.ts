@@ -27,7 +27,7 @@ test("with Run the re-review check off, the check doesn't start, though the defa
   await store.setLifecycle("pr-1", { submittedVerdict: "REQUEST_CHANGES", submittedAt: 1000, submittedHeadSha: "0000000", signals: review.signals });
   await store.setAssistantThread("pr-1", "assistant");
   await store.savePreferences({ ...defaultPreferences, knobs: { ...defaultPreferences.knobs, runReReviewCheck: false } }, 0);
-  expect(await startVerification(bb, store, "pr-1", "the reviewer asked for a check")).toBe(false);
+  expect(await startVerification(bb, store, "pr-1", "the reviewer asked for a check", "ask")).toBe(false);
   expect(harness.inspection.sdk.callsTo("threads.send")).toEqual([]);
   expect((await store.getReview("pr-1"))?.verifyingSince).toBeFalsy();
 });

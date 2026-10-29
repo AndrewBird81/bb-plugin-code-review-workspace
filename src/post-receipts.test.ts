@@ -170,9 +170,21 @@ test("a reply GitHub took whose draft the store couldn't clear is finished by th
   expect(await postDraftedReply(postReceipts(bb.storage.kv), store, "pr-1", "T1", "Fixed?", post)).toEqual({ ok: true });
   expect(posts).toBe(1);
   expect((await store.listReplyDrafts("pr-1")).size).toBe(0);
-  // Another reply on the thread posts.
-  expect(await postDraftedReply(postReceipts(bb.storage.kv), store, "pr-1", "T1", "Fixed?", post)).toEqual({ ok: true });
+  // For 15 minutes, a Send of the same text, from a page that gave up waiting on the first or a deliberate repeat, isn't
+  // posted: it says GitHub already has it, and leaves its draft to change.
+  await store.setReplyDraft("pr-1", "T1", "Fixed?", "reviewer");
+  expect(await postDraftedReply(postReceipts(bb.storage.kv), store, "pr-1", "T1", "Fixed?", post)).toEqual({ ok: true, alreadyPosted: true });
+  expect(posts).toBe(1);
+  expect((await store.listReplyDrafts("pr-1")).size).toBe(1);
+  // Other text posts; so does the same text, after that.
+  expect(await postDraftedReply(postReceipts(bb.storage.kv), store, "pr-1", "T1", "Fixed, thanks", post)).toEqual({ ok: true });
   expect(posts).toBe(2);
+  vi.useFakeTimers({ toFake: ["Date"] });
+  try {
+    vi.setSystemTime(Date.now() + 15 * 60_000);
+    expect(await postDraftedReply(postReceipts(bb.storage.kv), store, "pr-1", "T1", "Fixed, thanks", post)).toEqual({ ok: true });
+    expect(posts).toBe(3);
+  } finally { vi.useRealTimers(); }
 }, 15_000);
 
 // Review round 1, BLOCKING 2: a record that saved the submitted state but failed to clear the draft was taken for
@@ -191,7 +203,7 @@ test("a review whose record saved the submitted state but not the cleared draft 
   expect(await store.getReview("pr-1")).toMatchObject({ submittedReviewId: "R1" });
   expect(await submit(store)).toEqual({ ok: true, url: "https://github.com/acme/web/pull/1#r1" });
   expect(await store.getDraft("pr-1")).toMatchObject({ comments: [], body: "" });
-  expect(await submit(store)).toMatchObject({ ok: false, error: expect.stringContaining("changed since this page showed") });
+  expect(await submit(store)).toMatchObject({ ok: false, error: expect.stringContaining("Draft changed · review it") });
   expect(gh.posts).toHaveLength(1);
 }, 15_000);
 

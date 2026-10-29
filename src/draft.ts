@@ -1,4 +1,6 @@
 export type Verdict = "APPROVE" | "REQUEST_CHANGES" | "COMMENT";
+/** What holds a Submit back until you submit anyway (src/submit-review.ts). */
+export const SUBMIT_WARNINGS = ["revision", "closed", "generating", "no-head", "older-diff", "outside-diff", "new-commits", "base-changed"] as const;
 export const VERDICT_LABEL: Record<Verdict, string> = { APPROVE: "Approve", COMMENT: "Comment", REQUEST_CHANGES: "Request changes" };
 
 /** How much a comment matters to the author. A comment without one has none. */
@@ -61,6 +63,39 @@ export interface DraftComment {
   evidence?: string;
   /** False for a problem in code the PR didn't change: it shows as Pre-existing and doesn't count against Approve. */
   introduced?: false;
+  /** `c<n>`, given when the comment is first sent (src/store.ts newCommentIds): unique across reviews, so a report names one comment. */
+  id?: string;
+  /** Where its fix stands. Absent reads as open: comments from before 1.8.0 have none. Only the reviewer's click resolves or dismisses one. */
+  state?: CommentState;
+  /** The Send that last carried it, whose diff is kept as the snapshot `send:<sendN>`. */
+  sendN?: number;
+  /** What the thread it was sent to reported for it. */
+  claim?: Claim;
+  /** The review agent changed the reviewer's comment, as they asked. Only the server sets it; an edit of its text or lines clears it. */
+  editedBy?: "agent";
+}
+
+/** open: not sent, or edited or reopened since; sent: with the main thread or a fixer; resolved: fixed; dismissed: won't be. */
+export const COMMENT_STATES = ["open", "sent", "resolved", "dismissed"] as const;
+export type CommentState = typeof COMMENT_STATES[number];
+
+/**
+ * Whether a comment posts with Submit. On your own change (`own`) only an open one does: a Send took it to the thread
+ * that fixes it. On someone else's PR a Send never changes what posts: all but the ones you resolved or dismissed.
+ */
+export const postable = (c: Pick<DraftComment, "state">, own: boolean) => own ? !c.state || c.state === "open" : c.state !== "resolved" && c.state !== "dismissed";
+
+/** A thread's report on a comment it was sent: with `bb review report`, or inferred by Check fixes. */
+export interface Claim {
+  outcome: "done" | "declined";
+  note?: string;
+  /** The commit it says has the fix. */
+  commit?: string;
+  /** The thread that reported it, as its caller said; null for a shell outside any thread. */
+  threadId: string | null;
+  at: number;
+  /** Check fixes read it from the thread's last reply and the changes since the Send: the thread didn't report it. */
+  inferred?: true;
 }
 
 /** A comment's place in the diff; a draft holds at most one comment per location. */
@@ -165,16 +200,22 @@ export function sameComments(a: readonly DraftComment[], b: readonly Keyed[]): b
   return a.length === b.length && a.every((c, i) => key(c) === key(b[i]));
 }
 
-/** `preExisting`: mark the problems the PR didn't introduce, as postedBody does. */
-export function toGithubReviewPayload(draft: Draft, preExisting = false): {
+/** An inline comment as GitHub's review API takes it. */
+export type GithubReviewComment = { path: string; line: number; side: string; start_line?: number; start_side?: string; body: string };
+
+/**
+ * `preExisting`: mark the problems the PR didn't introduce, as postedBody does. `own`: your own change, as postable reads
+ * it: always said, as a caller that forgot it would post comments sent to fix.
+ */
+export function toGithubReviewPayload(draft: Draft, preExisting: boolean, own: boolean): {
   event: Verdict;
   body: string;
-  comments: { path: string; line: number; side: string; start_line?: number; start_side?: string; body: string }[];
+  comments: GithubReviewComment[];
 } {
   return {
     event: draft.verdict,
     body: draft.body,
-    comments: draft.comments.map((c) => ({
+    comments: draft.comments.filter((c) => postable(c, own)).map((c) => ({
       path: c.file, line: c.line, side: c.side,
       ...(c.startLine !== undefined ? { start_line: c.startLine, start_side: c.startSide ?? c.side } : {}),
       body: postedBody(c, preExisting),

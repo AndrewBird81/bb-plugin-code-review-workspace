@@ -292,8 +292,10 @@ export async function beginGuide(
         if (!await tx.isCurrentGeneration(targetKey, id)) return null;
         const ok = !controller.signal.aborted && await tx.getGuide(targetKey) !== null;
         const before = ok ? await tx.guideBackupHead(targetKey) : null;
-        // A failed rebuild keeps the guide you had; a guide this run already submitted stands.
+        // A failed rebuild keeps the guide you had; a guide this run already submitted stands, and is the diff's now.
         if (ok) await tx.dropGuideBackup(targetKey);
+        const feature = ok ? (await tx.getReview(targetKey))?.feature : null;
+        if (feature?.guideOlderThanDiff) await tx.setLifecycle(targetKey, { feature: { ...feature, guideOlderThanDiff: null } });
         const putBack = !ok && await tx.restoreGuide(targetKey);
         // A rebuild you stopped is the guide you had, ready; a first guide you stopped waits for Build the guide.
         const restored = stopped && putBack;
@@ -313,7 +315,7 @@ export async function beginGuide(
       const { ok, before, review, trusted } = outcome;
       // The review's assistant reads the new guide when its runtime restarts.
       if (ok) void refreshAssistants(bb, store, [targetKey]).catch((error) => bb.log.warn(`Could not restart the idle review assistant of ${targetKey}: ${String(error)}`));
-      const checking = ok && !!review && !!baselineOf(review).at && trusted && await startVerification(bb, store, targetKey, "the guide was rebuilt for the PR's new commits");
+      const checking = ok && !!review && !!baselineOf(review).at && trusted && await startVerification(bb, store, targetKey, "the guide was rebuilt for the PR's new commits", "automatic");
       const newCommits = before && review?.headSha && before !== review.headSha ? { from: before, to: review.headSha } : undefined;
       if (ok && !checking && !(review && baselineOf(review).at)) await startAutomaticReview(bb, store, targetKey, newCommits).catch(async (error) => {
         return store.exclusive(async (tx) => {

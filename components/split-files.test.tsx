@@ -63,7 +63,7 @@ async function renderWorkspace({ bundle = {}, review = {}, rpc = {} }: { bundle?
     ...rpc,
   };
   const slot = renderSlot(app.navPanels[0]!, { subPath: "pr-42" }, { rpc: handlers as any });
-  await slot.findByRole("main", { name: "Review" });
+  await slot.findByRole("main", { name: /^Review\b/ });
   return slot;
 }
 

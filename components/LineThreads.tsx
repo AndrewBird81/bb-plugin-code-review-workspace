@@ -142,7 +142,8 @@ export function useDiffThreads(targetKey: string, enabled: boolean, account?: st
       const current = commentsOf(targetKey).replyDrafts ?? [];
       updateComments(targetKey, { replyDrafts: [...current.filter((entry) => entry.threadId !== threadId), ...(draft ? [{ threadId, ...draft }] : [])] });
     };
-    async function send(threadId: string, request: (account: string) => Promise<{ ok: boolean; error?: string }>, failed: string): Promise<boolean> {
+    /** Whether it went: false when it failed, "already" when GitHub had the reply already, so it wasn't sent again. */
+    async function send(threadId: string, request: (account: string) => Promise<{ ok: boolean; error?: string; alreadyPosted?: boolean }>, failed: string): Promise<boolean | "already"> {
       const account = accountRef.current;
       if (!account) {
         toast.error("Your GitHub account isn’t verified yet. Try again in a moment, or reload this review.");
@@ -154,7 +155,8 @@ export function useDiffThreads(targetKey: string, enabled: boolean, account?: st
       try {
         const result = await request(account);
         if (!result.ok) toast.error(result.error ?? failed);
-        return result.ok;
+        else if (result.alreadyPosted) toast.info("GitHub already has this reply, so it wasn’t sent again. Change it to send another.");
+        return result.ok && result.alreadyPosted ? "already" : result.ok;
       } catch (error) {
         toast.error(error instanceof Error ? error.message : failed);
         return false;
@@ -165,7 +167,7 @@ export function useDiffThreads(targetKey: string, enabled: boolean, account?: st
     return {
       async reply(threadId, body) {
         const failed = "Couldn’t post the reply. It’s still here.";
-        const ok = mine(threadId)
+        const sent = mine(threadId)
           // Your own threads: the server reads them again, so the thread waits on its author at once.
           ? await send(threadId, async (account) => {
             const result = await rpc.call("replyToFeedback", { targetKey, threadId, body, account });
@@ -176,11 +178,12 @@ export function useDiffThreads(targetKey: string, enabled: boolean, account?: st
             const inReplyTo = commentsOf(targetKey).threads.find((thread) => thread.id === threadId)?.comments[0]?.databaseId;
             return inReplyTo == null ? Promise.resolve({ ok: false }) : rpc.call("replyToThread", { targetKey, inReplyTo, body, threadId, account });
           }, failed);
-        if (ok) {
+        // One GitHub had already keeps its text here, to change and send.
+        if (sent === true) {
           setDraft(threadId, null);
           await loadThreads();
         }
-        return ok;
+        return sent === true;
       },
       async setResolved(threadId, resolved) {
         const ok = await send(threadId, (account) => rpc.call(resolved ? "resolveThread" : "unresolveThread", { targetKey, threadId, account }), "Couldn’t update the thread.");

@@ -7,6 +7,7 @@ Notes for whoever runs the BB server Code Review Workspace is installed on. The 
 - **Settings → Plugin updates** checks for a compatible release and offers **Update now**. **Update automatically when idle** is off by default; on, the plugin checks hourly after five idle minutes, and updates only with every Code Review Workspace and Settings page closed and no generation, save, or submission in progress. BB handles failed-install rollback.
 - `bb plugin update code-review-workspace` also updates it. Close the plugin's pages first, since BB's external update command does not use the in-plugin activity guard.
 - Installs from a Git range, such as `^1.0.0`, follow its compatible releases (1.x). Local directories and exact tags are pinned and do not receive automatic updates.
+- 1.8.0 needs BB 0.48.0 or later (plugin SDK 0.6.79+). On an older BB, Plugin updates says a newer release needs a newer BB: update the BB server, then check again.
 - Changing a local installation to a Git source is a separate migration: this BB version requires removing the old source first, which can clear plugin data. Do not remove an existing installation just to obtain updates; keep its data and arrange a backup/migration with the BB operator. Fresh installs from a Git range are ready for normal updates.
 - An interrupted browser connection can leave an editing session protected. If the updater still asks you to close pages after they are all closed, save any work elsewhere and reload the plugin through BB. Editing sessions intentionally never expire while a laptop might still hold unsaved text.
 
@@ -14,10 +15,18 @@ Notes for whoever runs the BB server Code Review Workspace is installed on. The 
 
 - Reviews in Needs review and Waiting on author are read every two minutes, or every minute where GitHub's notifications can't be read.
 - Reviews in Reviewed are read every 10 minutes, and Archive every 30.
-- New PRs to track, under **Track reviews from GitHub**, are looked for every 5 minutes.
+- New PRs to track, under **Track reviews from GitHub**, are looked for every 5 minutes; with **Include your own PRs** on, one more search looks for your own open PRs. Their threads, everyone's, are read whether or not you've reviewed them, and so are others' review summaries and comments on the PR.
 - A GitHub notification about a PR reads it sooner, and **Refresh** reads at once. The notifications are a read-only check: the plugin never marks them read.
-- Reading GitHub costs about 6 GraphQL points per 10 PRs a pass, plus about 2 points to re-read the threads of an active review with an open thread of yours, every 10 minutes, out of the 5,000 an hour an account has. On a rate limit, reading pauses for 15 minutes.
+- Reading GitHub costs about 6 GraphQL points per 10 PRs a pass, plus about 2 points to re-read the threads of an active review with an open thread of yours (on your own PR, anyone's), every 10 minutes, out of the 5,000 an hour an account has. On a rate limit, reading pauses for 15 minutes.
+- While **Send comments to the main thread** is on, a review that can push reads its branch's head on GitHub, one GraphQL read, when you Push and each time its main thread goes idle, fails, or is archived or deleted.
 - A failed GitHub read preserves saved state.
+
+## Writes to GitHub
+
+- Every write, a Submit, a reply or resolve you click, and what the review agent posts, goes through one line on the BB server: one at a time, each at least a second after the last.
+- A write GitHub rate-limits waits as long as GitHub asks, or a minute, doubling, and tries again up to three times; the writes behind it wait too. A wait over 5 minutes is refused instead, saying how long.
+- A write the page waits on that can't start within 20 seconds is refused at once, and never posts later. Submit runs once and is never retried.
+- A write that takes over 5 minutes is stopped and not retried, as it may have posted.
 
 ## Needs You delivery
 
@@ -28,8 +37,10 @@ Notes for whoever runs the BB server Code Review Workspace is installed on. The 
 ## Storage and sharing
 
 - Review metadata, patches, generated guides, drafts, and settings are in the plugin's database: SQLite, the plugin's `data.db` in this BB installation, by default, or Postgres (see [Storage backends](#storage-backends)). The plugin's BB settings and a few small key-value rows, `storage:owner` among them, stay in BB's own database either way. See [Removing the plugin](#removing-the-plugin) for what `bb plugin remove` deletes.
-- Reviews of PRs merged or closed for 30 days drop their stored diff to save space; opening one reads the diff from GitHub again.
-- Git and `gh` run on the BB server, with its `gh` credentials. Switching the GitHub account in the plugin switches `gh` for everything on the server, other agents and terminals included.
+- Reviews of PRs merged or closed for 30 days drop their stored diff to save space; opening one reads the diff from GitHub again. A folder's review archived for 30 days after BB removed its folder, with no comments, drops its diff too, for good.
+- Each Send keeps a copy of the diff it went with, for **Since your last Send** and the check of its fixes: a review keeps its last 20 Sends, and any a comment still names. **Agent activity** keeps the last 100 entries.
+- Git and `gh` run on the BB server, with its `gh` credentials. Switching the GitHub account in the plugin switches `gh` for everything on the server, other agents and terminals included. With **Let the review agent act when you ask** on, the default, the review agent posts with them too, when you ask.
+- A folder's review reads the folder on whichever machine it's on, through BB's Git plugin; the plugin runs no git there, and a push comes from the thread working in it. **Review changes** above a thread's message box reads only the Git status BB's Changed files already reads, and reads the diff when you click it on a folder with no review yet. A thread's **Review** tab reads no git.
 - A shared BB server uses shared server credentials and plugin storage; it is not a multi-tenant review service. Each reviewer should use their own BB installation.
 
 ## Storage backends
@@ -182,7 +193,7 @@ If the reviews are in Postgres and their schema is gone, because the database wa
 
 Before removing, copy `data.db`, and the `data-export-…` and `data-backup-…` files beside it, off the server if you may want them: another BB version may delete them with the plugin.
 
-`bb plugin remove code-review-workspace` never touches Postgres: the schema, its tables, the role, and the database stay until you drop them. On BB 0.46, removing also keeps `data.db`, the export and backup files beside it, and the key-value rows, `storage:owner` included, but deletes the plugin's settings, the Postgres password among them. Installed again, with the reviews still marked as in Postgres, the plugin starts in maintenance until the storage settings are set again.
+`bb plugin remove code-review-workspace` never touches Postgres: the schema, its tables, the role, and the database stay until you drop them. It deletes the plugin's settings, the Postgres password among them. BB 0.46 kept `data.db`, the export and backup files beside it, and the key-value rows, `storage:owner` included, and BB may still. Installed again, with the reviews still marked as in Postgres, the plugin then starts in maintenance until the storage settings are set again.
 
 ## Logs
 

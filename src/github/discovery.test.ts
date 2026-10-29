@@ -1,5 +1,5 @@
 import { expect, test, vi } from "vitest";
-import { discoverPrs } from "./discovery";
+import { discoverOwnPrs, discoverPrs } from "./discovery";
 
 const node = (repo: string, number: number, extra: Record<string, unknown> = {}) => ({
   number, title: `PR ${number}`, url: `https://github.com/${repo}/pull/${number}`, isDraft: false,
@@ -44,4 +44,27 @@ test("discoverPrs merges a PR found by both searches, by lowercased repo and num
 test("discoverPrs rejects when a search fails", async () => {
   const run = vi.fn(async () => ({ code: 1, stderr: "gh: API rate limit exceeded", stdout: "" }));
   await expect(discoverPrs(run, { reviewed: false })).rejects.toThrow(/rate limit/);
+});
+
+test("discoverOwnPrs searches your open PRs, with their head branch, and reads nothing else", async () => {
+  const run = vi.fn(async (_args: string[]) => results([node("Acme/Web", 4, { headRefName: "feat/qa", author: { login: "me" } }), {}]));
+  const prs = await discoverOwnPrs(run);
+  expect(searched(run)).toEqual(["is:pr is:open author:@me archived:false sort:updated-desc"]);
+  expect(run.mock.calls[0][0].join(" ")).toContain("headRefName");
+  expect(run.mock.calls[0][0].join(" ")).not.toMatch(/mutation/i);
+  expect(prs).toEqual([{
+    repo: "acme/web", number: 4, title: "PR 4", url: "https://github.com/Acme/Web/pull/4", author: "me",
+    updatedAt: Date.parse("2026-10-10T12:00:00Z"), isDraft: false, requested: false, reviewed: false, own: true, head: "feat/qa",
+  }]);
+});
+
+test("the searches for review requests don't ask for head branches", async () => {
+  const run = fakeSearch([], []);
+  await discoverPrs(run, { reviewed: true });
+  for (const [args] of run.mock.calls) expect((args as string[]).join(" ")).not.toContain("headRefName");
+});
+
+test("discoverOwnPrs rejects when its search fails", async () => {
+  const run = vi.fn(async () => ({ code: 1, stderr: "gh: Could not resolve to a User", stdout: "" }));
+  await expect(discoverOwnPrs(run)).rejects.toThrow(/Could not resolve/);
 });

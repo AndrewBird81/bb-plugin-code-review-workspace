@@ -47,7 +47,7 @@ async function renderWorkspace() {
     getFeedback: () => ({ feedback: null }),
     getReplyDrafts: () => ({ drafts: [] }),
   } as any });
-  await slot.findByRole("main", { name: "Review" });
+  await slot.findByRole("main", { name: /^Review\b/ });
   const diff = () => within(slot.getByTestId("filediff"));
   await diff().findByRole("article", { name: "Draft comment on src/a.ts:2" });
   await diff().findByRole("group", { name: "GitHub thread on src/a.ts:2, folded" });

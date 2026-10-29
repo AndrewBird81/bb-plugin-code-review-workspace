@@ -1,6 +1,7 @@
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import { z } from "zod";
 import type { AsyncStore } from "./store-queue";
+import { identityIn, placeFacts } from "./review-places";
 
 const PREFIX = "needs-you:pending:";
 const MAX_AGE = 24 * 60 * 60 * 1000;
@@ -88,12 +89,14 @@ function createNotifications(bb: BbPluginApi, store: AsyncStore) {
       if (!record || disposed) continue;
       // The async storage lock yields; a new generation may have started since its read. Recheck immediately before
       // dispatch, in the same turn as what the alert says.
-      const title = await store.exclusive(async (tx) => {
+      const read = await store.exclusive(async (tx) => {
         const meta = await tx.getReview(record.targetKey);
         if (!meta || !await current(tx, record)) return null;
-        return (meta.name || meta.title || (await tx.getGuide(record.targetKey))?.title || "Review guide").slice(0, 240);
+        return { meta, all: await tx.listReviews(), guideTitle: (await tx.getGuide(record.targetKey))?.title };
       });
-      if (title === null) continue;
+      if (read === null) continue;
+      // The review's id leads, as in its window's title: "api#4512 · Fix login race".
+      const title = identityIn(await placeFacts(bb, read.all), read.all, read.meta, read.guideTitle).line.slice(0, 240);
       const body = record.kind === "turn" ? (record.body ?? "It’s your turn to review.")
         : record.status === "ready" ? "Your guide is ready. Open it to start reviewing." : "The guide couldn’t be generated. Open the review to try again.";
       const result = await bb.sdk.plugins.callRpc({ pluginId: "inbox", method: "publishActivity", input: {

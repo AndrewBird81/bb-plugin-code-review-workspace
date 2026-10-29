@@ -7,7 +7,7 @@ import { messageAssistant } from "./agent";
 import { assistantReview, describeComments, unchangeable } from "./draft-comments";
 import { describeSummary } from "./draft-summary";
 import { askAt, setAsk } from "./asks";
-import { codeFence } from "./untrusted";
+import { codeFence, inlineCode } from "./untrusted";
 import type { AsyncStore } from "./store-queue";
 
 const MAX_HISTORY = 20_000;
@@ -16,6 +16,8 @@ export interface AskInput extends CommentLocation {
   /** The other end of the lines the reviewer selected, if several. */
   startLine?: number;
   body: string;
+  /** The plugin wrote any of `body`, by filling the box or composing it: it confirms no post. */
+  inserted?: boolean;
 }
 
 function historyLine(entry: DiscussionEntry, at: CommentLocation): string {
@@ -54,7 +56,7 @@ export async function discussionMessage(store: AsyncStore, targetKey: string, in
       code ? `The lines:\n${codeFence(code, "diff")}` : "",
       history ? `Earlier in this discussion:\n${history}` : "",
     ].filter(Boolean).join("\n\n");
-    return { text: `On \`${at.file}:${lines}\`: ${input.body}`, context };
+    return { text: `On ${inlineCode(`${at.file}:${lines}`)}: ${input.body}`, context };
   });
 }
 
@@ -72,7 +74,8 @@ export async function askAgent(bb: BbPluginApi, store: AsyncStore, targetKey: st
   });
   let result: Awaited<ReturnType<typeof messageAssistant>>;
   try {
-    result = await messageAssistant(bb, store, targetKey, text, context);
+    // Your words are your message; where it is in the diff is the plugin's, and the PR's.
+    result = await messageAssistant(bb, store, targetKey, text, context, { kind: "ask", said: input.body, ...(input.inserted ? { inserted: true } : {}) });
   } catch (error) {
     await setAsk(store, targetKey, input, before);
     throw error;

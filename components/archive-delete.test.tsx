@@ -150,7 +150,7 @@ test("deleting from the open review returns to the list", async () => {
     getChecks: () => ({ bucket: "none", checks: [] }),
     deleteReview: () => ({ ok: true }),
   } });
-  await slot.findByText("Fix login");
+  await slot.findByRole("heading", { name: "Fix login" });
   // In the band, where BB's title bar didn't take the review's commands.
   fireEvent.click(await slot.findByRole("button", { name: "Review actions" }));
   fireEvent.click(await slot.findByRole("button", { name: "Delete…" }));
@@ -168,7 +168,7 @@ test("an open review deleted elsewhere shows Review not found, not a regeneratio
     getReviewBundle: () => deleted ? { review: null, guide: null, patch: "", revision: "r0" } : { review: { targetKey: "pr-7", kind: "pr", title: "Fix login", status: "ready" }, guide, patch: "", revision: "r1" },
     getChecks: () => ({ bucket: "none", checks: [] }),
   } });
-  await slot.findByText("Fix login");
+  await slot.findByRole("heading", { name: "Fix login" });
   deleted = true;
   await slot.behavior.emitRealtime("review:pr-7", { ts: 1 });
   await slot.findByText("Review not found");

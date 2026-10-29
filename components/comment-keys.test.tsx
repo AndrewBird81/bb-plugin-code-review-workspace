@@ -70,7 +70,7 @@ async function renderReview({ knobs = defaultKnobs, rpc = {}, drafts = comments 
     ...rpc,
   };
   const slot = renderSlot(app.navPanels[0]!, { subPath: "pr-42" }, { rpc: handlers as any });
-  await slot.findByRole("main", { name: "Review" });
+  await slot.findByRole("main", { name: /^Review\b/ });
   await slot.findByRole("article", { name: "Draft comment on src/a.ts:2" });
   await slot.findByRole("article", { name: "GitHub thread on src/b.ts:1" });
   return { slot, rpc: handlers };

@@ -6,9 +6,9 @@ export type DraftRecovery = {
    * `inline` when it was being written in the diff rather than the panel;
    * `asking` when it was a message to the agent; `startLine`, and `startSide` when it differs, when it was about several lines;
    * `severity`, the comment's, when it has one; `editing`, when the box edits the line's comment, that comment's text as
-   * the box opened on it, else the box is a new comment's.
+   * the box opened on it, else the box is a new comment's; `filled`, what the plugin put in it, unknown when absent.
    */
-  composer?: { file: string; line: string; side: "LEFT" | "RIGHT"; body: string; revision?: string; inline?: boolean; asking?: boolean; startLine?: number; startSide?: "LEFT" | "RIGHT"; summary?: boolean; severity?: Severity; editing?: string };
+  composer?: { file: string; line: string; side: "LEFT" | "RIGHT"; body: string; revision?: string; inline?: boolean; asking?: boolean; startLine?: number; startSide?: "LEFT" | "RIGHT"; summary?: boolean; severity?: Severity; editing?: string; filled?: string[] };
   /** Unsaved summary text from before the summary had a box of its own, kept while the box holds something else. */
   summary?: { body: string; revision?: string };
 };
@@ -25,6 +25,9 @@ export function readDraftRecovery(targetKey: string): DraftRecovery {
       // A box from before range comments kept a selection's other end, which may come after its line.
       const { startLine, ...composer } = value.composer;
       result.composer = !value.composer.startSide && startLine > Number(value.composer.line) ? composer : value.composer;
+      // What the plugin put in it, unless that can't be read: then it's unknown.
+      const { filled } = value.composer;
+      if (!(Array.isArray(filled) && filled.every((text) => typeof text === "string"))) delete result.composer!.filled;
     }
     if (value.summary && revisionValid(value.summary) && typeof value.summary.body === "string" && value.summary.body.trim()) {
       const summary = { body: value.summary.body, ...(value.summary.revision ? { revision: value.summary.revision } : {}) };

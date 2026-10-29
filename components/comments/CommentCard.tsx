@@ -2,7 +2,7 @@ import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { Markdown, useBbNavigate } from "@get-bb/plugin-sdk/app";
 import { linesOf, sameLocation } from "../../src/draft";
 import { withLineBreaks } from "../../src/line-breaks";
-import type { AskItem, CommentItem, DraftItem, PrivateItem, ThreadItem, ThreadMessage } from "../../lib/comments";
+import { topLevelLabel, type AskItem, type CommentItem, type DraftItem, type PrivateItem, type ThreadItem, type ThreadMessage } from "../../lib/comments";
 import { answerReply, useReplyAsked } from "../../lib/comment-stops";
 import { setCommentOpen } from "../../lib/comments-fold";
 import { linkImages } from "../../lib/link-images";
@@ -21,12 +21,15 @@ import { Hint } from "../ui/hint";
 import { Icon } from "../ui/icon";
 import { InlineCode } from "../ui/inline-code";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover";
-import { CheckBadge, frameOf, plainLine, TAG_TONE, ThreadState } from "./look";
+import { CheckBadge, FixStatus, frameOf, plainLine, TAG_TONE, ThreadState } from "./look";
 import { MoveToSummary } from "./MoveToSummary";
 import { ReplyBox } from "./ReplyBox";
-import { SentLine } from "../SentLine";
 import { CommentEditorMenu } from "../OpenInEditor";
 import { useComments } from "./store";
+import { SendNow, useSendable } from "../SendNow";
+import { useStatusFacts } from "../../lib/review-links";
+import { postable } from "../../src/draft";
+import { FixButtons, FixReport, FixUndo, marksPreExisting } from "./FixTracking";
 
 /**
  * In the code: inside pierre's code view, so it sets its own text style rather than inheriting the code's, at a
@@ -53,7 +56,7 @@ export function whereOf(item: CommentItem): string {
 export function CommentCard({ targetKey, item, variant }: { targetKey: string; item: CommentItem; variant: "inline" | "row" }) {
   if (item.kind === "thread") return <ThreadCard targetKey={targetKey} item={item} variant={variant} />;
   if (item.kind === "ask") return <AskCard targetKey={targetKey} item={item} variant={variant} />;
-  if (item.kind === "draft") return <DraftCard item={item} />;
+  if (item.kind === "draft") return <DraftCard targetKey={targetKey} item={item} />;
   return <PrivateCard item={item} />;
 }
 
@@ -110,12 +113,38 @@ function Replies({ replies }: { replies: ThreadMessage[] }) {
   </div>;
 }
 
+/** "@dana’s comment", "@dana’s review", "your comment": whose words a GitHub item's Send carries. */
+export function githubWhat(item: ThreadItem): string {
+  const who = item.waitingOn ?? item.who;
+  return `${who === "You" ? "your" : `${who}’s`} ${item.topLevel?.kind === "review" ? "review" : "comment"}`;
+}
+
+/**
+ * On your own PR, whether a thread, review summary or comment on GitHub can go with Send: Send to thread on, and not
+ * resolved. With no main thread, its Send offers a fresh thread or a fork.
+ */
+function useGithubSendable(targetKey: string, item: ThreadItem): boolean {
+  const review = useWorkspaceFor(targetKey)?.review;
+  const sendOn = useKnob("sendToThread");
+  return sendOn && review?.kind === "pr" && review.ownPr === true && review.prState !== "MERGED" && review.prState !== "CLOSED" && item.state !== "resolved";
+}
+
+/** Where a GitHub item's last Send took it, or what the thread that took it reported, on its card. */
+function SendStatus({ status }: { status: NonNullable<ThreadItem["sendStatus"]> }) {
+  return <p className="text-xs text-muted-foreground"><FixStatus status={status} /></p>;
+}
+
 /**
  * A thread on GitHub: who started it and when, its state and the agent's check, the messages, and its reply. In the
- * code a resolved one starts as a pill (LineThreads), and Hide folds it back to one.
+ * code a resolved one starts as a pill (LineThreads), and Hide folds it back to one. On your own PR, also a review
+ * summary or comment on the PR (`topLevel`), which has no reply box or Resolve of its own; and each has Send, which
+ * takes its author's words to the main thread, or a fresh one.
  */
 function ThreadCard({ targetKey, item, variant }: { targetKey: string; item: ThreadItem; variant: "inline" | "row" }) {
   const actions = useComments(targetKey, "actions");
+  const sendable = useGithubSendable(targetKey, item);
+  // What Send warned, or why it failed, under the card.
+  const [sendNote, setSendNote] = useState<ReactNode>(null);
   const busy = useComments(targetKey, "busy").includes(item.id);
   const api = useWorkspaceFor(targetKey);
   const navigate = useBbNavigate();
@@ -144,7 +173,7 @@ function ThreadCard({ targetKey, item, variant }: { targetKey: string; item: Thr
   // Hidden, one line says what's under it.
   const shutLine = [item.state === "resolved" && item.resolvedBy ? `Resolved by @${item.resolvedBy}` : null, replies.length ? `${replies.length} repl${replies.length === 1 ? "y" : "ies"}` : null].filter(Boolean).join(" · ");
   return (
-    <article tabIndex={-1} aria-label={`GitHub thread on ${where}`} className={cn(inline ? INLINE_CARD : "overflow-hidden rounded-lg bg-card pt-2.5 text-sm", "outline-none focus-visible:ring-2 focus-visible:ring-ring/50", frameOf(item))}>
+    <article tabIndex={-1} aria-label={item.topLevel ? `GitHub ${item.topLevel.kind === "review" ? "review summary" : "comment"} on the PR` : `GitHub thread on ${where}`} className={cn(inline ? INLINE_CARD : "overflow-hidden rounded-lg bg-card pt-2.5 text-sm", "outline-none focus-visible:ring-2 focus-visible:ring-ring/50", frameOf(item))}>
       {inline && <div className={cn(HEAD, !open && "pb-1")}>
         <span className="flex shrink-0 items-center gap-1.5"><Icon name="Github" className="size-3.5 shrink-0" aria-hidden />On GitHub<span aria-hidden className="text-subtle-foreground">·</span></span>
         {first ? <Speaker message={first} /> : <span className="font-medium text-foreground">{item.who}</span>}
@@ -154,20 +183,23 @@ function ThreadCard({ targetKey, item, variant }: { targetKey: string; item: Thr
         <Button variant="ghost" size="sm" aria-expanded={open} className={cn(ACTION, "ml-auto")} onClick={() => (pill && open ? setCommentOpen(targetKey, item.id, false) : setShut(open))}>{open ? "Hide" : "Show"}</Button>
       </div>}
       {open ? <div className="space-y-2.5 px-3 pb-2.5">
-        {!inline && first && <Speaker message={first} />}
+        {!inline && first && <Speaker message={first}>{item.topLevel && <Badge size="sm">{topLevelLabel(item.topLevel)}</Badge>}</Speaker>}
         {first && <Clamped body={first.body} link />}
         <Replies replies={replies} />
         <Evidence item={item} onFix={item.check?.fix && api ? () => api.showLocation(item.check!.fix!.file, item.check!.fix!.line, "RIGHT") : undefined} />
+        {item.sendStatus && <SendStatus status={item.sendStatus} />}
+        {sendNote}
         {actions && replyShows && <ReplyBox targetKey={targetKey} item={item} where={where} actions={actions} busy={busy} writing={writing} onClose={() => setWriting(false)} replyButton={replyButton} />}
         {actions && <div className="-mb-1 -ml-2 flex flex-wrap items-center gap-0.5">
-          {!replyShows && <Button ref={replyButton} variant="ghost" size="sm" className={ACTION} disabled={busy || item.replyTo === null} onClick={() => setWriting(true)}><Icon name="CornerDownRight" className="size-3.5" aria-hidden />Reply</Button>}
+          {!replyShows && !item.topLevel && <Button ref={replyButton} variant="ghost" size="sm" className={ACTION} disabled={busy || item.replyTo === null} onClick={() => setWriting(true)}><Icon name="CornerDownRight" className="size-3.5" aria-hidden />Reply</Button>}
+          {sendable && <SendNow targetKey={targetKey} comment={{ threadId: item.id }} to={api?.mainThread ?? null} what={githubWhat(item)} className={ACTION} onNote={setSendNote} />}
           {/* Unlike the draft, Resolve doesn't wait for Submit. */}
-          <Hint label="Posts to GitHub now" container={container}>
+          {!item.topLevel && <Hint label="Posts to GitHub now" container={container}>
             {/* Resolved here, the card stays open where it is, with the focus, rather than fold to a pill. */}
             <Button variant="ghost" size="sm" className={ACTION} disabled={busy} aria-describedby={postsNow} onClick={() => { if (inline) setCommentOpen(targetKey, item.id, true); void actions.setResolved(item.id, item.state !== "resolved"); }}>
               <Icon name={item.state === "resolved" ? "RotateCcw" : "CircleCheck"} className="size-3.5" aria-hidden />{item.state === "resolved" ? "Unresolve" : "Resolve"}
             </Button>
-          </Hint>
+          </Hint>}
           <span id={postsNow} hidden>Posts to GitHub now</span>
           {(followUp || item.url) && <Popover open={menu} onOpenChange={setMenu}>
             <PopoverTrigger asChild>
@@ -235,13 +267,17 @@ export function ShowBoxInDiff({ className }: { className?: string }) {
 }
 
 /** A draft comment in a list, under its row: its words, its discussion with the agent, its box, and what you can do. */
-function DraftCard({ item }: { item: DraftItem }) {
+function DraftCard({ targetKey, item }: { targetKey: string; item: DraftItem }) {
   const draft = useDraft();
   const composer = usePanelComposer();
   const { comment } = item;
   const box = boxAt(draft, comment);
   const where = `${comment.file}:${linesOf(comment)}`;
   const preExisting = useKnob("preExistingFindings");
+  const facts = useStatusFacts();
+  const sendable = useSendable(draft.editable ? targetKey : undefined, comment);
+  // What Send now warned, or why it failed, under the comment.
+  const [sendNote, setSendNote] = useState<ReactNode>(null);
   return (
     <article data-comment-at={`${comment.file}:${comment.line}:${comment.side}`} tabIndex={-1} aria-label={`Draft comment on ${where}`} className={cn("overflow-hidden rounded-lg bg-card text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/50", frameOf(item))}>
       {box === "edit" ? <>
@@ -249,22 +285,27 @@ function DraftCard({ item }: { item: DraftItem }) {
         {comment.startLine !== undefined && <p className="px-2.5 pt-2.5 text-xs text-muted-foreground tabular-nums">Lines {linesOf(comment)}</p>}
         <ComposerFields mode="edit" busy={draft.busy} composer={composer} controlsRef={draft.composerControls} />
       </> : <div className="space-y-2 px-3 pb-2.5 pt-2.5">
-        <SentLine at={comment} />
+        {/* The row above says its status; right after Resolve or Dismiss, Undo is here. */}
+        <FixUndo targetKey={targetKey} comment={comment} onFix={draft.setFix} label />
         {(comment.startLine !== undefined || comment.side === "LEFT") && <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
           {comment.startLine !== undefined && <span className="tabular-nums">Lines {linesOf(comment)}</span>}
           {comment.side === "LEFT" && <Badge size="sm">Old line</Badge>}
         </p>}
         <CommentBody body={comment.body} link={comment.author === "agent"} />
         {comment.evidence && <AgentEvidence evidence={comment.evidence} />}
-        {item.state === "older-diff" && <p className="text-xs text-warning-text">Drafted against an older diff. Edit and save it, or remove it, before you submit.</p>}
+        <FixReport comment={comment} checks={draft.checks} />
+        {item.state === "older-diff" && item.posts && <p className="text-xs text-warning-text">Drafted against an older diff. Edit and save it, or remove it, before you submit.</p>}
+        {sendNote}
         {draft.editable && <div className="-mb-1 -ml-2 flex flex-wrap gap-0.5">
+          <FixButtons targetKey={targetKey} comment={comment} checks={draft.checks} busy={draft.busy} posts={facts.posts && postable(comment, facts.own)} className={ACTION} onFix={draft.setFix} />
           <Button variant="ghost" size="sm" aria-label={`Edit comment on ${where}`} className={ACTION} {...whileBusy(draft.busy, draft.writing)} onClick={() => { if (!draft.busy && !draft.writing) draft.openComposer(comment, false); }}><Icon name="Edit" className="size-3.5" aria-hidden />Edit</Button>
           <Button variant="ghost" size="sm" aria-label={`Ask agent about the comment on ${where}`} className={cn(ACTION, "text-(--ansi-13) hover:text-(--ansi-13)")} {...whileBusy(draft.busy, draft.writing)} onClick={() => { if (!draft.busy && !draft.writing) draft.openComposer(comment, false, true); }}><Icon name="Sparkles" className="size-3.5" aria-hidden />Ask agent</Button>
-          {preExisting && item.state !== "older-diff" && <Button variant="ghost" size="sm" className={ACTION} {...whileBusy(draft.busy)} onClick={() => { if (!draft.busy) void draft.markPreExisting(comment, comment.introduced !== false); }}>
+          {sendable && <SendNow targetKey={targetKey} comment={comment} to={sendable} className={ACTION} onNote={setSendNote} />}
+          {preExisting && item.state !== "older-diff" && marksPreExisting(comment) && <Button variant="ghost" size="sm" className={ACTION} {...whileBusy(draft.busy)} onClick={() => { if (!draft.busy) void draft.markPreExisting(comment, comment.introduced !== false); }}>
             <Icon name="History" className="size-3.5" aria-hidden />{comment.introduced === false ? "Mark as from this PR" : "Mark as pre-existing"}
           </Button>}
           <Button variant="ghost" size="sm" aria-label={`Remove comment on ${where}`} className={cn(ACTION, "hover:text-destructive-text")} {...whileBusy(draft.busy)} onClick={() => { if (!draft.busy) void draft.removeComment(comment); }}><Icon name="Trash2" className="size-3.5" aria-hidden />Remove</Button>
-          {item.state === "older-diff" && <MoveToSummary comments={[comment]} className={ACTION} />}
+          {item.state === "older-diff" && item.posts && <MoveToSummary comments={[comment]} className={ACTION} />}
           <CommentEditorMenu comment={comment} />
         </div>}
       </div>}

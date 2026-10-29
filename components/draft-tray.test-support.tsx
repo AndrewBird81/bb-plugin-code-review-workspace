@@ -25,7 +25,7 @@ export function testWorkspace(targetKey: string, over: Partial<WorkspaceApi> = {
     display: { layout: "unified", toggleLayout: noop, newFiles: "file", setNewFiles: noop, markdownFiles: "source", setMarkdownFiles: noop, unifiedOnly: false, wrap: false, setWrap: noop, hideWhitespace: false, setHideWhitespace: noop, githubThreads: true, setGithubThreads: noop, commentsFolded: false, setCommentsFolded: noop },
     reveal: noop, showLocation: noop, followUp: noop, askAgent: noop, openFinish: noop,
     fullscreen: { available: false, on: false, toggle: noop }, leave: later,
-    snooze: later, newCommits: false, rebuild: later, reload: later, pinnable: false, showShortcuts: noop, shortcuts: true,
+    snooze: later, newCommits: false, rebuild: later, reload: later, pinnable: false, showShortcuts: noop, shortcuts: true, mainThread: null,
     ...over,
   };
 }

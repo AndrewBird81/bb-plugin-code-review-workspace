@@ -76,6 +76,11 @@ export function notRecorded(what: "review" | "reply", error: unknown, durable: b
 }
 
 export const replyReceiptKey = (targetKey: string, threadId: string) => `posted-reply:${targetKey}:${threadId}`;
+/**
+ * How long a recorded reply's receipt still answers a Send of the same text: a page that gave up waiting on a reply GitHub
+ * took later says it wasn't sent, and its Send again finishes as posted.
+ */
+export const RECORDED_REPLY_MS = 15 * 60_000;
 
 /**
  * A reply draft discarded, or saved as `body` other than the reply GitHub took, is no longer that reply: Send posts it.
@@ -90,20 +95,23 @@ export async function forgetPostedReply(receipts: PostReceipts, targetKey: strin
 
 /**
  * Post a reply that answers a drafted one, then clear that draft. A reply GitHub has whose draft couldn't be cleared is
- * finished by the next Send of the same text, without posting it again. A Send of it while one is sending is refused.
+ * finished by the next Send of the same text, without posting it again. One posted and cleared in the last 15 minutes
+ * (RECORDED_REPLY_MS) isn't posted again either: that Send answers `alreadyPosted`, leaving its draft, so the reviewer
+ * sees it wasn't sent and can change it. A Send of it while one is sending is refused.
  */
-export async function postDraftedReply(receipts: PostReceipts, store: AsyncStore, targetKey: string, threadId: string, body: string, post: () => Promise<{ ok: true } | { ok: false; error: string }>): Promise<{ ok: true } | { ok: false; error: string }> {
+export async function postDraftedReply(receipts: PostReceipts, store: AsyncStore, targetKey: string, threadId: string, body: string, post: () => Promise<{ ok: true } | { ok: false; error: string }>): Promise<{ ok: true; alreadyPosted?: true } | { ok: false; error: string }> {
   const key = replyReceiptKey(targetKey, threadId);
   if (receipts.sending.has(key)) return { ok: false, error: "This reply is already being sent." };
   receipts.sending.add(key);
   try {
-    let earlier: { body: string; at: number } | undefined;
+    let earlier: { body: string; at: number; recorded?: boolean } | undefined;
     try {
       earlier = await receipts.get(key);
     } catch (error) {
       return { ok: false, error: (error as Error).message };
     }
-    const same = earlier !== undefined && receiptText(earlier.body) === receiptText(body);
+    const same = earlier !== undefined && receiptText(earlier.body) === receiptText(body) && (!earlier.recorded || Date.now() - earlier.at < RECORDED_REPLY_MS);
+    if (same && earlier!.recorded) return { ok: true, alreadyPosted: true };
     let durable = true;
     if (!same) {
       const posted = await post();
@@ -117,7 +125,7 @@ export async function postDraftedReply(receipts: PostReceipts, store: AsyncStore
       if (same) durable = await receipts.put(key, earlier);
       return { ok: false, error: notRecorded("reply", error, durable) };
     }
-    await receipts.drop(key);
+    await receipts.put(key, { body: receiptText(body), at: same ? earlier!.at : Date.now(), recorded: true });
     return { ok: true };
   } finally {
     receipts.sending.delete(key);

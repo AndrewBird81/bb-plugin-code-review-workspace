@@ -68,3 +68,46 @@ test("resolving or unresolving a thread that isn't on the review's PR is refused
   }
   expect(writes()).toEqual([]);
 });
+
+test("replies wait out GitHub's rate limit and post again, in the server's line of writes; a refusal says what to do", async () => {
+  const { call, writes } = await setup();
+  const answer = runGh.getMockImplementation()!;
+  let replies = 0;
+  runGh.mockImplementation(async (args: string[], opts?: { authToken?: string }) => {
+    if (args.some((a) => a.endsWith("/replies")) && replies++ === 0) {
+      return { code: 1, stderr: "gh: You have exceeded a secondary rate limit. (HTTP 403)", stdout: "HTTP/2.0 403 Forbidden\r\nRetry-After: 1\r\n\r\n{\"message\":\"You have exceeded a secondary rate limit.\"}" };
+    }
+    if (args.some((a) => /resolveReviewThread/.test(a))) return { code: 1, stderr: "gh: Resource not accessible by integration", stdout: "{\"errors\":[{\"type\":\"FORBIDDEN\",\"message\":\"Resource not accessible by integration\"}]}" };
+    return answer(args, opts);
+  });
+  const started = Date.now();
+  expect(await call("replyToThread", { inReplyTo: 21, body: "Thanks", threadId: "t-alice", account: "me" })).toEqual({ ok: true });
+  expect(Date.now() - started).toBeGreaterThanOrEqual(1_000);
+  expect(writes()).toEqual([{ write: expect.stringContaining("/replies"), token: "tok-me" }, { write: expect.stringContaining("/replies"), token: "tok-me" }]);
+  expect(runGh.mock.calls.find(([args]) => args.some((a: string) => a.endsWith("/replies")))![0].at(-1)).toBe("-i");
+  expect(await call("resolveThread", { threadId: "t-alice", account: "me" })).toEqual({ ok: false, error: "The GitHub token on the BB server isn't allowed to do this on this repo. Give it access, or sign in again with gh auth login, then try again. (GitHub: Resource not accessible by integration)" });
+});
+
+test("a reply GitHub asks to wait longer for than the page waits is refused at once, and so are the page's writes after it, without asking GitHub", async () => {
+  const { call, writes } = await setup();
+  const answer = runGh.getMockImplementation()!;
+  let replies = 0;
+  runGh.mockImplementation(async (args: string[], opts?: { authToken?: string }) => args.some((a) => a.endsWith("/replies")) && replies++ === 0
+    ? { code: 1, stderr: "gh: You have exceeded a secondary rate limit. (HTTP 403)", stdout: "HTTP/2.0 403 Forbidden\r\nRetry-After: 45\r\n\r\n{\"message\":\"You have exceeded a secondary rate limit.\"}" }
+    : answer(args, opts));
+  const send = () => call("replyToThread", { inReplyTo: 21, body: "Thanks", threadId: "t-alice", account: "me" });
+  const started = Date.now();
+  expect(await send()).toEqual({ ok: false, error: "GitHub is limiting how fast this account can post. Try again in about 45 s. (GitHub: You have exceeded a secondary rate limit.)" });
+  // Without asking GitHub again, and without queueing it.
+  expect(await call("resolveThread", { threadId: "t-alice", account: "me" })).toEqual({ ok: false, error: expect.stringMatching(/^GitHub is limiting how fast this account can post\. Try again in about 4\d s\.$/) });
+  expect(Date.now() - started).toBeLessThan(5_000);
+  expect(writes()).toHaveLength(1);
+});
+
+test("a Send again of a reply that posted after the page gave up on it says GitHub already has it, and doesn't post twice", async () => {
+  const { call, writes } = await setup();
+  const send = () => call("replyToThread", { inReplyTo: 21, body: "Thanks", threadId: "t-alice", account: "me" });
+  expect(await send()).toEqual({ ok: true });
+  expect(await send()).toEqual({ ok: true, alreadyPosted: true });
+  expect(writes()).toHaveLength(1);
+});

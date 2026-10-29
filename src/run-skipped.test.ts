@@ -15,6 +15,7 @@ import plugin from "../server";
 import type { ReviewLifecycle } from "./store";
 import { defaultPreferences } from "./preferences";
 import { defaultKnobs } from "../lib/knobs";
+import { MARK_PART } from "./agent-chat.test-support";
 
 const PATCH = "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1 +1 @@\n-a\n+b\n";
 
@@ -37,14 +38,14 @@ async function setup(lifecycle: ReviewLifecycle) {
 test("Run starts the automatic review that didn't run, and approves agents on the guide's head", async () => {
   const { harness, store, titles } = await setup({ skippedRun: { run: "review", head: "sha1", at: 1 } });
   expect(await harness.behavior.callRpc("runSkipped", { targetKey: "pr-1" })).toEqual({ ok: true });
-  expect(titles()).toEqual(["Review agent: pr-1"]);
+  expect(titles()).toEqual(["Review agent: web#1 · pr-1"]);
   expect(await store.getReview("pr-1")).toMatchObject({ approvedHead: "sha1", approvedAt: expect.any(Number), skippedRun: null });
 });
 
 test("Run starts the feedback check that didn't run, on the PR's head", async () => {
   const { harness, store, titles } = await setup({ skippedRun: { run: "check", head: "sha1", at: 1 }, submittedVerdict: "REQUEST_CHANGES", submittedAt: 5, submittedHeadSha: "sha0" });
   expect(await harness.behavior.callRpc("runSkipped", { targetKey: "pr-1" })).toEqual({ ok: true });
-  expect(titles()).toEqual(["Review agent: pr-1"]);
+  expect(titles()).toEqual(["Review agent: web#1 · pr-1"]);
   expect(await store.getReview("pr-1")).toMatchObject({ approvedHead: "sha1", approvedAt: expect.any(Number), skippedRun: null, verifyingSince: expect.any(Number) });
 });
 
@@ -84,6 +85,7 @@ test("Run review on a review that has a conversation sends the review to it", as
   expect(sent).toMatchObject({ threadId: "assistant", mode: "queue-if-active", input: [
     { type: "text", text: defaultPreferences.automaticReview },
     { type: "text", visibility: "agent-only", text: expect.stringContaining('<untrusted source="review context">\nImplements LIN-42.\n</untrusted>') },
+    MARK_PART,
   ] });
   expect(await store.getReview("pr-1")).toMatchObject({ approvedHead: "sha1", skippedRun: null });
 });

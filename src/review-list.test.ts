@@ -10,9 +10,13 @@ test("the list carries each review's lifecycle and turn, without its review summ
   await store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, repo: "acme/web", status: "ready", createdAt: 1 });
   await store.saveReview({ targetKey: "pr-2", kind: "pr", number: 2, repo: "acme/web", status: "ready", createdAt: 2 });
   await store.setLifecycle("pr-1", { submittedVerdict: "APPROVE", submittedAt: 5, reviewBodies: [{ state: "APPROVED", at: 5, body: "Ship it" }] });
+  // Your own PR's summaries and comments by others stay with the review's page, not every list load.
+  await store.setLifecycle("pr-2", { ownPr: true, prConversation: [{ id: "PRR_1", kind: "review", author: "dana", bot: false, state: "COMMENTED", body: "x".repeat(4000), at: 3, url: null, waiting: true }] });
   const { reviews, sync } = await harness.behavior.callRpc("listReviews", null) as any;
   expect(reviews.map((r: any) => [r.targetKey, r.submittedVerdict ?? null, r.turn.group])).toEqual([["pr-2", null, "needs"], ["pr-1", "APPROVE", "reviewed"]]);
   expect(reviews[1]).not.toHaveProperty("reviewBodies");
+  expect(reviews[0]).not.toHaveProperty("prConversation");
+  expect((await store.getReview("pr-2"))?.prConversation).toHaveLength(1);
   expect(sync).toEqual({ lastReadAt: null, error: null });
   // A single review still has them, for the assistant's tools.
   expect((await store.getReview("pr-1"))?.reviewBodies).toHaveLength(1);
@@ -41,8 +45,9 @@ test("bb review list gives a renamed review's name beside its title, quoted, and
   await store.setLifecycle("pr-1", { name: "Cache expiry" });
   const { reviews } = await harness.behavior.callRpc("listReviews", null) as any;
   const lines = runListCommand(reviews, []).stdout!.split("\n");
-  expect(lines.find((line) => line.startsWith("pr-1"))).toBe(`pr-1  "Expire cache entries" named "Cache expiry" · Needs review (Ready) · guide ready`);
-  expect(lines.find((line) => line.startsWith("pr-2"))).toBe(`pr-2  "Fix login" · Needs review (Ready) · guide ready`);
+  // Each line leads with the review's id, then its key.
+  expect(lines.find((line) => line.startsWith("web#1"))).toBe(`web#1  pr-1  "Expire cache entries" named "Cache expiry" · Needs review (Ready) · guide ready`);
+  expect(lines.find((line) => line.startsWith("web#2"))).toBe(`web#2  pr-2  "Fix login" · Needs review (Ready) · guide ready`);
   const json = JSON.parse(runListCommand(reviews, ["--json"]).stdout!).reviews;
   expect(json.find((row: any) => row.key === "pr-1")).toMatchObject({ title: "Expire cache entries", name: "Cache expiry" });
   expect(json.find((row: any) => row.key === "pr-2")).not.toHaveProperty("name");
@@ -62,5 +67,5 @@ test("bb review list keeps a stack's reviews together, bottom first, where its f
   // Wherever the section puts the stack's first review, its bottom comes right before its top.
   expect(listed).toHaveLength(3);
   expect(listed.indexOf("pr-3") - listed.indexOf("pr-1")).toBe(1);
-  expect(runListCommand(reviews, []).stdout!.split("\n").map((line) => line.split(" ")[0])).toEqual(listed);
+  expect(runListCommand(reviews, []).stdout!.split("\n").map((line) => line.split("  ")[1])).toEqual(listed);
 });

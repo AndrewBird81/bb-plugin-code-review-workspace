@@ -172,6 +172,7 @@ export const ReviewOverview = memo(function ReviewOverview({ checks, readLines, 
     <div className="@container/overview mx-auto max-w-3xl pb-4">
       <ReviewHeader
         review={review}
+        guideTitle={guide.title}
         checks={checks}
         readLines={readLines}
         onShowFeedback={onShowFeedback}

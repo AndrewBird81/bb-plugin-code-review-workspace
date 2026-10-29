@@ -7,12 +7,14 @@ import type { AgentMessageContext } from "../src/store";
 import { sameLocation, type CommentLocation } from "../src/draft";
 import type { FileInterdiff } from "../src/interdiff";
 import { baselineOf, computeTurn, type TurnReason } from "../lib/turn";
+import { sendBaselineOf, sendOf } from "../lib/send-baseline";
 import { notRunReason } from "../lib/trust";
 import { cn } from "../lib/utils";
 import { experimental_useCodeTheme } from "@get-bb/plugin-sdk/app";
 import { getCommentsFolded, getGithubThreadsInCode, getHideWhitespace, getNavOpen, getNavView, getNavWidth, getPanelWidth, getReviewState, getWrapLines, patchReviewState, setCommentsFolded, setGithubThreadsInCode, setHideWhitespace, setNavOpen as saveNavOpen, setNavView, setNavWidth as saveNavWidth, setPanelWidth as savePanelWidth, setWrapLines, type NavView, type PanelView } from "../lib/panel-state";
 import { OVERVIEW, WorkspaceProvider, type WorkspaceApi } from "../lib/workspace-context";
-import { currentFileOf, setCurrentFile as storeCurrentFile, useCurrentFile } from "../lib/workspace-store";
+import { currentFileOf, publishReviewTitle, setCurrentFile as storeCurrentFile, useCurrentFile } from "../lib/workspace-store";
+import { reviewIdentity } from "../lib/review-identity";
 import { NAV_WIDTH, PANEL_WIDTH, READER_MIN, panelDockWidth, useWorkspaceLayout, type LayoutState } from "../lib/workspace-layout";
 import { useKeyboardInset } from "../lib/use-keyboard-inset";
 import { useFold } from "../lib/use-fold";
@@ -22,6 +24,9 @@ import { carried, keep, present, type KeptFocus, type LineSelection } from "../l
 import { CompactViewportOverrideProvider } from "./ui/hooks/use-compact-viewport";
 import { useMediaQuery } from "./ui/hooks/use-media-query";
 import { Button } from "./ui/button";
+import { Hint } from "./ui/hint";
+import { Icon } from "./ui/icon";
+import { useFullscreenPortalContainer } from "../lib/portal-scope";
 import type { FileOwners } from "../src/codeowners";
 import { ChapterIntro } from "./ChapterIntro";
 import { ChapterViewSwitch } from "./ChapterNav";
@@ -30,6 +35,8 @@ import { DraftProvider, useDraft, type CommentPrefill } from "./DraftProvider";
 import { TrackedReview } from "./TrackedReview";
 import { NotRunButton } from "./NotRunBanner";
 import { AgentDock, agentDockMode, type DockInjection } from "./AgentDock";
+import { MainThreadPanel } from "./MainThreadPanel";
+import { recipientOf, useMainThread } from "../lib/main-thread";
 import { ReviewSkeleton, ReviewError } from "./ReviewSkeleton";
 import { AccountBar } from "./AccountBar";
 import { defaultPreferences, type ReviewPreferences } from "../lib/review-preferences";
@@ -50,7 +57,10 @@ import { StepBar } from "./comments/StepBar";
 import { NavigatorHost } from "./shell/NavigatorHost";
 import { PhoneDock } from "./shell/PhoneDock";
 import { returnFocus } from "./shell/side-parts";
-import { ReviewNotices, useNewCommits, type Notice } from "./shell/ReviewNotices";
+import { REWRITE_GUIDE, ReviewNotices, useNewCommits, type Notice } from "./shell/ReviewNotices";
+import { useBranchKeptNotices, useFeatureNotices } from "./shell/FeatureNotices";
+import { useFixNotices } from "./shell/FixNotices";
+import { usePushNotices } from "./shell/PushNotices";
 import { SelectionBar } from "./shell/SelectionBar";
 import { SidePanel, sidePanelId } from "./shell/SidePanel";
 import { TopBand, navigatorId } from "./shell/TopBand";
@@ -558,18 +568,22 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   const baselineSha = review ? baselineOf(review).sha : null;
   const head: string | null = review?.headSha ?? null;
   const rereview = !!baselineSha && baselineSha !== head;
-  // Your choice holds at the head you made it at: a new push ends it, and the diff shows Settings' choice again.
-  const choice = chosen?.head === head ? chosen : null;
+  const lastSend = review ? sendBaselineOf(review)?.key ?? null : null;
+  // Your choice holds at the head you made it at: a new push ends it, and the diff shows Settings' choice again. So does
+  // a new Send, for a choice of your last Send.
+  const choice = chosen?.head === (head ?? "") && (sendOf(chosen.from) === null || chosen.from === lastSend) ? chosen : null;
   const compareFrom = choice?.from ?? null;
   const fromSha = compareFrom ?? baselineSha;
-  const sinceKey = fromSha && head && fromSha !== head ? `${fromSha}..${head}` : null;
+  // A Send's diff is compared with the diff shown, whatever it's of: a local review has no head.
+  const sinceKey = sendOf(compareFrom) !== null ? revision ? `${compareFrom}..${revision}` : null
+    : fromSha && head && fromSha !== head ? `${fromSha}..${head}` : null;
   // Only the comparison read for this one: a push or a pick never shows the last one's, not even for a frame.
   const since = sinceRead?.key === sinceKey ? sinceRead.files : null;
   const sinceError = sinceFailed?.key === sinceKey ? sinceFailed.error : null;
   useEffect(() => {
     if (!sinceKey) return;
     let cancelled = false;
-    const failed = (error?: string) => { if (!cancelled) setSinceFailed({ key: sinceKey, error: error ?? "Couldn’t compare with your last review." }); };
+    const failed = (error?: string) => { if (!cancelled) setSinceFailed({ key: sinceKey, error: error ?? `Couldn’t compare with ${sendOf(compareFrom) !== null ? "your last Send" : "your last review"}.` }); };
     rpc.call("getSinceReview", { targetKey, ...(compareFrom ? { from: compareFrom } : {}) }).then((result) => {
       if (result.error) failed(result.error);
       else if (!cancelled && result.baseline) {
@@ -587,11 +601,11 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   const compared = !sinceKey || !!sinceError || (!!since && (!!choice || !!preferences || preferencesFailed));
   // Kept for the review, and for its next workspace: what you pick narrows the diff once its comparison arrives.
   const choose = useCallback((from: string | null, narrowed: boolean) => {
-    if (!head) return;
-    const next = { head, from, narrowed };
+    if (!head && !lastSend) return;
+    const next = { head: head ?? "", from, narrowed };
     setChosen(next);
     patchReviewState(targetKey, { compare: next });
-  }, [targetKey, head]);
+  }, [targetKey, head, lastSend]);
   // All changes lets a picked commit go.
   const narrow = useCallback((narrowed: boolean) => choose(narrowed ? compareFrom : null, narrowed), [choose, compareFrom]);
   // A flip you make between them (the switch, the band's select, Diff options) keeps your place in the code, read before
@@ -611,7 +625,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   }, [since, sinceOnly, narrow]);
   // Another commit is another comparison, which arrives later: picking the one shown again is a flip.
   const pickCompare = useCallback((sha: string | null) => sha === compareFrom ? flip(true) : choose(sha, true), [compareFrom, flip, choose]);
-  const sinceWhat = compareFrom ? compareFrom.slice(0, 7) : "your review";
+  const sinceWhat = sendOf(compareFrom) !== null ? "your last Send" : compareFrom ? compareFrom.slice(0, 7) : "your review";
   // Who owns each file, by CODEOWNERS on a PR's base branch, or a local review's new side.
   // Settings → Reading can turn them off, which takes them away at once.
   const codeOwners = useKnob("codeOwners");
@@ -655,16 +669,18 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     } finally { setSnoozing(false); }
   }, [rpc, targetKey, load]);
 
-  const rebuild = useCallback(async () => {
+  // Update guide, or a local review's Rewrite guide, starts the guide writer; a local review's Update doesn't.
+  const rebuild = useCallback(async (how: "rereview" | "rewriteGuide" | "updateFeature" = "rereview") => {
     if (rebuilding) return;
     setRebuilding(true);
     setLoadError(null);
+    const failed = how === "updateFeature" ? "Couldn’t update the review." : "Couldn’t rebuild the guide.";
     try {
-      const result = await rpc.call("rereview", { targetKey });
-      if (!result.ok) setLoadError(result.error ?? "Couldn’t rebuild the guide.");
+      const result = await rpc.call(how, { targetKey });
+      if (!result.ok) setLoadError(result.error ?? failed);
       else await load();
     } catch (err) {
-      setLoadError(err instanceof Error ? err.message : "Couldn’t rebuild the guide.");
+      setLoadError(err instanceof Error ? err.message : failed);
     } finally { setRebuilding(false); }
   }, [rebuilding, rpc, targetKey, load]);
   // Stop, while a guide builds, unless Settings turns it off: a rebuild gets the guide you had back.
@@ -686,8 +702,10 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   }, [stopping, rpc, targetKey, load]);
   const archived = !!review?.archivedAt;
   const localDiffChanges = useKnob("localDiffChanges");
+  // Rewrite guide's hint, inside the workspace in full screen.
+  const portalContainer = useFullscreenPortalContainer();
   const reviewLinks = useReviewLinks(review);
-  const { newCommits, text: newCommitsText } = useNewCommits(targetKey, (isPr || review?.kind === "ref" && localDiffChanges) && !archived);
+  const { newCommits, local: localChanged, text: newCommitsText } = useNewCommits(targetKey, (isPr || review?.kind === "ref" && localDiffChanges) && !archived);
 
   useEffect(() => {
     if (guide) void checkAccess();
@@ -695,6 +713,10 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   useRealtime("gh-account", () => {
     void checkAccess();
   });
+  // A local review's folder: changed, on another branch, offline or gone, and who else works there.
+  const featureNotices = useFeatureNotices(targetKey, review, load);
+  // A fixer's branch, once BB removed its folder.
+  const branchKept = useBranchKeptNotices(targetKey, review, load);
 
   // Track browser fullscreen state so the toggle icon/label stays correct.
   useEffect(() => {
@@ -1359,6 +1381,14 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   };
   // Settings → Reading can turn the keys off, all but Esc.
   const shortcutsOn = useKnob("singleKeyShortcuts");
+  // The review's main thread, named for Send now and its tab's entries.
+  const mainThreadId = useKnob("sendToThread") ? recipientOf(review) : null;
+  const { thread: mainLink } = useMainThread(targetKey, review);
+  // The comments sent to it: Ready to re-review, or reported so far once it stops.
+  const fixNotices = useFixNotices(targetKey, review, load);
+  // A Push that GitHub doesn't show, or one no one asked for.
+  const pushNotices = usePushNotices(targetKey, review, load);
+  const mainThread = useMemo(() => mainThreadId ? { threadId: mainThreadId, title: mainLink?.title ?? null, machine: mainLink?.machine ?? null } : null, [mainThreadId, mainLink]);
   const commentKeys = useKnob("commentKeys");
   const unattendedAgents = useKnob("unattendedAgents");
   const shortcutsRef = useRef(shortcutsOn);
@@ -1392,8 +1422,23 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     reveal: showComment, showLocation, followUp, askAgent, openFinish: showDraftSummary,
     fullscreen: { available: canFullscreen, on: fullscreen, toggle: toggleFullscreen }, leave,
     snooze, newCommits, rebuild, reload: load, pinnable: preferences?.preferences.threadListReviews === true, showShortcuts,
-    shortcuts: shortcutsOn,
-  } : null, [targetKey, review, guide, sections, activeId, selectChapter, layout, toggleNav, findInReview, navView, changeNavView, shownPanel, openPanel, togglePanel, closePanel, views, toggleViewed, markChapterViewed, nextUnviewed, foldAllFiles, baselineSha, compareFrom, pickCompare, flip, since, sinceOnly, sinceError, sinceWhat, diffLayout, toggleLayout, newFiles, changeNewFiles, markdownFiles, changeMarkdownFiles, unifiedOnly, wrapLines, changeWrap, hideWhitespace, changeHideWhitespace, showThreads, setShowThreads, commentsFolded, changeCommentsFolded, showComment, showLocation, followUp, askAgent, showDraftSummary, canFullscreen, fullscreen, toggleFullscreen, leave, snooze, newCommits, rebuild, load, preferences, showShortcuts, shortcutsOn]);
+    shortcuts: shortcutsOn, mainThread,
+  } : null, [targetKey, review, guide, sections, activeId, selectChapter, layout, toggleNav, findInReview, navView, changeNavView, shownPanel, openPanel, togglePanel, closePanel, views, toggleViewed, markChapterViewed, nextUnviewed, foldAllFiles, baselineSha, compareFrom, pickCompare, flip, since, sinceOnly, sinceError, sinceWhat, diffLayout, toggleLayout, newFiles, changeNewFiles, markdownFiles, changeMarkdownFiles, unifiedOnly, wrapLines, changeWrap, hideWhitespace, changeHideWhitespace, showThreads, setShowThreads, commentsFolded, changeCommentsFolded, showComment, showLocation, followUp, askAgent, showDraftSummary, canFullscreen, fullscreen, toggleFullscreen, leave, snooze, newCommits, rebuild, load, preferences, showShortcuts, shortcutsOn, mainThread]);
+
+  // Which review this is, for BB's title bar and the window's title, whatever the page shows.
+  const identity = useMemo(() => review ? reviewIdentity(review, guide?.title) : null, [review, guide?.title]);
+  const { id, name, line } = identity ?? {};
+  useEffect(() => id && name && line ? publishReviewTitle(targetKey, { id, name, line }) : undefined, [targetKey, id, name, line]);
+  // A local review that became its PR's while it's open, as Open PR does: a notice says so, as its id changes
+  // everywhere, until Got it, in the page's flow so it covers nothing.
+  const shownAs = useRef<{ targetKey: string; kind: string; id: string } | null>(null);
+  const [became, setBecame] = useState<{ targetKey: string; from: string; to: string } | null>(null);
+  useEffect(() => {
+    if (!review || !id) return;
+    const was = shownAs.current;
+    shownAs.current = { targetKey, kind: review.kind, id };
+    if (was?.targetKey === targetKey && was.kind === "ref" && review.kind === "pr") setBecame({ targetKey, from: was.id, to: id });
+  }, [targetKey, review?.kind, id]);
 
   if (!guide || !api) {
     const back = () => navigate.toPluginPanel("review");
@@ -1418,9 +1463,21 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
       // Why, as a first guide's page says it: the writer's words or the last rejection, as plain text cut to a few lines.
       : { id: "rebuild", tone: "danger", icon: "AlertTriangle", role: "alert", text: <>Couldn’t update the guide. Showing the previous one.{review.guideError?.text && <span className="mt-0.5 line-clamp-3 whitespace-pre-line break-words">{review.guideError.text}</span>}</>, action: retryGuide } as const] : []),
     ...(repoAccess && !repoAccess.accessible ? [{ id: "access", tone: "danger", icon: "Lock", text: repoAccess.badCredentials ? "GitHub refused your account’s credentials. Switch account:" : `${repoAccess.account ? `@${repoAccess.account}` : "Your GitHub account"} can’t access ${repoAccess.repo ?? "this repo"}. Switch account:`, action: <AccountBar /> }] as const : []),
+    ...featureNotices,
+    ...fixNotices,
+    ...branchKept,
+    ...pushNotices,
+    ...(became?.targetKey === targetKey ? [{ id: "became-pr", tone: "info", icon: "GitPullRequest", text: `This review is now ${became.to}, the PR’s. It was ${became.from}; your comments came with it.`,
+      action: <Button variant="outline" size="sm" className={noticeButton} onClick={() => setBecame(null)}>Got it</Button> }] as const : []),
     ...(generatingReplacement ? [{ id: "updating", tone: "warning", icon: "Loading", busy: true, text: "Updating the guide for the new commits. Your current view and unsaved edits stay here.", ...(stopGenerating ? { action: <Button variant="outline" size="sm" className={noticeButton} disabled={stopping} onClick={() => void stopGuide()}>{stopping ? "Stopping…" : "Stop"}</Button> } : {}) }] as const : []),
     ...(review?.skippedRun && !archived ? [{ id: "not-run", tone: "warning", icon: "Lock", label: "Not run automatically", text: `${notRunReason(review, { unattendedAgents })}.`, action: <NotRunButton review={review} /> }] as const : []),
-    ...(newCommits && !generatingReplacement ? [{ id: "new-commits", tone: "info", icon: "GitCommit", text: newCommitsText, action: <Button variant="outline" size="sm" className={noticeButton} disabled={rebuilding} onClick={() => void rebuild()}>Update guide</Button> }] as const : []),
+    // A local review's buttons stay on its text's first line, as a folder's notices' do; Rewrite guide wears the agent's sparkle.
+    ...(newCommits && !generatingReplacement ? [{ id: "new-commits", tone: "info", icon: "GitCommit", text: newCommitsText, ...localChanged ? { firstLine: true } : {}, action: localChanged ? <span className="flex gap-2">
+      <Button variant="outline" size="sm" className={noticeButton} disabled={rebuilding} onClick={() => void rebuild("updateFeature")}>Update</Button>
+      <Hint label={REWRITE_GUIDE} container={portalContainer}>
+        <Button variant="outline" size="sm" className={noticeButton} aria-description={REWRITE_GUIDE} disabled={rebuilding} onClick={() => void rebuild("rewriteGuide")}><Icon name="Sparkles" className="text-(--ansi-13)" aria-hidden />Rewrite guide</Button>
+      </Hint>
+    </span> : <Button variant="outline" size="sm" className={noticeButton} disabled={rebuilding} onClick={() => void rebuild()}>Update guide</Button> }] as const : []),
   ];
   // Inside the padding that keeps the workspace clear of the screen's edges.
   const rootStyle = rootEl && getComputedStyle(rootEl);
@@ -1450,7 +1507,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
         <NavigatorHost targetKey={targetKey} placement={layout.nav} sheet={sheet} sheetTitle={<ChapterViewSwitch view={navView} onChange={changeNavView} />} sheetActions={<><DiffOptions threads={isPr && diffThreads.threads.length > 0} /><ReviewMenu api={api} className={cn("size-8 px-0", TOUCH_CONTROL)} /></>} width={navWidth} maxWidth={Math.min(NAV_WIDTH.max, paneWidth - READER_MIN - (layout.panel === "docked" ? panelDockWidth(paneWidth, panelWidth) : 0))} onWidth={setNavWidth} onWidthDone={saveNavWidth} onClose={() => setNavOverlay(false)}>
           <NavigatorAtFile targetKey={targetKey} leading={<TopBand />} patch={patch} changedSince={changedSince} lines={lines} generated={generated} chosen={chosenFiles} threads={diffThreads.threads} owners={shownOwners} onSelect={selectChapter} onSelectFile={onSelectFile} onOpenLine={showLocation} onOpenFile={openFoundFile} initialFind={carry?.find} onFind={keepFind} />
         </NavigatorHost>
-        <main aria-label="Review" inert={sheetOpen} className="flex min-w-0 flex-1 flex-col">
+        <main aria-label={identity ? `Review: ${identity.label}` : "Review"} inert={sheetOpen} className="flex min-w-0 flex-1 flex-col">
           {/* With the keyboard up leaving a phone held sideways' room or less, the band and notices give way to the code. */}
           <div className="contents [[data-keyboard=short]_&]:hidden">
             <ReaderBar threads={isPr && diffThreads.threads.length > 0} onCompareShown={setCompareShown} />
@@ -1508,7 +1565,8 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
         <SidePanel targetKey={targetKey} placement={layout.panel} sheet={sheet} view={shownPanel} width={panelWidth} maxWidth={Math.min(PANEL_WIDTH.max, paneWidth - READER_MIN - (layout.nav === "docked" ? navWidth : 0))} onWidth={setPanelWidth} onWidthDone={savePanelWidth} onClose={closePanel} onBack={() => { openPanel("comments"); focusComments(targetKey); }}>
           <CommentsView shown={shownPanel === "comments" || shownPanel === "finish"} finish={shownPanel === "finish"} tab={commentsTab} onTab={setCommentsTab} revision={revision} onShowThread={showThread} />
           <FinishView shown={shownPanel === "finish"} revision={revision} />
-          <AgentDock targetKey={targetKey} patch={patch} injection={injection} container={rootEl} active={shownPanel === "agent"} popOut={layout.mode === "tablet"} closeLabel={sheet ? "Close" : undefined} onDock={() => openPanel("agent")} onCollapse={closePanel} />
+          <AgentDock targetKey={targetKey} reviewId={identity?.id} patch={patch} injection={injection} container={rootEl} active={shownPanel === "agent"} popOut={layout.mode === "tablet"} closeLabel={sheet ? "Close" : undefined} onDock={() => openPanel("agent")} onCollapse={closePanel} />
+          <MainThreadPanel active={shownPanel === "main"} reviewId={identity?.id} closeLabel={sheet ? "Close" : undefined} onClose={closePanel} />
         </SidePanel>
         {/* Over the code, a side dims the rest; a tap there closes it. */}
         {(layout.nav === "overlay" || layout.panel === "overlay") && <div aria-hidden className="absolute inset-0 z-30 bg-black/40 animate-in fade-in duration-200 motion-reduce:animate-none" onClick={() => { setNavOverlay(false); if (layout.panel === "overlay") closePanel(); }} />}

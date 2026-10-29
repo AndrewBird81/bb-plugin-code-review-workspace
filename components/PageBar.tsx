@@ -19,15 +19,17 @@ export function PageBar({ back = "All reviews", onBack, backDisabled = false, ti
   children?: ReactNode;
 }) {
   return (
-    <div className="flex h-11 shrink-0 items-center gap-1 border-b border-border px-1.5">
+    <div className="@container/pagebar flex h-11 shrink-0 items-center gap-1 border-b border-border px-1.5">
       <nav aria-label="Breadcrumb" className="flex min-w-0 flex-1 items-center gap-1 text-sm">
         <Button variant="ghost" size="sm" disabled={backDisabled} className={cn("h-8 shrink-0 gap-1 px-1.5 text-muted-foreground", TOUCH_CONTROL)} onClick={onBack}>
-          <Icon name="ChevronLeft" aria-hidden />{back}
+          {/* Under 480px, ‹ alone, still named for where it goes. */}
+          <Icon name="ChevronLeft" aria-hidden /><span className="@max-[480px]/pagebar:sr-only">{back}</span>
         </Button>
         {title && <>
-          <span aria-hidden className="text-subtle-foreground">/</span>
-          {/* Two lines fit the bar's 44px, so a phone shows more of a long title than its first words. */}
-          <h1 className="line-clamp-2 min-w-0 break-words font-medium leading-4.5 text-foreground">{title}</h1>
+          <span aria-hidden className="text-subtle-foreground @max-[480px]/pagebar:hidden">/</span>
+          {/* Two lines fit the bar's 44px, so a phone shows more of a long title than its first words. A review's id chip
+              sits on its first line's baseline, and its name wraps beside it (ReviewTitle). */}
+          <h1 className="flex min-w-0 items-baseline gap-2 font-medium leading-4.5 text-foreground">{typeof title === "string" ? <span className="line-clamp-2 min-w-0 break-words">{title}</span> : title}</h1>
         </>}
       </nav>
       {children}
