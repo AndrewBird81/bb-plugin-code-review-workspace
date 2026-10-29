@@ -17,7 +17,7 @@ import { reviewIdentity } from "../lib/review-identity";
 import { behindText, mismatchText, pushAnywayOffered, pushFlagText, NOT_PUSHED, nothingToPush, plainText, pushCommand, pushTarget, type PushTarget } from "../lib/push";
 import { command } from "./post-preview";
 import { inlineCode } from "./untrusted";
-import type { PushRun, ReviewMeta } from "./store";
+import type { PushRun, ReviewLifecycle, ReviewMeta } from "./store";
 import { failed, type EventListeners, type RpcHandlers, type ServeDeps } from "./server-modules";
 import { ONLY_WITH_THESE_TOOLS } from "./review-agent-tools";
 
@@ -103,15 +103,27 @@ type Github = { repo: string; head: string; sha: string | null };
 
 /**
  * GitHub's head, read, against the last head you accepted (`remoteHead`), whatever stands with Push: the same; one to
- * accept, as the first read, or a move a Send that let the thread push covers; or a move nothing explains, to flag. Only
- * these, Push landing on exactly its checked commit, and Got it on a flag, move what's accepted. A branch gone from
- * GitHub pushed nothing.
+ * accept, the first read, which is where watching starts, or a move a Let it push Send covers; or a move nothing
+ * explains, to flag. Besides these, only Push landing on exactly its checked commit, and Got it on a flag, move what's
+ * accepted. A branch gone from GitHub pushed nothing. `write` is what the read changes, whatever it finds.
+ *
+ * A Let it push Send covers moves from its time on, until the first read after it's ready, or its thread failed or was
+ * archived or deleted, which still counts, as the thread may report and then push in the same turn; then its cover is
+ * closed, for good. An idle thread may be waiting on its subagents, so its Send stays open. A covered move
+ * keeps the accepted head's time, so the Send covers the thread's next push too. A read that finds no change while no
+ * cover is open stamps the time again.
  */
-function judge(now: ReviewMeta, github: Github): "same" | "accept" | "flag" {
+function judge(now: ReviewMeta, github: Github): { verdict: "same" | "accept" | "flag"; write: ReviewLifecycle } {
   const was = now.remoteHead?.repo === github.repo && now.remoteHead.head === github.head ? now.remoteHead : null;
-  if (!was) return "accept";
-  if (was.sha === github.sha || github.sha === null) return "same";
-  return (now.sends ?? []).some((send) => send.letPush && (send.at > was.at || send.readyAt === undefined)) ? "accept" : "flag";
+  const sends = now.sends ?? [];
+  const open = sends.filter((send) => send.letPush && !send.coverClosed && (!was || send.at > was.at));
+  // Idle alone isn't done: a main thread idles while its subagents work, and its Send stays open.
+  const ending = open.filter((send) => send.readyAt !== undefined || send.stopped !== undefined && send.stopped.why !== "idle");
+  const write: ReviewLifecycle = ending.length ? { sends: sends.map((send) => ending.includes(send) ? { ...send, coverClosed: true as const } : send) } : {};
+  if (!was) return { verdict: "accept", write: { ...write, ...accepted(github) } };
+  if (github.sha === null || was.sha === github.sha) return { verdict: "same", write: { ...write, ...!open.length && github.sha !== null ? accepted(github) : {} } };
+  if (open.length) return { verdict: "accept", write: { ...write, remoteHead: { ...github, at: was.at } } };
+  return { verdict: "flag", write };
 }
 const accepted = (github: Github) => ({ remoteHead: { ...github, at: Date.now() } });
 /** A move on GitHub that didn't come from Push: said plainly, naming a fixer on your PR among who may have made it. */
@@ -271,10 +283,10 @@ export async function startPush(deps: Deps, targetKey: string, { force = false, 
   // A move on GitHub nothing explains is said before anything is asked: Got it accepts it, then Push.
   const seen = github && await store.exclusive(async (tx) => {
     const now = await tx.getReview(targetKey);
-    const judged = now ? judge(now, github) : "same";
-    if (judged === "accept") await tx.setLifecycle(targetKey, accepted(github));
-    if (judged === "flag" && now?.push?.state === "committing" && now.push.at === run.at) await tx.setLifecycle(targetKey, { push: moved(place, github.sha, main.threadId) });
-    return judged;
+    if (!now) return "same";
+    const { verdict, write } = judge(now, github);
+    await tx.setLifecycle(targetKey, { ...write, ...verdict === "flag" && now.push?.state === "committing" && now.push.at === run.at ? { push: moved(place, github.sha, main.threadId) } : {} });
+    return verdict;
   });
   if (seen === "flag") {
     deps.changed(targetKey);
@@ -352,12 +364,12 @@ export async function reportCommit(deps: Deps, sha: string, mine: ReadonlySet<st
     const review = await tx.getReview(key);
     const now = review?.push ?? null;
     if (now?.state !== "committing" || now.at !== run.at) return now;
-    const judged = github ? judge(review!, github) : "same";
-    if (judged === "flag") {
-      await tx.setLifecycle(key, { push: moved(place, github!.sha, run.threadId) });
+    const { verdict, write } = github ? judge(review!, github) : { verdict: "same" as const, write: {} };
+    if (verdict === "flag") {
+      await tx.setLifecycle(key, { ...write, push: moved(place, github!.sha, run.threadId) });
       return "moved" as const;
     }
-    await tx.setLifecycle(key, { push: next, ...judged === "accept" ? accepted(github!) : {} });
+    await tx.setLifecycle(key, { ...write, push: next });
     return true;
   });
   if (saved === "moved") deps.changed(key);
@@ -389,10 +401,10 @@ async function readAfter(deps: Deps, thread: { id: string; queued: boolean }, wh
       const now = await tx.getReview(review.targetKey);
       if (!now) return;
       const run = now.push ?? null;
-      const judged = github ? judge(now, github) : "same";
+      const { verdict: judged, write } = github ? judge(now, github) : { verdict: "same" as const, write: {} };
       const stopped = !!why && run?.state === "committing" && run.threadId === thread.id;
       let next: PushRun | null | undefined;
-      let accept = judged === "accept";
+      let accept = false;
       // A commit reported by a short SHA is GitHub's full one that starts with it.
       if (github?.sha && run?.sha && (run.state === "pushing" || run.state === "flagged" && run.flag === "differs") && github.sha.startsWith(run.sha)) {
         next = { ...run, state: "pushed", at: Date.now(), sha: github.sha, flag: undefined, remote: undefined };
@@ -401,8 +413,7 @@ async function readAfter(deps: Deps, thread: { id: string; queued: boolean }, wh
         next = thread.queued ? undefined : { ...run, state: "flagged", flag: "differs", remote: github.sha, at: Date.now() };
       } else if (judged === "flag") next = run?.state === "flagged" ? undefined : moved(place, github!.sha, thread.id);
       else if (stopped) next = { ...run!, state: "flagged", flag: "stopped", why, at: Date.now() };
-      if (!accept && next === undefined) return;
-      await tx.setLifecycle(review.targetKey, { ...accept && github ? accepted(github) : {}, ...next !== undefined ? { push: next } : {} });
+      await tx.setLifecycle(review.targetKey, { ...write, ...accept && github ? accepted(github) : {}, ...next !== undefined ? { push: next } : {} });
       if (next !== undefined) deps.changed(review.targetKey);
     });
   }

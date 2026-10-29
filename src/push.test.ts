@@ -346,16 +346,16 @@ test("the review agent's push needs the reviewer's own words: push, and for Push
   await cli("coder", "report", "--commit", HEAD);
   chat.say("push it");
   expect(toolFailed(await tool({ force: true }))).toBe(true);
-  chat.say("push it anyway");
+  chat.say("push it anyway", { at: Date.now() + 5 });
   // Without the warning's at, the agent is told the warning now, and nothing goes.
   const told = toolText(await tool({ force: true }));
   const at = (await run())!.at;
   expect(told).toBe(`Not pushed yet. The warning now: 1 file changed since you reviewed. (at: ${at}). Tell the reviewer; only if they then say "push anyway", call push with force: true and at: ${at}.`);
   expect(sent).toHaveLength(1);
   // A warning that isn't the one now: refused.
-  chat.say("push it anyway");
+  chat.say("push it anyway", { at: Date.now() + 5 });
   expect(toolText(await tool({ force: true, at: at - 1 }))).toBe("Not pushed: Push changed meanwhile. Look again, then choose.");
-  chat.say("push it anyway");
+  chat.say("push it anyway", { at: Date.now() + 5 });
   expect(toolText(await tool({ force: true, at }))).toBe("The main thread was told to push the commit as it is. Tell the reviewer; Push in Finish review shows where it stands.");
   expect(await run()).toMatchObject({ state: "pushing", sha: HEAD });
   expect(sent.at(-1).input[0].text).toContain(refspec(HEAD));
@@ -438,7 +438,7 @@ test("the agent's push takes only a short command of the reviewer's own: not a n
     expect(toolFailed(await tool({ force: true })), said).toBe(true);
   }
   expect(await run()).toMatchObject({ state: "mismatch" });
-  chat.say("Push it anyway.");
+  chat.say("Push it anyway.", { at: Date.now() + 5 });
   expect(toolFailed(await tool({ force: true, at: (await run())!.at }))).toBe(false);
 });
 
@@ -644,8 +644,11 @@ test("a folder Push can't read says so plainly, not that GitHub is ahead, and st
  * accepted with GitHub's head as the one you accepted.
  */
 const SEQUENCES: Array<[string, (t: Awaited<ReturnType<typeof setup>>) => Promise<unknown>, "flagged" | "accepted"]> = [
-  ["commit → report → push: your own Push lands on its checked commit", async (t) => {
+  ["commit → report → push: your own Push lands on its checked commit, which is then the head you accepted", async (t) => {
     await t.push(); await t.cli("coder", "report", "--commit", HEAD); t.github.sha = HEAD; await t.idle();
+    expect(await t.run()).toMatchObject({ state: "pushed", sha: HEAD });
+    // Read again, GitHub at the commit is no move.
+    await t.idle();
     expect(await t.run()).toMatchObject({ state: "pushed", sha: HEAD });
   }, "accepted"],
   ["commit → push → report: the thread pushed before it reported", async (t) => {
@@ -664,10 +667,29 @@ const SEQUENCES: Array<[string, (t: Awaited<ReturnType<typeof setup>>) => Promis
     t.github.sha = HEAD; await t.idle(); await t.harness.behavior.callRpc("dismissPush", { targetKey: KEY });
     t.github.sha = OLD; await t.idle();
   }, "flagged"],
-  ["a move a Send with Let it push covers", async (t) => {
+  ["report, then push, in the same turn under Let it push: the read after it's ready still counts", async (t) => {
+    await t.store.setLifecycle(KEY, { sends: [{ n: 1, at: Date.now() + 1, threadId: "coder", ids: ["c1"], letPush: true, readyAt: Date.now() + 2 }] });
+    t.github.sha = HEAD; await t.idle();
+    expect((await t.store.getReview(KEY))!.sends![0]!.coverClosed).toBe(true);
+  }, "accepted"],
+  ["two pushes under one open Let it push Send, its thread still at work", async (t) => {
     await t.store.setLifecycle(KEY, { sends: [{ n: 1, at: Date.now() + 1, threadId: "coder", ids: ["c1"], letPush: true }] });
     t.github.sha = HEAD; await t.idle();
+    t.github.sha = OTHER; await t.idle();
   }, "accepted"],
+  ["a Let it push Send that never became ready, its thread archived, then a later move", async (t) => {
+    await t.store.setLifecycle(KEY, { sends: [{ n: 1, at: Date.now() + 1, threadId: "coder", ids: ["c1"], letPush: true }] });
+    // An archived thread doesn't idle again: what BB says of it is that it's archived.
+    const archived = () => t.harness.behavior.emitThreadEvent("thread.archived", { thread: makeThreadResponse({ id: "coder" }) } as any);
+    await archived(); await archived();
+    expect((await t.store.getReview(KEY))!.sends![0]!.coverClosed).toBe(true);
+    t.github.sha = HEAD; await archived();
+  }, "flagged"],
+  ["a finished Let it push Send, then a much later move", async (t) => {
+    await t.store.setLifecycle(KEY, { sends: [{ n: 1, at: Date.now() + 1, threadId: "coder", ids: ["c1"], letPush: true, readyAt: Date.now() + 2 }] });
+    await t.idle();
+    t.github.sha = HEAD; await t.idle();
+  }, "flagged"],
 ];
 
 test.each(SEQUENCES)("%s", async (_name, steps, ends) => {

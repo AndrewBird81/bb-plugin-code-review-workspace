@@ -95,7 +95,7 @@ function lifecycle(r: Rng): ReviewLifecycle {
     },
     {
       // Past the 20 Sends and 100 actions a review keeps, at times.
-      sends: Array.from({ length: r.int(0, 25) }, (_, i) => ({ n: i + 1, at: r.pick(TIMES), threadId: r.pick(THREADS), ids: [`c${i + 1}`], ...(r.bool(0.1) ? { patch: r.pick(PATCHES) } : {}), ...(r.bool(0.2) ? { readyAt: r.pick(TIMES), checkedAt: r.pick(TIMES) } : {}), ...(r.bool(0.2) ? { letPush: true as const } : {}) })),
+      sends: Array.from({ length: r.int(0, 25) }, (_, i) => ({ n: i + 1, at: r.pick(TIMES), threadId: r.pick(THREADS), ids: [`c${i + 1}`], ...(r.bool(0.1) ? { patch: r.pick(PATCHES) } : {}), ...(r.bool(0.2) ? { readyAt: r.pick(TIMES), checkedAt: r.pick(TIMES) } : {}), ...(r.bool(0.2) ? { letPush: true as const } : {}), ...(r.bool(0.1) ? { coverClosed: true as const } : {}) })),
       threadSends: r.bool() ? {} : { t1: { id: "c2", sendN: r.int(1, 25), ...(r.bool() ? { claim: claim(r) } : {}) } },
       activity: Array.from({ length: r.pick([0, 2, 104]) }, (_, i) => ({ at: i, text: `Posted reply ${i}`, asking: r.pick(["direct", "relayed", "unattended"] as const), ...(r.bool(0.2) ? { from: r.pick(THREADS) } : {}) })),
       readyToApprove: r.pick([null, { action: r.pick(["approve", "merge", "close"] as const), verdict: r.pick([null, "APPROVE"] as const), body: r.pick(TEXTS), comments: [], headSha: r.pick(HEADS), token: "t1", from: r.pick([null, ...THREADS]), at: r.pick(TIMES) }]),

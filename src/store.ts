@@ -293,6 +293,8 @@ export interface SendEntry {
   checkedAt?: number;
   /** It let the thread push when done (Let it push when done), so a push after it was asked for. */
   letPush?: true;
+  /** Its Let it push no longer covers a move on GitHub: read once after it was ready or stopped (src/push.ts judge). */
+  coverClosed?: true;
 }
 
 /**
