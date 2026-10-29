@@ -149,4 +149,8 @@ test("comments sent to fix: how many the main thread reported while it works, th
   expect(needsGroup(archived)).toBe("back");
   expect(said(review(turn("needs", "fixes-stopped", "Main thread deleted · 1 of 3 reported"), { kind: "ref", fixes }))?.[2]).toBe("Trash2");
   expect(statusWhy({ ...ready, verifyingSince: now - 60_000 }, knobs, now)).toMatchObject({ text: "Checking the fixes…", tone: "agent", busy: true });
+  // On a PR, Check fixes says so; its other checks are of your feedback, Sends or not.
+  const pr = review(turn("needs", "fixes-ready", "Ready to re-review"), { kind: "pr", fixes: { ...fixes, reported: 3 }, verifyingSince: now - 60_000 });
+  expect(statusWhy({ ...pr, verifyingFixes: true }, knobs, now)?.text).toBe("Checking the fixes…");
+  expect(statusWhy(pr, knobs, now)?.text).toBe("Checking your feedback…");
 });

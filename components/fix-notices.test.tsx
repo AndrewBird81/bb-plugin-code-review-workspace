@@ -104,8 +104,8 @@ test("archived or deleted, it says so, with Check now and Send the rest to a fre
   gone.slot.lifecycle.unmount();
 });
 
-test("while the review agent checks, it says only that, never Ready yet; its end, as feedback, reads the review again", async () => {
-  const checking = await renderWorkspace({ ...sent({ readyAt: 3, checkedAt: 3 }, tally({ sent: 3, reported: 3 })), verifyingSince: 4 });
+test("while the review agent checks the fixes, it says only that, never Ready yet; its end, as feedback, reads the review again", async () => {
+  const checking = await renderWorkspace({ ...sent({ readyAt: 3, checkedAt: 3 }, tally({ sent: 3, reported: 3 })), verifyingSince: 4, verifyingFixes: true });
   const busy = await checking.slot.findByRole("status", { name: "Checking the fixes" });
   expect(busy.textContent).toBe("All 3 reported. Checking the fixes…");
   expect(within(busy).queryByRole("button")).toBeNull();
@@ -114,6 +114,13 @@ test("while the review agent checks, it says only that, never Ready yet; its end
   await checking.slot.emitRealtime(`feedback:${KEY}`, {});
   await waitFor(() => expect(checking.rpc.getReviewBundle.mock.calls.length).toBeGreaterThan(loads));
   checking.slot.lifecycle.unmount();
+  cleanup();
+  // A check of your feedback alone, as after a guide's rebuild, isn't checking them: Ready stands, with its button.
+  const feedback = await renderWorkspace({ ...sent({ readyAt: 3, checkedAt: 3 }, tally({ sent: 3, reported: 3 })), verifyingSince: 4 });
+  const ready = await feedback.slot.findByRole("status", { name: "Ready to re-review" });
+  expect(ready.textContent).toBe("Ready to re-review. The main thread reported all 3.Check again");
+  expect(feedback.slot.queryByRole("status", { name: "Checking the fixes" })).toBeNull();
+  feedback.slot.lifecycle.unmount();
 });
 
 test("Ready to re-review says what came back and what the check found, with Check fixes, or Check again once checked", async () => {

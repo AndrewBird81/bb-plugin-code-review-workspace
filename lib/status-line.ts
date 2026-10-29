@@ -44,8 +44,8 @@ export function statusWhy(review: ReviewItem, knobs: Pick<Knobs, "localDiffChang
   // A first guide you stopped didn't fail: it waits for Build the guide, as its page says.
   if (turn.failed && review.guideError?.text === GUIDE_STOPPED) return why("Guide stopped", "neutral", "Route");
   if (turn.failed) return why("Guide failed", "danger", "AlertTriangle");
-  // A local review's check is of the fixes it sent; a PR's, of your feedback, and any fixes sent too.
-  if (review.verifyingSince && turn.group !== "archive") return why(review.kind === "pr" ? "Checking your feedback…" : "Checking the fixes…", "agent", "Loading", { busy: true });
+  // Check fixes is of the comments sent to fix, the only check a local review has; a PR's other checks, of your feedback.
+  if (review.verifyingSince && turn.group !== "archive") return why(review.verifyingFixes || review.kind !== "pr" ? "Checking the fixes…" : "Checking your feedback…", "agent", "Loading", { busy: true });
   switch (turn.reason) {
     case "re-requested": return why(by("Re-requested by", s.requestedBy, "Re-requested"), "foreground", "Repeat");
     case "requested": return why(by("Requested by", s.requestedBy, "Review requested"), "neutral", "UserRoundPlus");

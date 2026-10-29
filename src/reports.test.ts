@@ -154,17 +154,18 @@ test("every comment reported makes it Ready to re-review, with exactly one Check
   expect(agentMessages(h)).toEqual([]);
   expect(await cli(h, "coder", "report", "c6", "declined", "--note", "Not ours.")).toMatchObject({ exitCode: 0, stdout: "Reported c6 declined on repo:feature. That was the last one: the review goes back to the reviewer to re-review." });
   await vi.waitFor(() => expect(agentMessages(h)).toHaveLength(1));
+  // The alert waits for the check, once it has started.
+  await vi.waitFor(async () => expect((await store.getReview("ref-1"))!.pendingAlert).toMatchObject({ signal: "fixes-ready:1" }));
   const review = (await store.getReview("ref-1"))!;
   expect(review.sends![0]).toMatchObject({ readyAt: expect.any(Number), checkedAt: expect.any(Number) });
   expect(review.verifyingSince).toEqual(expect.any(Number));
+  expect(review.verifyingFixes).toBe(true);
   expect((await classify(h.bb)("agent")).asking).toBe("unattended");
   // What it's asked to check, for the agent only: each comment against its Send, and the main thread's last reply, fenced.
   const context = (agentMessages(h)[0]!.data.input as any[]).map((part) => part.text).join("\n");
   expect(context).toContain("The reviewer sent 6 comments to the main thread");
   expect(context).toContain('<untrusted source="main thread\'s reply">\nRenamed a; left the rest.\n</untrusted>');
   expect(await turnOf(h)).toMatchObject({ group: "needs", reason: "fixes-ready", label: "Ready to re-review", signal: "fixes-ready:1" });
-  // The alert waits for the check.
-  expect(review.pendingAlert).toMatchObject({ signal: "fixes-ready:1" });
   expect(h.published).toEqual([]);
   // Reported again, or ready, nothing more is checked.
   await cli(h, "coder", "report", "c3", "declined");
@@ -177,6 +178,7 @@ test("every comment reported makes it Ready to re-review, with exactly one Check
   await h.harness.behavior.emitThreadEvent("thread.idle", { thread: makeThreadResponse({ id: "agent" }), lastAssistantText: "Checked." });
   await vi.waitFor(() => expect(h.published).toHaveLength(1));
   expect(h.published[0]).toMatchObject({ title: expect.stringMatching(/^repo:feature/), body: "The main thread reported all 6 of your comments. Checked: 5 look fixed, 1 doesn't" });
+  expect((await store.getReview("ref-1"))!.verifyingFixes ?? null).toBeNull();
   expect(agentMessages(h)).toHaveLength(1);
 });
 
@@ -393,7 +395,8 @@ test("bb review ready says who finished: the main thread, another thread by its 
   await cli(h, "coder", "report", "c1", "done");
   expect(await cli(h, "other", "ready", "repo:feature")).toMatchObject({ exitCode: 0, stdout: "Sent repo:feature back to the reviewer to re-review: 1 of 6 reported." });
   expect((await store.getReview("ref-1"))!.sends![0]!.readyBy).toEqual({ from: "thread", title: "Release checklist" });
-  await vi.waitFor(() => expect(agentMessages(h)).toHaveLength(1));
+  // Once the check is under way, its end lets the alert go.
+  await vi.waitFor(async () => expect((await store.getReview("ref-1"))!.pendingAlert).toMatchObject({ signal: "fixes-ready:1" }));
   await h.harness.behavior.emitThreadEvent("thread.idle", { thread: makeThreadResponse({ id: "agent" }), lastAssistantText: null });
   await vi.waitFor(() => expect(h.published).toHaveLength(1));
   expect(h.published[0].body).toBe("Release checklist says it’s finished: 1 of 6 reported");

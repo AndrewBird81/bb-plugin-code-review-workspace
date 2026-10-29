@@ -15,7 +15,7 @@ import { Icon } from "../ui/icon";
 import type { Notice } from "./ReviewNotices";
 
 /** The review, as its fixes' notice reads it. */
-type Reviewed = Pick<ReviewLifecycle, "sends" | "fixes" | "verifyingSince" | "archivedAt" | "userArchivedAt">;
+type Reviewed = Pick<ReviewLifecycle, "sends" | "fixes" | "verifyingSince" | "verifyingFixes" | "archivedAt" | "userArchivedAt">;
 
 /** What Check fixes, and Check now, do: said beside the button, and to screen readers. */
 export const CHECK_FIXES = "The review agent checks each sent comment against the code.";
@@ -68,7 +68,8 @@ export function useFixNotices(targetKey: string, review: Reviewed | null, onChan
   const container = useFullscreenPortalContainer();
   const [busy, setBusy] = useState(false);
   const fixes = review && !review.archivedAt && !review.userArchivedAt ? fixesState(review) : null;
-  const checking = !!fixes && !!review?.verifyingSince;
+  // Only Check fixes checks them: a check of your feedback alone isn't one.
+  const checking = !!fixes && !!review?.verifyingSince && !!review.verifyingFixes;
   // The check's end, and what it found, reach the review as feedback.
   const checkingRef = useRef(checking);
   checkingRef.current = checking;
