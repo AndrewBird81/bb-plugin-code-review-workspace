@@ -108,7 +108,8 @@ async function carriesInsert(bb: BbPluginApi, threadId: string, request: Request
   await writes.get(bb);
   const inserts = (await bb.storage.kv.get<Record<string, Insert[]>>(INSERTS))?.[threadId] ?? [];
   const carried = inserts.filter((insert) => carries(request.text, insert.lines));
-  const seen = new Set(carried.filter((insert) => (insert.carriedAt ?? -Infinity) < request.at).map((insert) => insert.id));
+  // Only a message sent once the insert was noted carries it: one sent before, with the same lines, was a quote of its own.
+  const seen = new Set(carried.filter((insert) => request.at >= insert.at && (insert.carriedAt ?? -Infinity) < request.at).map((insert) => insert.id));
   const typed = newest && !request.senderThreadId && request.initiator !== "agent" && request.source !== "spawn";
   const gone = new Set(typed ? inserts.filter((insert) => !carried.includes(insert) && insert.carriedAt !== undefined && request.at > insert.carriedAt).map((insert) => insert.id) : []);
   if (seen.size || gone.size) {

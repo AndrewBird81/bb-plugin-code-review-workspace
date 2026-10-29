@@ -262,3 +262,42 @@ test("a message queued before a quote, dispatched after it, doesn't retire it: t
   }
   expect(Object.values(await bb.storage.kv.get<Record<string, unknown[]>>("asking-inserts") ?? {}).flat()).toHaveLength(1);
 });
+
+test("a quote put in again isn't seen as sent by the message that carried it the first time, so a message after can't retire it (3.4-followup)", async () => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  try {
+    const { bb, chat, classify } = setup();
+    const t0 = Date.parse("2026-10-30T09:00:00Z");
+    const quote = "In `a.ts` line 3:\n```diff\n+x\n```";
+    // Quoted, and sent with your question; read in its turn.
+    vi.setSystemTime(t0);
+    await noteInserted(bb, "agent", quote);
+    chat.say(`${quote}\n\nwhat's this?`, { at: t0 + 1_000 });
+    expect((await classify("agent")).message).toMatchObject({ inserted: true });
+    // "check the tests" queues; the quote goes in again; a tool runs, reading the first message once more.
+    vi.setSystemTime(t0 + 2_000);
+    await noteInserted(bb, "agent", quote);
+    expect((await classify("agent")).message).toMatchObject({ inserted: true });
+    // "check the tests" dispatches: it retires the first quote, which went with the first message, not the second.
+    chat.say("check the tests", { at: t0 + 3_000 });
+    expect((await classify("agent")).message).not.toHaveProperty("inserted");
+    chat.say(`${quote}\n\njust post it`, { at: t0 + 4_000 });
+    expect((await classify("agent")).message).toMatchObject({ text: expect.stringContaining("just post it"), inserted: true });
+  } finally { vi.useRealTimers(); }
+});
+
+test("the message that started the turn retires no quote, even one typed after a message that carried it (3.4-followup)", async () => {
+  const { bb, chat, classify } = setup();
+  const t0 = Date.now();
+  const quote = "In `a.ts` line 3:\n```diff\n+x\n```";
+  await noteInserted(bb, "agent", quote);
+  chat.say(`${quote}\n\nwhat's this?`, { at: t0 + 1_000 });
+  expect((await classify("agent")).message).toMatchObject({ inserted: true });
+  // A turn you start without it, then another thread's message joins it: only the newest, relayed, is read for retiring.
+  chat.say("check the tests", { at: t0 + 2_000 });
+  chat.say("[bb message from thread:thr_orchestrator]\n\nanything else?", { at: t0 + 3_000, sender: "thr_orchestrator", joins: true });
+  expect(await classify("agent")).toMatchObject({ asking: "relayed" });
+  expect(Object.values(await bb.storage.kv.get<Record<string, unknown[]>>("asking-inserts") ?? {}).flat()).toHaveLength(1);
+  chat.say(`${quote}\n\njust post it`, { at: t0 + 4_000 });
+  expect((await classify("agent")).message).toMatchObject({ inserted: true });
+});
