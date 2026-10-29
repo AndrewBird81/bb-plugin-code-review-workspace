@@ -51,6 +51,7 @@ export const knobsSchema = z.object({
   alertGuides: z.boolean(), alertTurns: z.boolean(),
   reviewMd: z.boolean(), paletteCommands: z.boolean(),
   unattendedAgents: z.boolean(),
+  reviewAgentActs: z.boolean(), reviewChangesLine: z.boolean(), trackOwnPrs: z.boolean(),
 }).strict();
 
 export const preferencesSchema = z.object({
@@ -85,6 +86,15 @@ export function readKnobs(saved: unknown): Knobs {
     const parsed = schema.safeParse(record[key]);
     return [key, parsed.success ? parsed.data : defaultKnobs[key as KnobId]];
   })) as unknown as Knobs;
+}
+
+// Saved only while they differ from their defaults, so a release that changes one's default, as a 1.8.1 that turns the
+// review agent's posting off would, reaches everyone who left it as it was, Settings saved or not.
+const SAVED_WHEN_CHANGED: readonly KnobId[] = ["reviewAgentActs", "reviewChangesLine", "trackOwnPrs"];
+
+/** The knobs as the column keeps them: 1.8.0's switches only while they differ from their defaults. */
+export function savedKnobs(knobs: Knobs): Partial<Knobs> {
+  return Object.fromEntries(Object.entries(knobs).filter(([id, value]) => !SAVED_WHEN_CHANGED.includes(id as KnobId) || value !== defaultKnobs[id as KnobId]));
 }
 
 /** The knobs in the column's JSON text that this version doesn't know, as saved. */

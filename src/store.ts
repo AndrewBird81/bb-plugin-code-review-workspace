@@ -1,8 +1,8 @@
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import { renameOverviewChapter, type Guide } from "./guide";
-import { sameLocation, type CommentLocation, type Discussion, type DiscussionEntry, type Draft, type DraftComment, type Severity, type Verdict } from "./draft";
+import { rangeOf, sameLocation, type Claim, type CommentLocation, type Discussion, type DiscussionEntry, type Draft, type DraftComment, type GithubReviewComment, type Severity, type Verdict } from "./draft";
 import { createHash, randomUUID } from "node:crypto";
-import { preferencesSchema, readPreferences, unknownKnobs, type PreferencesRecord, type ReviewPreferences, type ReviewerNotesRecord } from "./preferences";
+import { preferencesSchema, readPreferences, savedKnobs, unknownKnobs, type PreferencesRecord, type ReviewPreferences, type ReviewerNotesRecord } from "./preferences";
 import type { AssessmentSummary, TurnSignals } from "../lib/turn";
 import type { AssessmentItem, AssessmentRun, ReplyDraft } from "../lib/feedback";
 import type { FeedbackThread } from "./github/types";
@@ -14,6 +14,7 @@ import { fileHashCache, type FileHashes } from "./file-views";
 import { agentCommentStore, type AgentCommentStore } from "./learning";
 import { importFormerInstall } from "./former-install";
 import { sqliteSql, withoutNul, type Sql } from "./db/sql";
+import type { AsyncStore } from "./store-queue";
 
 export interface ReviewLifecycle {
   prState?: "OPEN" | "CLOSED" | "MERGED";
@@ -130,6 +131,119 @@ export interface ReviewLifecycle {
   unreachable?: { since: number; reason: "not-found" | "forbidden" } | null;
   /** The open PR whose head is this PR's base branch, as GitHub last said; null for none. Unset until read. */
   stackParent?: { number: number; title: string; url: string } | null;
+  /**
+   * A local review of a folder and branch: kept as kind "ref" with no `cwd`, so 1.7.0 never runs git on it. It stays
+   * once the review becomes a PR, for Not pushed yet.
+   */
+  feature?: FeatureReview | null;
+  /** The thread a Send goes to: the top thread working in the folder, or a fixer. Null for none yet. */
+  mainThread?: MainThread | null;
+  /** The threads that were the main thread before `mainThread`, oldest first. */
+  implementers?: MainThread[];
+  /** The Sends, oldest first: the last 20, and any a comment or a GitHub thread still names (setLifecycle drops the rest). */
+  sends?: SendEntry[];
+  /** On your own PR, the GitHub threads sent to a fixer, by the thread's id: the id and Send they went in, and the fixer's report. */
+  threadSends?: Record<string, { id: string; sendN: number; claim?: Claim }>;
+  /** A relayed approve, merge or close, waiting in Needs review for the reviewer's own click. Null for none. */
+  readyToApprove?: ReadyToApprove | null;
+  /** Let it push when done: a Send leaves out "Don't push until I say". Absent or false, it says it. */
+  letPush?: boolean;
+  /** Files the secrets filter keeps out of the diff that the reviewer chose to Include, by path. Absent: none. */
+  includeHidden?: string[];
+  /** What the review agent did on GitHub or sent, oldest first: the last 100 (setLifecycle drops the rest). */
+  activity?: ActivityEntry[];
+}
+
+/** A local review's folder and branch. */
+export interface FeatureReview {
+  /** bb's environment for the folder: with `branch`, the review's key. */
+  environmentId: string;
+  /** The machine the folder is on, and its name as the review shows it ("MaxBook"). */
+  hostId: string;
+  machine: string;
+  /** The folder's path on that machine. */
+  path: string;
+  branch: string;
+  /** What the diff is against: the folder's merge-base override, the PR's base, the upstream, or the default branch. */
+  baseRef: string;
+  /** The project's GitHub repo, owner/name, from its remote; null without one. The review's own `repo` means it's of a PR. */
+  repo: string | null;
+  /** The branch the folder is on instead of `branch`: the review is paused until it's back. */
+  pausedOn?: string | null;
+  /** bb removed the folder. A review that became a PR goes on, and its next Send starts a fresh thread. */
+  folderGone?: boolean;
+}
+
+/** A thread that fixes the review's comments. */
+export interface MainThread {
+  threadId: string;
+  environmentId: string;
+  /** adopted: a thread already working in the folder; fresh: one a Send started; forked: a fork of your PR's original thread. */
+  origin: "adopted" | "fresh" | "forked";
+  since: number;
+  /** A fixer's own branch, recorded when it's spawned, which outlives its folder: Branch kept names it once that's gone. */
+  branch?: string;
+}
+
+/** One Send or Send now. The diff it was sent at is kept as the snapshot `send:<n>`. */
+export interface SendEntry {
+  /** 1 for the review's first Send, then counting up. */
+  n: number;
+  at: number;
+  /** The thread it went to. */
+  threadId: string;
+  /** The ids of the comments it carried, draft comments' and GitHub threads'. */
+  ids: string[];
+  /** "You do it": the exact unified diff the review agent wrote for the comment it carried, for the thread to apply as written. */
+  patch?: string;
+  /** When the thread ran `bb review ready` after this Send. */
+  readyAt?: number;
+  /** When Check fixes ran for this Send, which it does once. */
+  checkedAt?: number;
+}
+
+/**
+ * What a local review's diff was read with, kept beside its snapshot, at the same head: the diff's own, or `send:<n>`
+ * for a Send's. saveSnapshotFiles keeps it out of the lifecycle that every read of the review carries.
+ */
+export interface SnapshotFiles {
+  /** Each file's revision in the diff, by path, as bb's diff gave it: Push and Since your last Send compare them. */
+  revisions: Record<string, string>;
+  /** The files the secrets filter kept out of the patch, and why. */
+  hidden: Array<{ path: string; reason: "secret" | "binary" | "large" }>;
+}
+
+/** Whose message a review agent's turn carries: yours typed in the review, one of your other threads', or none, as the plugin's own. */
+export type Asking = "direct" | "relayed" | "unattended";
+
+/** A relayed approve, merge or close, as Ready to approve shows it, to post on one click. */
+export interface ReadyToApprove {
+  action: "approve" | "merge" | "close";
+  /** The review's verdict, for approve; null for merge and close. */
+  verdict: Verdict | null;
+  /** The summary or comment it posts, exactly as the row shows it. */
+  body: string;
+  /** The inline comments it posts too: none unless the relay named them. */
+  comments: GithubReviewComment[];
+  /** The head it was asked on. A live head that differs holds it. */
+  headSha: string;
+  /** The preview token of exactly this. */
+  token: string;
+  /** The thread that relayed it; null for a shell outside any thread. */
+  from: string | null;
+  at: number;
+}
+
+/** Something the review agent did, as the review lists it. */
+export interface ActivityEntry {
+  at: number;
+  /** What it did: "Posted a reply on api.ts:88". */
+  text: string;
+  asking: Asking;
+  /** The thread that relayed the ask. */
+  from?: string | null;
+  /** What it posted, on GitHub. */
+  url?: string;
 }
 
 /** The turn of the reviewer's ask on the summary or a draft comment (src/asks.ts). */
@@ -190,6 +304,7 @@ export interface Store extends AgentCommentStore {
   getReview(targetKey: string): Promise<ReviewMeta | null>;
   listReviews(): Promise<ReviewMeta[]>;
   setStatus(targetKey: string, status: ReviewMeta["status"]): Promise<void>;
+  /** Merge `state` into the review's lifecycle. `sends` and `activity` given are cut to what a review keeps of them. */
   setLifecycle(targetKey: string, state: ReviewLifecycle): Promise<void>;
   /** Context for the assistant's automatic review, from `bb review --context`. */
   getReviewContext(targetKey: string): Promise<string | null>;
@@ -233,15 +348,26 @@ export interface Store extends AgentCommentStore {
   /** interruptGenerations for one review, still generating with no run to finish it. False when it isn't generating. */
   interruptGeneration(targetKey: string): Promise<boolean>;
   getDraft(targetKey: string): Promise<Draft>;
+  /**
+   * Save the comment at its place. Its id, state, Send, claim and editedBy stay the comment's there (none for a new one),
+   * whatever `c` says, as only trackComments sets them. A change to its text or lines opens a sent comment again, to go
+   * with the next Send, and clears editedBy.
+   */
   upsertDraftComment(targetKey: string, c: DraftComment): Promise<Draft>;
   /**
    * Change only a comment's text, with `severity` its severity, and with `evidence` how the agent checked it (null
    * for none of either), and with `introduced` whether the PR introduced it, keeping who added it and the diff it was
-   * drafted against. Null when there's no comment there.
+   * drafted against. A change to its text opens a sent comment again and clears editedBy. Null when there's no comment there.
    */
   editDraftComment(targetKey: string, at: CommentLocation, body: string, severity?: Severity | null, evidence?: string | null, introduced?: boolean): Promise<Draft | null>;
   /** Null when there's no comment there. */
   deleteDraftComment(targetKey: string, at: CommentLocation): Promise<Draft | null>;
+  /**
+   * Set the server's own fields of the comments at each `at`, which only this changes: their id, state, Send, claim and
+   * editedBy, and nothing else. A field given as undefined is cleared. A comment no longer there is skipped. It takes
+   * any state: resolved and dismissed only ever come from the reviewer's click, which its callers keep to.
+   */
+  trackComments(targetKey: string, changes: ReadonlyArray<CommentTracking & { at: CommentLocation }>): Promise<Draft>;
   /** The reviewer picks a verdict. With body, they also write the summary. */
   setVerdict(targetKey: string, verdict: Verdict, body?: string): Promise<Draft>;
   /** Change the summary and its verdicts. A field given as undefined is cleared. */
@@ -290,8 +416,12 @@ export interface Store extends AgentCommentStore {
   // The PR's diff at commits you reviewed or the sync read, for "since your review".
   saveSnapshot(targetKey: string, headSha: string, patch: string): Promise<void>;
   getSnapshot(targetKey: string, headSha: string): Promise<string | null>;
-  /** Keep only these heads' snapshots. */
+  /** Keep only these heads' snapshots, and the files saved with each. */
   pruneSnapshots(targetKey: string, keep: readonly string[]): Promise<void>;
+  /** Keep the revisions and hidden files of the diff at `head`, beside its snapshot. */
+  saveSnapshotFiles(targetKey: string, head: string, files: SnapshotFiles): Promise<void>;
+  /** Null when none were saved. */
+  getSnapshotFiles(targetKey: string, head: string): Promise<SnapshotFiles | null>;
   // Your review threads on the PR, as last read from GitHub.
   /** Returns whether the threads changed: the first read always does. */
   saveFeedbackThreads(targetKey: string, threads: FeedbackThread[], prUpdatedAt: number | null): Promise<boolean>;
@@ -326,6 +456,10 @@ export interface Store extends AgentCommentStore {
    */
   rebaseDraftComments(targetKey: string, placements: ReadonlyArray<{ at: CommentLocation; line: number; startLine?: number }>): Promise<void>;
 }
+
+/** A comment's fields only the server sets, as trackComments changes them. */
+export type CommentTracking = Partial<Pick<DraftComment, typeof TRACKING[number]>>;
+const TRACKING = ["id", "state", "sendN", "claim", "editedBy"] as const;
 
 /** A summary change: any of these fields, where undefined clears it. */
 export type SummaryChange = Partial<Pick<Draft, "verdict" | "body" | "bodyAuthor" | "suggestedVerdict" | "written" | "verdictChosen" | "unchecked">>;
@@ -521,7 +655,7 @@ export function storeOn(sql: Sql): Store {
       const { knobs, ...rest } = parsed;
       // Knobs this version doesn't know, saved by a newer one before a rollback, stay for it.
       const raw = (await sql.get<{ knobs: string | null }>(`SELECT knobs FROM review_preferences WHERE id=1`))?.knobs;
-      const value = JSON.stringify(rest), saved = JSON.stringify({ ...unknownKnobs(raw ?? null), ...knobs });
+      const value = JSON.stringify(rest), saved = JSON.stringify({ ...unknownKnobs(raw ?? null), ...savedKnobs(knobs) });
       const result = revision === 0
         ? await sql.run(`INSERT INTO review_preferences (id,value,revision,knobs) VALUES (1,?,1,?) ON CONFLICT DO NOTHING`, [value, saved])
         : await sql.run(`UPDATE review_preferences SET value=?,knobs=?,revision=revision+1 WHERE id=1 AND revision=?`, [value, saved, revision]);
@@ -565,7 +699,15 @@ export function storeOn(sql: Sql): Store {
     },
     async setLifecycle(k, state) {
       const stored = (await sql.get<{ state: string }>(`SELECT state FROM review_lifecycle WHERE target_key=?`, [k]))?.state;
-      const next = JSON.stringify({ ...JSON.parse(stored ?? "{}"), ...state });
+      const merged: ReviewLifecycle = { ...JSON.parse(stored ?? "{}"), ...state };
+      // Kept short: every read of the review carries its lifecycle.
+      if (state.activity) merged.activity = state.activity.slice(-ACTIVITY_KEPT);
+      if (state.sends) {
+        const comments: DraftComment[] = JSON.parse((await sql.get<{ comments: string }>(`SELECT comments FROM drafts WHERE target_key=?`, [k]))?.comments ?? "[]");
+        const named = new Set([...comments.map((c) => c.sendN), ...Object.values(merged.threadSends ?? {}).map((t) => t.sendN)]);
+        merged.sends = state.sends.filter((send, i) => i >= state.sends!.length - SENDS_KEPT || named.has(send.n));
+      }
+      const next = JSON.stringify(merged);
       // The review-state pass sets each review's facts every minute, mostly as they were.
       if (next === stored) return;
       await sql.run(`INSERT INTO review_lifecycle (target_key,state) VALUES (?,?) ON CONFLICT(target_key) DO UPDATE SET state=excluded.state`, [k, next]);
@@ -725,7 +867,7 @@ export function storeOn(sql: Sql): Store {
       return sql.transaction(async () => {
         const d = await this.getDraft(k);
         const i = d.comments.findIndex((x) => x.file === c.file && x.line === c.line && x.side === c.side);
-        if (i >= 0) d.comments[i] = c; else d.comments.push(c);
+        if (i >= 0) d.comments[i] = savedOver(d.comments[i], c); else d.comments.push(savedOver(undefined, c));
         await writeDraft(sql, d);
         const positions = (await this.diffPositions(k)).get(c.file);
         const code = positions?.[c.side === "LEFT" ? "left" : "right"].get(c.line) ?? null;
@@ -745,6 +887,7 @@ export function storeOn(sql: Sql): Store {
       const d = await this.getDraft(k);
       const comment = d.comments.find((c) => sameLocation(c, at));
       if (!comment) return null;
+      const before = { ...comment };
       comment.body = body;
       if (severity) comment.severity = severity;
       else if (severity === null) delete comment.severity;
@@ -752,6 +895,21 @@ export function storeOn(sql: Sql): Store {
       else if (evidence === null) delete comment.evidence;
       if (introduced === false) comment.introduced = false;
       else if (introduced) delete comment.introduced;
+      if (edited(before, comment)) reopen(comment);
+      await writeDraft(sql, d);
+      return d;
+    },
+    async trackComments(k, changes) {
+      const d = await this.getDraft(k);
+      for (const { at, ...fields } of changes) {
+        const comment = d.comments.find((c) => sameLocation(c, at));
+        if (!comment) continue;
+        for (const key of TRACKING) {
+          if (!Object.hasOwn(fields, key)) continue;
+          if (fields[key] === undefined) delete comment[key];
+          else Object.assign(comment, { [key]: fields[key] });
+        }
+      }
       await writeDraft(sql, d);
       return d;
     },
@@ -930,7 +1088,16 @@ export function storeOn(sql: Sql): Store {
     },
     async pruneSnapshots(k, keep) {
       const rows = await sql.all<{ head_sha: string }>(`SELECT head_sha FROM review_snapshots WHERE target_key=? ORDER BY head_sha`, [k]);
-      for (const { head_sha } of rows) if (!keep.includes(head_sha)) await sql.run(`DELETE FROM review_snapshots WHERE target_key=? AND head_sha=?`, [k, head_sha]);
+      for (const { head_sha } of rows) {
+        if (!keep.includes(head_sha.endsWith(FILES) ? head_sha.slice(0, -FILES.length) : head_sha)) await sql.run(`DELETE FROM review_snapshots WHERE target_key=? AND head_sha=?`, [k, head_sha]);
+      }
+    },
+    async saveSnapshotFiles(k, head, files) {
+      await this.saveSnapshot(k, `${head}${FILES}`, JSON.stringify(files));
+    },
+    async getSnapshotFiles(k, head) {
+      const saved = await this.getSnapshot(k, `${head}${FILES}`);
+      return saved === null ? null : JSON.parse(saved) as SnapshotFiles;
     },
     async saveFeedbackThreads(k, threads, prUpdatedAt) {
       const now = Date.now();
@@ -1095,6 +1262,55 @@ export function storeOn(sql: Sql): Store {
 
 /** How many reviews' parsed patches stay in memory. */
 const PARSED_REVIEWS = 8;
+/** How many of a review's latest Sends, and of its activity, its lifecycle keeps. */
+const SENDS_KEPT = 20, ACTIVITY_KEPT = 100;
+/**
+ * A snapshot's files are kept in review_snapshots too, as JSON (SnapshotFiles) at the snapshot's head with this after
+ * it, so no migration is needed and a prune keeps them with their snapshot. No head ends with it.
+ */
+const FILES = ":files";
+
+/** Whether a comment's text or lines changed: what the thread it was sent to would fix differently. */
+const edited = (a: DraftComment, b: DraftComment) => a.body !== b.body || JSON.stringify(rangeOf(a)) !== JSON.stringify(rangeOf(b));
+
+/** A comment edited: a sent one is open again, to go with the next Send, and it's no longer the agent's edit. */
+function reopen(comment: DraftComment) {
+  if (comment.state === "sent") comment.state = "open";
+  delete comment.editedBy;
+}
+
+/** `next` saved at `stored`'s place, or at an empty one: the server's own fields are the stored comment's. */
+function savedOver(stored: DraftComment | undefined, next: DraftComment): DraftComment {
+  const comment: DraftComment = { ...next };
+  for (const key of TRACKING) delete comment[key];
+  if (!stored) return comment;
+  for (const key of TRACKING) if (stored[key] !== undefined) Object.assign(comment, { [key]: stored[key] });
+  if (edited(stored, comment)) reopen(comment);
+  return comment;
+}
+
+const COMMENT_COUNTER = "comment-counter";
+
+/**
+ * `count` new comment ids, `c<n>`, from the install's counter in kv, in one turn of `store`'s queue (the caller's, given
+ * tx): unique across reviews, so a report names one comment. A counter kv lost, as a reinstall loses it while Postgres
+ * keeps the reviews, starts after the highest id they hold.
+ */
+export async function newCommentIds(store: AsyncStore, kv: BbPluginApi["storage"]["kv"], count: number): Promise<string[]> {
+  return store.exclusive(async (tx) => {
+    let last = await kv.get<number>(COMMENT_COUNTER);
+    if (last === null || last === undefined) {
+      last = 0;
+      const number = (id: string | undefined) => Number(/^c(\d+)$/.exec(id ?? "")?.[1] ?? 0);
+      for (const review of await tx.listReviews()) {
+        const ids = [...(await tx.getDraft(review.targetKey)).comments.map((c) => c.id), ...Object.values(review.threadSends ?? {}).map((t) => t.id), ...(review.sends ?? []).flatMap((s) => s.ids)];
+        for (const id of ids) last = Math.max(last, number(id));
+      }
+    }
+    await kv.set(COMMENT_COUNTER, last + count);
+    return Array.from({ length: count }, (_, i) => `c${last + i + 1}`);
+  });
+}
 
 // Every table keyed by target_key. A new per-review table belongs here too.
 const REVIEW_TABLES = [

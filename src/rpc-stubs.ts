@@ -1,0 +1,37 @@
+// 1.8.0's RPC methods whose builds haven't landed: each answers that it isn't available yet. The step that builds one
+// deletes its line here and gives the handler from its own module. Until their steps land, Submit's `force` (3.3) and
+// Send to thread's `letPush` and `force` (2.1) are taken and not acted on: a Submit or Send goes as it did without them.
+import type { RpcHandlers } from "./server-modules";
+
+const notYet = (what: string) => async (): Promise<never> => { throw new Error(`${what} isn’t available yet.`); };
+
+export function register() {
+  const handlers = {
+    sendNow: notYet("Send now"), // Step 2.1; GitHub threads, 4.2.
+
+    resolveComment: notYet("Resolve"), // Step 2.3.
+
+    reopenComment: notYet("Reopen"), // Step 2.3.
+
+    checkFixes: notYet("Check fixes"), // Step 2.2.
+
+    updateFeature: notYet("Update"), // Step 1.5.
+
+    rewriteGuide: notYet("Rewrite guide"), // Step 1.5.
+
+    push: notYet("Push"), // Step 5.1.
+
+    openPr: notYet("Open PR"), // Step 5.2.
+
+    setMainThread: notYet("Changing the main thread"), // Step 2.1.
+
+    setLetPush: notYet("Let it push when done"), // Step 2.1.
+
+    includeHidden: notYet("Include"), // Step 1.4.
+
+    approveReady: notYet("Approve"), // Step 3.4.
+
+    postPreview: notYet("Post"), // Step 3.3.
+  } satisfies Partial<RpcHandlers>;
+  return { handlers };
+}

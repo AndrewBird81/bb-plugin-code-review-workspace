@@ -506,6 +506,17 @@ test("Summarize lockfile changes says what stays with it off: the agents' pages 
   expect(KNOB_CONTROLS.find((control) => control.id === "lockfileDigest")?.description).toMatch(/Off, lockfiles show only their diff, and the agents get no summary, though their pages still name a lockfile’s new download hosts\.$/);
 });
 
+test("1.8.0's switches start on, and each says what it does and what stays with it off", async () => {
+  const { KNOB_CONTROLS } = await import("./SettingsKnobs");
+  const { slot, toggle } = await renderSettings();
+  const description = (id: string) => KNOB_CONTROLS.find((control) => control.id === id)?.description;
+  expect(["Let the review agent act when you ask", "Review changes above a thread’s message box", "Include your own PRs"].map((label) => toggle(label).checked)).toEqual([true, true, true]);
+  expect(description("reviewAgentActs")).toMatch(/^When you ask, the review agent posts replies, comments and reviews, merges PRs, and sends comments to the main thread to fix;.* shows its exact text first, unless you say “just post it”, and approve, merge and close need your own message or click in that review\. Off, the review agent only drafts, as before\.$/);
+  expect(description("reviewChangesLine")).toMatch(/Off, nothing shows there, and bb review in the thread still starts a review\.$/);
+  expect(description("trackOwnPrs")).toMatch(/Off, your PRs show only once you start a review of one\.$/);
+  slot.lifecycle.unmount();
+});
+
 test("a setting that depends on another is disabled while that one is off, and Trust's authors stay a choice", async () => {
   const { slot, toggle, pace } = await renderSettings();
   const automaticReview = slot.getByRole("textbox", { name: "Automatic review" }) as HTMLTextAreaElement;
@@ -514,18 +525,18 @@ test("a setting that depends on another is disabled while that one is off, and T
   const authors = () => within(slot.getByRole("group", { name: "Run agents on their own for PRs from" })).getAllByRole("button") as HTMLButtonElement[];
   const dependents = () => ({
     automaticReview: automaticReview.disabled, check: check.disabled, pushes: pushes().every((button) => button.disabled),
-    reviewed: toggle("Include PRs you’ve reviewed").disabled, team: toggle("Include team requests").disabled, pace: pace().disabled,
+    reviewed: toggle("Include PRs you’ve reviewed").disabled, own: toggle("Include your own PRs").disabled, team: toggle("Include team requests").disabled, pace: pace().disabled,
     authors: authors().some((button) => button.disabled),
   });
-  expect(dependents()).toEqual({ automaticReview: false, check: false, pushes: false, reviewed: false, team: false, pace: false, authors: false });
+  expect(dependents()).toEqual({ automaticReview: false, check: false, pushes: false, reviewed: false, own: false, team: false, pace: false, authors: false });
   // A disabled dependent's label and description dim with its control, still readable.
   const texts = ["Automatic review", /^Sent to the review agent when a guide is ready/, "Re-review check", /^Sent to the review agent when a review comes back/,
     "After the author pushes", /^The review agent checks once the author’s pushes settle/, "Include team requests", /^Also show PRs that ask a team/,
-    "Include PRs you’ve reviewed", /^Open PRs you’ve reviewed on GitHub/, "Flag chapters read faster than", "lines an hour", /^Medium- and high-risk chapters of 50 lines/];
+    "Include PRs you’ve reviewed", /^Open PRs you’ve reviewed on GitHub/, "Include your own PRs", /^Your open PRs on GitHub/, "Flag chapters read faster than", "lines an hour", /^Medium- and high-risk chapters of 50 lines/];
   const dimmed = () => texts.map((text) => slot.getByText(text).closest(".opacity-80") !== null);
   expect(dimmed()).toEqual(texts.map(() => false));
   for (const label of ["Run the automatic review", "Run the re-review check", "Track reviews from GitHub", "Check before you approve", "Start agents on their own"]) fireEvent.click(toggle(label));
-  expect(dependents()).toEqual({ automaticReview: true, check: true, pushes: true, reviewed: true, team: true, pace: true, authors: false });
+  expect(dependents()).toEqual({ automaticReview: true, check: true, pushes: true, reviewed: true, own: true, team: true, pace: true, authors: false });
   expect(dimmed()).toEqual(texts.map(() => true));
   expect(slot.getByText("Run the automatic review").closest(".opacity-80")).toBeNull();
   expect(slot.getByText(/^Start agents on their own is off: on other people’s PRs, nothing starts until you click\. This choice still decides whose PRs the repo’s tests and linters may run on\.$/)).toBeTruthy();

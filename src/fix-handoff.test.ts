@@ -236,6 +236,17 @@ test("sendToSourceThread tells the review's page, and with Send to thread off ne
   expect(sends()).toHaveLength(1);
 });
 
+test("Send to thread takes a Send's own letPush and force, and until 1.8.0's loop sends as it did without them", async () => {
+  const { bb, harness, store, sends } = sendHost({ coder: { title: "Retry uploads" } });
+  await plugin(bb);
+  await ownPr(store, { sourceThreadId: "coder" });
+  const comments = [{ file: "src/a.ts", line: 3, side: "RIGHT" }];
+  expect(await harness.behavior.callRpc("sendToSourceThread", { targetKey: "pr-1", comments, letPush: true, force: true })).toEqual({ ok: true, delivery: "sent", title: "Retry uploads" });
+  await harness.behavior.callRpc("sendToSourceThread", { targetKey: "pr-1", comments });
+  const [withChoices, without] = sends();
+  expect(withChoices).toEqual(without);
+});
+
 /** The own PR of ownPr, with no draft comments. */
 async function approvablePr(store: AsyncStore, over: Record<string, unknown> = {}) {
   await ownPr(store, { sourceThreadId: "coder", ...over });

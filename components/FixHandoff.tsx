@@ -77,6 +77,7 @@ export function FixHandoff({ targetKey, comments, revision }: { targetKey: strin
     setBusy(true); setError(null);
     try {
       const result = await rpc.call("sendToSourceThread", { targetKey, comments: picked(), ...extras() });
+      if (!result.ok) { setError(result.warning); return; }
       setSent({ threadId: to.threadId, title: result.title, delivery: result.delivery });
       setChoosing(null);
     } catch (failure) {

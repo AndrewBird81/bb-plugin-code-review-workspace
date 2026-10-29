@@ -35,7 +35,8 @@ export function register(deps: ServeDeps) {
     async getDraft({ targetKey }) {
       return await draftState(store, targetKey);
     },
-    async saveDraftComment({ targetKey, comment: { startLine, startSide, severity, body, ...input }, revision, replaces }) {
+    // The server's own fields a page sends back with a comment it read: the saved comment's stand.
+    async saveDraftComment({ targetKey, comment: { startLine, startSide, severity, body, id: _id, state: _state, sendN: _sendN, claim: _claim, editedBy: _editedBy, ...input }, revision, replaces }) {
       return store.exclusive(async (tx) => {
         await requireReviewRevision(tx, targetKey, revision);
         const comment = { ...input, ...rangeOf({ ...input, startLine, startSide }), ...severityOf(body, severity) };

@@ -17,6 +17,7 @@ export interface Knobs {
   alertGuides: boolean; alertTurns: boolean;
   reviewMd: boolean; paletteCommands: boolean;
   unattendedAgents: boolean;
+  reviewAgentActs: boolean; reviewChangesLine: boolean; trackOwnPrs: boolean;
 }
 export type KnobId = keyof Knobs;
 
@@ -35,6 +36,7 @@ export const defaultKnobs: Knobs = {
   alertGuides: true, alertTurns: true,
   reviewMd: true, paletteCommands: true,
   unattendedAgents: true,
+  reviewAgentActs: true, reviewChangesLine: true, trackOwnPrs: true,
 };
 
 /** The number knobs' whole-number ranges. */

@@ -1,7 +1,7 @@
 import { defineRpcContract } from "@get-bb/plugin-sdk";
 import { z } from "zod";
 import { releaseRpc } from "./plugin-updates";
-import { SEVERITIES } from "./draft";
+import { COMMENT_STATES, SEVERITIES } from "./draft";
 import { REMOVAL_NOTE_LIMIT, REMOVAL_REASONS } from "../lib/removal-reasons";
 import { NAME_LIMIT } from "../lib/review-name";
 import { DATE_FIELDS, VALUE_FIELDS, VIEW_NAME_LIMIT } from "../lib/filter-fields";
@@ -45,12 +45,19 @@ const commentShape = z
     evidence: z.string().max(600).optional(),
     // A problem in code the PR didn't change (Settings' Keep pre-existing problems apart).
     introduced: z.literal(false).optional(),
+    // A page that sends a comment back as it read it sends the server's own fields too; the saved comment's stand.
+    id: z.string().optional(), state: z.enum(COMMENT_STATES).optional(), sendN: z.number().int().optional(), claim: z.unknown().optional(),
+    editedBy: z.literal("agent").optional(),
   })
   .strict();
 
 const location = { file: z.string(), line: lineNumber, side: z.enum(["LEFT", "RIGHT"]) };
 // What Send to thread adds to what it sends (src/fix-handoff.ts): your message, as long as a summary may be, and the summary.
 const sendExtras = { message: z.string().max(65_000).optional(), includeSummary: z.boolean().optional() };
+// A Send's own choices (src/loop.ts): letPush, Let it push when done for this Send, else the review's setting; force, send past the warning, as on a PR you don't own.
+const sendChoices = { letPush: z.boolean().optional(), force: z.boolean().optional() };
+/** A Send that didn't go: it warns, and the same call with force sends it. */
+const sendWarning = z.object({ ok: z.literal(false), warning: z.string() });
 const syncHealth = z.object({
   lastReadAt: z.number().nullable(),
   error: z.object({ kind: z.enum(["auth", "rate-limit", "partial", "teams", "gh-missing", "other"]), at: z.number(), count: z.number().optional(), retryAt: z.number().optional() }).nullable(),
@@ -269,6 +276,8 @@ export const rpcContract = defineRpcContract({
       comments: z.array(z.object({ file: z.string(), line: z.number().int(), side: z.enum(["LEFT", "RIGHT"]), startLine: z.number().int().optional(), startSide: z.enum(["LEFT", "RIGHT"]).optional(), severity: z.enum(SEVERITIES).optional(), introduced: z.literal(false).optional(), body: z.string() })),
       body: z.string(),
       verdict: z.enum(["APPROVE", "REQUEST_CHANGES", "COMMENT"]),
+      // Submit anyway: past the warnings, such as new commits since you read it. What GitHub refuses still stops it.
+      force: z.boolean().optional(),
     }).strict(),
     // url: the posted review on GitHub.
     output: z.object({ ok: z.boolean(), error: z.string().optional(), url: z.string().optional() }),
@@ -316,13 +325,85 @@ export const rpcContract = defineRpcContract({
     output: z.object({ thread: z.object({ threadId: z.string(), title: z.string().nullable(), state: z.enum(["open", "archived", "gone"]) }).nullable() }),
   },
   sendToSourceThread: {
-    input: z.object({ targetKey: z.string(), comments: z.array(z.object(location).strict()).min(1), ...sendExtras }).strict(),
-    output: z.object({ ok: z.literal(true), delivery: z.enum(["sent", "queued"]), title: z.string().nullable() }),
+    input: z.object({ targetKey: z.string(), comments: z.array(z.object(location).strict()).min(1), ...sendExtras, ...sendChoices }).strict(),
+    output: z.union([z.object({ ok: z.literal(true), delivery: z.enum(["sent", "queued"]), title: z.string().nullable() }), sendWarning]),
   },
   // With no comments in the draft: tells the source thread you approve the change as is, at the revision the page shows.
   sendApprovalToSourceThread: {
     input: z.object({ targetKey: z.string(), revision: z.string().optional(), ...sendExtras }).strict(),
     output: z.object({ ok: z.literal(true), delivery: z.enum(["sent", "queued"]), title: z.string().nullable() }),
+  },
+
+  // The loop with the thread that fixes your change: Send now, the fixes' states, a local review's folder, push and
+  // open a PR. `warning`: it didn't act, and the same call with `force` does.
+  /**
+   * Send one comment to the review's main thread now, a draft comment or, on your own PR, a GitHub thread: it gets an
+   * id the thread reports on. letPush and force are this Send's, as on sendToSourceThread.
+   */
+  sendNow: {
+    input: z.object({
+      targetKey: z.string(),
+      comment: z.union([z.object(location).strict(), z.object({ threadId: z.string().min(1) }).strict()]),
+      ...sendChoices,
+    }).strict(),
+    // sent: the comment's id, the Send's number, and the thread it went to.
+    output: z.object({
+      ok: z.boolean(), error: z.string().optional(), warning: z.string().optional(),
+      sent: z.object({ id: z.string(), sendN: z.number().int(), threadId: z.string(), title: z.string().nullable(), delivery: z.enum(["sent", "queued"]) }).optional(),
+    }),
+  },
+  /** The reviewer resolves a comment as fixed, or dismisses it as won't fix: nothing else does. */
+  resolveComment: {
+    input: z.object({ targetKey: z.string(), ...location, state: z.enum(["resolved", "dismissed"]) }).strict(),
+    output: draftOutput,
+  },
+  /** Open a sent, resolved or dismissed comment again: it goes with the next Send. */
+  reopenComment: { input: z.object({ targetKey: z.string(), ...location }).strict(), output: draftOutput },
+  /** Ask the review agent to check the fixes of the comments sent, each against the diff it was sent at. */
+  checkFixes: { input: targetKey, output: z.object({ ok: z.boolean(), error: z.string().optional() }) },
+  /** Read a local review's folder again, and move the comments with their lines; the guide stays. */
+  updateFeature: { input: targetKey, output: z.object({ ok: z.boolean(), error: z.string().optional() }) },
+  /** Write a local review's guide again, for its diff now. */
+  rewriteGuide: { input: targetKey, output: z.object({ ok: z.boolean(), error: z.string().optional() }) },
+  /**
+   * Have the main thread commit the changes you reviewed, then push that commit. force: push past the warning that
+   * files changed since you reviewed; the push itself is never a force-push.
+   */
+  push: {
+    input: z.object({ targetKey: z.string(), force: z.boolean().optional() }).strict(),
+    output: z.object({ ok: z.boolean(), error: z.string().optional(), warning: z.string().optional(), delivery: z.enum(["sent", "queued"]).optional() }),
+  },
+  /** Ask the review agent to draft the PR's title and description, shown in a Post form whose Post opens the PR. */
+  openPr: { input: targetKey, output: z.object({ ok: z.boolean(), error: z.string().optional() }) },
+  /** The review's Let it push when done: on, a Send leaves out "Don't push until I say", unless it says otherwise. */
+  setLetPush: {
+    input: z.object({ targetKey: z.string(), letPush: z.boolean() }).strict(),
+    output: z.object({ ok: z.boolean(), error: z.string().optional() }),
+  },
+  /** Send to this thread from now on: one working in the review's folder. */
+  setMainThread: {
+    input: z.object({ targetKey: z.string(), threadId: z.string().min(1) }).strict(),
+    output: z.object({ ok: z.boolean(), error: z.string().optional() }),
+  },
+  /** Include files the secrets filter keeps out of a local review's diff, by path; with included false, keep them out again. */
+  includeHidden: {
+    input: z.object({ targetKey: z.string(), files: z.array(z.string().min(1)).min(1).max(1000), included: z.boolean() }).strict(),
+    output: z.object({ ok: z.boolean(), error: z.string().optional() }),
+  },
+
+  // What posts as you on GitHub from the review agent's work.
+  /**
+   * Post Ready to approve rows, each the one its token names, one after another, never past a warning. A row whose PR
+   * has commits since it was asked is held, unless alsoHeld (Approve them too), which posts it on the head it was asked on.
+   */
+  approveReady: {
+    input: z.object({ rows: z.array(z.object({ targetKey: z.string(), token: z.string().min(1) }).strict()).min(1).max(100), alsoHeld: z.boolean().optional() }).strict(),
+    output: z.object({ results: z.array(z.object({ targetKey: z.string(), outcome: z.enum(["posted", "held", "failed"]), error: z.string().optional(), url: z.string().optional() })) }),
+  },
+  /** Post what the review agent's Post form shows, by its token, from the review page: what the form's Post does. */
+  postPreview: {
+    input: z.object({ targetKey: z.string(), token: z.string().min(1) }).strict(),
+    output: z.object({ ok: z.boolean(), error: z.string().optional(), url: z.string().optional() }),
   },
 
   // GitHub account indicator + switcher

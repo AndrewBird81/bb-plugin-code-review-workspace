@@ -49,6 +49,7 @@ import * as draftTools from "./src/draft-tools";
 import * as feedbackTools from "./src/feedback-tools";
 import * as assistantEvents from "./src/assistant-events";
 import * as guideTool from "./src/guide-tool";
+import * as rpcStubs from "./src/rpc-stubs";
 
 export { rpcContract } from "./src/rpc-contract";
 
@@ -295,7 +296,8 @@ function servePlugin(bb: BbPluginApi, { configured, store, interrupted }: Awaite
   feedbackTools.register(moduleDeps);
   const events = assistantEvents.register(moduleDeps);
   guideTool.register(moduleDeps);
-  const handlers: RpcHandlers = merge(settings.handlers, reviews.handlers, githubThreads.handlers, draft.handlers, assistant.handlers, turn.handlers);
+  const stubs = rpcStubs.register();
+  const handlers: RpcHandlers = merge(settings.handlers, reviews.handlers, githubThreads.handlers, draft.handlers, assistant.handlers, turn.handlers, stubs.handlers);
   const guarded = Object.fromEntries(Object.entries(handlers).map(([name, handler]) =>
     [name, (input: unknown) => updates.run(() => (handler as (input: unknown) => unknown)(input))])) as unknown as typeof handlers;
   bb.rpc.register(rpcContract, {

@@ -361,6 +361,7 @@ export function ReviewSettings({ onBack, back }: { onBack?: () => void; back?: s
           </section>
           <section className="space-y-4 rounded-xl border border-border bg-card p-5 shadow-xs">
             <SectionHeading icon="Sparkles" tone="agent" title="Review agent" description="Applies to your next message, including conversations already in progress." />
+            {knob("reviewAgentActs")}
             {knob("reviewCommandInThreads")}
             <AgentSelection label="Review agent" agent={record.preferences.assistantAgent} unrestricted={unrestricted(record.preferences.assistantAgent)} machines={machines} disabled={busy || updating} note="Used to start new conversations, which stay on the machine they started on. In a conversation, change the model and effort per message." onCustomize={() => void customize("assistantAgent")} onChange={(update) => setAgent("assistantAgent", update)} />
             <label className="block space-y-2"><span className="text-sm font-medium">Assistant instructions</span><Textarea aria-label="Assistant instructions" maxLength={ASSISTANT_INSTRUCTIONS_LIMIT} rows={5} value={record.preferences.assistantInstructions} onChange={(event) => { setSaved(false); setRecord({ ...record, preferences: { ...record.preferences, assistantInstructions: event.target.value } }); }} placeholder="Prioritize correctness and security. Show a concrete failure case for suspected bugs. Keep suggestions actionable." /></label>
@@ -387,6 +388,7 @@ export function ReviewSettings({ onBack, back }: { onBack?: () => void; back?: s
             <label className="flex items-start gap-2.5"><input type="checkbox" className="mt-0.5 size-4 shrink-0 accent-primary" checked={record.preferences.trackGithubReviews} onChange={(event) => { setSaved(false); setRecord({ ...record, preferences: { ...record.preferences, trackGithubReviews: event.target.checked } }); }} /><span className="space-y-1"><span className="block text-sm font-medium">Track reviews from GitHub</span><span className="block text-xs text-muted-foreground">Show PRs you’re asked to review or have reviewed on GitHub, not only reviews started here.</span></span></label>
             <label className="ml-6 flex items-start gap-2.5"><input type="checkbox" className="mt-0.5 size-4 shrink-0 accent-primary" disabled={!record.preferences.trackGithubReviews} checked={record.preferences.trackTeamRequests} onChange={(event) => { setSaved(false); setRecord({ ...record, preferences: { ...record.preferences, trackTeamRequests: event.target.checked } }); }} /><span className={`space-y-1 ${record.preferences.trackGithubReviews ? "" : DISABLED_TEXT}`}><span className="block text-sm font-medium">Include team requests</span><span className="block text-xs text-muted-foreground">Also show PRs that ask a team you’re on for review. Teams can be asked for many reviews.</span></span></label>
             {knob("trackReviewedPrs")}
+            {knob("trackOwnPrs")}
             <label className="block space-y-2"><span className="text-sm font-medium">Start guides automatically</span><RepoPatterns value={record.preferences.autoStartRepos} onChange={(autoStartRepos) => { setSaved(false); setRecord((current) => current && { ...current, preferences: { ...current.preferences, autoStartRepos } }); }} /><span id="auto-start-help" className="block text-xs text-muted-foreground">One per line: <code className="font-mono">owner/repo</code>, <code className="font-mono">owner/*</code>, or <code className="font-mono">*</code>. {autoStartWhen}</span></label>
           </section>
           <section className="space-y-4 rounded-xl border border-border bg-card p-5 shadow-xs">
@@ -407,6 +409,7 @@ export function ReviewSettings({ onBack, back }: { onBack?: () => void; back?: s
             {knob("requirements")}
             {knob("paletteCommands")}
             {knob("codeOwners")}
+            {knob("reviewChangesLine")}
             {knob("localDiffChanges")}
             {knob("openInEditor")}
             {knob("ciInCode")}
