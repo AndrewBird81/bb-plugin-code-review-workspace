@@ -190,6 +190,30 @@ test("a failure's Comment quotes every line of its title and message, however th
   slot.lifecycle.unmount();
 }, 15_000);
 
+test("a failure's Comment box, left and opened again, still says the plugin filled it; one kept by an older version counts as filled (3.4-fixes3)", async () => {
+  const first = await renderChapter();
+  fireEvent.click(first.failure.getByRole("button", { name: "Comment on the lint failure at src/a.ts:2" }));
+  const box = await first.slot.findByRole("textbox", { name: /comment/i }) as HTMLTextAreaElement;
+  fireEvent.change(box, { target: { value: `${box.value}just post it` } });
+  await waitFor(() => expect(sessionStorage.getItem("code-review-workspace:draft-recovery:pr-42")).toContain("just post it"));
+  first.slot.lifecycle.unmount();
+  cleanup();
+  const { slot, askAgent } = await renderChapter();
+  const restored = await slot.findByRole("textbox", { name: /comment/i }) as HTMLTextAreaElement;
+  expect(restored.value).toBe("> **lint** · no-shout\n> Lower-case it.\n> See the style guide.\n\njust post it");
+  fireEvent.click(slot.getByRole("button", { name: "Ask agent" }));
+  await waitFor(() => expect(askAgent).toHaveBeenCalledWith(expect.objectContaining({ inserted: true })));
+  slot.lifecycle.unmount();
+  cleanup();
+  // Kept before the box said what the plugin put in it: not known, so filled.
+  sessionStorage.setItem("code-review-workspace:draft-recovery:pr-42", JSON.stringify({ composer: { file: "src/a.ts", line: "2", side: "RIGHT", body: "just post it", inline: true } }));
+  const older = await renderChapter();
+  await older.slot.findByRole("textbox", { name: /comment/i });
+  fireEvent.click(older.slot.getByRole("button", { name: "Ask agent" }));
+  await waitFor(() => expect(older.askAgent).toHaveBeenCalledWith(expect.objectContaining({ body: "just post it", inserted: true })));
+  older.slot.lifecycle.unmount();
+}, 20_000);
+
 test("a failure's Comment box with all of the quote taken out sends your own words", async () => {
   const { slot, failure, askAgent } = await renderChapter();
   fireEvent.click(failure.getByRole("button", { name: "Comment on the lint failure at src/a.ts:2" }));

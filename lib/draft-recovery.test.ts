@@ -24,6 +24,15 @@ test("a kept box of the wrong shape is dropped, not opened", () => {
   }
 });
 
+test("what the plugin put in a kept box reads back; written any other way, it's unknown, so the box counts as filled", () => {
+  updateDraftRecovery("pr-1", { composer: { ...box, filled: ["> **lint** · x"] } });
+  expect(readDraftRecovery("pr-1").composer?.filled).toEqual(["> **lint** · x"]);
+  for (const filled of ["> **lint** · x", [3], null]) {
+    stored({ composer: { ...box, filled } });
+    expect(readDraftRecovery("pr-1"), JSON.stringify(filled)).toEqual({ composer: box });
+  }
+});
+
 test("a selection's other end kept from before range comments is dropped when it comes after the line", () => {
   stored({ composer: { ...box, startLine: 14 } });
   expect(readDraftRecovery("pr-1")).toEqual({ composer: box });

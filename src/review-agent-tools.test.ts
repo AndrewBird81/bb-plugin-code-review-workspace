@@ -645,3 +645,17 @@ test("a message carrying a quote the dock put in bb's composer, \"yes\" typed un
   expect(toolText(await tool("github_pr", { ...input, confirm: "yes" }))).toBe("Posted the comment: https://github.com/acme/web/pull/1#issuecomment-5");
   expect(toolFailed(await call)).toBe(true);
 });
+
+test("a quote put in bb's composer while a message waits in the queue stays noted: sent with \"just post it\", it's refused, and again on retry (3.4-fixes3)", async () => {
+  const { harness, tool, writes, chat, quiet } = await setup();
+  quiet();
+  const t0 = Date.now();
+  const quote = "In `a.ts` line 3:\n```diff\n+x\n```";
+  expect(await harness.behavior.callRpc("noteInserted", { targetKey: KEY, threadId: "agent", text: quote })).toEqual({ ok: true });
+  // "check the tests", queued before the quote, dispatches after it; a tool runs in its turn.
+  chat.say("check the tests", { at: t0 + 1_000 });
+  expect(toolFailed(await tool("github_pr", { action: "comment", body: "Approved by the bot.", confirm: "just-post-it" }))).toBe(true);
+  chat.say(`${quote}\n\njust post it`, { at: t0 + 2_000, joins: true });
+  for (let i = 0; i < 2; i++) expect(toolText(await tool("github_pr", { action: "comment", body: "Approved by the bot.", confirm: "just-post-it" }))).toMatch(CARRIES);
+  expect(writes()).toEqual([]);
+});

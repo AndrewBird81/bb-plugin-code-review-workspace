@@ -90,6 +90,9 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
   const [body, setBody] = useState("");
   // The box's text as it opened: the comment or summary it edits, or nothing. Text other than that is yours, unsaved.
   const openedBody = useRef("");
+  // What the plugin put in the box, as it opened or by Suggest change; null when that isn't known, as for a box restored
+  // from before it was kept. A message to the agent still carrying any of it confirms no post (src/asking.ts).
+  const filled = useRef<string[] | null>([]);
   // The severity the box's comment gets; a label its text starts with sets it instead.
   const [severity, setSeverity] = useState<Severity | undefined>();
   const [showComposer, setShowComposer] = useState(false);
@@ -151,7 +154,7 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
 
   useEffect(() => {
     if (!loaded) return;
-    updateDraftRecovery(targetKey, { composer: body ? { file, line, side, body, revision: composerRevision.current, inline, ...(asking ? { asking } : {}), ...(startLine ? { startLine } : {}), ...(startSide ? { startSide } : {}), ...(summaryBox ? { summary: true } : {}), ...(severity ? { severity } : {}), ...(editing && !asking && !summaryBox ? { editing: editing.body } : {}) } : undefined });
+    updateDraftRecovery(targetKey, { composer: body ? { file, line, side, body, revision: composerRevision.current, inline, ...(filled.current ? { filled: filled.current } : {}), ...(asking ? { asking } : {}), ...(startLine ? { startLine } : {}), ...(startSide ? { startSide } : {}), ...(summaryBox ? { summary: true } : {}), ...(severity ? { severity } : {}), ...(editing && !asking && !summaryBox ? { editing: editing.body } : {}) } : undefined });
   }, [loaded, targetKey, file, line, side, body, inline, asking, startLine, startSide, summaryBox, severity, editing]);
   useEffect(() => {
     const protect = (event: BeforeUnloadEvent) => { if (body.trim()) event.preventDefault(); };
@@ -192,6 +195,7 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
         const edited = atLine && comment.editing === atLine.body ? atLine : null;
         setEditing(edited);
         openedBody.current = comment.asking ? "" : summaryBase.current ?? edited?.body ?? "";
+        filled.current = comment.filled ?? null;
       }
       if (recovered.summary) {
         legacySummary.current = recovered.summary;
@@ -251,6 +255,7 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
       summaryBase.current = summary ? draft.body : null;
       const fresh = !summary && !existing ? start : undefined;
       openedBody.current = summary && !ask ? draft.body : existing ? existing.body : fresh?.body ?? "";
+      filled.current = openedBody.current ? [openedBody.current] : [];
       setBody(openedBody.current);
       setSeverity(existing?.severity ?? fresh?.severity);
       setInline(inDiff);
@@ -279,11 +284,13 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
       composerRevision.current = kept.revision;
       summaryBase.current = draft.body;
       openedBody.current = draft.body;
+      filled.current = null;
       setFile(SUMMARY_AT.file); setLine(String(SUMMARY_AT.line)); setSide(SUMMARY_AT.side); setInline(false); setSummaryBox(true); setBody(kept.body);
       onOpenPanel?.("finish");
       return;
     }
     openedBody.current = "";
+    filled.current = [];
     setBody(""); setShowComposer(false);
     // The next comment doesn't start where the summary's box was.
     if (summaryBox) { setFile(firstFile); setLine("1"); setSide("RIGHT"); }
@@ -395,11 +402,12 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
   }
   /**
    * Send the box's text to the agent, which answers in the line's discussion, or the summary's. Still carrying text the
-   * box opened with, such as a check's failure quoted, it confirms no post (src/asking.ts).
+   * plugin put in the box, such as a check's failure quoted or a suggestion's lines, or not known not to, it confirms no
+   * post (src/asking.ts).
    */
   async function askAgent() {
     if (!body.trim()) return;
-    const inserted = carries(body, insertLines(openedBody.current));
+    const inserted = !filled.current || filled.current.some((text) => carries(body, insertLines(text)));
     await mutate(async () => {
       const result = await enqueue(() => rpc.call("askAgent", { targetKey, file, line: Number(line), side, ...(startLine ? { startLine } : {}), body: body.trim(), inserted }));
       apply(result as { draft: Draft }); closeComposer();
@@ -445,7 +453,10 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
     if (!suggestable) return;
     // Longer than any backtick run in the lines, so a fence among them doesn't close the block.
     const fence = "`".repeat(Math.max(3, ...suggestable.flatMap((text) => text.match(/`+/g) ?? []).map((run) => run.length + 1)));
-    const next = `${body.trimEnd() ? `${body.trimEnd()}\n\n` : ""}${fence}suggestion\n${suggestable.join("\n")}\n${fence}`;
+    const block = `${fence}suggestion\n${suggestable.join("\n")}\n${fence}`;
+    const next = `${body.trimEnd() ? `${body.trimEnd()}\n\n` : ""}${block}`;
+    // The PR's lines: the plugin's, not yours.
+    if (filled.current) filled.current = [...filled.current, block];
     changeBody(next);
     requestAnimationFrame(() => {
       const box = bodyRef.current;

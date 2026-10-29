@@ -246,3 +246,19 @@ test("text put in the composer that can't be read back counts as carried: no pos
   vi.spyOn(bb.storage.kv, "get").mockImplementation(async (key: string) => { if (key === "asking-inserts") throw new Error("kv down"); return get(key); });
   expect((await classify("agent")).message).toMatchObject({ text: "yes", inserted: true });
 });
+
+test("a message queued before a quote, dispatched after it, doesn't retire it: the quote sent later is still inserted (3.4-fixes3)", async () => {
+  const { bb, chat, classify } = setup();
+  const t0 = Date.now();
+  const quote = "In `a.ts` line 3:\n```diff\n+x\n```";
+  // "check the tests" queued while the agent worked; the quote goes in the composer; then it dispatches, and a tool runs.
+  await noteInserted(bb, "agent", quote);
+  chat.say("check the tests", { at: t0 + 1_000 });
+  expect((await classify("agent")).message).not.toHaveProperty("inserted");
+  for (const joins of [true, false]) {
+    chat.say(`${quote}\n\njust post it`, { at: t0 + (joins ? 2_000 : 3_000), joins });
+    // Read again, as on the agent's retry, it's still inserted: the turn's first message, older, retires nothing.
+    for (let i = 0; i < 2; i++) expect((await classify("agent")).message).toMatchObject({ inserted: true });
+  }
+  expect(Object.values(await bb.storage.kv.get<Record<string, unknown[]>>("asking-inserts") ?? {}).flat()).toHaveLength(1);
+});

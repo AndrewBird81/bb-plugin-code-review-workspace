@@ -70,11 +70,11 @@ async function readMarks(bb: BbPluginApi): Promise<Record<string, Mark>> {
 }
 
 /**
- * Text the plugin put in a review agent's composer, for you to edit and send: its lines, and when bb's newest request
- * then was (null if unread). A message carrying any of the lines confirms no post. One you send after it without them
- * shows it was taken out, or went with an earlier message, and it goes.
+ * Text the plugin put in a review agent's composer, for you to edit and send: its lines, and when the newest message seen
+ * carrying them was sent. A message carrying any of the lines confirms no post. Once one has been seen, a newer one you
+ * typed without them shows it went with that one, and it goes; until then it stays, however the messages queued.
  */
-interface Insert { id: string; lines: string[]; at: number; after: number | null }
+interface Insert { id: string; lines: string[]; at: number; carriedAt?: number }
 const INSERTS = "asking-inserts";
 /** The inserts kept per thread: the newest. */
 const MAX_INSERTS = 20;
@@ -96,24 +96,25 @@ function updateInserts(bb: BbPluginApi, change: (inserts: Record<string, Insert[
 export async function noteInserted(bb: BbPluginApi, threadId: string, text: string): Promise<void> {
   const lines = insertLines(text);
   if (!lines.length) return;
-  const newest = await bb.sdk.threads.events.list({ threadId, types: ["client/turn/requested"], order: "desc", limit: "1" })
-    .then((events) => (events as unknown as Event[])[0]?.createdAt ?? 0, () => null);
-  await updateInserts(bb, (inserts) => { (inserts[threadId] ??= []).push({ id: randomBytes(8).toString("hex"), lines, at: Date.now(), after: newest }); });
+  await updateInserts(bb, (inserts) => { (inserts[threadId] ??= []).push({ id: randomBytes(8).toString("hex"), lines, at: Date.now() }); });
 }
 
 /**
- * Whether `request`, unmarked, carries text the plugin put in `threadId`'s composer. One you typed after an insert, without
- * it, retires it: you sent it without the insert, which is gone from the composer.
+ * Whether `request`, unmarked, carries text the plugin put in `threadId`'s composer, noting when one that does was sent.
+ * Read as the turn's newest message, a newer one you typed without an insert seen sent before retires it. Read as the
+ * message that started the turn, which may be older than what's carried since, nothing retires.
  */
-async function carriesInsert(bb: BbPluginApi, threadId: string, request: Request): Promise<boolean> {
+async function carriesInsert(bb: BbPluginApi, threadId: string, request: Request, newest: boolean): Promise<boolean> {
   await writes.get(bb);
   const inserts = (await bb.storage.kv.get<Record<string, Insert[]>>(INSERTS))?.[threadId] ?? [];
   const carried = inserts.filter((insert) => carries(request.text, insert.lines));
-  const typed = !request.senderThreadId && request.initiator !== "agent" && request.source !== "spawn";
-  const gone = new Set(typed ? inserts.filter((insert) => !carried.includes(insert) && insert.after !== null && request.at > insert.after).map((insert) => insert.id) : []);
-  if (gone.size) {
-    await updateInserts(bb, (all) => { if (all[threadId]) all[threadId] = all[threadId].filter((insert) => !gone.has(insert.id)); })
-      .catch((error) => bb.log.warn(`Could not retire text put in a review agent's composer: ${String(error)}`));
+  const seen = new Set(carried.filter((insert) => (insert.carriedAt ?? -Infinity) < request.at).map((insert) => insert.id));
+  const typed = newest && !request.senderThreadId && request.initiator !== "agent" && request.source !== "spawn";
+  const gone = new Set(typed ? inserts.filter((insert) => !carried.includes(insert) && insert.carriedAt !== undefined && request.at > insert.carriedAt).map((insert) => insert.id) : []);
+  if (seen.size || gone.size) {
+    await updateInserts(bb, (all) => {
+      if (all[threadId]) all[threadId] = all[threadId].filter((insert) => !gone.has(insert.id)).map((insert) => seen.has(insert.id) ? { ...insert, carriedAt: request.at } : insert);
+    }).catch((error) => bb.log.warn(`Could not note text put in a review agent's composer: ${String(error)}`));
   }
   return carried.length > 0;
 }
@@ -269,7 +270,8 @@ export function createClassifier(bb: BbPluginApi, ownThread: (threadId: string) 
   const own = fromOwnAgent(bb, ownThread);
   /** What a message relayed from `sender` counts as: one of the plugin's own threads, or one they started, isn't you. */
   const relayed = async (sender: string): Promise<Asking> => await own(sender) === false ? "relayed" : "unattended";
-  const asOf = async (threadId: string, request: Request): Promise<{ asking: Asking; message: TurnMessage }> => {
+  /** Who's asking in `request`: the turn's newest message, or with `newest` false, the one that started it. */
+  const asOf = async (threadId: string, request: Request, newest = true): Promise<{ asking: Asking; message: TurnMessage }> => {
     const message: TurnMessage = { id: request.id, text: request.text, at: request.at, senderThreadId: request.senderThreadId };
     let asking: Asking = "direct";
     const nonces = noncesIn(request.input);
@@ -291,7 +293,7 @@ export function createClassifier(bb: BbPluginApi, ownThread: (threadId: string) 
     } else {
       if (request.source === "spawn") asking = "unattended";
       // Typed in bb's composer, it may carry a quote the plugin put there; unread, it may.
-      if (await carriesInsert(bb, threadId, request).catch(() => true)) message.inserted = true;
+      if (await carriesInsert(bb, threadId, request, newest).catch(() => true)) message.inserted = true;
     }
     if (request.senderThreadId) asking = stricter(asking, await relayed(request.senderThreadId));
     // A thread's message whose sender isn't known is no one's to act on.
@@ -303,6 +305,6 @@ export function createClassifier(bb: BbPluginApi, ownThread: (threadId: string) 
     if (!running) return { asking: "unattended", message: null };
     const turn: Turn = await asOf(threadId, running.request);
     if (running.starter.id === running.request.id || turn.asking === "unattended") return turn;
-    return (await asOf(threadId, running.starter)).asking === "unattended" ? { ...turn, joined: true } : turn;
+    return (await asOf(threadId, running.starter, false)).asking === "unattended" ? { ...turn, joined: true } : turn;
   };
 }
