@@ -1,5 +1,6 @@
 // Reviews: the list, a review's page, and what it reads of the PR (checks, generated files, CODEOWNERS, file contents);
 // starting, rebuilding, stopping, archiving, pinning, renaming and deleting a review. Also bb review list.
+import { forgetBefore } from "./fix-undo";
 import { changedFiles, splitPatchByFile } from "./patch";
 import { readFileContents, readGeneratedFiles } from "./file-contents";
 import { readCheckFailures, readCheckLog } from "./check-annotations";
@@ -270,6 +271,7 @@ export function register(deps: ServeDeps) {
       await notifications.dismiss(targetKey).catch(() => {});
       changed(targetKey);
       await notifications.forget(targetKey).catch(() => {});
+      await forgetBefore(bb.storage.kv, targetKey);
       for (const threadId of threadIds) {
         if (!threadId) continue;
         // A thread a failed stop or delete may leave running is kept to this review, as a replaced agent is.

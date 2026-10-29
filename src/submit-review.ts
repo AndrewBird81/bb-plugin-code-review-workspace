@@ -110,7 +110,7 @@ export function createReviewSubmitter(store: AsyncStore, run: typeof runGh, rece
    * the comments the caller showed as posting: a draft whose comments that post differ, as after a Reopen or a Send
    * since, is refused; without it, so is one with a comment sent, resolved or dismissed.
    */
-  return async (targetKey: string, revision: string | undefined, account: string | undefined, shown: Pick<DraftComment, "file" | "line" | "side" | "severity" | "introduced" | "body">[], summary: { body: string; verdict: Verdict }, { force, check, alone, reviewed, posting }: { force?: boolean | readonly SubmitWarning[]; check?: boolean; alone?: boolean; reviewed?: string; posting?: readonly CommentLocation[] } = {}): Promise<SubmitResult> => {
+  const submit = async (targetKey: string, revision: string | undefined, account: string | undefined, shown: Pick<DraftComment, "file" | "line" | "side" | "severity" | "introduced" | "body">[], summary: { body: string; verdict: Verdict }, { force, check, alone, reviewed, posting }: { force?: boolean | readonly SubmitWarning[]; check?: boolean; alone?: boolean; reviewed?: string; posting?: readonly CommentLocation[] } = {}): Promise<SubmitResult> => {
     const allowed = (kind: SubmitWarning) => force === true || (Array.isArray(force) && force.includes(kind));
     if (inFlight.has(targetKey)) return { ok: false, error: "This review is already being submitted." };
     inFlight.add(targetKey);
@@ -227,8 +227,11 @@ export function createReviewSubmitter(store: AsyncStore, run: typeof runGh, rece
         const now = await tx.getReview(targetKey);
         if ((now?.status === "generating" && !allowed("generating")) || now?.headSha !== m.headSha) return null;
         if (revision && !allowed("revision") && revision !== await reviewRevision(tx, targetKey)) return null;
+        // What posts is still what was checked: a Resolve or Reopen meanwhile changes it.
+        if (!alone && !sameLocations(draft.comments, (await tx.getDraft(targetKey)).comments.filter(posts))) return DRAFT_CHANGED;
         return (await tx.getPreferences()).preferences.knobs.preExistingFindings;
       });
+      if (preExistingFindings === DRAFT_CHANGED) return { ok: false, error: DRAFT_CHANGED };
       if (preExistingFindings === null) return { ok: false, error: "The review changed during submission. Wait for generation and review the draft again." };
       // Comments GitHub can't place, once you submit anyway, go in the summary instead, as one bad comment likely fails the whole review.
       const sending = { ...draft, ...moveToSummary(draft, [...(allowed("older-diff") ? checked.stale : []), ...(allowed("outside-diff") ? checked.outside : [])], preExistingFindings) };
@@ -272,4 +275,6 @@ export function createReviewSubmitter(store: AsyncStore, run: typeof runGh, rece
       inFlight.delete(targetKey);
     }
   };
+  /** Whether the review is being submitted now: a Send waits, as what it takes may be posting. */
+  return Object.assign(submit, { submitting: (targetKey: string) => inFlight.has(targetKey) });
 }

@@ -282,3 +282,52 @@ test("Submit refuses a draft whose comments that post changed since the page sho
   expect(await call("submitReview", { targetKey: KEY, revision, account: "me", comments, posting: [at(3), at(4)], body, verdict })).toMatchObject({ ok: true });
   expect(posts()[0].comments.map((c: { body: string }) => c.body)).toEqual(["Line 3.", "Line 4."]);
 });
+
+test("while Submit posts, a Send of its comments waits, and a Resolve meanwhile stops the post: what posts is what was checked", async () => {
+  const { store, call } = await sentThree();
+  // GitHub is slow to say the PR's head: meanwhile you Send line 4, then resolve c1.
+  let reading!: () => void;
+  const read = new Promise<void>((resolve) => { reading = resolve; });
+  let answer!: () => void;
+  const answered = new Promise<void>((resolve) => { answer = resolve; });
+  const gh = runGh.getMockImplementation()!;
+  runGh.mockImplementation(async (args: string[]) => {
+    if (args[0] === "pr" && args[1] === "view") { reading(); await answered; }
+    return gh(args);
+  });
+  const submitted = submit(store, call);
+  await read;
+  await expect(call("sendToSourceThread", { targetKey: KEY, comments: [at(4)] })).rejects.toThrow("Submitting this review; try again in a moment.");
+  await call("reopenComment", { targetKey: KEY, ...at(3) });
+  answer();
+  expect(await submitted).toEqual({ ok: false, error: DRAFT_CHANGED });
+  expect(posts()).toEqual([]);
+  expect((await comments(store))[3]).toEqual({ ...at(4), body: "Line 4." });
+});
+
+test("Undo after an edit puts back open, not sent: the thread never got the new words", async () => {
+  const { store, call } = await sentThree();
+  await call("resolveComment", { targetKey: KEY, ...at(1), state: "resolved" });
+  const { revision } = await call("getReviewBundle", { targetKey: KEY });
+  await call("saveDraftComment", { targetKey: KEY, revision, replaces: "Line 1.", comment: { ...at(1), body: "Line 1, said better." } });
+  expect((await comments(store))[0]).toMatchObject({ id: "c1", state: "resolved", body: "Line 1, said better." });
+  await call("reopenComment", { targetKey: KEY, ...at(1), undo: true });
+  expect((await comments(store))[0]).toMatchObject({ id: "c1", state: "open", sendN: 1 });
+});
+
+test("a Resolve's Undo is forgotten once its comment is removed, its review deleted, or it's past its time", async () => {
+  const { bb, call } = await sentThree();
+  const keys = () => bb.storage.kv.list("fix-undo:");
+  await call("resolveComment", { targetKey: KEY, ...at(1), state: "resolved" });
+  await call("resolveComment", { targetKey: KEY, ...at(2), state: "dismissed" });
+  expect(await keys()).toHaveLength(2);
+  await call("removeDraftComment", { targetKey: KEY, ...at(1) });
+  expect(await keys()).toHaveLength(1);
+  // An old one goes with the next click.
+  const later = vi.spyOn(Date, "now").mockReturnValue(Date.now() + 11 * 60_000);
+  await call("resolveComment", { targetKey: KEY, ...at(3), state: "resolved" });
+  expect(await keys()).toHaveLength(1);
+  later.mockRestore();
+  expect(await call("deleteReview", { targetKey: KEY })).toMatchObject({ ok: true });
+  expect(await keys()).toEqual([]);
+});

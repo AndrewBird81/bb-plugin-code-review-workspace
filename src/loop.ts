@@ -52,7 +52,7 @@ export interface SendExtras { message?: string; includeSummary?: boolean }
 export interface Sent { ok: true; delivery: "sent" | "queued"; threadId: string; title: string | null; sendN: number; ids: string[]; skipped?: number }
 
 
-interface Deps { bb: BbPluginApi; store: AsyncStore; changed(targetKey: string): void }
+interface Deps { bb: BbPluginApi; store: AsyncStore; changed(targetKey: string): void; submitReview?: { submitting(targetKey: string): boolean } }
 
 /** The last line of every Send: how the thread says what it did with each comment. */
 const REPORT = "Report each with `bb review report <id> done|declined --note \"…\"`; run `bb review ready` when finished.";
@@ -335,6 +335,8 @@ const isPatch = (patch: string) => /^(diff --git |--- )/m.test(patch) && /^\+\+\
  */
 export async function send(deps: Deps, targetKey: string, picked: readonly CommentLocation[], add: SendExtras & Choices & { letPush?: boolean; patch?: string; github?: readonly string[] } = {}): Promise<Sent | Warned> {
   const { bb, store } = deps;
+  // A comment Submit is posting now can't go to the thread too.
+  if (deps.submitReview?.submitting(targetKey)) throw new Error("Submitting this review; try again in a moment.");
   const review = await store.getReview(targetKey);
   if (!review) throw new Error("This review no longer exists.");
   const github = [...new Set(add.github ?? [])];

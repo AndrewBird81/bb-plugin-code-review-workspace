@@ -2,7 +2,7 @@
 // marked Viewed. Also bb review comment and bb review summary.
 import { undoable, undoChange } from "./draft-comments";
 import { z } from "zod";
-import { isSummary, rangeOf, sameLocation, severityOf, type CommentLocation, type CommentState, type Draft, type DraftComment } from "./draft";
+import { isSummary, rangeOf, sameLocation, severityOf, type CommentLocation, type Draft, type DraftComment } from "./draft";
 import { summaryLine, withSummaryLine } from "../lib/move-to-summary";
 import { runSummaryCommand } from "./summary-command";
 import { askAgent } from "./discussions";
@@ -18,6 +18,7 @@ import type { AsyncStore } from "./store-queue";
 import { DRAFT_CHANGED, type SubmitWarning } from "./submit-review";
 import type { RpcHandlers, ServeDeps, Subcommands } from "./server-modules";
 import { settleFixes } from "./fix-tally";
+import { forgetBefore, readBefore, rememberBefore, UNDO_FOR_MS } from "./fix-undo";
 import { sendKey } from "../lib/send-baseline";
 import type { AssessmentVerdict } from "../lib/feedback";
 
@@ -103,12 +104,6 @@ export function register(deps: ServeDeps) {
     return result;
   }
 
-  /** Where a Resolve or Dismiss click keeps what the comment was before it, for its Undo. */
-  const undoKey = (targetKey: string, at: CommentLocation) => `fix-undo:${JSON.stringify([targetKey, at.file, at.line, at.side])}`;
-  /** How long after the click Undo can still put it back; the page offers it for 10 seconds. */
-  const UNDO_FOR_MS = 10 * 60_000;
-  type Before = { id: string | null; state: CommentState; at: number };
-
   /**
    * Resolve, dismiss or reopen the comment at `at`, keeping its id, Send and report, and count what's out again. "undo",
    * right after Resolve or Dismiss, puts back the state it had before that click, as recorded then: never one the caller
@@ -116,7 +111,7 @@ export function register(deps: ServeDeps) {
    */
   async function setCommentState(targetKey: string, at: CommentLocation, state: "resolved" | "dismissed" | "open" | "undo") {
     const kv = bb.storage.kv;
-    const before = state === "undo" ? await kv.get<Before>(undoKey(targetKey, at)) : undefined;
+    const before = state === "undo" ? await readBefore(kv, targetKey, at) : undefined;
     const saved = await store.exclusive(async (tx) => {
       const comment = (await tx.getDraft(targetKey)).comments.find((c) => sameLocation(c, at));
       if (!comment) throw new Error(`The comment on ${at.file}:${at.line} is no longer in the draft.`);
@@ -125,16 +120,18 @@ export function register(deps: ServeDeps) {
         if (!before || !settled || before.id !== (comment.id ?? null) || Date.now() - before.at > UNDO_FOR_MS) {
           throw new Error(`There's nothing to undo on the comment on ${at.file}:${at.line}. Reopen it to send it again.`);
         }
-        await tx.trackComments(targetKey, [{ at, state: before.state }]);
+        // Edited since, its words were never sent: it's open, for the next Send.
+        const edited = before.body !== comment.body || before.startLine !== comment.startLine || before.startSide !== comment.startSide;
+        await tx.trackComments(targetKey, [{ at, state: edited && before.state === "sent" ? "open" : before.state }]);
       } else {
-        if (state !== "open") await kv.set(undoKey(targetKey, at), { id: comment.id ?? null, state: comment.state ?? "open", at: Date.now() } satisfies Before);
+        if (state !== "open") await rememberBefore(kv, targetKey, at, { id: comment.id ?? null, state: comment.state ?? "open", at: Date.now(), body: comment.body, ...comment.startLine === undefined ? {} : { startLine: comment.startLine }, ...comment.startSide === undefined ? {} : { startSide: comment.startSide } });
         // Open already, as one never sent, it stays as it is.
         if (state !== "open" || (comment.state && comment.state !== "open")) await tx.trackComments(targetKey, [{ at, state }]);
       }
       await settleFixes(tx, targetKey);
       return await draftState(tx, targetKey);
     });
-    if (state === "undo" || state === "open") await kv.delete(undoKey(targetKey, at)).catch(() => {});
+    if (state === "undo" || state === "open") await forgetBefore(kv, targetKey, at);
     bb.realtime.publish(`draft:${targetKey}`, {});
     changed(targetKey);
     return saved;
@@ -178,6 +175,8 @@ export function register(deps: ServeDeps) {
       });
     },
     async removeDraftComment({ targetKey, file, line, side }) {
+      // Gone, there's no Resolve of it to undo.
+      await forgetBefore(bb.storage.kv, targetKey, { file, line, side });
       return store.exclusive(async (tx) => {
         await noteReviewerRemoval(tx, targetKey, { file, line, side });
         // Already gone, for example deleted by an agent: the current draft shows that.
