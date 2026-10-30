@@ -35,10 +35,10 @@ const review = {
 };
 const available = { state: "available", patch: folder, base: SHA, branch: "bb/fixes-thr_x", machine: "MaxBook", threadId: "fresh", hidden: [], notice: null };
 
-async function renderReview(rpc: Record<string, unknown> = {}, activeId = "c1") {
+async function renderReview(rpc: Record<string, unknown> = {}, activeId = "c1", comments: any[] = []) {
   patchReviewState(review.targetKey, { activeId });
   const app = await loadPluginApp(() => import("../app"));
-  let stored = { targetKey: review.targetKey, verdict: "COMMENT", body: "", comments: [] as any[] };
+  let stored = { targetKey: review.targetKey, verdict: "COMMENT", body: "", comments };
   const calls = {
     setReviewPresence: () => ({ ok: true }),
     getReviewBundle: () => ({ review, guide: structuredClone(guide), patch, revision: "r1" }),
@@ -105,5 +105,20 @@ test("a removed line the PR's diff has takes a comment there, at the PR's line; 
   await waitFor(() => expect(page.queryByRole("region", { name: "Not pushed yet" })).toBeNull());
   expect(await page.findByRole("textbox", { name: "Draft comment" })).toBeTruthy();
   expect(page.getByText("Writing a comment on src/a.ts:1")).toBeTruthy();
+  page.lifecycle.unmount();
+});
+
+test("a LOCAL comment chosen in Comments opens Not pushed yet at its line", async () => {
+  const local = { id: "c-local", file: "src/a.ts", line: 1, side: "LOCAL", body: "Retry once more." };
+  const { page } = await renderReview({}, "c1", [local]);
+  fireEvent.click(await page.findByRole("button", { name: /^Comments/ }));
+  const list = within(await page.findByRole("region", { name: "Comments" }));
+  const [row] = await list.findAllByRole("button", { name: /^Draft · .*src\/a\.ts:1/ });
+  expect(row.textContent).toContain("Not on GitHub yet");
+  fireEvent.click(row);
+  const view = await notPushed(page);
+  const card = await within(await view.findByRole("region", { name: "src/a.ts" })).findByRole("article", { name: "Draft comment on src/a.ts:1" });
+  expect(within(card).getByText("Retry once more.")).toBeTruthy();
+  expect(page.getByRole("navigation", { name: "Breadcrumb" }).textContent).toContain("Not pushed yet");
   page.lifecycle.unmount();
 });

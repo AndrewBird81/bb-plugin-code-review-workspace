@@ -1120,8 +1120,16 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     [activeId, scrollToFile, unhide, closeOverlays],
   );
 
+  // A LOCAL comment's line is on Not pushed yet, which opens at it.
+  const [localReveal, setLocalReveal] = useState<{ at: CommentLocation; nonce: number }>();
+  const showNotPushedAt = useCallback((at: CommentLocation) => {
+    setActiveId(NOT_PUSHED_PAGE);
+    closeOverlays();
+    setLocalReveal({ at, nonce: Date.now() });
+  }, [closeOverlays]);
   // A comment chosen in Comments: show its line in the diff.
   const showComment = useCallback((at: CommentLocation) => {
+    if (at.side === "LOCAL") return showNotPushedAt(at);
     const chapter = chapterAt(sections, patch, at);
     if (!chapter) return;
     unhide(at.file, at);
@@ -1133,7 +1141,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     // A step through Comments marks the comment it went to, whose card takes the focus where a line has more than one.
     const step = keyReveal.current, gone = revealedComment(targetKey);
     setReveal({ at, nonce: Date.now(), ...(step ? { focus: true, ...(gone && gone !== step.from ? { item: gone.id } : {}) } : {}) });
-  }, [targetKey, sections, patch, activeId, unhide, closeOverlays]);
+  }, [targetKey, sections, patch, activeId, unhide, closeOverlays, showNotPushedAt]);
   // A thread on a file the PR no longer changes has no diff here to show; its GitHub link can show it.
   const navigateRef = useRef(navigate);
   navigateRef.current = navigate;
@@ -1154,10 +1162,11 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   // A line from Comments, a thread, Find or Start here: the whole diff, so the line is there, unless it wasn't narrowed,
   // nor about to be. Without a line, the file.
   const showLocation = useCallback((file: string, line: number | null, side: CommentLocation["side"], url: string | null = null) => {
+    if (side === "LOCAL") return showNotPushedAt({ file, line: line ?? 0, side });
     if (outsideGuide(file, url)) return;
     if (sinceOnly || !compared) narrow(false);
     showComment({ file, line: line ?? 0, side });
-  }, [outsideGuide, sinceOnly, compared, narrow, showComment]);
+  }, [outsideGuide, sinceOnly, compared, narrow, showComment, showNotPushedAt]);
   const openHotspot = useCallback((file: string, line: number, side: "LEFT" | "RIGHT") => showLocation(file, line, side), [showLocation]);
   // Find in review's results: a line, a chapter, or a file's summary, in the diff.
   const openFoundFile = useCallback((_chapterId: string, file: string) => showLocation(file, null, "RIGHT"), [showLocation]);
@@ -1194,7 +1203,10 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   const askAgent = useCallback((context?: AgentMessageContext, quote?: string) => ask(context ?? { file: currentFileOf(targetKey), chapterId }, quote), [ask, targetKey, chapterId]);
   const showFeedback = useMemo(() => isPr ? () => openComments("feedback") : undefined, [isPr, openComments]);
   // The diff remounts after the Overview and Not pushed yet; it shouldn't jump back to an old comment.
-  useEffect(() => { if (activeId === OVERVIEW || activeId === NOT_PUSHED_PAGE) setReveal(undefined); }, [activeId]);
+  useEffect(() => {
+    if (activeId === OVERVIEW || activeId === NOT_PUSHED_PAGE) setReveal(undefined);
+    if (activeId !== NOT_PUSHED_PAGE) setLocalReveal(undefined);
+  }, [activeId]);
   // A selection's actions go with the chapter it was made in: a new chapter starts with none, but for the lines a
   // remounted workspace had selected.
   useEffect(() => {
@@ -1589,7 +1601,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
           {/* A spacer, not top padding: padding would hold sticky file headers 16px down, with code showing above them. */}
           {/* Focusable, for the chapters' Skip to code: its keys then scroll it. */}
           <div ref={(el) => { scrollBox.current = el; setScrollEl(el); }} data-review-code tabIndex={-1} onScroll={onScroll} onWheel={scrolledByYou} onTouchMove={scrolledByYou} onPointerDown={unpin} className={cn("min-h-0 flex-1 overflow-y-auto px-4 outline-none before:block before:h-4 before:content-['']", commentStep ? "pb-24" : "pb-6")}>
-            {activeId === NOT_PUSHED_PAGE ? <NotPushedView /> : activeSection ? (
+            {activeId === NOT_PUSHED_PAGE ? <NotPushedView reveal={localReveal} /> : activeSection ? (
               <>
               <ChapterIntro key={activeSection.id} collapsedByDefault={layout.mode === "short"} brief={layout.mode !== "tablet"} index={activeIndex} total={sections.length} title={activeSection.title} overview={activeSection.overview} risk={activeSection.risk} focus={activeSection.focus} lines={chapterLines.get(activeSection.id) ?? 0} switchSlot={setSwitchSlot} />
               <CheckFailuresContext.Provider value={checkFailures}>
