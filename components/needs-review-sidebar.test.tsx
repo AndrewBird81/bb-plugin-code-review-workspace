@@ -46,7 +46,7 @@ test("Needs review goes last in BB's thread list, below Threads, with only the r
   expect(groups.lastElementChild!.contains(section)).toBe(true);
   expect(groups.children).toHaveLength(3);
   const rows = within(section).getAllByRole("link");
-  expect(rows.map((row) => row.textContent)).toEqual(["#2Blocks merge1h", "#1Direct request2h", "#3Team request1d"]);
+  expect(rows.map((row) => row.textContent)).toEqual(["Blocks merge1h", "Direct request2h", "Team request1d"]);
   expect(within(section).getByRole("button", { name: /Needs review/ }).textContent).toContain("3");
   slot.lifecycle.unmount();
   expect(groups.children).toHaveLength(2);
@@ -86,40 +86,44 @@ test("a row's tooltip says where the PR is, why it's yours and for how long, as 
   slot.lifecycle.unmount();
 });
 
-test("a PR's row has its number before its name, muted, the repository staying in its tooltip; a local review's its branch", async () => {
+test("a row is its name alone, the PR's repository and number in its tooltip; two of one name are told apart by number, branch or folder", async () => {
   threadList();
   const slot = await renderSidebar([reviews[2], { targetKey: "ref-1", kind: "ref", gitRef: "HEAD", title: "Local work", status: "ready", turn: turn("needs", "requested", 1) }]);
-  const row = await within(document.body).findByRole("link", { name: "#1 Direct request 2h" });
-  expect(within(row).getByText("#1").className).toContain("text-muted-foreground");
-  // Two local reviews of one name are told apart by their branches.
-  const local = within(document.body).getByRole("link", { name: "HEAD Local work 1h" });
-  expect(within(local).getByText("HEAD").className).toContain("text-muted-foreground");
+  const row = await within(document.body).findByRole("link", { name: "Direct request 2h" });
+  expect(row.getAttribute("title")).toBe("acme/web#1 · Review requested · 2h");
+  expect(within(document.body).getByRole("link", { name: "Local work 1h" })).toBeTruthy();
   slot.lifecycle.unmount();
   cleanup();
-  // Two of one branch in two folders: the folder's end the id adds.
+  // Two PRs of one name: their numbers, muted.
   threadList();
-  const again = await renderSidebar([{ targetKey: "br-2", kind: "ref", gitRef: "feat", title: "Local work", status: "ready", turn: turn("needs", "new", 1), place: { folder: "web-wt" } }]);
-  expect(await within(document.body).findByRole("link", { name: "(web-wt) Local work 1h" })).toBeTruthy();
-  again.lifecycle.unmount();
+  const prs = await renderSidebar([reviews[2], { ...reviews[0], title: "Direct request" }]);
+  expect(await within(document.body).findByRole("link", { name: "#1 Direct request 2h" })).toBeTruthy();
+  expect(within(within(document.body).getByRole("link", { name: "#3 Direct request 1d" })).getByText("#3").className).toContain("text-muted-foreground");
+  prs.lifecycle.unmount();
   cleanup();
-  // A long folder end is cut in the middle, so the name keeps its room.
+  // Two local reviews of one name: their branches, or where they share one, the folder's end the id adds.
   threadList();
-  const deep = await renderSidebar([{ targetKey: "br-3", kind: "ref", gitRef: "feat", title: "Local work", status: "ready", turn: turn("needs", "new", 1), place: { folder: "thr_abcdef123456-1/web-frontend" } }]);
-  expect(await within(document.body).findByRole("link", { name: "(thr_abc…frontend) Local work 1h" })).toBeTruthy();
-  deep.lifecycle.unmount();
+  const local = await renderSidebar([
+    { targetKey: "ref-1", kind: "ref", gitRef: "HEAD", title: "Local work", status: "ready", turn: turn("needs", "new", 1) },
+    { targetKey: "br-2", kind: "ref", gitRef: "feat", title: "Local work", status: "ready", turn: turn("needs", "new", 1), place: { folder: "web-wt" } },
+    // A long folder end is cut in the middle, so the name keeps its room.
+    { targetKey: "br-3", kind: "ref", gitRef: "feat", title: "Local work", status: "ready", turn: turn("needs", "new", 1), place: { folder: "thr_abcdef123456-1/web-frontend" } },
+  ]);
+  expect(await within(document.body).findByRole("link", { name: "HEAD Local work 1h" })).toBeTruthy();
+  expect(within(document.body).getByRole("link", { name: "(web-wt) Local work 1h" })).toBeTruthy();
+  expect(within(document.body).getByRole("link", { name: "(thr_abc…frontend) Local work 1h" })).toBeTruthy();
+  local.lifecycle.unmount();
   cleanup();
-  // A long branch by its last part, cut in the middle: both its ends, and the name, stay readable.
+  // A long branch by its last part, cut in the middle; two whose last parts match keep enough to tell them apart.
   threadList();
-  const long = await renderSidebar([{ targetKey: "ref-2", kind: "ref", gitRef: "main...feature/snooze-flaky-checks-on-retries", title: "Local work", status: "ready", turn: turn("needs", "new", 1) }]);
-  expect(await within(document.body).findByRole("link", { name: "snooze-…-retries Local work 1h" })).toBeTruthy();
-  long.lifecycle.unmount();
-  cleanup();
-  // Two whose last parts match keep enough of their branches to tell them apart.
-  threadList();
-  const twins = await renderSidebar(["alice", "bob"].map((who) => ({ targetKey: `ref-${who}`, kind: "ref", gitRef: `main...${who}/fix-login`, title: "Fix login", status: "ready", turn: turn("needs", "new", 1) })));
-  expect(await within(document.body).findByRole("link", { name: "alice/fix-login Fix login 1h" })).toBeTruthy();
+  const branches = await renderSidebar([
+    { targetKey: "ref-2", kind: "ref", gitRef: "main...feature/snooze-flaky-checks-on-retries", title: "Fix login", status: "ready", turn: turn("needs", "new", 1) },
+    ...["alice", "bob"].map((who) => ({ targetKey: `ref-${who}`, kind: "ref", gitRef: `main...${who}/fix-login`, title: "Fix login", status: "ready", turn: turn("needs", "new", 1) })),
+  ]);
+  expect(await within(document.body).findByRole("link", { name: "snooze-…-retries Fix login 1h" })).toBeTruthy();
+  expect(within(document.body).getByRole("link", { name: "alice/fix-login Fix login 1h" })).toBeTruthy();
   expect(within(document.body).getByRole("link", { name: "bob/fix-login Fix login 1h" })).toBeTruthy();
-  twins.lifecycle.unmount();
+  branches.lifecycle.unmount();
 });
 
 test("a renamed review's row says your name, with the PR's title first in its tooltip and description", async () => {
@@ -202,9 +206,9 @@ test("how long each has waited keeps up while the page stays open", async () => 
   threadList();
   const slot = await renderSidebar([reviews[2]]);
   const row = await within(document.body).findByRole("link", { name: /Direct request/ });
-  expect(row.textContent).toBe("#1Direct request2h");
+  expect(row.textContent).toBe("Direct request2h");
   await vi.advanceTimersByTimeAsync(3_600_000);
-  expect(row.textContent).toBe("#1Direct request3h");
+  expect(row.textContent).toBe("Direct request3h");
   slot.lifecycle.unmount();
 });
 
@@ -218,7 +222,7 @@ test("a pinned review sits in BB's Pinned group after its threads, and leaves Ne
   expect(pinnedRows.lastElementChild!.contains(row)).toBe(true);
   expect(pinnedRows.children).toHaveLength(3);
   const needs = within(document.body).getByRole("region", { name: "Needs review" });
-  expect(within(needs).getAllByRole("link").map((link) => link.textContent)).toEqual(["#2Blocks merge1h"]);
+  expect(within(needs).getAllByRole("link").map((link) => link.textContent)).toEqual(["Blocks merge1h"]);
   expect(within(pinnedRows).getByRole("button", { name: "Unpin Direct request" })).toBeTruthy();
   slot.lifecycle.unmount();
   expect(pinnedRows.children).toHaveLength(2);

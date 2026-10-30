@@ -209,8 +209,11 @@ export function NeedsReviewSidebar() {
     closePhoneSidebar();
   };
   const rows = (list: ReviewItem[], isPinned: boolean) => {
+    // Rows that would read the same as another: only they make room for what tells them apart.
+    const names = list.map((review) => reviewIdentity(review).name);
+    const twins = names.map((name, at) => names.some((other, index) => index !== at && other === name));
     // A local review's branch, or where two share one, the folder's end the id adds.
-    const branches = shortNames(list.map((review) => !review.number && review.kind === "ref" && !review.place?.folder ? reviewIdentity(review).idTail.replace(/^:/, "") || null : null));
+    const branches = shortNames(list.map((review, at) => twins[at] && !review.number && review.kind === "ref" && !review.place?.folder ? reviewIdentity(review).idTail.replace(/^:/, "") || null : null));
     return <ul className="space-y-0.5">
     {list.map((review, at) => {
       const identity = reviewIdentity(review);
@@ -230,11 +233,11 @@ export function NeedsReviewSidebar() {
         <a href={`/plugins/${pluginId}/review/${review.targetKey}`} title={tooltip} aria-describedby={describedBy} onClick={(event) => open(event, review.targetKey)}
           className="flex h-full min-w-0 flex-1 items-center gap-2 rounded-md pl-2 pr-1 outline-none ring-sidebar-ring focus-visible:ring-2">
           <HostIcon name={`${pluginId}/review`} fallback={kindLook(review).icon} className="size-4 shrink-0 text-muted-foreground" aria-hidden />
-          {/* A PR's number before its name, on its baseline: the list is too narrow for its repository, which the tooltip says.
-              A local review's branch tells apart two of one name, or, where they share it, the folder's end the id adds. */}
+          {/* The name has the row: where the review is goes in the tooltip. Two of one name are told apart, before it on its
+              baseline, by a PR's number, or a local review's branch, or where they share it, the folder's end the id adds. */}
           <span className="flex min-w-0 flex-1 items-baseline gap-1.5">
-            {!!review.number && <span className="shrink-0 font-mono text-[11px] tabular-nums text-muted-foreground">#{review.number}</span>}
-            {!review.number && review.kind === "ref" && (review.place?.folder || branches[at]) && <span className="shrink-0 font-mono text-[11px] text-muted-foreground">{review.place?.folder ? `(${cutMiddle(review.place.folder)})` : branches[at]}</span>}
+            {twins[at] && !!review.number && <span className="shrink-0 font-mono text-[11px] tabular-nums text-muted-foreground">#{review.number}</span>}
+            {twins[at] && !review.number && review.kind === "ref" && (review.place?.folder || branches[at]) && <span className="shrink-0 font-mono text-[11px] text-muted-foreground">{review.place?.folder ? `(${cutMiddle(review.place.folder)})` : branches[at]}</span>}
             <span className="min-w-0 flex-1 truncate">{title}</span>
           </span>
           {waited && <span className="shrink-0 text-xs tabular-nums text-subtle-foreground">{waited}</span>}
