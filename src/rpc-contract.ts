@@ -423,9 +423,10 @@ export const rpcContract = defineRpcContract({
    * Have the main thread commit the changes you reviewed, then push that commit (src/push.ts); where it stands is the
    * review's `push`. force: Push anyway, past the warning that the commit isn't what you reviewed, on the commit `sha`
    * the page showed and the warning it answers, by when it came (`at`); the push itself is never a force-push. note: nothing was asked, as when GitHub has the commit already.
+   * thenOpenPr: Push and open PR, the review agent drafting the PR once the push lands.
    */
   push: {
-    input: z.object({ targetKey: z.string(), force: z.boolean().optional(), sha: z.string().regex(/^[0-9a-f]{40}$/).optional(), at: z.number().optional() }).strict(),
+    input: z.object({ targetKey: z.string(), force: z.boolean().optional(), thenOpenPr: z.boolean().optional(), sha: z.string().regex(/^[0-9a-f]{40}$/).optional(), at: z.number().optional() }).strict(),
     output: z.object({ ok: z.boolean(), error: z.string().optional(), warning: z.string().optional(), note: z.string().optional(), delivery: z.enum(["sent", "queued"]).optional() }),
   },
   /** Clear the review's Push: Got it to what it says, or Cancel while it waits. Nothing is told to the main thread. */
@@ -436,6 +437,11 @@ export const rpcContract = defineRpcContract({
    * happen first, as pushing the branch.
    */
   openPr: { input: targetKey, output: z.object({ ok: z.boolean(), error: z.string().optional(), note: z.string().optional() }) },
+  /**
+   * What Push offers a local review (src/open-pr.ts): whether it can open a PR, whether its branch is on GitHub and has
+   * a PR there, and `compare`, where GitHub opens one by hand.
+   */
+  pushPlan: { input: targetKey, output: z.object({ openable: z.boolean(), onGithub: z.boolean(), pr: z.boolean(), compare: z.string().optional() }) },
   /** The review's Let it push when done: on, a Send leaves out "Don't push until I say", unless it says otherwise. */
   setLetPush: {
     input: z.object({ targetKey: z.string(), letPush: z.boolean() }).strict(),

@@ -803,3 +803,78 @@ test("the commit report never starts watching: with nothing accepted yet, GitHub
   expect((await u.cli("coder", "report", "--commit", HEAD)).stdout).toContain(refspec(HEAD));
   expect((await u.store.getReview(KEY))!.remoteHead).toBeNull();
 });
+
+/** The review agent's asks to draft the PR, as Open PR sends them (src/open-pr.ts draftPr). */
+const prAsks = (chat: ReturnType<typeof agentChat>) => chat.events.filter((e) => e.type === "client/turn/requested" && (e.data.input as any[])[0]?.text === "Open a PR for this review.").length;
+
+test("Push and open PR keeps its intent through a mismatch and Push anyway, and once pushed asks the review agent to draft the PR, once", async () => {
+  const { harness, cli, idle, run, folder, github, chat, push } = await setup();
+  expect(await harness.behavior.callRpc("push", { targetKey: KEY, thenOpenPr: true })).toEqual({ ok: true, delivery: "sent" });
+  expect(await run()).toMatchObject({ state: "committing", thenOpenPr: true });
+  folder.committed = { "src/a.ts": "100644:aaa:100644:ccc" };
+  await cli("coder", "report", "--commit", HEAD);
+  expect(await run()).toMatchObject({ state: "mismatch", thenOpenPr: true });
+  expect(await push(true)).toEqual({ ok: true, delivery: "sent" });
+  expect(await run()).toMatchObject({ state: "pushing", thenOpenPr: true });
+  expect(prAsks(chat)).toBe(0);
+  github.sha = HEAD;
+  await idle();
+  expect(await run()).toMatchObject({ state: "pushed", sha: HEAD, thenOpenPr: "asked" });
+  expect(prAsks(chat)).toBe(1);
+  // The next stop asks nothing again.
+  await idle();
+  expect(prAsks(chat)).toBe(1);
+});
+
+test("Push and open PR with nothing to push asks the review agent at once, from Push or from the commit report", async () => {
+  const clean = await setup();
+  clean.folder.dirty = false;
+  clean.github.sha = HEAD;
+  expect(await clean.harness.behavior.callRpc("push", { targetKey: KEY, thenOpenPr: true })).toEqual({ ok: true, note: "Nothing to push. GitHub already has `abc1234` on `feat/qa`. The review agent is drafting the PR; post it from its chat." });
+  expect(prAsks(clean.chat)).toBe(1);
+  expect(await clean.run()).toBeNull();
+
+  const { harness, cli, run, github, chat, idle } = await setup();
+  github.sha = HEAD;
+  await harness.behavior.callRpc("push", { targetKey: KEY, thenOpenPr: true });
+  expect((await cli("coder", "report", "--commit", HEAD)).stdout).toBe("Nothing to push. GitHub already has `abc1234` on `feat/qa`.");
+  expect(await run()).toMatchObject({ state: "pushed", thenOpenPr: "asked" });
+  await idle();
+  expect(prAsks(chat)).toBe(1);
+});
+
+test("Cancel and Stop waiting drop Push and open PR: a push that lands after asks the review agent nothing", async () => {
+  const { harness, cli, idle, run, github, chat } = await setup();
+  await harness.behavior.callRpc("push", { targetKey: KEY, thenOpenPr: true });
+  await harness.behavior.callRpc("dismissPush", { targetKey: KEY });
+  expect(await run()).toBeNull();
+  await harness.behavior.callRpc("push", { targetKey: KEY, thenOpenPr: true });
+  await cli("coder", "report", "--commit", HEAD);
+  expect(await run()).toMatchObject({ state: "pushing", thenOpenPr: true });
+  await harness.behavior.callRpc("dismissPush", { targetKey: KEY });
+  github.sha = HEAD;
+  await idle();
+  // Its push, no longer Push's, reads as a move no one asked for.
+  expect(await run()).toMatchObject({ state: "flagged", flag: "unrequested" });
+  expect((await run())!.thenOpenPr).toBeUndefined();
+  expect(prAsks(chat)).toBe(0);
+});
+
+test("Push and open PR on a branch whose PR opened meanwhile makes the review the PR's, and asks the review agent nothing", async () => {
+  const { harness, cli, idle, run, github, store, chat } = await setup();
+  const answers = runGh.getMockImplementation()!;
+  runGh.mockImplementation(async (args: string[]) => {
+    if (args[0] === "pr" && args[1] === "view") return ok(JSON.stringify({ number: 7, title: "Snooze flaky checks", author: { login: "me" }, baseRefName: "main", headRefName: "feat/qa", url: "https://github.com/acme/api/pull/7", headRefOid: HEAD, state: "OPEN", createdAt: new Date().toISOString() }));
+    if (args[0] === "pr" && args[1] === "diff") return ok(PATCH);
+    return answers(args);
+  });
+  await harness.behavior.callRpc("push", { targetKey: KEY, thenOpenPr: true });
+  await cli("coder", "report", "--commit", HEAD);
+  github.sha = HEAD;
+  github.prs = [{ number: 7, url: "https://github.com/acme/api/pull/7", createdAt: new Date().toISOString() }];
+  await idle();
+  expect(await store.getReview(KEY)).toMatchObject({ kind: "pr", number: 7 });
+  expect(await run()).toMatchObject({ state: "pushed", sha: HEAD });
+  expect((await run())!.thenOpenPr).toBeUndefined();
+  expect(prAsks(chat)).toBe(0);
+});

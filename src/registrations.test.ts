@@ -90,6 +90,7 @@ test("the plugin registers the same RPC methods, tools, CLI subcommands, listene
       "openPr",
       "pinReview",
       "push",
+      "pushPlan",
       "refreshFeedback",
       "refreshReviews",
       "removeDraftComment",

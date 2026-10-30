@@ -967,6 +967,71 @@ test("a commit the check couldn't place offers no Push anyway; GitHub ahead of t
   behind.slot.lifecycle.unmount();
 });
 
+const COMPARE = "https://github.com/acme/web/compare/main...feat/qa?expand=1";
+const plan = (over: Record<string, unknown> = {}) => ({ pushPlan: vi.fn(() => ({ openable: true, onGithub: false, pr: false, compare: COMPARE, ...over })) });
+
+test("a local review's branch with no PR offers Push and open PR, with Push only; the separate Open PR stays only for a branch on GitHub; a PR has Push", async () => {
+  const { slot, view, calls, part } = await renderPush(null, plan());
+  await within(part()).findByRole("button", { name: "Push and open PR" });
+  const buttons = within(part()).getAllByRole("button");
+  expect(buttons.map((b) => b.textContent)).toEqual(["Push and open PR", "Push only"]);
+  // The primary button, and a quiet link beside it.
+  expect(buttons[0]!.className).not.toContain("border");
+  expect(view.queryByRole("heading", { name: "Open a PR" })).toBeNull();
+  fireEvent.click(buttons[0]!);
+  await waitFor(() => expect(calls.push).toHaveBeenCalledWith({ targetKey: "pr-42", thenOpenPr: true }));
+  fireEvent.click(within(part()).getByRole("button", { name: "Push only" }));
+  await waitFor(() => expect(calls.push).toHaveBeenLastCalledWith({ targetKey: "pr-42" }));
+  slot.lifecycle.unmount();
+  cleanup();
+
+  const pushedBefore = await renderPush(null, plan({ onGithub: true }));
+  expect(await within(pushedBefore.part()).findByRole("button", { name: "Push and open PR" })).toBeTruthy();
+  expect(pushedBefore.view.getByRole("heading", { name: "Open a PR" })).toBeTruthy();
+  pushedBefore.slot.lifecycle.unmount();
+  cleanup();
+
+  const prPlan = plan({ onGithub: true, pr: true });
+  const withPr = await renderPush(null, prPlan);
+  await waitFor(() => expect(prPlan.pushPlan).toHaveBeenCalled());
+  expect(within(withPr.part()).getAllByRole("button").map((b) => b.textContent)).toEqual(["Push"]);
+  expect(withPr.view.queryByRole("heading", { name: "Open a PR" })).toBeNull();
+  withPr.slot.lifecycle.unmount();
+});
+
+test("Push and open PR says the review agent drafts the PR once it's pushed, then that it's drafting it, with its chat", async () => {
+  const pushing = await renderPush({ state: "pushing", thenOpenPr: true, at: now, threadId: "coder", repo: "acme/web", head: "feat/qa", sha: HEAD }, plan());
+  expect(within(pushing.part()).getByRole("status").textContent).toBe("Pushing abc1234 to feat/qa. Then the review agent drafts the PR.");
+  pushing.slot.lifecycle.unmount();
+  cleanup();
+
+  const { slot, part } = await renderPush({ state: "pushed", thenOpenPr: "asked", at: now, threadId: "coder", repo: "acme/web", head: "feat/qa", sha: HEAD }, plan({ onGithub: true }));
+  const said = within(part()).getByRole("status");
+  expect(said.textContent).toBe("Pushed abc1234. The review agent is drafting the PR; post it from its chat. · Review agent");
+  // Asked already: a Push of what comes next is just Push.
+  await waitFor(() => expect(within(part()).getAllByRole("button").map((b) => b.textContent)).toEqual(["Review agent", "Push"]));
+  fireEvent.click(within(said).getByRole("button", { name: "Review agent" }));
+  await waitFor(() => expect(panelTabCalls(slot)).toEqual(["openTab:agent"]));
+  slot.lifecycle.unmount();
+});
+
+test("with the review agent drafting only, Push is just Push, and once pushed links to GitHub to open the PR", async () => {
+  const draftOnly = { getPreferences: () => ({ preferences: { ...defaultPreferences, knobs: { ...defaultKnobs, reviewAgentActs: false } }, revision: 0 }) };
+  const readyPlan = plan();
+  const ready = await renderPush(null, { ...readyPlan, ...draftOnly });
+  await waitFor(() => expect(readyPlan.pushPlan).toHaveBeenCalled());
+  expect(within(ready.part()).getAllByRole("button").map((b) => b.textContent)).toEqual(["Push"]);
+  ready.slot.lifecycle.unmount();
+  cleanup();
+
+  const { slot, part } = await renderPush({ state: "pushed", at: now, threadId: "coder", repo: "acme/web", head: "feat/qa", sha: HEAD }, { ...plan({ onGithub: true }), ...draftOnly });
+  const link = await within(part()).findByRole("link", { name: "Open a PR on GitHub" });
+  expect(link.getAttribute("href")).toBe(COMPARE);
+  expect(link.getAttribute("title")).toBe("Go to GitHub to open a PR");
+  expect(within(part()).getByRole("status").textContent).toMatch(/^Pushed abc1234 to feat\/qa · .* · Open a PR on GitHub ↗$/);
+  slot.lifecycle.unmount();
+});
+
 /** Your PR, acme/web#42 from feat/qa, with a fixer at work in its own folder. */
 const fixerReview = { kind: "pr", repo: "acme/web", number: 42, head: "feat/qa", ownPr: true, mainThread: { threadId: "fixer", environmentId: "env_fix", origin: "fresh", since: 1, branch: "bb/fixes-thr_fix", fixer: { sha: "9e9e9e9", at: 1 } } };
 

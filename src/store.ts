@@ -241,6 +241,8 @@ export interface PushRun {
   fixer?: true;
   /** stopped: how the main thread did. */
   why?: "failed" | "archived" | "deleted";
+  /** Push and open PR: once it lands, the review agent drafts the PR (src/open-pr.ts draftPr); "asked" once it was asked. */
+  thenOpenPr?: true | "asked";
 }
 
 /** A local review's folder and branch. */

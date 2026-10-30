@@ -245,6 +245,22 @@ test("in a fork's folder, Open PR opens nothing, from the tool or from Finish: i
   expect((await store.getReview(KEY))?.kind).toBe("ref");
 });
 
+test("Push's plan: Push and open PR on a branch with no PR, on GitHub or not; none with a PR, in a fork, or on a PR's review; GitHub's compare link to open one by hand", async () => {
+  const { harness, github, store } = await setup();
+  const plan = () => harness.behavior.callRpc("pushPlan", { targetKey: KEY });
+  const compare = "https://github.com/acme/api/compare/main...feat/qa?expand=1";
+  expect(await plan()).toEqual({ openable: true, onGithub: true, pr: false, compare });
+  github.branch = null;
+  expect(await plan()).toEqual({ openable: true, onGithub: false, pr: false, compare });
+  github.branch = PUSHED;
+  github.pr = { number: 7, url: "https://github.com/acme/api/pull/7" };
+  expect(await plan()).toEqual({ openable: true, onGithub: true, pr: true, compare });
+  github.fork = "upstream/api";
+  expect(await plan()).toEqual({ openable: false, onGithub: false, pr: false });
+  await store.saveReview({ targetKey: "pr-7", kind: "pr", repo: "acme/api", number: 7, title: "Snooze flaky checks", createdAt: 1, status: "ready" });
+  expect(await harness.behavior.callRpc("pushPlan", { targetKey: "pr-7" })).toEqual({ openable: false, onGithub: false, pr: false });
+});
+
 /** open_pr's form, clicked, with GitHub answering the post with `refuse`. */
 async function refused(refuse: { stdout: string; stderr: string }, raced = false) {
   const s = await setup();

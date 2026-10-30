@@ -16,7 +16,7 @@ import { statusWhy } from "../../lib/status-line";
 import { cn } from "../../lib/utils";
 import { NOT_PUSHED_PAGE, useWorkspace } from "../../lib/workspace-context";
 import { useDraft } from "../DraftProvider";
-import { FixHandoff } from "../FixHandoff";
+import { FixHandoff, LINK } from "../FixHandoff";
 import { ReviewerNotes } from "../ReviewerNotes";
 import { SummaryCard } from "../SummaryCard";
 import { age, timeAgo } from "../time-ago";
@@ -61,6 +61,7 @@ export function FinishView({ shown, revision }: {
   const items = useComments(targetKey, "items");
   const isPr = review.kind === "pr";
   const notes = usePrivateNotes(targetKey, shown);
+  const plan = usePushPlan();
   // What the last Submit here sent, for its receipt.
   const [sent, setSent] = useState<{ comments: number; at: number } | null>(null);
   const submit = (confirmed = false, choice?: "anyway" | "comment") => {
@@ -103,8 +104,8 @@ export function FinishView({ shown, revision }: {
             {isPr ? <GoesToGitHub items={items} replyDrafts={items.filter((item) => item.kind === "thread" && item.replyDraft).length} onList={openList} />
               : <Part title="Stays in BB"><p className="text-sm text-muted-foreground">{d.hint}</p>{notes.show && <PrivateNotes targetKey={targetKey} />}</Part>}
             {(d.isLocal || d.ownPr || api.mainThread) && <FixHandoff targetKey={targetKey} comments={d.sortedComments} revision={revision} />}
-            <Push />
-            {d.isLocal && <OpenPr />}
+            <Push plan={plan} />
+            {d.isLocal && <OpenPr plan={plan} />}
             <AgentActivity />
             {isPr && notes.show && <Part title="Stays in BB"><PrivateNotes targetKey={targetKey} /></Part>}
           </div>
@@ -123,16 +124,38 @@ function Part({ title, children }: { title: string; children: ReactNode }) {
   </section>;
 }
 
+/** What Push offers a local review (src/open-pr.ts pushPlan). */
+type PushPlan = { openable: boolean; onGithub: boolean; pr: boolean; compare?: string };
+
+/** The review's Push plan, read again as its Push moves on: undefined while it's read, null for none or unread. */
+function usePushPlan(): PushPlan | null | undefined {
+  const { targetKey, review } = useWorkspace();
+  const rpc = useRpc<typeof rpcContract>();
+  const [plan, setPlan] = useState<PushPlan | null>();
+  const local = review.kind === "ref" && !!review.feature?.repo;
+  const state = review.push?.state;
+  useEffect(() => {
+    if (!local) return;
+    let cancelled = false;
+    rpc.call("pushPlan", { targetKey }).then((read) => { if (!cancelled) setPlan(read); }, () => { if (!cancelled) setPlan(null); });
+    return () => { cancelled = true; };
+  }, [rpc, targetKey, local, state]);
+  return local ? plan : null;
+}
+
 /**
  * Push, on a local review of a branch in a GitHub repo, while Send to thread is on (src/push.ts): the main thread commits
  * what you reviewed, the review checks the commit, and the thread pushes exactly it. It shows where that stands:
  * waiting on the commit, the commit not what you reviewed (Update first, or Push anyway), pushing, pushed, or flagged.
+ * A local review whose branch has no PR, while the review agent may act, offers Push and open PR, with Push only: once
+ * it's pushed, the review agent drafts the PR. With the agent drafting only, a push links to GitHub to open one.
  */
-function Push() {
-  const { targetKey, review, reload, go } = useWorkspace();
+function Push({ plan }: { plan: PushPlan | null | undefined }) {
+  const { targetKey, review, reload, go, panel } = useWorkspace();
   const rpc = useRpc<typeof rpcContract>();
   const navigate = useBbNavigate();
   const sendOn = useKnob("sendToThread");
+  const acts = useKnob("reviewAgentActs");
   const [busy, setBusy] = useState<"push" | "anyway" | "update" | "dismiss" | null>(null);
   // What went wrong, or that there was nothing to push.
   const [said, setSaid] = useState<{ text: string; error: boolean } | null>(null);
@@ -142,6 +165,8 @@ function Push() {
   const who = target.fixer ? "the fixer" : "the main thread";
   const run = review.push ?? null;
   const sha = run?.sha ? run.sha.slice(0, 7) : "";
+  // Push and open PR, unless the agent was asked already.
+  const both = acts && !!plan?.openable && !plan.pr && run?.thenOpenPr !== "asked";
   async function act(what: NonNullable<typeof busy>, call: () => Promise<{ ok: boolean; error?: string; note?: string }>, done?: string) {
     if (busy) return;
     setBusy(what);
@@ -157,7 +182,7 @@ function Push() {
     } finally { setBusy(null); }
   }
   // Push anyway goes on the warning shown: its commit, when it has one.
-  const push = (force = false) => act(force ? "anyway" : "push", () => rpc.call("push", { targetKey, ...force && run ? { force, at: run.at, ...run.sha ? { sha: run.sha } : {} } : {} }));
+  const push = (force = false, thenOpenPr = false) => act(force ? "anyway" : "push", () => rpc.call("push", { targetKey, ...thenOpenPr ? { thenOpenPr } : {}, ...force && run ? { force, at: run.at, ...run.sha ? { sha: run.sha } : {} } : {} }));
   const dismiss = () => act("dismiss", () => rpc.call("dismissPush", { targetKey }));
   // On your PR, what you review before it's pushed is Not pushed yet: Update first opens it.
   const update = () => target.pr ? act("update", async () => {
@@ -165,7 +190,7 @@ function Push() {
     return rpc.call("dismissPush", { targetKey });
   }) : act("update", () => updateThenClear(rpc, targetKey), "Updated. Review what changed, then Push.");
   const spinner = (on: boolean, icon: IconName) => <Icon name={on ? "Loading" : icon} className={cn("size-4", on && "animate-spin motion-reduce:animate-none")} aria-hidden />;
-  const pushButton = (label: string) => <Button variant="outline" size="sm" className={cn("gap-1.5", TOUCH_CONTROL, BUSY)} aria-disabled={!!busy || undefined} onClick={() => void push()}>
+  const pushButton = (label: string, thenOpenPr = false) => <Button variant={thenOpenPr ? "default" : "outline"} size="sm" className={cn("gap-1.5", TOUCH_CONTROL, BUSY)} aria-disabled={!!busy || undefined} onClick={() => void push(false, thenOpenPr)}>
     {spinner(busy === "push", "ArrowUp")}{busy === "push" ? "Asking the main thread…" : label}
   </Button>;
   const quiet = (label: string, onClick: () => void) => <Button variant="ghost" size="sm" className={cn("text-muted-foreground hover:text-foreground", TOUCH_CONTROL, BUSY)} aria-disabled={!!busy || undefined} onClick={onClick}>{label}</Button>;
@@ -191,7 +216,7 @@ function Push() {
       </div>
     </div>
     : run?.state === "pushing" ? <div className="space-y-2">
-      <p role="status" className="flex gap-1.5 text-sm text-muted-foreground"><Icon name="Loading" className="mt-0.5 size-4 shrink-0 animate-spin motion-reduce:animate-none" aria-hidden /><span>Pushing <Mono text={sha} /> to {branch}. The review checks GitHub when {who} finishes.</span></p>
+      <p role="status" className="flex gap-1.5 text-sm text-muted-foreground"><Icon name="Loading" className="mt-0.5 size-4 shrink-0 animate-spin motion-reduce:animate-none" aria-hidden /><span>Pushing <Mono text={sha} /> to {branch}. {run.thenOpenPr === true ? "Then the review agent drafts the PR." : `The review checks GitHub when ${who} finishes.`}</span></p>
       {cancel("Stop waiting")}
     </div>
     // The strip under the band says it as it happens; here it's a status, so it isn't said twice.
@@ -206,9 +231,16 @@ function Push() {
       </div>
     </div>
     : <>
-      {run?.state === "pushed" ? <p role="status" className="flex gap-1.5 text-sm"><Icon name="CircleCheck" className="mt-0.5 size-4 shrink-0 text-diff-added" aria-hidden /><span>Pushed <Mono text={sha} /> to {branch}{timeAgo(run.at) && <span className="text-muted-foreground"> · {timeAgo(run.at)}</span>}</span></p>
+      {run?.state === "pushed" ? <p role="status" className="flex gap-1.5 text-sm"><Icon name="CircleCheck" className="mt-0.5 size-4 shrink-0 text-diff-added" aria-hidden />{run.thenOpenPr === "asked"
+        ? <span>Pushed <Mono text={sha} />. The review agent is drafting the PR; post it from its chat. · <button type="button" className={LINK} onClick={() => panel.open("agent")}>Review agent</button></span>
+        : <span>Pushed <Mono text={sha} /> to {branch}{timeAgo(run.at) && <span className="text-muted-foreground"> · {timeAgo(run.at)}</span>}
+          {/* With the agent drafting only, GitHub opens the PR. */}
+          {!acts && plan?.openable && !plan.pr && plan.compare && <> · <UrlLink href={plan.compare} title="Go to GitHub to open a PR" className={LINK}>Open a PR on GitHub<span aria-hidden> ↗</span></UrlLink></>}</span>}</p>
         : <p className="text-sm text-muted-foreground">{target.fixer ? "The fixer" : "The main thread"} commits what you reviewed{target.pr ? " in Not pushed yet" : ""}, the review checks it, then it’s pushed to {branch}. Never forced.</p>}
-      {pushButton("Push")}
+      {both ? <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+        {pushButton("Push and open PR", true)}
+        <span className="text-xs text-muted-foreground">or <button type="button" className={LINK} aria-disabled={!!busy || undefined} onClick={() => void push()}>Push only</button></span>
+      </div> : pushButton("Push")}
     </>}
     {said?.error && <p role="alert" className="flex gap-1.5 text-xs text-destructive-text"><Icon name="AlertCircle" className="mt-0.5 size-3.5 shrink-0" aria-hidden />{said.text}</p>}
     {said && !said.error && <p role="status" className="flex gap-1.5 text-xs text-muted-foreground"><Icon name="Info" className="mt-0.5 size-3.5 shrink-0" aria-hidden /><span><Marked text={said.text} /></span></p>}
@@ -218,17 +250,21 @@ function Push() {
 /**
  * Open PR, on a local review of a branch in a GitHub repo, while Settings lets the review agent act: it drafts the PR's
  * title and description, shown in the Post form in its chat, whose click opens it. The server says when the branch
- * needs Push first.
+ * needs Push first. Beside Push, it's Push and open PR there, and on its own only for a branch on GitHub with no PR.
  */
-function OpenPr() {
+function OpenPr({ plan }: { plan: PushPlan | null | undefined }) {
   const { targetKey, review, panel } = useWorkspace();
   const rpc = useRpc<typeof rpcContract>();
   const acts = useKnob("reviewAgentActs");
+  const sendOn = useKnob("sendToThread");
   const [busy, setBusy] = useState(false);
   // What went wrong, or what has to happen first, as pushing the branch: an ordinary "not yet", said as such.
   const [said, setSaid] = useState<{ text: string; error: boolean } | null>(null);
   const feature = review.kind === "ref" ? review.feature : null;
   if (!acts || !feature?.repo || feature.prReview) return null;
+  // Push shows, as it does (Push), with its plan: unread, Open PR shows as it would.
+  const beside = sendOn && typeof pushTarget(review) !== "string";
+  if (beside && (plan === undefined || plan && !(plan.openable && plan.onGithub && !plan.pr && review.push?.thenOpenPr !== "asked"))) return null;
   const setError = (text: string) => setSaid({ text, error: true });
   async function open() {
     if (busy) return;
