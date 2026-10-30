@@ -45,9 +45,9 @@ export function becameText(became: NonNullable<ReviewLifecycle["became"]>): stri
 
 /**
  * A review's notices about its PR (src/feature-review.ts becomePr, src/merge.ts), from what the review stores: it became
- * PR #n, with View on GitHub, Got it, and after a merge the other review's agent chat; the PR has a review of its own,
- * with Merge into this review and Open it; on the PR's own review, its branch's local review, with Merge the two and
- * Open it; and a PR it holds, opened before the review, with Make it its review and Not this one, or GitHub didn't
+ * PR #n, with PR #n ↗ to GitHub, Got it, and after a merge Its agent chat ↗, the other review's; the PR has a review
+ * of its own, with Merge into this review and PR #n’s review ↗; on the PR's own review, its branch's local review, with
+ * Merge the two and a link named by its id; and a PR it holds, opened before the review, with Make it its review and Not this one, or GitHub didn't
  * answer, with Try again. `onChanged` reloads the review, which opens the one it went into once it's merged away.
  */
 export function usePrNotices(targetKey: string, review: PrReviewed | null, onChanged: () => void): Notice[] {
@@ -74,7 +74,11 @@ export function usePrNotices(targetKey: string, review: PrReviewed | null, onCha
     return description ? <Hint label={description} container={container}>{shown}</Hint> : shown;
   };
   const merge = (label: string, description: string) => button("merge", label, () => void act("merge", () => rpc.call("mergeReviews", { targetKey }), "Couldn’t merge the two reviews."), { description });
-  const open = (key: string) => button("open", "Open it", () => navigate.toPluginPanel("review", { subPath: key }));
+  // A link that goes somewhere is named for where it goes, with ↗; Go to … is its hint.
+  const away = (label: string, hint: string, onClick: () => void) => <Hint label={hint} container={container}>
+    <Button variant="outline" size="sm" className={BUTTON} disabled={!!busy} aria-label={label} onClick={onClick}>{label} ↗</Button>
+  </Hint>;
+  const open = (key: string, name: string) => away(name, `Go to ${name}`, () => navigate.toPluginPanel("review", { subPath: key }));
 
   const notices: Notice[] = [];
   const { became, prOffer, prPending, localReview } = review;
@@ -89,9 +93,11 @@ export function usePrNotices(targetKey: string, review: PrReviewed | null, onCha
     notices.push({ id: "became-pr", tone: "info", icon: "GitPullRequest", label: "Now a PR", firstLine: true,
       text: <>{becameText(became)} It was <Code>{became.from}</Code>.</>,
       action: <span className="flex flex-wrap gap-1">
-        <UrlLink href={became.url} className={cn(buttonVariants({ variant: "outline", size: "sm" }), BUTTON, "text-foreground")}>View on GitHub</UrlLink>
+        <Hint label={`Go to PR #${became.number} on GitHub`} container={container}>
+          <UrlLink href={became.url} aria-label={`PR #${became.number}`} className={cn(buttonVariants({ variant: "outline", size: "sm" }), BUTTON, "text-foreground")}>PR #{became.number} ↗</UrlLink>
+        </Hint>
         {button("became", "Got it", () => void act("became", () => rpc.call("dismissBecame", { targetKey }), "Couldn’t save that."))}
-        {agent && button("agent", "Its agent chat", () => navigate.toThread(agent))}
+        {agent && away("Its agent chat", "Go to the other review’s agent chat", () => navigate.toThread(agent))}
       </span> });
   }
   if (prOffer && !review.archivedAt) {
@@ -102,7 +108,7 @@ export function usePrNotices(targetKey: string, review: PrReviewed | null, onCha
         {prOffer.intoPr
           ? merge("Merge the two", "This review’s comments, summary, notes, Sends and viewed files move there. This one goes to Archive.")
           : merge("Merge into this review", "Its comments, summary, notes, Sends and viewed files move here. The other review goes to Archive.")}
-        {open(prOffer.key)}
+        {open(prOffer.key, `PR #${prOffer.number}’s review`)}
       </span> });
   }
   if (localReview && !review.archivedAt) {
@@ -112,7 +118,7 @@ export function usePrNotices(targetKey: string, review: PrReviewed | null, onCha
         {localReview.intoPr
           ? merge("Merge the two", "Its comments, summary, notes, Sends and viewed files move here. It goes to Archive.")
           : merge("Merge the two", "This review’s comments, summary, notes, Sends and viewed files move into it. This one goes to Archive.")}
-        {open(localReview.targetKey)}
+        {open(localReview.targetKey, localReview.id)}
       </span> });
   }
   if (prPending?.why === "older" && !prPending.declined) {

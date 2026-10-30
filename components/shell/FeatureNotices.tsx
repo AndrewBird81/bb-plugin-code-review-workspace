@@ -51,7 +51,7 @@ function MoreThreads({ threads, onOpen }: { threads: FeatureCheck["alsoActive"];
 
 /**
  * A local review's notices about its folder (src/feature-review.ts checkFeature), the most pressing first: BB removed
- * it; it's on another branch, which pauses the review, with Follow it or a New review for it, or Open its review; the
+ * it; it's on another branch, which pauses the review, with Follow it or a New review for it, or a link to its review; the
  * review followed its renamed branch, with Got it; its machine is offline;
  * it changed, with Update; its guide is older than what Update last showed, with Rewrite guide; committed files that look like secrets, with Got it; its PR's (PrNotices.tsx),
  * which a PR's review has too; files it keeps out, each secret named on its own button; and the other threads editing
@@ -137,7 +137,7 @@ export function useFeatureNotices(targetKey: string, review: (Reviewed & PrRevie
       text: <>Folder is on <Code>{short}</Code>. This review waits for <Code>{branchLabel(feature.branch)}</Code>.</>,
       // A detached HEAD has no branch to review. A fresh thread's worktree's branch isn't the review's to follow.
       ...check.branch ? { action: existing
-        ? button("branch", `Open ${short} review`, () => navigate.toPluginPanel("review", { subPath: existing }), { warning: true })
+        ? button("branch", `${short} review ↗`, () => navigate.toPluginPanel("review", { subPath: existing }), { warning: true, aria: `${short} review`, hint: `Go to the ${short} review` })
         : feature.workBranch || !local ? start
         : <span className="flex flex-wrap gap-1">
           {button("follow", `Follow ${short}`, () => void act("follow", () => rpc.call("followFolderBranch", { targetKey }), "Couldn’t follow that branch."), { warning: true })}

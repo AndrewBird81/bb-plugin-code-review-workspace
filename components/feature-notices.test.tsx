@@ -72,7 +72,7 @@ test("with Say when the code changed off, a changed folder says nothing", async 
   slot.lifecycle.unmount();
 });
 
-test("a folder on another branch pauses the review: Follow that branch or a New review for it, or Open its review once it has one", async () => {
+test("a folder on another branch pauses the review: Follow that branch or a New review for it, or its review ↗ once it has one", async () => {
   const reviewFolderBranch = vi.fn(() => ({ ok: true, targetKey: "br-2" }));
   const followFolderBranch = vi.fn(() => ({ ok: true }));
   const { slot } = await renderWorkspace({ checkFeature: () => ({ ...nothing, state: "paused", branch: "bb/fix-docs-thr_cd34" }), reviewFolderBranch, followFolderBranch });
@@ -89,7 +89,7 @@ test("a folder on another branch pauses the review: Follow that branch or a New 
 
   const opening = vi.fn();
   const existing = await renderWorkspace({ checkFeature: () => ({ ...nothing, state: "paused", branch: "bb/fix-docs-thr_cd34", branchReview: "br-2" }), reviewFolderBranch: opening });
-  fireEvent.click(within(await existing.slot.findByRole("status", { name: "Review paused" })).getByRole("button", { name: "Open fix-docs review" }));
+  fireEvent.click(within(await existing.slot.findByRole("status", { name: "Review paused" })).getByRole("button", { name: "fix-docs review" }));
   expect(opening).not.toHaveBeenCalled();
   existing.slot.lifecycle.unmount();
 });

@@ -59,12 +59,14 @@ test("Now PR #n says only what came along, and after a merge what moved and the 
     .toBe("Now PR #4512. 2 are outside the PR’s diff. Merged with its other review. Its other verdict, Request changes, wasn’t kept.");
 });
 
-test("a review that became its PR's says so from what it stored: View on GitHub, Got it, and after a merge, the other review's agent chat", async () => {
+test("a review that became its PR's says so from what it stored: PR #4512 ↗, Got it, and after a merge, the other review's agent chat ↗", async () => {
   const dismissBecame = vi.fn(() => ({ ok: true }));
   const { slot } = await renderWorkspace({ ...converted, became: { ...became, merged: { comments: 3, summary: true, sends: 1 } }, mergedFrom: [{ key: "pr-x", at: 2, id: "api#4512", agentThreadId: "agent-p" }] }, { dismissBecame });
   const now = await slot.findByRole("status", { name: "Now a PR" });
   expect(now.textContent).toContain("Now PR #4512 · 6 comments carried over, 2 not on GitHub yet. 1 is outside the PR’s diff. Merged with its other review: 3 comments, the summary and 1 Send moved here. It was api:snooze-checks.");
-  expect(within(now).getByRole("link", { name: "View on GitHub" }).getAttribute("href")).toBe(URL);
+  const github = within(now).getByRole("link", { name: "PR #4512" });
+  expect(github.textContent).toBe("PR #4512 ↗");
+  expect(github.getAttribute("href")).toBe(URL);
   fireEvent.click(within(now).getByRole("button", { name: "Its agent chat" }));
   expect(slot.inspection.navigateCalls).toContainEqual({ method: "toThread", threadId: "agent-p" });
   fireEvent.click(within(now).getByRole("button", { name: "Got it" }));
@@ -92,14 +94,14 @@ test("a converted review with no merge offers no agent chat", async () => {
   slot.lifecycle.unmount();
 });
 
-test("a folder's review whose PR has a review of its own offers Merge into this review, or Open it", async () => {
+test("a folder's review whose PR has a review of its own offers Merge into this review, or PR #4512’s review ↗", async () => {
   const mergeReviews = vi.fn(() => ({ ok: true, targetKey: KEY }));
   const { slot, rpc } = await renderWorkspace({ ...local, prOffer: { key: "pr-x", number: 4512, url: URL, moves: { comments: 3, summary: true, sends: 0 } } }, { mergeReviews });
   await slot.findByText("PR #4512 has a review of its own, with 3 comments and a summary.");
   const offer = notice("PR #4512 has a review of its own");
   const merge = within(offer).getByRole("button", { name: "Merge into this review" });
   expect(merge.getAttribute("aria-description")).toBe("Its comments, summary, notes, Sends and viewed files move here. The other review goes to Archive.");
-  fireEvent.click(within(offer).getByRole("button", { name: "Open it" }));
+  fireEvent.click(within(offer).getByRole("button", { name: "PR #4512’s review" }));
   expect(slot.inspection.navigateCalls).toContainEqual({ method: "toPluginPanel", path: "review", options: { subPath: "pr-x" } });
   fireEvent.click(merge);
   await waitFor(() => expect(mergeReviews).toHaveBeenCalledWith({ targetKey: KEY }));
@@ -107,13 +109,15 @@ test("a folder's review whose PR has a review of its own offers Merge into this 
   slot.lifecycle.unmount();
 });
 
-test("the PR's own review names its branch's local review, with Merge the two, or Open it", async () => {
+test("the PR's own review names its branch's local review, with Merge the two, or a link named by its id", async () => {
   const mergeReviews = vi.fn(() => ({ ok: true, targetKey: "br-2" }));
   const { slot } = await renderWorkspace({ targetKey: KEY, kind: "pr", repo: "acme/api", number: 4512, url: URL, status: "ready", createdAt: 1, localReview: { targetKey: "br-2", id: "api:snooze-checks", comments: 6 } }, { mergeReviews });
   await slot.findByText(/local review/);
   const offer = notice("This PR’s branch has a local review");
   expect(offer.textContent).toContain("This PR’s branch has a local review, api:snooze-checks, with 6 comments.");
-  fireEvent.click(within(offer).getByRole("button", { name: "Open it" }));
+  const open = within(offer).getByRole("button", { name: "api:snooze-checks" });
+  expect(open.textContent).toBe("api:snooze-checks ↗");
+  fireEvent.click(open);
   expect(slot.inspection.navigateCalls).toContainEqual({ method: "toPluginPanel", path: "review", options: { subPath: "br-2" } });
   fireEvent.click(within(offer).getByRole("button", { name: "Merge the two" }));
   await waitFor(() => expect(mergeReviews).toHaveBeenCalledWith({ targetKey: KEY }));
