@@ -93,7 +93,7 @@ test("BB's title bar goes to the main thread, and shows it beside the diff in BB
   expect(panelTabCalls(page)).toEqual(["openTab:main"]);
   const slot = renderPanelTab(app, "main", "br-1", options);
   const tab = await slot.findByRole("region", { name: "Main thread" });
-  expect(within(tab).getByRole("heading", { level: 2 }).textContent).toBe("Main thread·api:feat/snooze");
+  expect(within(tab).getByRole("heading", { level: 2 }).textContent).toBe("Main thread·api:feat/snooze·Build snooze");
   const chat = await within(tab).findByTestId("bb-thread-chat");
   expect(chat.dataset).toMatchObject({ threadId: "coder", variant: "compact", permissionPolicy: "inherit" });
   // Which thread, on which machine, and that it's working now, so a Send waits.
@@ -101,30 +101,11 @@ test("BB's title bar goes to the main thread, and shows it beside the diff in BB
   expect(within(tab).getByText(/Working: a Send waits for its turn/)).toBeTruthy();
   expect(getSourceThread).toHaveBeenCalledWith({ targetKey: "br-1" });
   await waitFor(() => expect(bar.getByRole("button", { name: "Show main thread beside review" }).getAttribute("aria-pressed")).toBe("true"));
-  fireEvent.click(within(tab).getByRole("button", { name: "Go to thread" }));
+  fireEvent.click(within(tab).getByRole("button", { name: "Main thread" }));
   expect(slot.inspection.navigateCalls).toEqual([{ method: "toThread", threadId: "coder" }]);
   slot.lifecycle.unmount();
   bar.lifecycle.unmount();
   page.lifecycle.unmount();
-});
-
-test("a review left on its main thread, as 1.8 kept it, opens BB's Main thread tab once its page is ready, once; one without a main thread doesn't", async () => {
-  patchReviewState("br-1", { panel: "main" });
-  const { page, bar } = await renderReview(folderReview, [1440, 1000]);
-  await waitFor(() => expect(panelTabCalls(page)).toEqual(["openTab:main"]));
-  page.lifecycle.unmount();
-  bar.lifecycle.unmount();
-  const again = await renderReview(folderReview, [1440, 1000]);
-  await new Promise((resolve) => requestAnimationFrame(resolve));
-  expect(panelTabCalls(again.page)).toEqual([]);
-  again.page.lifecycle.unmount();
-  again.bar.lifecycle.unmount();
-  patchReviewState("br-1", { panel: "main" });
-  const none = await renderReview({ ...folderReview, mainThread: null, sourceThreadId: null }, [1440, 1000]);
-  await new Promise((resolve) => requestAnimationFrame(resolve));
-  expect(panelTabCalls(none.page)).toEqual([]);
-  none.page.lifecycle.unmount();
-  none.bar.lifecycle.unmount();
 });
 
 test("on a phone, the dock's Main thread goes to the main thread", async () => {
@@ -188,6 +169,19 @@ test("Change main thread lists the threads working in the folder, and the one yo
   slot.lifecycle.unmount();
 });
 
+test("Finish review's Change main thread opens the tab with its Change thread menu open, once", async () => {
+  const { askChangeThread } = await import("../lib/main-thread");
+  askChangeThread("br-1");
+  const slot = await renderTab(folderReview, { getSourceThread: () => MAIN }, [listed("coder", "Build snooze")]);
+  expect(await slot.findByRole("menu", { name: "Change main thread" })).toBeTruthy();
+  expect(slot.getByRole("button", { name: "Change main thread" }).textContent).toBe("Change thread");
+  slot.lifecycle.unmount();
+  const again = await renderTab(folderReview, { getSourceThread: () => MAIN }, [listed("coder", "Build snooze")]);
+  await again.findByRole("button", { name: "Change main thread" });
+  expect(again.queryByRole("menu")).toBeNull();
+  again.lifecycle.unmount();
+});
+
 test("Change main thread can start a fresh thread here, which gets your Sends from then on", async () => {
   const setMainThread = vi.fn(async () => ({ ok: true }));
   const slot = await renderTab(folderReview, { getSourceThread: () => MAIN, setMainThread }, [listed("coder", "Build snooze")]);
@@ -211,6 +205,8 @@ test("a main thread that's archived shows its conversation with no box to write 
   gone.lifecycle.unmount();
 });
 
+/** What Watch, on a Send's toast, opened beside the review. */
+const watched = vi.fn();
 /** A draft comment's card in Comments, its row opened, in a review whose main thread is `coder`, with `links`. */
 async function renderCard(rpc: Record<string, unknown>, comment: Record<string, unknown> = {}, links: Partial<ReviewLinks> = {}) {
   fakeSize(1440, 1000);
@@ -220,7 +216,7 @@ async function renderCard(rpc: Record<string, unknown>, comment: Record<string, 
   const draft = { targetKey: "k", verdict: "COMMENT", body: "", comments: [{ file: "src/a.ts", line: 2, side: "RIGHT", body: "Rename this.", ...comment }] };
   updateComments("k", { expanded: "draft:src/a.ts:2:RIGHT" });
   const component = () => <ReviewLinksContext.Provider value={{ status: { posts: false, own: true }, editor: null, ...links }}>
-    <DraftTray targetKey="k" activeChapterId="c1" activeFiles={["src/a.ts"]} reviewRevision="r1" isLocal review={{ targetKey: "k", kind: "ref", sourceThreadId: "coder" } as any} workspace={{ mainThread: { threadId: "coder", title: "Build snooze", machine: "MaxBook" } }} />
+    <DraftTray targetKey="k" activeChapterId="c1" activeFiles={["src/a.ts"]} reviewRevision="r1" isLocal review={{ targetKey: "k", kind: "ref", sourceThreadId: "coder" } as any} workspace={{ mainThread: { threadId: "coder", title: "Build snooze", machine: "MaxBook" }, panel: { view: null, open: watched, toggle: () => {}, close: () => {} } }} />
   </ReviewLinksContext.Provider>;
   const slot = renderSlot({ component }, {}, { rpc: { setReviewPresence: () => ({ ok: true }), getReviewerNotes: () => ({ body: "", revision: 0 }), getDraft: () => ({ draft, stale: [], discussions: [] }), getSourceThread: () => MAIN, ...rpc } as any });
   await slot.findByText("Draft saved");
@@ -232,7 +228,10 @@ test("Send now on a comment's card sends it alone, and says when the main thread
   const card = await renderCard({ sendNow });
   fireEvent.click(card.getByRole("button", { name: "Send now to Build snooze (main thread) on MaxBook" }));
   await waitFor(() => expect(sendNow).toHaveBeenCalledWith({ targetKey: "k", comment: { file: "src/a.ts", line: 2, side: "RIGHT" } }));
-  await waitFor(() => expect(toast.success).toHaveBeenCalledWith("Queued for Build snooze: it’s busy, and gets the comment when its turn ends."));
+  await waitFor(() => expect(toast.success).toHaveBeenCalledWith("Queued for Build snooze: it’s busy, and gets the comment when its turn ends.", expect.objectContaining({ action: expect.objectContaining({ label: "Watch" }) })));
+  // Watch shows the thread beside the review, in BB's Main thread tab.
+  (vi.mocked(toast.success).mock.calls.at(-1)![1] as unknown as { action: { onClick: () => void } }).action.onClick();
+  expect(watched).toHaveBeenCalledWith("main");
 });
 
 test("Send now's warning shows on the card with its choices, and Send anyway sends it", async () => {
@@ -245,7 +244,7 @@ test("Send now's warning shows on the card with its choices, and Send anyway sen
   expect(alert.textContent).toContain("This is @alice’s PR, not yours.");
   fireEvent.click(within(alert).getByRole("button", { name: "Send anyway" }));
   await waitFor(() => expect(sendNow).toHaveBeenLastCalledWith({ targetKey: "k", comment: { file: "src/a.ts", line: 2, side: "RIGHT" }, force: true }));
-  await waitFor(() => expect(toast.success).toHaveBeenCalledWith("Sent the comment to Build snooze."));
+  await waitFor(() => expect(toast.success).toHaveBeenCalledWith("Sent the comment to Build snooze.", expect.objectContaining({ action: expect.objectContaining({ label: "Watch" }) })));
   expect(card.queryByRole("alert")).toBeNull();
 });
 

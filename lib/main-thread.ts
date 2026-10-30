@@ -59,5 +59,24 @@ export function useNotPushedAsked(targetKey: string): () => boolean {
   }, [asks, targetKey]);
 }
 
+// Change main thread, asked for from Finish review: the Main thread tab opens with its Change thread menu open, once.
+const changeAsks = new Set<string>();
+const changeListeners = new Set<() => void>();
+
+/** Open the Main thread tab's Change thread menu, for the review's open page. */
+export function askChangeThread(targetKey: string) {
+  changeAsks.add(targetKey);
+  for (const listener of changeListeners) listener();
+}
+
+/** Whether Change thread was asked for since the menu last took the ask; taking it, it's answered. */
+export function useChangeThreadAsked(targetKey: string): () => boolean {
+  const asked = useSyncExternalStore((listener) => {
+    changeListeners.add(listener);
+    return () => { changeListeners.delete(listener); };
+  }, () => changeAsks.has(targetKey));
+  return useCallback(() => asked && changeAsks.delete(targetKey), [asked, targetKey]);
+}
+
 /** Whether a review has Not pushed yet: a PR whose main thread works in a folder, a fixer's or its own. */
 export const hasNotPushed = (review: Pick<ReviewLifecycle, "mainThread"> & { kind?: "pr" | "ref" }) => review.kind === "pr" && !!review.mainThread?.environmentId;

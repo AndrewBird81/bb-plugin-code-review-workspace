@@ -462,7 +462,7 @@ describe("useWorkspaceLayout", () => {
   test("without ResizeObserver, the window's media queries decide the mode", () => {
     vi.stubGlobal("ResizeObserver", undefined);
     restores.push(() => vi.unstubAllGlobals());
-    const phone = vi.spyOn(window, "matchMedia").mockImplementation((query: string) => ({ matches: query === "(max-width: 599px)", media: query, addEventListener() {}, removeEventListener() {} }) as unknown as MediaQueryList);
+    const phone = vi.spyOn(window, "matchMedia").mockImplementation((query: string) => ({ matches: query === "(max-width: 599px)" || query === "(pointer: coarse)", media: query, addEventListener() {}, removeEventListener() {} }) as unknown as MediaQueryList);
     restores.push(() => phone.mockRestore());
     const el = document.createElement("div");
     expect(renderHook(() => useWorkspaceLayout(el, both)).result.current.mode).toBe("phone");

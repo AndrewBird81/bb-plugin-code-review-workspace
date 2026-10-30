@@ -238,13 +238,10 @@ test("a review opens with its panel as you left it: closed stays closed, and an 
   ({ slot } = await renderReview("panel-restore"));
   expect(slot.queryByRole("complementary", { name: "Comments and Finish review" })).toBeNull();
   slot.lifecycle.unmount();
-  // Asked for as it opens, as by Ask the review agent on a thread's Review tab: BB's Review agent tab opens, once.
+  // The agent left open by 1.8.0 is BB's to keep now: the review's panel stays closed, and BB's opens nothing.
   patchReviewState("panel-restore", { panel: "agent" });
   ({ slot } = await renderReview("panel-restore"));
-  expect(panelTabCalls(slot)).toEqual(["openTab:agent"]);
   expect(slot.queryByRole("complementary", { name: "Comments and Finish review" })).toBeNull();
-  slot.lifecycle.unmount();
-  ({ slot } = await renderReview("panel-restore"));
   expect(panelTabCalls(slot)).toEqual([]);
   slot.lifecycle.unmount();
 });

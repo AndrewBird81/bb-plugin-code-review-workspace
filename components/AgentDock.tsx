@@ -15,18 +15,22 @@ import { Textarea } from "./ui/textarea";
 import { TOUCH_CONTROL, TOUCH_TARGET } from "./touch";
 import { Markdown } from "@get-bb/plugin-sdk/app";
 import { Badge, SpeakerMark } from "./ui/badge";
+import { TabTitle } from "./TabTitle";
 
 /** What to ask the agent about: `context`, quoted from the diff, or `quote`, text to quote as it is, such as a failing check. */
 export interface DockInjection { context: AgentMessageContext; quote?: string; nonce: number; }
 export interface AgentDockProps {
   targetKey: string;
-  /** The review's id (lib/review-identity.ts), which its header names it by. */
+  /** The review's id and name (lib/review-identity.ts), which its header names it by. */
   reviewId?: string;
+  reviewName?: string;
   /** The review's patch, for quoting selected lines. */
   patch: string;
   injection?: DockInjection;
   /** Its tab shows in BB's side panel: it reads the conversation, and focuses its box, only then. */
   active?: boolean;
+  /** Within another view, as a thread's Review tab, with no header of its own: only its first message's box. */
+  bare?: boolean;
 }
 interface Conversation {
   threadId: string | null; legacy: AgentMessage[]; defaults: AgentChoice | null;
@@ -51,7 +55,7 @@ const UNSET_AGENT: AgentChoice = { providerId: "", model: "", reasoningLevel: "m
 // The Review agent tab in BB's side panel (components/PanelTabs.tsx), mounted again for each review it shows, and by BB
 // 0.48 each time its panel opens. A review's conversation is a hidden bb thread shown with ThreadChat; until it exists, a
 // first-message composer chooses its agent.
-export const AgentDock = memo(function AgentDock({ targetKey, reviewId, patch, injection, active = true }: AgentDockProps) {
+export const AgentDock = memo(function AgentDock({ targetKey, reviewId, reviewName, patch, injection, active = true, bare = false }: AgentDockProps) {
   const rpc = useRpc<typeof rpcContract>();
   const composers = useComposers();
   const [conversation, setConversation] = useState<Conversation | null>(null);
@@ -94,7 +98,14 @@ export const AgentDock = memo(function AgentDock({ targetKey, reviewId, patch, i
   }, [rpc, targetKey]);
   useEffect(() => { if (visible) void load(); }, [visible, load]);
   // Asking the agent from the diff can start the conversation.
-  useRealtime(`conversation:${targetKey}`, load);
+  // A chat deleted while it shows says so (src/assistant-events.ts), over the first message's box for a new one.
+  const [deleted, setDeleted] = useState(false);
+  const shownThread = useRef<string | null>(null);
+  shownThread.current = conversation?.threadId ?? null;
+  useRealtime(`conversation:${targetKey}`, (payload) => {
+    if (shownThread.current && (payload as { deleted?: string } | null)?.deleted === shownThread.current) setDeleted(true);
+    void load();
+  });
   useEffect(() => {
     if (!visible || threadId) return;
     const frame = requestAnimationFrame(() => composerRef.current?.focus());
@@ -169,12 +180,17 @@ export const AgentDock = memo(function AgentDock({ targetKey, reviewId, patch, i
         </div>)}
   </div> : undefined;
   const firstMessage = <>
+    {deleted && <div role="status" className="m-3 mb-0 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border border-border bg-muted/25 p-3 text-sm text-muted-foreground">
+      <span className="min-w-0 flex-1">This review’s agent chat was deleted.</span>
+      <Button variant="outline" size="sm" className={TOUCH_CONTROL} onClick={() => { setDeleted(false); requestAnimationFrame(() => composerRef.current?.focus()); }}>Start a new chat</Button>
+    </div>}
     <div className="min-h-0 flex-1 overflow-y-auto">
-      <div className="flex flex-col items-center gap-2 px-4 pb-2 pt-6 text-center">
+      {bare ? <p className="px-3 pt-1 text-sm text-muted-foreground">No questions yet. Ask about this change; your conversation stays with this review.</p>
+      : <div className="flex flex-col items-center gap-2 px-4 pb-2 pt-6 text-center">
         <span aria-hidden className="flex size-11 items-center justify-center rounded-2xl bg-(--ansi-13)/10 text-(--ansi-13) ring-1 ring-inset ring-(--ansi-13)/25"><Icon name="Sparkles" className="size-5" /></span>
         <p className="text-sm font-medium">Ask about this change.</p>
         <p className="max-w-xs text-sm leading-relaxed text-muted-foreground">Discuss a file, check a risk, or select lines in the diff for a focused question. Your conversation stays with this review.</p>
-      </div>
+      </div>}
       {legacy}
     </div>
     <div className="shrink-0 space-y-2 border-t border-border bg-surface-raised p-3">
@@ -196,11 +212,12 @@ export const AgentDock = memo(function AgentDock({ targetKey, reviewId, patch, i
     : threadId ? <ThreadChat threadId={threadId} variant="compact" className="min-h-0 flex-1" leadingContent={legacy} />
     : firstMessage;
 
+  if (bare) return <div className="flex min-h-0 flex-1 flex-col">{body}</div>;
   return <section aria-label="Review agent" className="flex h-full min-h-0 flex-1 flex-col">
     <div className="flex h-11 shrink-0 items-center gap-2 border-b border-border pl-3 pr-1.5">
-      <Icon name="Sparkles" className="size-4 text-(--ansi-13)" aria-hidden />
-      <h2 className="flex min-w-0 items-baseline gap-1.5 text-sm font-medium"><span className="shrink-0">Review agent</span>{reviewId && <><span aria-hidden className="text-subtle-foreground">·</span><span className="truncate font-mono text-[11px] font-normal text-muted-foreground">{reviewId}</span></>}</h2>
-      {(threadId || conversation?.legacy.length) ? <Button ref={resetRef} variant="ghost" size="icon" className="ml-auto size-7 pointer-coarse:size-11" aria-label="New conversation" onClick={() => setConfirmingReset(true)}><Icon name="MessageSquarePlus" className="size-3.5" aria-hidden /></Button> : null}
+      <Icon name="Sparkles" className="size-4 shrink-0 text-(--ansi-13)" aria-hidden />
+      <TabTitle title="Review agent" reviewId={reviewId} reviewName={reviewName} />
+      {(threadId || conversation?.legacy.length) ? <Button ref={resetRef} variant="ghost" size="icon" className="size-7 shrink-0 pointer-coarse:size-11" aria-label="New conversation" onClick={() => setConfirmingReset(true)}><Icon name="MessageSquarePlus" className="size-3.5" aria-hidden /></Button> : null}
     </div>
     {confirmingReset && <div role="alertdialog" aria-label="Start a new conversation" onKeyDown={(event) => {
       if (event.key !== "Escape") return;

@@ -73,6 +73,19 @@ const openDrafts = async (slot: Slot) => fireEvent.click(await slot.findByRole("
 const finishing = (slot: Slot) => !!slot.queryByRole("heading", { name: "Finish review" });
 const currentChapter = (slot: Slot) => chapters(slot).getAllByRole("button").find((button) => button.getAttribute("aria-current") === "step");
 
+test("a comment's row on a thread's Review tab opens the review at that comment, once, whether it opens now or is open already", async () => {
+  const { askToShowComment } = await import("../lib/workspace-store");
+  askToShowComment("pr-42", { file: "src/b.ts", line: 1, side: "RIGHT" });
+  const { slot } = await renderWorkspace();
+  await waitFor(() => expect(currentChapter(slot)?.textContent).toContain("Caching"));
+  // Asked again while it's open: it goes there again.
+  fireEvent.click(chapters(slot).getByText("Parsing"));
+  await waitFor(() => expect(currentChapter(slot)?.textContent).toContain("Parsing"));
+  act(() => askToShowComment("pr-42", { file: "src/c.ts", line: 1, side: "RIGHT" }));
+  await waitFor(() => expect(currentChapter(slot)?.textContent).toContain("Caching"));
+  slot.lifecycle.unmount();
+}, 15_000);
+
 test("reopening a review returns to the chapter you were on", async () => {
   patchReviewState("pr-42", { activeId: "c2" });
   const { slot } = await renderWorkspace();

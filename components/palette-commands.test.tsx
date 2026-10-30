@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test, vi } from "vitest";
-import { cleanup, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, waitFor } from "@testing-library/react";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import type { PluginCommandRegistration } from "@get-bb/plugin-sdk/app";
 import { toast } from "sonner";
@@ -198,6 +198,21 @@ test("Switch between review and main thread goes from a thread's page to its rev
   none();
   history.pushState(null, "", "/plugins/code-review-workspace-dev/review");
   expect(switcher.isAvailable!(context)).toBe(false);
+  // Of two panes, the review you last worked in, whatever the address says.
+  const { useReviewInUse } = await import("../lib/workspace-store");
+  const { useState } = await import("react");
+  const first = publishWorkspace(testWorkspace("local-1", { mainThread: { threadId: "coder", title: "Build it", machine: null } }));
+  const second = publishWorkspace(testWorkspace("local-2", { mainThread: { threadId: "other", title: "Other", machine: null } }));
+  history.pushState(null, "", "/plugins/code-review-workspace-dev/review/local-1");
+  const pane = renderSlot({ component: () => { const [el, setEl] = useState<HTMLElement | null>(null); useReviewInUse("local-2", el); return <div ref={setEl}><button>In the other pane</button></div>; } }, {}, {});
+  fireEvent.pointerDown(pane.getByRole("button", { name: "In the other pane" }));
+  await switcher.run(context);
+  expect(overlay.inspection.navigateCalls.at(-1)).toEqual({ method: "toThread", threadId: "other" });
+  // Gone, the address decides again.
+  pane.lifecycle.unmount();
+  await switcher.run(context);
+  expect(overlay.inspection.navigateCalls.at(-1)).toEqual({ method: "toThread", threadId: "coder" });
+  first(); second();
   // Another install's page isn't this one's.
   const again = publishWorkspace(testWorkspace("local-1", { mainThread: { threadId: "coder", title: "Build it", machine: null } }));
   history.pushState(null, "", "/plugins/code-review-workspace/review/local-1");

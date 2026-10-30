@@ -16,7 +16,12 @@ export function useTabVisible(): boolean {
   return useTabVisibleHook?.() ?? true;
 }
 
-/** Says so when BB couldn't show the tab: a client without its side panel, or one that declined. */
-export function panelDeclined() {
-  toast.error("BB couldn’t open its side panel here. Update BB to see the review agent and the main thread beside the review.");
+/** BB's panel declined the tab, as where it doesn't list it. */
+export function panelDeclined(tab: "agent" | "main") {
+  toast.error(tab === "agent" ? "The review agent isn’t available here." : "The main thread isn’t available here.");
+}
+
+/** A client without BB's panel, with no review agent chat to open in a split: one starts only in BB's panel. */
+export function panelMissing() {
+  toast.error("Update the BB app to start a review agent chat here.");
 }

@@ -128,8 +128,9 @@ export interface WorkspaceApi {
   patch: string;
   /** The last ask for the agent (askAgent), which the Review agent tab takes once. */
   injection?: DockInjection;
-  /** The review's id (lib/review-identity.ts), `api#4512`. */
+  /** The review's id and name (lib/review-identity.ts), `api#4512` and "Fix login race". */
   reviewId?: string;
+  reviewName?: string;
 }
 
 /** The thread a review's Sends go to, by its title and machine as the server last said: null until it does. */

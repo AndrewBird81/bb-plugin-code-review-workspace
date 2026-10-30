@@ -1,6 +1,6 @@
 import { memo, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentProps, type MutableRefObject } from "react";
 import { useRpc, useRealtime, useRealtimeConnectionState, useBbNavigate } from "@get-bb/plugin-sdk/app";
-import { panelDeclined, useAppPanel } from "../lib/app-panel";
+import { panelDeclined, panelMissing, useAppPanel } from "../lib/app-panel";
 import { Toaster, toast } from "sonner";
 import type { SelectedLineRange } from "@pierre/diffs";
 import type { rpcContract } from "../src/rpc-contract";
@@ -14,7 +14,7 @@ import { cn } from "../lib/utils";
 import { experimental_useCodeTheme } from "@get-bb/plugin-sdk/app";
 import { getCommentsFolded, getGithubThreadsInCode, getHideWhitespace, getNavOpen, getNavView, getNavWidth, getPanelWidth, getReviewState, getWrapLines, patchReviewState, setCommentsFolded, setGithubThreadsInCode, setHideWhitespace, setNavOpen as saveNavOpen, setNavView, setNavWidth as saveNavWidth, setPanelWidth as savePanelWidth, setWrapLines, type NavView, type PanelView, type SideView } from "../lib/panel-state";
 import { OVERVIEW, WorkspaceProvider, type WorkspaceApi } from "../lib/workspace-context";
-import { currentFileOf, publishReviewTitle, setCurrentFile as storeCurrentFile, useCurrentFile } from "../lib/workspace-store";
+import { currentFileOf, publishReviewTitle, setCurrentFile as storeCurrentFile, takeAskedComment, useAskedComment, useCurrentFile, useReviewInUse, useTabShown } from "../lib/workspace-store";
 import { reviewIdentity } from "../lib/review-identity";
 import { NAV_WIDTH, PANEL_WIDTH, READER_MIN, panelDockWidth, useWorkspaceLayout, type LayoutState } from "../lib/workspace-layout";
 import { useKeyboardInset } from "../lib/use-keyboard-inset";
@@ -100,6 +100,9 @@ function newViews(shown: Map<string, FileViewFlags>, read: Map<string, FileViewF
   }
   return shown;
 }
+
+/** About as tall as the message box of BB's chat at the bottom of its side panel, with the row under it. */
+const CHAT_BOX_HEIGHT = 200;
 
 /** Where you're typing in the review `targetKey`, if you are: in its chapters (Find in review), its side panel, or elsewhere. */
 function typingIn(targetKey: string): LayoutState["typingIn"] {
@@ -357,15 +360,26 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   const panelNow = useAppPanel();
   const appPanel = useRef(panelNow);
   appPanel.current = panelNow;
-  /** Show BB's tab, leaving full screen, which BB's panel is outside; or say BB couldn't. */
+  const closePanel = useCallback(() => { setPanelView(null); setPanelOverlay(false); }, []);
+  // The main thread's id, for a client without BB's side panel, which opens the thread itself instead.
+  const mainThreadRef = useRef<string | null>(null);
+  /**
+   * Show BB's tab, leaving full screen, which BB's panel is outside, and closing the review's own panel where it's over
+   * the code. A client without BB's panel (BB's 0.47.1 desktop app) opens the thread in a split instead.
+   */
   const openTab = useCallback((tab: "agent" | "main") => {
     if (document.fullscreenElement) void document.exitFullscreen().catch(() => {});
     setCovering(false);
-    if (!appPanel.current?.openTab({ tab: REVIEW_TABS[tab] })) panelDeclined();
-  }, []);
-  // Asked for as the review opens, as by Ask the review agent on a thread's Review tab: BB's tab opens with it, once
-  // the page has its guide (below).
-  const askedTab = useRef(persisted.panel === "agent" || persisted.panel === "main" ? persisted.panel : null);
+    if (layoutRef.current.panel === "overlay") closePanel();
+    const panel = appPanel.current;
+    if (!panel) {
+      const main = mainThreadRef.current;
+      if (tab === "main") { if (main) navigate.toThread(main, { split: true }); return; }
+      void rpc.call("getConversation", { targetKey }).then(({ threadId }) => threadId ? navigate.toThread(threadId, { split: true }) : panelMissing(), panelMissing);
+      return;
+    }
+    if (!panel.openTab({ tab: REVIEW_TABS[tab] })) panelDeclined(tab);
+  }, [closePanel, navigate, rpc, targetKey]);
   // One overlay at a time: BB's title bar, outside the dimmed workspace, can open the panel over the chapters.
   const openPanel = useCallback((view: PanelView) => {
     if (view === "agent" || view === "main") { openTab(view); return; }
@@ -373,7 +387,6 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     setPanelOverlay(!layoutRef.current.panelCanDock);
     setNavOverlay(false);
   }, [openTab]);
-  const closePanel = useCallback(() => { setPanelView(null); setPanelOverlay(false); }, []);
   // BB's tabs only open from here: their buttons close BB's panel themselves (components/TitleBarControls.tsx).
   const togglePanel = useCallback((view: PanelView) => view !== "agent" && view !== "main" && shownPanelRef.current === view ? closePanel() : openPanel(view), [openPanel, closePanel]);
   const openComments = useCallback((tab: CommentsTab) => { setCommentsTab(tab); openPanel("comments"); }, [openPanel]);
@@ -391,6 +404,21 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   const fullscreen = isFullscreen || covering;
   // BB's own layout switches here: its toasts sit at the top of a narrower window.
   const wideWindow = useMediaQuery("(min-width: 768px)");
+  // With the agent's or the main thread's chat beside the review, BB's toasts at the window's bottom right would cover
+  // its message box: they sit above it while either shows.
+  // For Switch between review and main thread: the pane you work in.
+  useReviewInUse(targetKey, rootEl);
+  const agentBeside = useTabShown(targetKey, "agent");
+  const mainBeside = useTabShown(targetKey, "main");
+  const chatBeside = agentBeside || mainBeside;
+  useLayoutEffect(() => {
+    if (!chatBeside || !wideWindow || isFullscreen || covering) return;
+    const style = document.createElement("style");
+    style.setAttribute("data-gr-toasts-above-chat", "");
+    style.textContent = `[data-sonner-toaster][data-x-position="right"][data-y-position="bottom"] { margin-bottom: ${CHAT_BOX_HEIGHT}px !important; }`;
+    document.head.append(style);
+    return () => style.remove();
+  }, [chatBeside, wideWindow, isFullscreen, covering]);
   // Without a choice of your own, long lines wrap where the code is narrow, rather than scroll sideways.
   const [chosenWrap, setChosenWrap] = useState(getWrapLines);
   const wrapLines = chosenWrap ?? (layout.mode !== "tablet" || layout.narrowReader);
@@ -1400,6 +1428,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   const shortcutsOn = useKnob("singleKeyShortcuts");
   // The review's main thread, named for Send now and its tab's entries.
   const mainThreadId = useKnob("sendToThread") ? recipientOf(review) : null;
+  mainThreadRef.current = mainThreadId;
   const { thread: mainLink } = useMainThread(targetKey, review);
   // The comments sent to it: Ready to re-review, or reported so far once it stops.
   const fixNotices = useFixNotices(targetKey, review, load);
@@ -1441,18 +1470,18 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     reveal: showComment, showLocation, followUp, askAgent, openFinish: showDraftSummary,
     fullscreen: { available: canFullscreen, on: fullscreen, toggle: toggleFullscreen }, leave,
     snooze, newCommits, rebuild, reload: load, pinnable: preferences?.preferences.threadListReviews === true, showShortcuts,
-    shortcuts: shortcutsOn, mainThread, patch, injection, reviewId: identity?.id,
-  } : null, [targetKey, review, guide, sections, activeId, selectChapter, layout, toggleNav, findInReview, navView, changeNavView, shownPanel, openPanel, togglePanel, closePanel, views, toggleViewed, markChapterViewed, nextUnviewed, foldAllFiles, baselineSha, compareFrom, pickCompare, flip, since, sinceOnly, sinceError, sinceWhat, diffLayout, toggleLayout, newFiles, changeNewFiles, markdownFiles, changeMarkdownFiles, unifiedOnly, wrapLines, changeWrap, hideWhitespace, changeHideWhitespace, showThreads, setShowThreads, commentsFolded, changeCommentsFolded, showComment, showLocation, followUp, askAgent, showDraftSummary, canFullscreen, fullscreen, toggleFullscreen, leave, snooze, newCommits, rebuild, load, preferences, showShortcuts, shortcutsOn, mainThread, patch, injection, identity?.id]);
+    shortcuts: shortcutsOn, mainThread, patch, injection, reviewId: identity?.id, reviewName: identity?.name,
+  } : null, [targetKey, review, guide, sections, activeId, selectChapter, layout, toggleNav, findInReview, navView, changeNavView, shownPanel, openPanel, togglePanel, closePanel, views, toggleViewed, markChapterViewed, nextUnviewed, foldAllFiles, baselineSha, compareFrom, pickCompare, flip, since, sinceOnly, sinceError, sinceWhat, diffLayout, toggleLayout, newFiles, changeNewFiles, markdownFiles, changeMarkdownFiles, unifiedOnly, wrapLines, changeWrap, hideWhitespace, changeHideWhitespace, showThreads, setShowThreads, commentsFolded, changeCommentsFolded, showComment, showLocation, followUp, askAgent, showDraftSummary, canFullscreen, fullscreen, toggleFullscreen, leave, snooze, newCommits, rebuild, load, preferences, showShortcuts, shortcutsOn, mainThread, patch, injection, identity?.id, identity?.name]);
 
-  // The tab asked for as the review opened, once its page has the guide, and, for Main thread, a main thread: BB lists
-  // the tab once it reads the published page, a frame later.
+  // A comment asked for from another page, as its row on a thread's Review tab asks, whether the review opens now or
+  // is open already: it shows once the page has its guide.
+  const askedComment = useAskedComment(targetKey);
+  const hasApi = !!api;
   useEffect(() => {
-    const asked = askedTab.current;
-    if (!asked || !api) return;
-    askedTab.current = null;
-    if (asked === "main" && !api.mainThread) return;
-    requestAnimationFrame(() => { if (rootRef.current?.isConnected) appPanel.current?.openTab({ tab: REVIEW_TABS[asked] }); });
-  }, [api]);
+    if (!askedComment || !hasApi) return;
+    takeAskedComment(targetKey);
+    showComment(askedComment);
+  }, [askedComment, hasApi, targetKey, showComment]);
   const { id, name, line } = identity ?? {};
   useEffect(() => id && name && line ? publishReviewTitle(targetKey, { id, name, line }) : undefined, [targetKey, id, name, line]);
   // A local review that became its PR's while it's open, as Open PR does: a notice says so, as its id changes

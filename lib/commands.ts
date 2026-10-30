@@ -6,8 +6,8 @@ import { experimental_usePluginId, useBbNavigate, useRpc, type PluginCommandCont
 import type { rpcContract } from "../src/rpc-contract";
 import { parsePrLink } from "./pr-link";
 import { needsOrder, reviewState, type ReviewItem } from "./review-state";
-import { threadEnvironment, threadLinksNow, threadReviewLink } from "./thread-links";
-import { panelPage, workspaceFor } from "./workspace-store";
+import { threadEnvironment, threadLinksNow, threadReview } from "./thread-links";
+import { lastReviewInUse, panelPage, workspaceFor } from "./workspace-store";
 
 /** What a palette command asks for; `text` is the clipboard's, null when it couldn't be read. */
 export type PaletteCommand = { kind: "next" } | { kind: "clipboard"; text: string | null } | { kind: "all" } | { kind: "switch"; to: SwitchTarget };
@@ -19,7 +19,7 @@ export type SwitchTarget = { kind: "review"; targetKey: string } | { kind: "thre
 let installedAs = "code-review-workspace";
 
 /** The review a Code Review Workspace page shows, from its address, which a command isn't told. */
-function reviewInView(href: string): string | null {
+export function reviewInView(href: string = typeof location === "undefined" ? "" : location.href): string | null {
   const prefix = `/plugins/${installedAs}/review/`;
   const at = href.indexOf(prefix);
   const subPath = at < 0 ? null : href.slice(at + prefix.length).split(/[?#]/)[0];
@@ -35,10 +35,12 @@ function reviewInView(href: string): string | null {
 export function switchTarget({ threadId }: Pick<PluginCommandContext, "threadId">, href = location.href): SwitchTarget | null {
   if (threadId) {
     const links = threadLinksNow();
-    const link = links && !links.agents.includes(threadId) ? threadReviewLink(links, threadId, threadEnvironment(threadId)) : null;
+    const link = links && threadReview(links, threadId, threadEnvironment(threadId));
     return link ? { kind: "review", targetKey: link.targetKey } : null;
   }
-  const targetKey = reviewInView(href);
+  // The review you're working in, of the panes; else the one the address shows.
+  const inUse = lastReviewInUse();
+  const targetKey = inUse && workspaceFor(inUse) ? inUse : reviewInView(href);
   const main = targetKey ? workspaceFor(targetKey)?.mainThread : null;
   return main ? { kind: "thread", threadId: main.threadId } : null;
 }
@@ -53,6 +55,18 @@ export function setPaletteCommands(on: boolean) { paletteCommands = on; }
 export function paletteCommandsAvailable(): boolean { return paletteCommands && handler !== null; }
 
 export function postPaletteCommand(command: PaletteCommand) { handler?.(command); }
+
+/** Switch between review and main thread's default key, as it reads on this computer. */
+export const SWITCH_KEY = { key: ".", mod: true, shift: true } as const;
+const switchKeyLabel = () => typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent) ? "⌘⇧." : "Ctrl+Shift+.";
+
+/**
+ * A go-to control's tooltip, with the switch's default key while the palette lists it. BB doesn't tell a plugin a key
+ * you bound instead.
+ */
+export function switchHint(label: string): string {
+  return paletteCommandsAvailable() ? `${label} · ${switchKeyLabel()}` : label;
+}
 
 /** The clipboard's text, or null where the browser won't give it. */
 export async function readClipboard(): Promise<string | null> {

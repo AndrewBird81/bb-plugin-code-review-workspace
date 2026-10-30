@@ -176,8 +176,8 @@ export function useFeatureNotices(targetKey: string, review: Reviewed | null, on
       text: more.length
         ? <><em className="font-medium">{first!.title}</em> and <MoreThreads threads={more} onOpen={open} /> are also editing this folder; their changes are in this review.</>
         : <><em className="font-medium">{first!.title}</em> is also editing this folder; its changes are in this review.</>,
-      // With others beside it, the button names the one it opens.
-      action: more.length ? button("open", `Go to ${first!.title} ↗`, () => open(first!.threadId), { aria: `Go to ${first!.title}` }) : button("open", "Go to thread ↗", () => open(first!.threadId), { aria: `Go to ${first!.title}` }) });
+      // The button names the thread it goes to.
+      action: button("open", `${first!.title} ↗`, () => open(first!.threadId), { aria: first!.title, hint: `Go to ${first!.title}` }) });
   }
   return notices;
 }

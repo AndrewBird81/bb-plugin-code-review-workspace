@@ -1,7 +1,7 @@
 // Send now on a draft comment's card, and what a Send that warns shows before it goes: someone else's PR, a main thread
 // archived or deleted, or a folder bb removed. The same warning, with its choices, shows in Finish review's Send.
 import { useEffect, useId, useRef, useState, type ReactNode, type RefObject } from "react";
-import { useRpc } from "@get-bb/plugin-sdk/app";
+import { useBbNavigate, useRpc } from "@get-bb/plugin-sdk/app";
 import { toast } from "sonner";
 import type { rpcContract } from "../src/rpc-contract";
 import type { CommentLocation, DraftComment } from "../src/draft";
@@ -22,6 +22,16 @@ export type Choice = { force: true; thread?: "unarchive" | "fresh" | "fork" };
 export const choiceOf = (offer: Offer): Choice => offer === "anyway" ? { force: true } : { force: true, thread: offer };
 
 /** What a Send that went says, and to whom: queued behind a busy thread's turn, or sent. */
+/**
+ * Watch, a Send's toast action: the thread it went to, beside the review in BB's Main thread tab, or on a phone, where
+ * BB's panel would cover the review anyway, its own page.
+ */
+export function useWatch(targetKey: string): (threadId: string) => { label: string; onClick: () => void } {
+  const api = useWorkspaceFor(targetKey);
+  const navigate = useBbNavigate();
+  return (threadId) => ({ label: "Watch", onClick: () => api && api.layout.mode !== "phone" ? api.panel.open("main") : navigate.toThread(threadId) });
+}
+
 export function sentNote(delivery: "sent" | "queued", title: string | null, what: string): string {
   const to = title ?? "the main thread";
   return delivery === "queued" ? `Queued for ${to}: it’s busy, and gets ${what} when its turn ends.` : `Sent ${what} to ${to}.`;
@@ -121,6 +131,7 @@ export const sendNowLabel = (to: MainThreadName | null, what?: string) => `${wha
 export function SendNow({ targetKey, comment, to, what, className, onNote }: { targetKey: string; comment: CommentLocation | { threadId: string }; to: MainThreadName | null; what?: string; className?: string; onNote: (note: ReactNode) => void }) {
   const rpc = useRpc<typeof rpcContract>();
   const container = useFullscreenPortalContainer();
+  const watch = useWatch(targetKey);
   const [busy, setBusy] = useState(false);
   const [warned, setWarned] = useState<SendWarned | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -131,7 +142,7 @@ export function SendNow({ targetKey, comment, to, what, className, onNote }: { t
       const result = await rpc.call("sendNow", { targetKey, comment: "threadId" in comment ? { threadId: comment.threadId } : { file: comment.file, line: comment.line, side: comment.side }, ...choice });
       if (result.sent) {
         setWarned(null);
-        toast.success(sentNote(result.sent.delivery, result.sent.title, what ?? "the comment"));
+        toast.success(sentNote(result.sent.delivery, result.sent.title, what ?? "the comment"), { action: watch(result.sent.threadId) });
       } else if (result.warning) setWarned({ warning: result.warning, offers: result.offers ?? ["anyway"], freshWhere: result.freshWhere, forkFrom: result.forkFrom, choice: result.choice });
       else setError(result.error ?? "Couldn’t send it. Try again.");
     } catch (failure) {

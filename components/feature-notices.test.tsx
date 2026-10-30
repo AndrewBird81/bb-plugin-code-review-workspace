@@ -149,8 +149,8 @@ test("Changed leads the rest; Got it quiets a committed secret; each secret is s
   await waitFor(() => expect(includeHidden).toHaveBeenLastCalledWith({ targetKey: KEY, files: ["logo.png"], included: true }));
   expect(within(notice(slot, "This branch’s PR has a review of its own.")).getByRole("button", { name: "Open PR review" })).toBeTruthy();
   const active = slot.getByRole("status", { name: "Also editing this folder" });
-  expect(active.textContent).toBe("Fix the docs is also editing this folder; its changes are in this review.Go to thread ↗");
-  expect(within(active).getByRole("button", { name: "Go to Fix the docs" })).toBeTruthy();
+  expect(active.textContent).toBe("Fix the docs is also editing this folder; its changes are in this review.Fix the docs ↗");
+  expect(within(active).getByRole("button", { name: "Fix the docs" })).toBeTruthy();
   slot.lifecycle.unmount();
 });
 
@@ -159,7 +159,7 @@ test("other threads editing the folder: the first named, the rest listed from �
   const { slot } = await renderWorkspace({ checkFeature: () => check });
   const active = await slot.findByRole("status", { name: "Also editing this folder" });
   // Beside the others, Open names the one it opens.
-  expect(active.textContent).toBe("Fix the docs and 2 more are also editing this folder; their changes are in this review.Go to Fix the docs ↗");
+  expect(active.textContent).toBe("Fix the docs and 2 more are also editing this folder; their changes are in this review.Fix the docs ↗");
   fireEvent.click(within(active).getByRole("button", { name: "2 more" }));
   const list = await within(document.body).findByRole("list", { name: "Also editing this folder" });
   expect(within(list).getAllByRole("button").map((button) => button.textContent)).toEqual(["Bump deps", "Fix CI"]);

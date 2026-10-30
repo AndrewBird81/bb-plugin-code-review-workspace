@@ -27,7 +27,7 @@ import { Input } from "../ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover";
 import { CheckStrip } from "./CheckStrip";
 import { githubWhat, ShowBoxInDiff, usePanelComposer } from "./CommentCard";
-import { sentNote, SendWarning, type Choice, type SendWarned } from "../SendNow";
+import { sentNote, SendWarning, useWatch, type Choice, type SendWarned } from "../SendNow";
 import { CommentRow } from "./CommentRow";
 import { notSubmitted } from "./look";
 import { updateComments, useComments } from "./store";
@@ -330,6 +330,7 @@ export function CommentsView({ shown, finish, tab, onTab, onShowThread }: {
 function SendWaiting({ targetKey, items }: { targetKey: string; items: readonly CommentItem[] }) {
   const rpc = useRpc<typeof rpcContract>();
   const to = useWorkspace().mainThread;
+  const watch = useWatch(targetKey);
   const [busy, setBusy] = useState(false);
   const [warned, setWarned] = useState<SendWarned | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -343,7 +344,8 @@ function SendWaiting({ targetKey, items }: { targetKey: string; items: readonly 
       const result = await rpc.call("sendToSourceThread", { targetKey, comments: [], threads: waiting.map((item) => item.id), ...choice });
       if (result.ok) {
         setWarned(null);
-        toast.success(sentNote(result.delivery, result.title, what));
+        const threadId = result.threadId ?? to?.threadId;
+        toast.success(sentNote(result.delivery, result.title, what), threadId ? { action: watch(threadId) } : undefined);
       } else setWarned({ warning: result.warning, offers: result.offers ?? ["anyway"], freshWhere: result.freshWhere, forkFrom: result.forkFrom, choice: result.choice });
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : "Couldn’t send them. Try again.");

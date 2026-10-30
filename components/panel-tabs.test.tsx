@@ -33,7 +33,7 @@ test("a review's page has Review agent and Main thread in BB's side panel, flush
   ]);
 });
 
-test("Review agent shows beside a review, not All reviews or Settings; Main thread beside a review with one, once its page has loaded", async () => {
+test("Review agent shows beside a review, not All reviews or Settings; Main thread beside a review with one, or with Not pushed yet, and while its page loads", async () => {
   const app = await loadPluginApp(() => import("../app"));
   const visible = (id: string, subPath: string) => {
     const tab = app.tabs.find((registration) => registration.id === id)!;
@@ -43,11 +43,19 @@ test("Review agent shows beside a review, not All reviews or Settings; Main thre
     return text;
   };
   expect(["local-a", "", "settings/local-a"].map((subPath) => visible("agent", subPath))).toEqual(["true", "false", "false"]);
+  // Loading: it shows, so a tab BB remembers doesn't blink; once the page shows without a guide, it doesn't.
+  expect(visible("main", "local-a")).toBe("true");
+  const { publishReviewTitle } = await import("../lib/workspace-store");
+  const untitle = publishReviewTitle("local-a", { id: "api:local-a", name: "A", line: "api:local-a · A" });
   expect(visible("main", "local-a")).toBe("false");
+  untitle();
   await publish("local-a");
   expect(visible("main", "local-a")).toBe("false");
   await publish("local-b", { mainThread: { threadId: "coder", title: "Build it", machine: null } });
   expect(visible("main", "local-b")).toBe("true");
+  // Your PR whose main thread works in a folder has Not pushed yet there, with Send to thread off too.
+  await publish("pr-c", { review: { targetKey: "pr-c", kind: "pr", mainThread: { threadId: "fixer", environmentId: "env1", origin: "fresh", since: 1 } } });
+  expect(visible("main", "pr-c")).toBe("true");
 });
 
 test("the agent's tab says what it waits for: the review's page, or its guide; beside no review, either tab draws nothing", async () => {
@@ -60,6 +68,9 @@ test("the agent's tab says what it waits for: the review's page, or its guide; b
   act(() => { withdraws.push(publishReviewTitle("local-a", { id: "api:local-a", name: "A", line: "api:local-a · A" })); });
   expect(loading.getByRole("status").textContent).toBe("This shows once the review’s guide is ready.");
   loading.lifecycle.unmount();
+  const main = renderPanelTab(app, "main", "local-a", { rpc: rpc() });
+  expect(main.getByRole("status").textContent).toBe("Opening the review…");
+  main.lifecycle.unmount();
   for (const id of ["agent", "main"] as const) {
     const none = renderPanelTab(app, id, "", { rpc: rpc() });
     expect(none.container.innerHTML).toBe("");

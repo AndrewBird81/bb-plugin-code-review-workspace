@@ -115,7 +115,8 @@ test("the title bar's commands fit the pane: labeled from 1000px, shorter below,
   page.lifecycle.unmount(); bar!.lifecycle.unmount(); restores.splice(0).forEach((restore) => restore());
   fakeSize(800, 1200);
   ({ bar, page } = await renderReview());
-  expect(await text(bar)).toEqual(["", "Ask agent", "Finish· 2"]);
+  // Mid-width, Ask agent, with its key and BB's tab, goes to its icon first (Main thread ↗ keeps its label: below).
+  expect(await text(bar)).toEqual(["", "", "Finish· 2"]);
   page.lifecycle.unmount(); bar!.lifecycle.unmount(); restores.splice(0).forEach((restore) => restore());
   fakeSize(844, 390);
   ({ bar, page } = await renderReview());
@@ -167,11 +168,35 @@ test("Ask agent in full screen leaves it, as BB's side panel is outside it, thou
   tab.lifecycle.unmount();
 });
 
-test("where BB can't show its side panel, as on a client without it, Ask agent says so", async () => {
+test("where BB's panel declines the tab, Ask agent says it isn't available here", async () => {
   fakeSize(1400, 900);
   const { bar } = await renderReview();
   fireEvent.click(await bar!.findByRole("button", { name: "Ask agent" }));
-  expect(toast.error).toHaveBeenCalledWith("BB couldn’t open its side panel here. Update BB to see the review agent and the main thread beside the review.");
+  expect(toast.error).toHaveBeenCalledWith("The review agent isn’t available here.");
+});
+
+test("Main thread ↗ always shows its ↗, keeps its label mid-width, and says its key; Show beside review says what it does, and Hide once it shows", async () => {
+  const withMain = { sourceThreadId: "coder", mainThread: { threadId: "coder", environmentId: null, origin: "adopted", since: 1 } };
+  const go = async (bar: Awaited<ReturnType<typeof renderReview>>["bar"]) => (await bar!.findByRole("button", { name: "Go to main thread" }));
+  fakeSize(1400, 900);
+  let { bar, page } = await renderReview({ review: withMain });
+  expect((await go(bar)).textContent).toBe("Main thread");
+  expect((await go(bar)).querySelector("[data-icon=ArrowUpRight]")).toBeTruthy();
+  page.lifecycle.unmount(); bar!.lifecycle.unmount(); restores.splice(0).forEach((restore) => restore());
+  fakeSize(800, 1200);
+  ({ bar, page } = await renderReview({ review: withMain }));
+  expect((await go(bar)).textContent).toBe("Main thread");
+  page.lifecycle.unmount(); bar!.lifecycle.unmount(); restores.splice(0).forEach((restore) => restore());
+  fakeSize(560, 952, [1440, 1000]);
+  ({ bar, page } = await renderReview({ review: withMain }));
+  const icons = await go(bar);
+  expect(icons.textContent).toBe("");
+  expect(icons.querySelector("[data-icon=ArrowUpRight]")).toBeTruthy();
+  const beside = bar!.getByRole("button", { name: "Show main thread beside review" });
+  expect(beside.querySelector("[data-icon=Columns2]")).toBeTruthy();
+  fireEvent.focus(beside);
+  beside.focus();
+  await bar!.findByRole("tooltip", { name: "Show main thread beside review" });
 });
 
 test("where BB's title bar takes the commands the band doesn't show them; where it doesn't, the band does, after a moment", async () => {

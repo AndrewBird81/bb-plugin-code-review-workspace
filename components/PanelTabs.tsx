@@ -9,6 +9,7 @@ import { WorkspaceView } from "../lib/workspace-context";
 import { panelPage, showTab, useReviewTitle, useWorkspaceFor } from "../lib/workspace-store";
 import { AgentDock } from "./AgentDock";
 import { MainThreadPanel } from "./MainThreadPanel";
+import { hasNotPushed } from "../lib/main-thread";
 
 export type PanelTab = "agent" | "main";
 
@@ -28,9 +29,16 @@ export function useAgentTabVisible({ subPath }: PluginNavPanelProps): boolean {
   return reviewOf(subPath) !== null;
 }
 
-/** Main thread shows beside a review that has one, once its page has loaded. */
+/**
+ * Main thread shows beside a review that has one, or whose PR has Not pushed yet, which it shows; and while the
+ * review's page loads, so a tab BB opens on as it remembers doesn't blink, not once the page shows without a guide.
+ */
 export function useMainTabVisible({ subPath }: PluginNavPanelProps): boolean {
-  return !!useWorkspaceFor(reviewOf(subPath))?.mainThread;
+  const targetKey = reviewOf(subPath);
+  const api = useWorkspaceFor(targetKey);
+  const shown = !!useReviewTitle(targetKey);
+  if (!targetKey) return false;
+  return api ? !!api.mainThread || hasNotPushed(api.review) : !shown;
 }
 
 function Notice({ children }: { children: ReactNode }) {
@@ -55,15 +63,16 @@ export function ReviewAgentTab({ subPath }: PluginNavPanelProps) {
   if (!targetKey) return null;
   if (!api) return waiting(shown);
   // Keyed by the review: switching reviews switches the conversation.
-  return <SettingsProvider><AgentDock key={targetKey} targetKey={targetKey} reviewId={api.reviewId} patch={api.patch} injection={api.injection} active={visible} /></SettingsProvider>;
+  return <SettingsProvider><AgentDock key={targetKey} targetKey={targetKey} reviewId={api.reviewId} reviewName={api.reviewName} patch={api.patch} injection={api.injection} active={visible} /></SettingsProvider>;
 }
 ReviewAgentTab.displayName = "ReviewAgentTab";
 
 /** Main thread: the thread that writes the code and gets your Sends, with Change and Go to thread. */
 export function MainThreadTab({ subPath }: PluginNavPanelProps) {
   const { targetKey, visible, api } = useTab(subPath, "main");
-  // BB lists it only beside a review whose page has a main thread.
-  if (!targetKey || !api) return null;
-  return <SettingsProvider><WorkspaceView api={api}><MainThreadPanel key={targetKey} active={visible} reviewId={api.reviewId} /></WorkspaceView></SettingsProvider>;
+  // BB lists it only beside a review.
+  if (!targetKey) return null;
+  if (!api) return <Notice>Opening the review…</Notice>;
+  return <SettingsProvider><WorkspaceView api={api}><MainThreadPanel key={targetKey} active={visible} reviewId={api.reviewId} reviewName={api.reviewName} /></WorkspaceView></SettingsProvider>;
 }
 MainThreadTab.displayName = "MainThreadTab";

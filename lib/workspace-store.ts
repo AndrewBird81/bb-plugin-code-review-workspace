@@ -1,8 +1,9 @@
 // The open reviews' workspaces, by targetKey, for UI outside a workspace's React tree: BB renders the title bar's
 // controls (navPanel headerContent) apart from the page, with only the subPath to say which review is open.
-import { useSyncExternalStore } from "react";
+import { useEffect, useSyncExternalStore } from "react";
 import type { WorkspaceApi } from "./workspace-context";
 import type { ReviewIdentity } from "./review-identity";
+import type { CommentLocation } from "../src/draft";
 
 const workspaces = new Map<string, WorkspaceApi>();
 const listeners = new Set<() => void>();
@@ -153,6 +154,8 @@ export function panelPage(subPath: string): PanelPage {
 
 // Whether each review's tabs in BB's side panel show: they report it (experimental_useTabVisible), so the title bar
 // can say Ask agent is pressed while the Review agent tab shows.
+// BB doesn't tell the panes of one window apart (each surface's panel controller is a new object for each slot), so a
+// review in two panes says its tab shows in either.
 const shownTabs = new Map<string, number>();
 
 /** The review's `tab` shows in BB's side panel; the returned function says it stopped. */
@@ -170,4 +173,49 @@ export function showTab(targetKey: string, tab: string): () => void {
 
 export function useTabShown(targetKey: string | null, tab: string): boolean {
   return useSyncExternalStore(subscribe, () => targetKey !== null && shownTabs.has(`${targetKey}\0${tab}`));
+}
+
+// A comment to show, asked for from another page, as a comment's row on a thread's Review tab asks: the review's page
+// shows it once it can, whether it opens now or is open already. For this page's life.
+const askedComments = new Map<string, CommentLocation>();
+
+/** Ask the review's page to show the comment at `at` in its code. */
+export function askToShowComment(targetKey: string, at: CommentLocation) {
+  askedComments.set(targetKey, at);
+  notify();
+}
+
+/** The comment asked to show in the review, until taken. */
+export function useAskedComment(targetKey: string): CommentLocation | null {
+  return useSyncExternalStore(subscribe, () => askedComments.get(targetKey) ?? null);
+}
+
+/** Take the ask: it's answered once. */
+export function takeAskedComment(targetKey: string) {
+  if (askedComments.delete(targetKey)) notify();
+}
+
+// The review you last worked in, while its page shows: the pane in focus, for a command, which BB tells only the thread
+// in view. Of several panes, the one last clicked or typed in.
+let reviewInUse: string | null = null;
+
+/** You're working in the review's page; the returned function withdraws it, as the page goes. */
+export function useReviewInUse(targetKey: string, root: HTMLElement | null) {
+  useEffect(() => {
+    if (!root) return;
+    const note = () => { reviewInUse = targetKey; };
+    if (root.contains(document.activeElement) || reviewInUse === null) note();
+    root.addEventListener("focusin", note);
+    root.addEventListener("pointerdown", note);
+    return () => {
+      root.removeEventListener("focusin", note);
+      root.removeEventListener("pointerdown", note);
+      if (reviewInUse === targetKey) reviewInUse = null;
+    };
+  }, [targetKey, root]);
+}
+
+/** The review you last worked in, while its page shows. */
+export function lastReviewInUse(): string | null {
+  return reviewInUse;
 }

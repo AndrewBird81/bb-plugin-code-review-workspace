@@ -15,7 +15,7 @@ import { PostPreview } from "./components/PostPreview";
 import { POST_PREVIEW_RENDERER } from "./src/post-preview";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { ReviewChangesSegment, ReviewTab, useReviewChangesVisible, useReviewTabVisible } from "./components/ThreadSurfaces";
-import { paletteCommandsAvailable, postPaletteCommand, readClipboard, switchTarget } from "./lib/commands";
+import { SWITCH_KEY, paletteCommandsAvailable, postPaletteCommand, readClipboard, switchTarget } from "./lib/commands";
 import { useEffect } from "react";
 import { panelPage, showPageTitle, useNarrowPane, useReviewTitle } from "./lib/workspace-store";
 import { useMediaQuery } from "./components/ui/hooks/use-media-query";
@@ -78,8 +78,12 @@ export default definePluginApp((app) => {
     experimental_usePageTitle: usePageTitle,
   });
   // A review's page: Review agent, and Main thread with one, in BB's own side panel (components/PanelTabs.tsx).
-  app.slots.experimental_tab?.({ ...REVIEW_TABS.agent, title: "Review agent", icon: "code-review-workspace/agent", layout: "flush", component: ReviewAgentTab, useVisible: useAgentTabVisible });
-  app.slots.experimental_tab?.({ ...REVIEW_TABS.main, title: "Main thread", icon: "Code", layout: "flush", component: MainThreadTab, useVisible: useMainTabVisible });
+  // A host that refuses a navigation page's tabs, as a client from before them may, loads the plugin without them: the
+  // review's commands then open the agent's and the main thread's chats as threads (components/ReviewWorkspace.tsx).
+  try {
+    app.slots.experimental_tab?.({ ...REVIEW_TABS.agent, title: "Review agent", icon: "code-review-workspace/agent", layout: "flush", component: ReviewAgentTab, useVisible: useAgentTabVisible });
+    app.slots.experimental_tab?.({ ...REVIEW_TABS.main, title: "Main thread", icon: "Code", layout: "flush", component: MainThreadTab, useVisible: useMainTabVisible });
+  } catch { /* without them */ }
   // Optional call: BB hosts from before app overlays skip it rather than fail to load the plugin.
   app.slots.experimental_appOverlay?.({ id: "needs-review", component: SidebarOverlay });
   // The review agent's Post form (src/review-agent-tools.ts). A host without the slot shows none; "yes" in chat posts instead.
@@ -96,7 +100,7 @@ export default definePluginApp((app) => {
     isAvailable: paletteCommandsAvailable, run: async () => postPaletteCommand({ kind: "clipboard", text: await readClipboard() }) });
   app.commands.register({ id: "all-reviews", title: "Code Review Workspace: All reviews", isAvailable: paletteCommandsAvailable, run: () => postPaletteCommand({ kind: "all" }) });
   // Doing and reviewing, a key apart: a thread's page goes to its review, a review's page to its main thread.
-  app.commands.register({ id: "switch-review-thread", title: "Code Review Workspace: Switch between review and main thread", defaultShortcut: { key: ".", mod: true, shift: true },
+  app.commands.register({ id: "switch-review-thread", title: "Code Review Workspace: Switch between review and main thread", defaultShortcut: SWITCH_KEY,
     isAvailable: (context) => paletteCommandsAvailable() && switchTarget(context) !== null,
     run: (context) => { const to = switchTarget(context); if (to) postPaletteCommand({ kind: "switch", to }); } });
 });

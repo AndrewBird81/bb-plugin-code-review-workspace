@@ -314,7 +314,7 @@ test("the chapters hidden with the focus in them, as when the pane gets too narr
   slot.lifecycle.unmount();
 });
 
-test("an older version's saved state opens at its chapter and scroll position, with its open agent in BB's side panel", async () => {
+test("an older version's saved state opens at its chapter and scroll position; its open agent, which BB's panel keeps now, opens nothing", async () => {
   fakePane(1400);
   const errors = vi.spyOn(console, "error");
   localStorage.setItem("gr:panelstate", JSON.stringify({
@@ -328,7 +328,7 @@ test("an older version's saved state opens at its chapter and scroll position, w
   const { slot } = await renderWorkspace({ opened: false });
   await slot.findByText("bb");
   expect(scrolled).toContain(120);
-  expect(panelTabCalls(slot)).toEqual(["openTab:agent"]);
+  expect(panelTabCalls(slot)).toEqual([]);
   expect(panel(slot)).toBeNull();
   expect(slot.getByRole("separator", { name: "Resize chapters" }).getAttribute("aria-valuenow")).toBe("340");
   expect(errors).not.toHaveBeenCalled();

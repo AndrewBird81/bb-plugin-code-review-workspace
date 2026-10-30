@@ -3,7 +3,7 @@ import { experimental_useSidebarThreads, ThreadTitle, useBbNavigate, useRpc } fr
 import { toast } from "sonner";
 import type { rpcContract } from "../src/rpc-contract";
 import { linesOf, type DraftComment } from "../src/draft";
-import { useMainThread } from "../lib/main-thread";
+import { askChangeThread, useMainThread } from "../lib/main-thread";
 import { useKnob } from "../lib/settings";
 import { cn } from "../lib/utils";
 import { useWorkspace } from "../lib/workspace-context";
@@ -39,7 +39,7 @@ export function FixHandoff({ targetKey, comments, revision }: { targetKey: strin
   const rpc = useRpc<typeof rpcContract>();
   const navigate = useBbNavigate();
   const sendOn = useKnob("sendToThread");
-  const { panel } = useWorkspace();
+  const { panel, layout } = useWorkspace();
   // refresh: a Send makes its comments sent, which the draft says at once, as BB's realtime would.
   const { review, draft, refresh, isLocal, ownPr } = useDraft();
   const { thread: main, reload } = useMainThread(targetKey, review);
@@ -132,8 +132,9 @@ export function FixHandoff({ targetKey, comments, revision }: { targetKey: strin
   return <section aria-label={to ? "Send to the main thread" : "Fix in a new thread"} className="space-y-2">
     {/* A part of Finish, as Open a PR after it is. */}
     <h3 aria-hidden className="px-0.5 text-[11px] font-semibold uppercase tracking-wider text-subtle-foreground">{to ? "Main thread" : "Fix in a new thread"}</h3>
-    {told && <p role="status" className="min-w-0 text-xs text-muted-foreground">{told.note} · <button type="button" className={LINK} onClick={() => navigate.toThread(told.threadId)}>Main thread<span aria-hidden> ↗</span></button></p>}
-    {started && <p role="status" className="text-xs text-muted-foreground">Started a thread: <span className="text-foreground">{started.title}</span> · <button type="button" className={LINK} onClick={() => navigate.toThread(started.threadId)}>Go to thread<span aria-hidden> ↗</span></button></p>}
+    {/* Watch shows the thread beside the review; a phone, where BB's panel covers it, has the thread's page only. */}
+    {told && <p role="status" className="min-w-0 text-xs text-muted-foreground">{told.note} · {layout.mode !== "phone" && <><button type="button" className={LINK} onClick={() => panel.open("main")}>Watch</button> · </>}<button type="button" className={LINK} onClick={() => navigate.toThread(told.threadId)}>Main thread<span aria-hidden> ↗</span></button></p>}
+    {started && <p role="status" className="text-xs text-muted-foreground">Started a thread: <button type="button" className={LINK} onClick={() => navigate.toThread(started.threadId)}>{started.title}<span aria-hidden> ↗</span></button></p>}
     {error && <p role="alert" className="text-xs text-destructive-text">{error}</p>}
     {warned && <SendWarning warned={warned} busy={busy} anyway={warned.anyway} what={plural(chosen.length)} onChoose={warned.retry} onCancel={() => setWarned(null)} />}
     {picking ? <fieldset className="space-y-2">
@@ -188,7 +189,7 @@ export function FixHandoff({ targetKey, comments, revision }: { targetKey: strin
     {to && !picking && <p className="text-xs text-muted-foreground">
       {to.state === "gone" ? <>The main thread was deleted: Send starts a fresh thread. </>
         : <>{name}{to.machine && <> · {to.machine}</>}{to.state === "archived" ? <>, archived: Send offers to unarchive it or start a fresh thread. </> : " · "}</>}
-      <button type="button" className={LINK} onClick={() => panel.open("main")}>Change main thread</button>
+      <button type="button" className={LINK} onClick={() => { askChangeThread(targetKey); panel.open("main"); }}>Change main thread</button>
     </p>}
   </section>;
 }

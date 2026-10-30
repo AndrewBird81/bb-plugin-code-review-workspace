@@ -196,6 +196,21 @@ test("an earlier conversation stays visible, and New conversation starts over af
   expect(screen.queryByText("Earlier question")).toBeNull();
 });
 
+test("a chat deleted while it shows says so, with Start a new chat over the first message's box", async () => {
+  const getConversation = vi.fn().mockResolvedValueOnce({ threadId: "th-1", legacy: [], defaults: null }).mockResolvedValue(unstarted());
+  const { slot } = await renderDock({}, { getConversation });
+  await screen.findByTestId("bb-thread-chat");
+  await slot.emitRealtime("conversation:pr-1", { deleted: "th-1" });
+  const note = await screen.findByRole("status");
+  expect(note.textContent).toBe("This review’s agent chat was deleted.Start a new chat");
+  fireEvent.click(within(note).getByRole("button", { name: "Start a new chat" }));
+  expect(screen.queryByText("This review’s agent chat was deleted.")).toBeNull();
+  await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("textbox", { name: "Ask the agent" })));
+  // Another review's chat, or a new conversation's archive, says nothing.
+  await slot.emitRealtime("conversation:pr-1", { deleted: "th-other" });
+  expect(screen.queryByText("This review’s agent chat was deleted.")).toBeNull();
+});
+
 test("a failed start keeps the question to try again", async () => {
   const startConversation = vi.fn(async () => { throw new Error("Provider \"codex\" is disabled."); });
   await renderDock({}, { getConversation: unstarted, startConversation });

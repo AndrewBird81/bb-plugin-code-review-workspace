@@ -7,6 +7,7 @@ import { cn } from "../lib/utils";
 import { phoneWindow } from "../lib/workspace-layout";
 import { useBbNavigate } from "@get-bb/plugin-sdk/app";
 import { useAppPanel } from "../lib/app-panel";
+import { switchHint } from "../lib/commands";
 import { mountTitleBar, panelPage, useNeedsYou, useTabShown, useWorkspaceFor } from "../lib/workspace-store";
 import type { WorkspaceApi } from "../lib/workspace-context";
 import { CompactViewportOverrideProvider } from "./ui/hooks/use-compact-viewport";
@@ -81,22 +82,24 @@ function ReviewControls({ api, placement }: { api: WorkspaceApi; placement: Titl
             {needsYou > 0 && <span aria-hidden className="min-w-4 rounded-full bg-primary px-1 text-center text-[10px] font-semibold leading-4 text-primary-foreground tabular-nums">{needsYou}</span>}
           </Button>
         </Hint>
+        {/* Mid-width, the switch to the main thread keeps its label and Ask agent, with its key and BB's tab, gives way. */}
         <Hint label={keyHint("Ask agent", "a", api.shortcuts)} container={container}>
-          <Button variant="ghost" size="sm" aria-label="Ask agent" aria-pressed={agentShown} aria-keyshortcuts={ariaKeys("a", api.shortcuts)} className={tier === "icons" ? icon : labeled} onClick={() => agentShown ? appPanel?.close() : api.askAgent()}>
+          <Button variant="ghost" size="sm" aria-label="Ask agent" aria-pressed={agentShown} aria-keyshortcuts={ariaKeys("a", api.shortcuts)} className={tier === "labeled" ? labeled : icon} onClick={() => agentShown ? appPanel?.close() : api.askAgent()}>
             <Icon name="Sparkles" className="text-(--ansi-13)" aria-hidden />
-            {tier !== "icons" && "Ask agent"}
+            {tier === "labeled" && "Ask agent"}
           </Button>
         </Hint>
-        {/* The other side of the work, a click away, as the thread's Review · 2 open is from there. */}
-        {api.mainThread && <Hint label={`Go to the main thread${api.mainThread.title ? `, ${api.mainThread.title}` : ""}: it writes the code, and gets your Sends`} container={container}>
-          <Button variant="ghost" size="sm" aria-label="Go to main thread" className={tier === "labeled" ? labeled : icon} onClick={() => navigate.toThread(api.mainThread!.threadId)}>
+        {/* The other side of the work, a click away, as the thread's Review · 2 open ↗ is from there: always with its ↗. */}
+        {api.mainThread && <Hint label={switchHint("Go to the main thread")} container={container}>
+          <Button variant="ghost" size="sm" aria-label="Go to main thread" className={tier === "icons" ? cn(icon, "w-auto gap-0.5 px-1.5") : labeled} onClick={() => navigate.toThread(api.mainThread!.threadId)}>
             <Icon name="Code" aria-hidden />
-            {tier === "labeled" && <>Main thread<Icon name="ArrowUpRight" className="size-3.5" aria-hidden /></>}
+            {tier !== "icons" && "Main thread"}
+            <Icon name="ArrowUpRight" className="size-3.5" aria-hidden />
           </Button>
         </Hint>}
-        {api.mainThread && <Hint label="Show beside review" container={container}>
+        {api.mainThread && <Hint label={mainShown ? "Hide main thread" : "Show main thread beside review"} container={container}>
           <Button variant="ghost" size="sm" aria-label="Show main thread beside review" aria-pressed={mainShown} className={icon} onClick={() => mainShown ? appPanel?.close() : panel.open("main")}>
-            <Icon name="PanelRight" aria-hidden />
+            <Icon name="Columns2" aria-hidden />
           </Button>
         </Hint>}
         {status && <Hint label={keyHint("Finish review", "s", api.shortcuts)} container={container}>

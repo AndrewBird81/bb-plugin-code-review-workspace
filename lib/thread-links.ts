@@ -81,6 +81,15 @@ export function threadReviewLink(index: ThreadLinks, threadId: string, environme
     ?? newest(index.reviews.filter((link) => link.threads.includes(threadId)));
 }
 
+/**
+ * The review a thread's page goes to, from its Review tab and the line above its message box alike: the one it's linked
+ * to, else its folder's at the branch it's on (`branch`, as git says), as Review changes finds it.
+ */
+export function threadReview(index: ThreadLinks, threadId: string, environmentId: string | null, branch?: string | null): ThreadLink | null {
+  if (index.agents.includes(threadId)) return null;
+  return threadReviewLink(index, threadId, environmentId) ?? (environmentId ? folderReview(index, environmentId, branch) : null);
+}
+
 /** BB's Git plugin, whose status of a folder its own Changed files reads. */
 const GIT_PLUGIN = "bb--git";
 /** As much of a status row as Review changes reads; the Git plugin checks it, so the page takes it as it comes. */

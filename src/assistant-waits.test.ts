@@ -88,3 +88,12 @@ test("a conversation found archived when the review opens moves the review's tur
   expect(await stillWaiting()).toBe(false);
   await vi.waitFor(async () => expect((await store.getReview("pr-1"))?.turnGroup).toEqual(expect.any(String)));
 });
+
+test("a review agent's chat deleted tells the review's open tab, which reads it again; another thread's tells nothing", async () => {
+  const { bb, harness } = await waiting({ status: "idle" });
+  await plugin(bb);
+  const from = harness.inspection.realtimeSignals.length;
+  await harness.behavior.emitThreadEvent("thread.deleted", { thread: makeThreadResponse({ id: "assistant", deletedAt: 9 }) } as never);
+  await harness.behavior.emitThreadEvent("thread.deleted", { thread: makeThreadResponse({ id: "someone-else", deletedAt: 9 }) } as never);
+  await vi.waitFor(() => expect(harness.inspection.realtimeSignals.slice(from).filter((signal) => signal.channel.startsWith("conversation:"))).toEqual([expect.objectContaining({ channel: "conversation:pr-1" })]));
+});

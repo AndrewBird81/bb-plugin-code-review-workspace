@@ -100,7 +100,7 @@ test("a teammate's Request changes with only a summary waits in Needs you, once,
   expect(card.queryByRole("button", { name: /^Send @dana’s review/ })).toBeNull();
   fireEvent.click(within(choice).getByRole("button", { name: "Fork the original instead" }));
   await waitFor(() => expect(sendNow).toHaveBeenLastCalledWith({ targetKey: "pr-12", comment: { threadId: "PRR_9" }, force: true, thread: "fork" }));
-  await waitFor(() => expect(toast.success).toHaveBeenCalledWith("Sent @dana’s review to Fixes for web#12 · Retry uploads."));
+  await waitFor(() => expect(toast.success).toHaveBeenCalledWith("Sent @dana’s review to Fixes for web#12 · Retry uploads.", expect.objectContaining({ action: expect.objectContaining({ label: "Watch" }) })));
   page.lifecycle.unmount();
 });
 
@@ -116,7 +116,7 @@ test("Send in Needs you takes everything on GitHub waiting for you, and a sent o
   expect(document.getElementById(send.getAttribute("aria-describedby")!)!.textContent).toBe("Fixes for web#12 · MaxBook");
   fireEvent.click(send);
   await waitFor(() => expect(sendToSourceThread).toHaveBeenCalledWith({ targetKey: "pr-12", comments: [], threads: ["PRR_9"] }));
-  await waitFor(() => expect(toast.success).toHaveBeenCalledWith("Queued for Fixes for web#12: it’s busy, and gets @dana’s review when its turn ends."));
+  await waitFor(() => expect(toast.success).toHaveBeenCalledWith("Queued for Fixes for web#12: it’s busy, and gets @dana’s review when its turn ends.", expect.objectContaining({ action: expect.objectContaining({ label: "Watch" }) })));
   page.lifecycle.unmount();
 });
 
@@ -144,6 +144,23 @@ test("Not pushed yet, from the compare menu, shows what the fixer's folder has t
   // Back to the chat, by keyboard.
   fireEvent.keyDown(within(tab).getByRole("tab", { name: "Not pushed yet" }), { key: "ArrowLeft" });
   await waitFor(() => expect(within(tab).getByRole("tab", { name: "Chat" }).getAttribute("aria-selected")).toBe("true"));
+  slot.lifecycle.unmount();
+  page.lifecycle.unmount();
+});
+
+test("with Send to thread off, Not pushed yet still opens beside the diff, as in 1.8.0", async () => {
+  const getNotPushed = vi.fn(async () => ({ state: "none", message: "Nothing waiting." }));
+  const fixer = { ...ownPr, mainThread: { threadId: "fresh", environmentId: "env_fix", origin: "fresh", since: 1, branch: "bb/fixes-thr_x" } };
+  const off = { getPreferences: () => ({ preferences: { ...defaultPreferences, knobs: { ...defaultPreferences.knobs, sendToThread: false } }, revision: 0 }) };
+  const { app, page, rpc } = await renderReview(fixer, { getNotPushed, ...off });
+  fireEvent.click(await page.findByRole("button", { name: /^Show changes: / }));
+  fireEvent.click(await within(await page.findByRole("menu", { name: "Show changes" })).findByRole("menuitem", { name: /^Not pushed yet/ }));
+  expect(panelTabCalls(page)).toEqual(["openTab:main"]);
+  const tab = app.tabs.find((registration) => registration.id === "main")!;
+  const probe = renderSlot({ component: () => <p>{String(tab.useVisible!({ subPath: "pr-12" } as never))}</p> }, {}, {});
+  expect(probe.container.textContent).toBe("true");
+  const slot = renderPanelTab(app, "main", "pr-12", { rpc: rpc as any, sidebarThreads: { threads: [] } as any });
+  expect(await slot.findByRole("tabpanel", { name: "Not pushed yet" })).toBeTruthy();
   slot.lifecycle.unmount();
   page.lifecycle.unmount();
 });

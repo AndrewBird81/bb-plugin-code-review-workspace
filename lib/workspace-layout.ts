@@ -92,8 +92,8 @@ export function readerWidth(width: number, state: LayoutState, layout: Pick<Work
  * while the code keeps READER_MIN, and the panel gets the room first; overlays never open by themselves. Out of room,
  * a docked panel hides, unless a phone's window resized (`phoneResized`: a fold, an unfold, a rotation), which takes
  * it over the code instead: what you had open stays open as the screen changes. Not a side you're not typing in,
- * though: that hides as before, rather than cover the box you're typing in. `phoneScreen`: the window is a phone's
- * (phoneWindow), where PHONE_BELOW makes a phone's workspace; elsewhere NARROW_BELOW does.
+ * though: that hides as before, rather than cover the box you're typing in. `phoneScreen`: a phone's window on a touch
+ * screen, where PHONE_BELOW makes a phone's workspace; elsewhere NARROW_BELOW does.
  */
 export function workspaceLayout(width: number, height: number, state: LayoutState, previous?: WorkspaceLayout, phoneResized = false, phoneScreen = true): WorkspaceLayout {
   const mode: WorkspaceMode = below(height, SHORT_BELOW, previous && previous.mode === "short") ? "short"
@@ -154,6 +154,12 @@ const windowNow = (): Size => ({ width: document.documentElement.clientWidth, he
 /** Whether a window, by default this one, is a phone's (PHONE_WINDOW_BELOW). */
 export const phoneWindow = ({ width, height }: Size = windowNow()) => Math.min(width, height) < PHONE_WINDOW_BELOW;
 
+/**
+ * A phone's screen, for the layout's modes: a phone's window on a touch screen. A short desktop or laptop window, as a
+ * 1366×768 one, isn't: beside BB's side panel its review keeps the desktop layout.
+ */
+const phoneScreenNow = (size: Size) => phoneWindow(size) && !!window.matchMedia?.("(pointer: coarse)").matches;
+
 /** The window resizing from `was` to `is` on a phone's touch screen, a phone's window both before and after. */
 function phoneResize(was: Size, is: Size): boolean {
   return (was.width !== is.width || was.height !== is.height) && phoneWindow(was) && phoneWindow(is) && !!window.matchMedia?.("(pointer: coarse)").matches;
@@ -180,7 +186,7 @@ export function useWorkspaceLayout(el: HTMLElement | null, state: LayoutState, c
   const shown = useRef<WorkspaceLayout | undefined>(seed?.shown);
   const [, remeasured] = useReducer((count: number) => count + 1, 0);
   const { width, height, phoneResized } = size.current ?? { ...windowSize(), phoneResized: false };
-  const phoneScreen = phoneWindow(windowLast.current ?? windowNow());
+  const phoneScreen = phoneScreenNow(windowLast.current ?? windowNow());
   const next = workspaceLayout(width, height, state, shown.current, phoneResized, phoneScreen);
   const layout = shown.current && sameLayout(next, shown.current) ? shown.current : next;
   const kept = useRef<unknown[]>([]);
@@ -224,7 +230,7 @@ export function useWorkspaceLayout(el: HTMLElement | null, state: LayoutState, c
       windowWas = windowIs;
       windowLast.current = windowIs;
       size.current = { width, height, phoneResized };
-      if (!shown.current || !sameLayout(workspaceLayout(width, height, latest.current, shown.current, phoneResized, phoneWindow(windowIs)), shown.current)) remeasured();
+      if (!shown.current || !sameLayout(workspaceLayout(width, height, latest.current, shown.current, phoneResized, phoneScreenNow(windowIs)), shown.current)) remeasured();
     };
     // Before the first paint, rather than when the observer first reports.
     measure(roomOf(el));

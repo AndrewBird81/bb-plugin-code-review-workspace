@@ -6,14 +6,17 @@ import { experimental_useSidebarThreads, ThreadChat, useBbNavigate, useRpc } fro
 import { toast } from "sonner";
 import type { rpcContract } from "../src/rpc-contract";
 import type { MainThreadLink } from "../src/loop";
-import { hasNotPushed, useMainThread, useNotPushedAsked } from "../lib/main-thread";
+import { hasNotPushed, useChangeThreadAsked, useMainThread, useNotPushedAsked } from "../lib/main-thread";
 import { usesFixer } from "../lib/fixer";
 import { cn } from "../lib/utils";
 import { useWorkspace } from "../lib/workspace-context";
 import { ThreadName } from "./FixHandoff";
+import { TabTitle } from "./TabTitle";
+import { switchHint } from "../lib/commands";
 import { NotPushed } from "./NotPushed";
 import { TOUCH_CONTROL } from "./touch";
 import { Button } from "./ui/button";
+import { Hint } from "./ui/hint";
 import { Icon } from "./ui/icon";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 
@@ -36,6 +39,9 @@ function ChangeMainThread({ current, onChanged }: { current: string | null; onCh
   const { targetKey, review } = useWorkspace();
   const rpc = useRpc<typeof rpcContract>();
   const [open, setOpen] = useState(false);
+  // Asked for from Finish review's Change main thread: the menu opens with the tab.
+  const takeAsk = useChangeThreadAsked(targetKey);
+  useEffect(() => { if (takeAsk()) setOpen(true); }, [takeAsk]);
   const [busy, setBusy] = useState<string | null>(null);
   const { threads } = experimental_useSidebarThreads();
   // A PR that sends to fixers has no folder of its own to start one in: a fresh one is a fixer at its head.
@@ -57,7 +63,7 @@ function ChangeMainThread({ current, onChanged }: { current: string | null; onCh
   }
   return <Popover open={open} onOpenChange={setOpen}>
     <PopoverTrigger asChild>
-      <Button variant="ghost" size="sm" className={cn("h-7 shrink-0 px-2 text-xs text-muted-foreground", TOUCH_CONTROL)}>Change<span className="sr-only"> main thread</span></Button>
+      <Button variant="ghost" size="sm" aria-label="Change main thread" className={cn("h-7 shrink-0 px-2 text-xs text-muted-foreground", TOUCH_CONTROL)}>Change thread</Button>
     </PopoverTrigger>
     <PopoverContent align="end" mobileTitle="Change main thread" className="w-72 p-1">
       <div role="menu" aria-label="Change main thread" className="flex flex-col">
@@ -98,7 +104,7 @@ function ThreadLine({ thread, onChanged }: { thread: MainThreadLink; onChanged: 
       {working && <span className="shrink-0">· Working: a Send waits for its turn</span>}
     </span>
     <ChangeMainThread current={thread.threadId} onChanged={onChanged} />
-    {thread.state !== "gone" && <Button variant="ghost" size="sm" className={cn("h-7 shrink-0 gap-1 px-2 text-xs text-muted-foreground", TOUCH_CONTROL)} onClick={() => navigate.toThread(thread.threadId)}>Go to thread<Icon name="ArrowUpRight" className="size-3.5" aria-hidden /></Button>}
+    {thread.state !== "gone" && <Hint label={switchHint("Go to the main thread")}><Button variant="ghost" size="sm" className={cn("h-7 shrink-0 gap-1 px-2 text-xs text-muted-foreground", TOUCH_CONTROL)} onClick={() => navigate.toThread(thread.threadId)}>Main thread<Icon name="ArrowUpRight" className="size-3.5" aria-hidden /></Button></Hint>}
   </div>;
 }
 
@@ -126,7 +132,7 @@ function ViewTabs({ targetKey, view, onView }: { targetKey: string; view: "chat"
  * can't widen its permissions. An archived thread shows its conversation without a box to write in. `active`: the tab
  * shows, so it reads the main thread and BB's thread list.
  */
-export function MainThreadPanel({ active, reviewId }: { active: boolean; reviewId?: string }) {
+export function MainThreadPanel({ active, reviewId, reviewName }: { active: boolean; reviewId?: string; reviewName?: string }) {
   const { targetKey, review } = useWorkspace();
   const { thread, reload } = useMainThread(targetKey, review, active);
   // On a PR whose main thread works in a folder, what it hasn't pushed yet, beside its chat; the compare menu opens it.
@@ -138,8 +144,8 @@ export function MainThreadPanel({ active, reviewId }: { active: boolean; reviewI
   const notice = (text: string) => <p role="status" className="m-3 rounded-lg border border-border bg-muted/25 p-3 text-sm text-muted-foreground">{text}</p>;
   return <section aria-label="Main thread" className="flex h-full min-h-0 flex-1 flex-col">
     <div className="flex h-11 shrink-0 items-center gap-2 border-b border-border pl-3 pr-1.5">
-      <Icon name="Code" className="size-4 text-primary" aria-hidden />
-      <h2 className="flex min-w-0 items-baseline gap-1.5 text-sm font-medium"><span className="shrink-0">Main thread</span>{reviewId && <><span aria-hidden className="text-subtle-foreground">·</span><span className="truncate font-mono text-[11px] font-normal text-muted-foreground">{reviewId}</span></>}</h2>
+      <Icon name="Code" className="size-4 shrink-0 text-primary" aria-hidden />
+      <TabTitle title="Main thread" reviewId={reviewId} reviewName={reviewName} />
     </div>
     {/* BB's thread list is read only while the tab shows. */}
     {thread && active && <ThreadLine thread={thread} onChanged={reload} />}
