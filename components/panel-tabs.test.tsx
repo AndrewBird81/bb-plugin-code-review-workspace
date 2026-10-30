@@ -33,7 +33,7 @@ test("a review's page has Review agent and Main thread in BB's side panel, flush
   ]);
 });
 
-test("Review agent shows beside a review, not All reviews or Settings; Main thread beside a review with one, or with Not pushed yet, and while its page loads", async () => {
+test("Review agent shows beside a review, not All reviews or Settings; Main thread beside a review with one, and while its page loads, not for Not pushed yet, a page of the review", async () => {
   const app = await loadPluginApp(() => import("../app"));
   const visible = (id: string, subPath: string) => {
     const tab = app.tabs.find((registration) => registration.id === id)!;
@@ -53,9 +53,10 @@ test("Review agent shows beside a review, not All reviews or Settings; Main thre
   expect(visible("main", "local-a")).toBe("false");
   await publish("local-b", { mainThread: { threadId: "coder", title: "Build it", machine: null } });
   expect(visible("main", "local-b")).toBe("true");
-  // Your PR whose main thread works in a folder has Not pushed yet there, with Send to thread off too.
+  // Your PR whose main thread works in a folder, with Send to thread off: its Not pushed yet is a page of the review,
+  // and there's no thread to show.
   await publish("pr-c", { review: { targetKey: "pr-c", kind: "pr", mainThread: { threadId: "fixer", environmentId: "env1", origin: "fresh", since: 1 } } });
-  expect(visible("main", "pr-c")).toBe("true");
+  expect(visible("main", "pr-c")).toBe("false");
 });
 
 test("the agent's tab says what it waits for: the review's page, or its guide; beside no review, either tab draws nothing", async () => {

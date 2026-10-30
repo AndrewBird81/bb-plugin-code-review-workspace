@@ -6,15 +6,13 @@ import { experimental_useSidebarThreads, ThreadChat, useBbNavigate, useRpc } fro
 import { toast } from "sonner";
 import type { rpcContract } from "../src/rpc-contract";
 import type { MainThreadLink } from "../src/loop";
-import { hasNotPushed, useChangeThreadAsked, useMainThread, useNotPushedAsked } from "../lib/main-thread";
+import { useChangeThreadAsked, useMainThread } from "../lib/main-thread";
 import { usesFixer } from "../lib/fixer";
-import { useKnob } from "../lib/settings";
 import { cn } from "../lib/utils";
 import { useWorkspace } from "../lib/workspace-context";
 import { ThreadName } from "./FixHandoff";
 import { TabTitle } from "./TabTitle";
 import { switchHint } from "../lib/commands";
-import { NotPushed } from "./NotPushed";
 import { TOUCH_CONTROL } from "./touch";
 import { Button } from "./ui/button";
 import { Hint } from "./ui/hint";
@@ -109,42 +107,15 @@ function ThreadLine({ thread, onChanged }: { thread: MainThreadLink; onChanged: 
   </div>;
 }
 
-/** Chat and Not pushed yet, the Main thread tab's two views on a PR, as tabs: the arrow keys move between them. */
-function ViewTabs({ targetKey, view, onView }: { targetKey: string; view: "chat" | "not-pushed"; onView: (view: "chat" | "not-pushed") => void }) {
-  const views = [["chat", "Chat"], ["not-pushed", "Not pushed yet"]] as const;
-  const arrow = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (event.key !== "ArrowRight" && event.key !== "ArrowLeft") return;
-    event.preventDefault();
-    const next = view === "chat" ? "not-pushed" : "chat";
-    onView(next);
-    requestAnimationFrame(() => event.currentTarget?.querySelector<HTMLElement>(`[data-view="${next}"]`)?.focus());
-  };
-  return <div role="tablist" aria-label="Main thread" onKeyDown={arrow} className="flex shrink-0 gap-1 border-b border-border px-2 py-1">
-    {views.map(([id, label]) => <button key={id} type="button" role="tab" data-view={id} aria-selected={view === id} tabIndex={view === id ? 0 : -1}
-      aria-controls={id === "not-pushed" ? `${targetKey}-main-not-pushed` : undefined} onClick={() => onView(id)}
-      className={cn("h-7 rounded-md px-2 text-xs font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring/50", TOUCH_CONTROL,
-        view === id ? "bg-state-active text-foreground" : "text-muted-foreground hover:bg-state-hover hover:text-foreground")}>{label}</button>)}
-  </div>;
-}
-
 /**
  * The Main thread tab: its header names it and the review, `Main thread · api:snooze-checks · Snooze checks`; a line
  * says which thread it is, on which machine, and whether it's working now, with Change thread and Main thread ↗; then
  * the thread's chat, which can't widen its permissions. An archived thread shows its conversation without a box to write
- * in. With Send to thread off, a PR's tab is its Not pushed yet alone. `active`: the tab shows, so it reads the main
- * thread and BB's thread list.
+ * in. `active`: the tab shows, so it reads the main thread and BB's thread list.
  */
 export function MainThreadPanel({ active, reviewId, reviewName }: { active: boolean; reviewId?: string; reviewName?: string }) {
   const { targetKey, review } = useWorkspace();
   const { thread, reload } = useMainThread(targetKey, review, active);
-  // On a PR whose main thread works in a folder, what it hasn't pushed yet, beside its chat; the compare menu opens it.
-  const unpushed = hasNotPushed(review);
-  // With Send to thread off there's no main thread to chat with here: only what it hasn't pushed.
-  const sendOn = useKnob("sendToThread");
-  const take = useNotPushedAsked(targetKey);
-  const [view, setView] = useState<"chat" | "not-pushed">("chat");
-  useEffect(() => { if (take()) setView("not-pushed"); }, [take]);
-  const showing = unpushed ? sendOn ? view : "not-pushed" : "chat";
   const notice = (text: string) => <p role="status" className="m-3 rounded-lg border border-border bg-muted/25 p-3 text-sm text-muted-foreground">{text}</p>;
   return <section aria-label="Main thread" className="flex h-full min-h-0 flex-1 flex-col">
     <div className="flex h-11 shrink-0 items-center gap-2 border-b border-border pl-3 pr-1.5">
@@ -153,9 +124,7 @@ export function MainThreadPanel({ active, reviewId, reviewName }: { active: bool
     </div>
     {/* BB's thread list is read only while the tab shows. */}
     {thread && active && <ThreadLine thread={thread} onChanged={reload} />}
-    {unpushed && sendOn && <ViewTabs targetKey={targetKey} view={showing} onView={setView} />}
-    {showing === "not-pushed" ? <div id={`${targetKey}-main-not-pushed`} role="tabpanel" aria-label="Not pushed yet" className="flex min-h-0 flex-1 flex-col"><NotPushed targetKey={targetKey} active={active} /></div>
-      : thread === undefined ? <p role="status" className="p-3 text-sm text-muted-foreground">Loading the main thread…</p>
+    {thread === undefined ? <p role="status" className="p-3 text-sm text-muted-foreground">Loading the main thread…</p>
       : thread === null ? notice("This review has no main thread yet. Run bb review in the thread working on the change, and your Sends go there.")
       : thread.state === "gone" ? notice("The main thread was deleted. Your next Send starts a fresh thread, or choose another with Change thread.")
       : <>

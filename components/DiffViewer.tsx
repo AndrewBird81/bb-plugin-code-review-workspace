@@ -213,12 +213,6 @@ const StaticDiff = memo(function StaticDiff({ text, darkTheme, lightTheme, theme
   return <div className="overflow-x-auto"><FileDiff fileDiff={fileDiff} options={options} /></div>;
 });
 
-/** One file's diff to read, not comment on, elsewhere than the review's code (Not pushed yet): unified, wrapped, without its file's header. */
-export function ReadOnlyDiff({ text, themeMode }: { text: string; themeMode?: "light" | "dark" }) {
-  const theme = useTheme();
-  return <StaticDiff text={text} darkTheme={theme?.dark} lightTheme={theme?.light} themeMode={themeMode} wrap />;
-}
-
 /** A collapsible diff that draws only while open. */
 function DiffDetails({ summary, text, defaultOpen = false, className, theme, themeMode, wrap }: {
   summary: ReactNode; text: string; defaultOpen?: boolean; className?: string; theme?: { dark: string; light: string }; themeMode?: "light" | "dark"; wrap: boolean;

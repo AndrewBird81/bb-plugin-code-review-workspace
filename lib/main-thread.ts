@@ -35,30 +35,6 @@ export function useMainThread(targetKey: string, review: Pick<ReviewLifecycle, "
   return { thread: !recipient ? null : thread?.of === of ? thread.link : undefined, reload };
 }
 
-// Not pushed yet, asked for from the compare menu: the Main thread tab opens on it, once per ask, whether it's showing
-// already or opens with it.
-const notPushedAsks = new Map<string, number>();
-const notPushedListeners = new Set<() => void>();
-
-/** Open the Main thread tab's Not pushed yet, for the review's open page. */
-export function showNotPushed(targetKey: string) {
-  notPushedAsks.set(targetKey, (notPushedAsks.get(targetKey) ?? 0) + 1);
-  for (const listener of notPushedListeners) listener();
-}
-
-/** Whether Not pushed yet was asked for on the review since the tab last took the ask; taking it, it's answered. */
-export function useNotPushedAsked(targetKey: string): () => boolean {
-  const asks = useSyncExternalStore((listener) => {
-    notPushedListeners.add(listener);
-    return () => { notPushedListeners.delete(listener); };
-  }, () => notPushedAsks.get(targetKey) ?? 0);
-  return useCallback(() => {
-    if (!asks) return false;
-    notPushedAsks.delete(targetKey);
-    return true;
-  }, [asks, targetKey]);
-}
-
 // Change main thread, asked for from Finish review: the Main thread tab opens with its Change thread menu open, once.
 const changeAsks = new Set<string>();
 const changeListeners = new Set<() => void>();
@@ -80,9 +56,8 @@ export function useChangeThreadAsked(targetKey: string): () => boolean {
 
 /** The tab didn't open: what was asked of it goes, rather than open it unasked later. */
 export function forgetMainThreadAsks(targetKey: string) {
-  if (notPushedAsks.delete(targetKey)) for (const listener of notPushedListeners) listener();
   if (changeAsks.delete(targetKey)) for (const listener of changeListeners) listener();
 }
 
-/** Whether a review has Not pushed yet: a PR whose main thread works in a folder, a fixer's or its own. */
+/** Whether a review has Not pushed yet, its page after the chapters: a PR whose main thread works in a folder, a fixer's or its own. */
 export const hasNotPushed = (review: Pick<ReviewLifecycle, "mainThread"> & { kind?: "pr" | "ref" }) => review.kind === "pr" && !!review.mainThread?.environmentId;

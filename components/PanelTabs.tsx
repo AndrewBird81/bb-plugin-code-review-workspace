@@ -9,7 +9,6 @@ import { WorkspaceView } from "../lib/workspace-context";
 import { panelPage, showTab, useReviewTitle, useWorkspaceFor } from "../lib/workspace-store";
 import { AgentDock } from "./AgentDock";
 import { MainThreadPanel } from "./MainThreadPanel";
-import { hasNotPushed } from "../lib/main-thread";
 
 export type PanelTab = "agent" | "main";
 
@@ -30,15 +29,15 @@ export function useAgentTabVisible({ subPath }: PluginNavPanelProps): boolean {
 }
 
 /**
- * Main thread shows beside a review that has one, or whose PR has Not pushed yet, which it shows; and while the
- * review's page loads, so a tab BB opens on as it remembers doesn't blink, not once the page shows without a guide.
+ * Main thread shows beside a review that has one while Send to thread is on, and while the review's page loads, so a
+ * tab BB opens on as it remembers doesn't blink, not once the page shows without a guide.
  */
 export function useMainTabVisible({ subPath }: PluginNavPanelProps): boolean {
   const targetKey = reviewOf(subPath);
   const api = useWorkspaceFor(targetKey);
   const shown = !!useReviewTitle(targetKey);
   if (!targetKey) return false;
-  return api ? !!api.mainThread || hasNotPushed(api.review) : !shown;
+  return api ? !!api.mainThread : !shown;
 }
 
 function Notice({ children }: { children: ReactNode }) {

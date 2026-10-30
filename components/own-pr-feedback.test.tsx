@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 // Feedback on your own PR on its page: a teammate's Request changes with only a summary is an item in Comments, who
 // wrote it said, with Send, which with no thread working on the PR offers a fresh thread or a fork of the one that wrote
-// it; Send for all that wait; Not pushed yet, from the compare menu, beside the diff; and Branch kept.
+// it; Send for all that wait; Not pushed yet, from the compare menu, its page; and Branch kept.
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
@@ -121,51 +121,44 @@ test("Send in Needs you takes everything on GitHub waiting for you, and a sent o
   page.lifecycle.unmount();
 });
 
-test("Not pushed yet, from the compare menu, shows what the fixer's folder has that the PR's head doesn't, beside the diff", async () => {
+test("Not pushed yet, from the compare menu, opens its page after the chapters, not the Main thread tab, which has the chat alone", async () => {
   const getNotPushed = vi.fn(async () => ({ state: "available", patch: "diff --git a/src/a.ts b/src/a.ts\n--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1 +1,2 @@\n aa\n+retry()\n", base: SHA, branch: "bb/fixes-thr_x", machine: "MaxBook", threadId: "fresh", hidden: [{ path: ".env", reason: "secret" }], notice: null }));
   const fixer = { ...ownPr, mainThread: { threadId: "fresh", environmentId: "env_fix", origin: "fresh", since: 1, branch: "bb/fixes-thr_x" } };
   const { app, page, rpc } = await renderReview(fixer, { getNotPushed, getSourceThread: () => ({ thread: { threadId: "fresh", title: "Fixes for web#12", state: "open", machine: "MaxBook" } }) });
   fireEvent.click(await page.findByRole("button", { name: /^Show changes: / }));
   const menu = within(await page.findByRole("menu", { name: "Show changes" }));
-  fireEvent.click(await menu.findByRole("menuitem", { name: /^Not pushed yet/ }));
-  // BB's side panel opens on the Main thread tab, which opens on Not pushed yet.
-  expect(panelTabCalls(page)).toEqual(["openTab:main"]);
-  const slot = renderPanelTab(app, "main", "pr-12", { rpc: rpc as any, sidebarThreads: { threads: [] } as any });
-  const tab = await slot.findByRole("region", { name: "Main thread" });
-  await waitFor(() => expect(within(tab).getByRole("tab", { name: "Not pushed yet" }).getAttribute("aria-selected")).toBe("true"));
+  const item = await menu.findByRole("menuitem", { name: /^Not pushed yet/ });
+  // A fixer's folder, not the review's own, whose machine the review knows.
+  expect(item.textContent).toBe("Not pushed yetIn the main thread’s folder");
+  fireEvent.click(item);
+  const view = within(await page.findByRole("region", { name: "Not pushed yet" }));
+  expect(await view.findByRole("heading", { name: "1 file on MaxBook isn’t on GitHub yet" })).toBeTruthy();
   expect(getNotPushed).toHaveBeenCalledWith({ targetKey: "pr-12" });
-  const panel = within(within(tab).getByRole("tabpanel", { name: "Not pushed yet" }));
-  await panel.findByText("src/a.ts");
-  expect(panel.getByRole("status").textContent).toBe("1 file on MaxBook isn’t on GitHub yetBranch bb/fixes-thr_x · compared with 1f2e3d4");
-  // Opened, the file's diff draws as the review's code does.
-  expect(panel.queryByTestId("filediff")).toBeNull();
-  fireEvent.click(panel.getByText("src/a.ts"));
-  expect(await panel.findByTestId("filediff")).toBeTruthy();
-  expect(panel.getByText("1 file that looks like a secret, or is binary or too large, isn’t shown.")).toBeTruthy();
-  // Back to the chat, by keyboard.
-  fireEvent.keyDown(within(tab).getByRole("tab", { name: "Not pushed yet" }), { key: "ArrowLeft" });
-  await waitFor(() => expect(within(tab).getByRole("tab", { name: "Chat" }).getAttribute("aria-selected")).toBe("true"));
+  expect(view.getByText("1 file that looks like a secret, or is binary or too large, isn’t shown.")).toBeTruthy();
+  expect(view.getByRole("region", { name: "src/a.ts" })).toBeTruthy();
+  expect(panelTabCalls(page)).toEqual([]);
+  // The Main thread tab is the thread's chat, with no Not pushed yet of its own.
+  const slot = renderPanelTab(app, "main", "pr-12", { rpc: rpc as any, sidebarThreads: { threads: [] } as any });
+  const tab = within(await slot.findByRole("region", { name: "Main thread" }));
+  await tab.findByText("Fixes for web#12");
+  expect(tab.queryByRole("tab", { name: "Not pushed yet" })).toBeNull();
+  expect(tab.queryByRole("tabpanel", { name: "Not pushed yet" })).toBeNull();
   slot.lifecycle.unmount();
   page.lifecycle.unmount();
 });
 
-test("with Send to thread off, Not pushed yet still opens beside the diff, as in 1.8.0", async () => {
+test("with Send to thread off, Not pushed yet still opens from the compare menu, and there's no Main thread tab", async () => {
   const getNotPushed = vi.fn(async () => ({ state: "none", message: "Nothing waiting." }));
   const fixer = { ...ownPr, mainThread: { threadId: "fresh", environmentId: "env_fix", origin: "fresh", since: 1, branch: "bb/fixes-thr_x" } };
   const off = { getPreferences: () => ({ preferences: { ...defaultPreferences, knobs: { ...defaultPreferences.knobs, sendToThread: false } }, revision: 0 }) };
-  const { app, page, rpc } = await renderReview(fixer, { getNotPushed, ...off });
+  const { app, page } = await renderReview(fixer, { getNotPushed, ...off });
   fireEvent.click(await page.findByRole("button", { name: /^Show changes: / }));
   fireEvent.click(await within(await page.findByRole("menu", { name: "Show changes" })).findByRole("menuitem", { name: /^Not pushed yet/ }));
-  expect(panelTabCalls(page)).toEqual(["openTab:main"]);
+  expect(within(await page.findByRole("region", { name: "Not pushed yet" })).getByText("Nothing waiting.")).toBeTruthy();
+  expect(panelTabCalls(page)).toEqual([]);
   const tab = app.tabs.find((registration) => registration.id === "main")!;
   const probe = renderSlot({ component: () => <p>{String(tab.useVisible!({ subPath: "pr-12" } as never))}</p> }, {}, {});
-  expect(probe.container.textContent).toBe("true");
-  const slot = renderPanelTab(app, "main", "pr-12", { rpc: rpc as any, sidebarThreads: { threads: [] } as any });
-  expect(await slot.findByRole("tabpanel", { name: "Not pushed yet" })).toBeTruthy();
-  // Not pushed yet alone: no chat to switch to, and nothing saying the review has no main thread.
-  expect(slot.queryByRole("tab", { name: "Chat" })).toBeNull();
-  expect(slot.queryByText(/no main thread yet/)).toBeNull();
-  slot.lifecycle.unmount();
+  expect(probe.container.textContent).toBe("false");
   page.lifecycle.unmount();
 });
 

@@ -8,7 +8,7 @@ import { defaultPreferences } from "../src/preferences";
 import { defaultKnobs } from "../lib/knobs";
 import { commentsKey } from "../src/draft";
 import { patchReviewState } from "../lib/panel-state";
-import { panelTabCalls, renderPanelTab } from "./panel-tabs.test-support";
+import { panelTabCalls } from "./panel-tabs.test-support";
 import type { FeedbackView } from "../lib/feedback";
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }));
@@ -966,7 +966,7 @@ test("a commit the check couldn't place offers no Push anyway; GitHub ahead of t
 /** Your PR, acme/web#42 from feat/qa, with a fixer at work in its own folder. */
 const fixerReview = { kind: "pr", repo: "acme/web", number: 42, head: "feat/qa", ownPr: true, mainThread: { threadId: "fixer", environmentId: "env_fix", origin: "fresh", since: 1, branch: "bb/fixes-thr_fix", fixer: { sha: "9e9e9e9", at: 1 } } };
 
-test("on your PR with a fixer, Push says the fixer commits what Not pushed yet shows, and Update first opens Not pushed yet", async () => {
+test("on your PR with a fixer, Push says the fixer commits what Not pushed yet shows, and Update first opens Not pushed yet's page", async () => {
   const ready = await renderPush(null, {}, fixerReview);
   expect(within(ready.part()).getByText(/the review checks it/).textContent).toBe("The fixer commits what you reviewed in Not pushed yet, the review checks it, then it’s pushed to feat/qa. Never forced.");
   ready.slot.lifecycle.unmount();
@@ -975,15 +975,14 @@ test("on your PR with a fixer, Push says the fixer commits what Not pushed yet s
   const getNotPushed = vi.fn(async () => ({ state: "none", message: "Nothing waiting." }));
   const getSourceThread = vi.fn(() => ({ thread: { threadId: "fixer", title: "Fixes for web#42", state: "open", machine: "MaxBook" } }));
   const mismatch = { state: "mismatch", at: now, threadId: "fixer", repo: "acme/web", head: "feat/qa", sha: HEAD, warning: "1 file changed since you reviewed.", files: ["src/a.ts"] };
-  const { app, handlers, slot, calls, part } = await renderPush(mismatch, { getNotPushed, getSourceThread }, fixerReview);
+  const { slot, calls, part } = await renderPush(mismatch, { getNotPushed, getSourceThread }, fixerReview);
   fireEvent.click(within(part()).getByRole("button", { name: "Update first" }));
   await waitFor(() => expect(calls.dismissPush).toHaveBeenCalledWith({ targetKey: "pr-42" }));
   expect(calls.updateFeature).not.toHaveBeenCalled();
-  // BB's side panel opens on the Main thread tab, at Not pushed yet.
-  expect(panelTabCalls(slot)).toEqual(["openTab:main"]);
-  const tab = renderPanelTab(app, "main", "pr-42", { rpc: handlers as any });
-  expect(await tab.findByRole("tabpanel", { name: "Not pushed yet" })).toBeTruthy();
-  tab.lifecycle.unmount();
+  // The review shows its Not pushed yet page; BB's side panel stays as it was.
+  expect(within(await slot.findByRole("region", { name: "Not pushed yet" })).getByText("Nothing waiting.")).toBeTruthy();
+  expect(getNotPushed).toHaveBeenCalledWith({ targetKey: "pr-42" });
+  expect(panelTabCalls(slot)).toEqual([]);
   slot.lifecycle.unmount();
 });
 

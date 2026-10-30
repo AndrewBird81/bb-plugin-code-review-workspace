@@ -377,7 +377,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     if (layoutRef.current.panel === "overlay") closePanel();
     const panel = appPanel.current;
     if (panel?.openTab({ tab: REVIEW_TABS[tab] })) return;
-    // What was asked of the Main thread tab (Not pushed yet, Change thread) goes with it, rather than open it unasked later.
+    // What was asked of the Main thread tab (Change thread) goes with it, rather than open it unasked later.
     if (tab === "main") forgetMainThreadAsks(targetKey);
     if (panel) { panelDeclined(tab); return; }
     if (tab === "main") {

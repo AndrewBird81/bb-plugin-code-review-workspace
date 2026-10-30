@@ -11,11 +11,10 @@ import { useKnob } from "../../lib/settings";
 import { needsOrder, reviewState, type ReviewItem } from "../../lib/review-state";
 import { reviewIdentity } from "../../lib/review-identity";
 import { pushAnywayOffered, pushFlagText, pushTarget } from "../../lib/push";
-import { showNotPushed } from "../../lib/main-thread";
 import { Marked, Mono, updateThenClear } from "../shell/PushNotices";
 import { statusWhy } from "../../lib/status-line";
 import { cn } from "../../lib/utils";
-import { useWorkspace } from "../../lib/workspace-context";
+import { NOT_PUSHED_PAGE, useWorkspace } from "../../lib/workspace-context";
 import { useDraft } from "../DraftProvider";
 import { FixHandoff } from "../FixHandoff";
 import { ReviewerNotes } from "../ReviewerNotes";
@@ -130,7 +129,7 @@ function Part({ title, children }: { title: string; children: ReactNode }) {
  * waiting on the commit, the commit not what you reviewed (Update first, or Push anyway), pushing, pushed, or flagged.
  */
 function Push() {
-  const { targetKey, review, reload, panel } = useWorkspace();
+  const { targetKey, review, reload, go } = useWorkspace();
   const rpc = useRpc<typeof rpcContract>();
   const navigate = useBbNavigate();
   const sendOn = useKnob("sendToThread");
@@ -162,8 +161,7 @@ function Push() {
   const dismiss = () => act("dismiss", () => rpc.call("dismissPush", { targetKey }));
   // On your PR, what you review before it's pushed is Not pushed yet: Update first opens it.
   const update = () => target.pr ? act("update", async () => {
-    showNotPushed(targetKey);
-    panel.open("main");
+    go(NOT_PUSHED_PAGE);
     return rpc.call("dismissPush", { targetKey });
   }) : act("update", () => updateThenClear(rpc, targetKey), "Updated. Review what changed, then Push.");
   const spinner = (on: boolean, icon: IconName) => <Icon name={on ? "Loading" : icon} className={cn("size-4", on && "animate-spin motion-reduce:animate-none")} aria-hidden />;
