@@ -185,6 +185,8 @@ export interface ReviewLifecycle {
    * or before the next answer of its review tools, whichever comes first (src/agent.ts takePrNote). Null once told.
    */
   agentPrNote?: { number: number; url: string; from: string } | null;
+  /** The folder's branch was renamed, `from` to `branch`, and the review followed it, under its key. Null once you said Got it. */
+  followed?: { from: string; branch: string; at: number } | null;
 }
 
 /**
@@ -250,6 +252,8 @@ export interface FeatureReview {
   prReview?: string;
   /** The branch's name on GitHub, its PR's head, when it isn't `branch`: pushed as HEAD:feat/nice, or renamed. */
   remoteBranch?: string;
+  /** The folder's head commit as last read on `branch`: a branch it's on now that has it may be `branch` renamed. */
+  headSha?: string;
   /** How many files changed in the folder since the review read it, as last checked; null for none or not checked. */
   changedFiles?: number | null;
   /**

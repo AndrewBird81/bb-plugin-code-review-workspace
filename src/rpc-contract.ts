@@ -495,6 +495,10 @@ export const rpcContract = defineRpcContract({
     input: z.object({ targetKey: z.string(), files: z.array(z.string().min(1)).min(1).max(1000) }).strict(),
     output: z.object({ ok: z.boolean(), error: z.string().optional() }),
   },
+  /** Follow: the local review becomes that of the branch its folder is on now, under its key, as when the branch is renamed. */
+  followFolderBranch: { input: targetKey, output: z.object({ ok: z.boolean(), error: z.string().optional() }) },
+  /** Got it on "Now following ‹branch›". */
+  dismissFollowed: { input: targetKey, output: z.object({ ok: z.boolean() }) },
   /** Review the branch a local review's folder is on now, in that branch's own review, addressed to the same main thread. */
   reviewFolderBranch: { input: targetKey, output: z.object({ ok: z.boolean(), error: z.string().optional(), targetKey: z.string().optional() }) },
 

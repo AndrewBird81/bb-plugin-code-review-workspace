@@ -30,9 +30,12 @@ export function targetKey(t: ReviewTarget, scope?: { projectId: string; cwd: str
   return `ref-${hash}`;
 }
 
-/** A local review's key: its folder, as bb's environment, and its branch. One review per folder and branch, however many threads work there. */
-export function featureKey(environmentId: string, branch: string): string {
-  return `br-${createHash("sha1").update(JSON.stringify([environmentId, branch])).digest("hex").slice(0, 16)}`;
+/**
+ * A local review's key: its folder, as bb's environment, and its branch. One review per folder and branch, however many
+ * threads work there; `n`, 2 and on, for the next review once the one keyed before moved on (src/feature-review.ts).
+ */
+export function featureKey(environmentId: string, branch: string, n?: number): string {
+  return `br-${createHash("sha1").update(JSON.stringify(n ? [environmentId, branch, n] : [environmentId, branch])).digest("hex").slice(0, 16)}`;
 }
 
 /**

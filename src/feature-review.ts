@@ -5,7 +5,7 @@
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import { reanchorDraft, type FeatureReview, type MainThread, type ReviewLifecycle, type ReviewMeta } from "./store";
 import type { AsyncStore } from "./store-queue";
-import { diffFilesHead, folderHas, isNotFound, isSecretPath, readFeatureDiff, readFeatureRevisions, type FeatureDiff, type FolderPr, type HiddenFile } from "./env-diff";
+import { diffFilesHead, folderHas, folderHasBranch, folderHead, isNotFound, isSecretPath, readFeatureDiff, readFeatureRevisions, type FeatureDiff, type FolderPr, type HiddenFile } from "./env-diff";
 import { featureKey, prReviewKey, targetKey } from "./targets";
 import { beginGuide, guideWriterUnavailable } from "./generate";
 import { pruneDiffs } from "./feedback-view";
@@ -128,9 +128,15 @@ type Opened = { key: string; created: boolean; replaced: { threadId: string; tit
 async function openFolderReview(deps: Deps, folder: Folder, main: Thread | null, options: { name?: string; context?: string } = {}): Promise<{ opened: Opened; run?: () => Promise<void> } | { error: string }> {
   const { bb, store } = deps;
   const { env, machine, repo } = folder;
-  // A review re-homed to a fixer's worktree, on that worktree's branch, is the folder's review: its key is its old folder's.
-  const exact = featureKey(env.id, env.branchName);
-  const key = await store.getReview(exact) ? exact : reviewOfFolder(await store.listReviews(), env.id, env.branchName)?.targetKey ?? exact;
+  // A review re-homed to a fixer's worktree, on that worktree's branch, is the folder's review: its key is its old folder's;
+  // so is one that followed the folder onto this branch. A key whose review moved on gives way to the next.
+  const reviews = await store.listReviews();
+  let exact = featureKey(env.id, env.branchName);
+  for (let n = 2, keyed = reviews.find((review) => review.targetKey === exact); keyed && movedOn(keyed, env.branchName); n++) {
+    exact = featureKey(env.id, env.branchName, n);
+    keyed = reviews.find((review) => review.targetKey === exact);
+  }
+  const key = reviews.some((review) => review.targetKey === exact) ? exact : reviewOfFolder(reviews, env.id, env.branchName)?.targetKey ?? exact;
   const existing = await store.getReview(key);
   // A recorded main thread that's archived or deleted gives way to the live one asking. One BB can't read now stays.
   const checked = existing?.mainThread && main && existing.mainThread.threadId !== main.id ? await threadGone(bb, existing.mainThread.threadId) : null;
@@ -184,6 +190,9 @@ async function openFolderReview(deps: Deps, folder: Folder, main: Thread | null,
 
 /** The branch a folder's review reads in its folder: a fresh thread's worktree's own branch, else the review's. */
 export const folderBranchOf = (feature: Pick<FeatureReview, "branch" | "workBranch">) => feature.workBranch ?? feature.branch;
+
+/** Whether the review keyed for its folder and `branch` is no longer that branch's: it followed the folder onto another. */
+const movedOn = (review: ReviewMeta, branch: string) => !!review.feature && folderBranchOf(review.feature) !== branch;
 
 /**
  * The review of a folder at the branch it's on, by where the review reads it (folderBranchOf), as the thread pages'
@@ -465,7 +474,7 @@ export async function checkFeature(deps: Deps, key: string): Promise<FeatureChec
   const base: FeatureCheck = { ...empty, hidden, flagged, ...linked };
   if (feature.folderGone) return { ...base, state: "gone", message: "BB removed this folder." };
 
-  const [read, others] = await Promise.all([readFeatureRevisions(bb, feature), alsoActive(bb, review)]);
+  const [read, others, head] = await Promise.all([readFeatureRevisions(bb, feature), alsoActive(bb, review), folderHead(bb, feature.environmentId)]);
   const withOthers: FeatureCheck = { ...base, alsoActive: others };
   // A folder on no branch is on its detached HEAD.
   const pausedOn = read.outcome === "paused" ? read.branch ?? "HEAD" : read.outcome === "available" ? null : undefined;
@@ -473,19 +482,23 @@ export async function checkFeature(deps: Deps, key: string): Promise<FeatureChec
     if (await store.exclusive(async (tx) => { const now = featureOf(await tx.getReview(key)); return !!now && await markFolderGone(tx, now); })) deps.changed(key);
     return { ...base, state: "gone", message: read.message };
   }
-  // The branch the folder is on, or back on its own, as the list shows it.
-  if (pausedOn !== undefined && (feature.pausedOn ?? null) !== pausedOn) {
+  // The branch the folder is on, or back on its own, as the list shows it; and on its own, its head.
+  const onHead = pausedOn === null && head && head !== feature.headSha ? { headSha: head } : {};
+  if (pausedOn !== undefined && (feature.pausedOn ?? null) !== pausedOn || "headSha" in onHead) {
     const saved = await store.exclusive(async (tx) => {
       const now = featureOf(await tx.getReview(key));
       if (!now || now.kind !== "ref") return false;
-      await tx.setLifecycle(key, { feature: { ...now.feature, pausedOn } });
+      await tx.setLifecycle(key, { feature: { ...now.feature, pausedOn: pausedOn ?? null, ...onHead } });
       return true;
     });
     if (saved) deps.changed(key);
   }
   if (read.outcome === "paused") {
-    const other = read.branch ? featureKey(feature.environmentId, read.branch) : null;
-    return { ...withOthers, state: "paused", branch: read.branch, ...other && await store.getReview(other) ? { branchReview: other } : {} };
+    const other = read.branch ? reviewOfFolder(await store.listReviews(), feature.environmentId, read.branch)?.targetKey : undefined;
+    // Its branch renamed: the branch it was on is gone, and the one it's on has its last commit. It follows, and says so.
+    if (read.branch && !other && !feature.workBranch && feature.headSha && await folderHasBranch(bb, feature.environmentId, feature.branch) === false
+      && await folderHas(bb, feature.environmentId, feature.headSha) && await followBranch(deps, key, read.branch, true)) return checkFeature(deps, key);
+    return { ...withOthers, state: "paused", branch: read.branch, ...other ? { branchReview: other } : {} };
   }
   if (read.outcome !== "available") return { ...withOthers, state: read.outcome, message: read.message };
   // Its branch has a PR: the review becomes that PR's, or links to the review it has.
@@ -505,6 +518,22 @@ export async function checkFeature(deps: Deps, key: string): Promise<FeatureChec
     if (saved) deps.changed(key);
   }
   return changed ? { ...withOthers, state: "changed", changedFiles: changed } : withOthers;
+}
+
+/**
+ * The review follows its folder onto `branch`, under its key, as its branch: renamed, which it says (`said`), or your
+ * Follow. Not a fresh thread's worktree's, nor onto a branch with a review of its own. Returns whether it did.
+ */
+async function followBranch(deps: Deps, key: string, branch: string, said: boolean): Promise<boolean> {
+  const followed = await deps.store.exclusive(async (tx) => {
+    const review = featureOf(await tx.getReview(key));
+    if (!review || review.kind !== "ref" || review.feature.workBranch || reviewOfFolder(await tx.listReviews(), review.feature.environmentId, branch)) return false;
+    await tx.saveReview({ ...review, gitRef: branch });
+    await tx.setLifecycle(key, { feature: { ...review.feature, branch, pausedOn: null }, ...said ? { followed: { from: review.feature.branch, branch, at: Date.now() } } : {} });
+    return true;
+  });
+  if (followed) deps.changed(key);
+  return followed;
 }
 
 /**
@@ -610,6 +639,21 @@ export function register(deps: ServeDeps) {
       void started.run?.();
       if (started.opened.changed) deps.changed(started.opened.key);
       return { ok: true, targetKey: started.opened.key };
+    },
+    async followFolderBranch({ targetKey }) {
+      const review = featureOf(await store.getReview(targetKey));
+      if (!review) return { ok: false, error: "This review isn’t of a folder." };
+      const folder = await folderOf(bb, review.feature.environmentId);
+      if ("error" in folder) return { ok: false, error: folder.error };
+      if (folder.env.branchName === review.feature.branch) return { ok: true };
+      return await followBranch(deps, targetKey, folder.env.branchName, false) ? { ok: true }
+        : { ok: false, error: `This review can’t follow ${folder.env.branchName}: that branch has a review of its own, or this review changed. Reload it.` };
+    },
+    async dismissFollowed({ targetKey }) {
+      if (!await store.getReview(targetKey)) return { ok: false };
+      await store.setLifecycle(targetKey, { followed: null });
+      deps.changed(targetKey);
+      return { ok: true };
     },
     async reviewFolderBranch({ targetKey }) {
       const review = featureOf(await store.getReview(targetKey));

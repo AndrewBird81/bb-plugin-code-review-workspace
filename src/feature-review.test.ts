@@ -201,6 +201,71 @@ test("a branch switch pauses the review, Update waits, and switching back resume
   expect(computeTurn(resumed).group).toBe("needs");
 });
 
+/** The folder's git, as bb's Git plugin answers: its head, which commits it has, and whether its old branch is still there. */
+function renaming(s: ReturnType<typeof setup>) {
+  const git = { head: "a1".repeat(20), has: true, oldBranch: "missing" };
+  s.folder.answers = {
+    workspaceStatus: (input) => ({ outcome: "available", workspace: { checkout: { headSha: git.head }, mergeBase: input.mergeBaseBranch ? { behindCount: git.has ? 0 : 3 } : null } }),
+    branches: (input) => ({ selectedBranch: { name: input.selectedBranch, kind: git.oldBranch } }),
+  };
+  return git;
+}
+
+test("a branch renamed in its folder is followed: the same review, its old branch gone and its last commit on the new one, says so", async () => {
+  const s = setup();
+  const git = renaming(s);
+  await run(s, "main");
+  await settled(s);
+  await checkFeature(s.deps, key);
+  expect((await s.store.getReview(key))?.feature?.headSha).toBe(git.head);
+  // git branch -m feat/nice, and a commit since.
+  s.folder.env = { ...s.folder.env, branchName: "feat/nice" };
+  git.head = "b2".repeat(20);
+  expect((await checkFeature(s.deps, key)).state).toBe("current");
+  const review = (await s.store.getReview(key))!;
+  expect(review).toMatchObject({ gitRef: "feat/nice", feature: { branch: "feat/nice", pausedOn: null, headSha: git.head }, followed: { from: "feat/qa", branch: "feat/nice", at: expect.any(Number) } });
+  // bb review there opens it, by its key; its id is the new branch's.
+  expect((await run(s, "main")).stdout).toContain(`Opened the review of ~/src/api on MaxBook: api:feat/nice "Snooze flaky checks" (${key})`);
+  expect((await s.store.listReviews()).map((r) => r.targetKey)).toEqual([key]);
+});
+
+test("a branch made from the review's (checkout -b), or one without its last commit, pauses it, with Follow and New review for that branch", async () => {
+  const s = setup();
+  await plugin(s.bb);
+  const git = renaming(s);
+  await run(s, "main");
+  await settled(s);
+  await checkFeature(s.deps, key);
+  s.folder.env = { ...s.folder.env, branchName: "feat/nice" };
+  // The old branch is still there: a stacked branch, say.
+  git.oldBranch = "local";
+  expect(await checkFeature(s.deps, key)).toMatchObject({ state: "paused", branch: "feat/nice" });
+  // Gone, but the new branch hasn't the review's last commit.
+  git.oldBranch = "missing";
+  git.has = false;
+  expect(await checkFeature(s.deps, key)).toMatchObject({ state: "paused", branch: "feat/nice" });
+  expect(await s.store.getReview(key)).toMatchObject({ gitRef: "feat/qa", feature: { branch: "feat/qa", pausedOn: "feat/nice" } });
+  expect((await s.store.getReview(key))?.followed).toBeUndefined();
+
+  // Follow: the same review, now the branch's, with nothing to say.
+  const call = (method: string) => s.harness.behavior.callRpc(method, { targetKey: key }) as Promise<any>;
+  expect(await call("followFolderBranch")).toEqual({ ok: true });
+  expect(await s.store.getReview(key)).toMatchObject({ gitRef: "feat/nice", feature: { branch: "feat/nice", pausedOn: null } });
+  expect((await s.store.getReview(key))?.followed).toBeUndefined();
+  expect((await checkFeature(s.deps, key)).state).toBe("current");
+  // Back on the old branch, which this review no longer is, bb review starts its own.
+  s.folder.env = { ...s.folder.env, branchName: "feat/qa" };
+  expect((await run(s, "main")).stdout).toMatch(/^Started a review/);
+  expect((await s.store.listReviews()).map((r) => r.targetKey).sort()).toEqual([key, featureKey("env1", "feat/qa", 2)].sort());
+  // That one can't follow onto a branch with a review.
+  s.folder.env = { ...s.folder.env, branchName: "feat/nice" };
+  expect(await s.harness.behavior.callRpc("followFolderBranch", { targetKey: featureKey("env1", "feat/qa", 2) })).toMatchObject({ ok: false });
+  // Got it on a followed branch's notice.
+  await s.store.setLifecycle(key, { followed: { from: "feat/qa", branch: "feat/nice", at: 1 } });
+  expect(await call("dismissFollowed")).toEqual({ ok: true });
+  expect((await s.store.getReview(key))?.followed).toBeNull();
+});
+
 test("Got it stops the warning about a committed file that looks like a secret, in this review", async () => {
   const s = setup({ files: [{ path: "src/a.ts", body: BODY }, { path: "config/.env.production", origin: "tracked" }] });
   await plugin(s.bb);

@@ -17,7 +17,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover";
 import { REWRITE_GUIDE, type Notice } from "./ReviewNotices";
 
 /** The review, as far as its folder's notices read it. */
-interface Reviewed { kind?: "pr" | "ref"; status?: string; feature?: FeatureReview | null; mainThread?: Pick<MainThread, "environmentId"> | null; archivedAt?: number | null; userArchivedAt?: number | null }
+interface Reviewed { kind?: "pr" | "ref"; status?: string; feature?: FeatureReview | null; mainThread?: Pick<MainThread, "environmentId"> | null; archivedAt?: number | null; userArchivedAt?: number | null; followed?: { branch: string } | null }
 
 const BUTTON = cn("h-7", TOUCH_CONTROL);
 // A branch's name never breaks across lines.
@@ -49,7 +49,8 @@ function MoreThreads({ threads, onOpen }: { threads: FeatureCheck["alsoActive"];
 
 /**
  * A local review's notices about its folder (src/feature-review.ts checkFeature), the most pressing first: BB removed
- * it; it's on another branch, which pauses the review, with Open or Start that branch's review; its machine is offline;
+ * it; it's on another branch, which pauses the review, with Follow it or a New review for it, or Open its review; the
+ * review followed its renamed branch, with Got it; its machine is offline;
  * it changed, with Update; its guide is older than what Update last showed, with Rewrite guide; committed files that look like secrets, with Got it; the review its PR had already; files it
  * keeps out, each secret named on its own button; and the other threads editing it. Asked on open, and again when the
  * review or its folder changes. `onChanged` reloads the review.
@@ -120,16 +121,26 @@ export function useFeatureNotices(targetKey: string, review: Reviewed | null, on
     const other = check.branch ?? "HEAD";
     const short = branchLabel(other);
     const existing = check.branchReview;
+    const start = button("branch", `New review for ${short}`, () => void act("branch", async () => {
+      const started = await rpc.call("reviewFolderBranch", { targetKey });
+      if (started.ok && started.targetKey) navigate.toPluginPanel("review", { subPath: started.targetKey });
+      return started;
+    }, "Couldn’t start that branch’s review."), { warning: true });
     add({ id: "folder-paused", tone: "warning", icon: "GitBranch", label: "Review paused",
       text: <>Folder is on <Code>{short}</Code>. This review waits for <Code>{branchLabel(feature.branch)}</Code>.</>,
-      // A detached HEAD has no branch to review.
+      // A detached HEAD has no branch to review. A fresh thread's worktree's branch isn't the review's to follow.
       ...check.branch ? { action: existing
         ? button("branch", `Open ${short} review`, () => navigate.toPluginPanel("review", { subPath: existing }), { warning: true })
-        : button("branch", `Start a review of ${short}`, () => void act("branch", async () => {
-          const started = await rpc.call("reviewFolderBranch", { targetKey });
-          if (started.ok && started.targetKey) navigate.toPluginPanel("review", { subPath: started.targetKey });
-          return started;
-        }, "Couldn’t start that branch’s review."), { warning: true }) } : {} });
+        : feature.workBranch ? start
+        : <span className="flex flex-wrap gap-1">
+          {button("follow", `Follow ${short}`, () => void act("follow", () => rpc.call("followFolderBranch", { targetKey }), "Couldn’t follow that branch."), { warning: true })}
+          {start}
+        </span> } : {} });
+  }
+  if (review.followed && check.state !== "paused") {
+    add({ id: "folder-followed", tone: "info", icon: "GitBranch", label: "Branch renamed",
+      text: <>Now following <Code>{branchLabel(review.followed.branch)}</Code>.</>,
+      action: button("followed", "Got it", () => void act("followed", () => rpc.call("dismissFollowed", { targetKey }), "Couldn’t save that.")) });
   }
   if (check.state === "offline" || check.state === "unavailable") {
     // A machine that's asleep is routine; a folder that can't be read isn't.

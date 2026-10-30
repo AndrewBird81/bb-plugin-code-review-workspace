@@ -72,14 +72,17 @@ test("with Say when the code changed off, a changed folder says nothing", async 
   slot.lifecycle.unmount();
 });
 
-test("a folder on another branch pauses the review: Start a review of that branch, or Open its review once it has one", async () => {
+test("a folder on another branch pauses the review: Follow that branch or a New review for it, or Open its review once it has one", async () => {
   const reviewFolderBranch = vi.fn(() => ({ ok: true, targetKey: "br-2" }));
-  const { slot } = await renderWorkspace({ checkFeature: () => ({ ...nothing, state: "paused", branch: "bb/fix-docs-thr_cd34" }), reviewFolderBranch });
+  const followFolderBranch = vi.fn(() => ({ ok: true }));
+  const { slot } = await renderWorkspace({ checkFeature: () => ({ ...nothing, state: "paused", branch: "bb/fix-docs-thr_cd34" }), reviewFolderBranch, followFolderBranch });
   const paused = await slot.findByRole("status", { name: "Review paused" });
   expect(paused.textContent).toContain("Folder is on fix-docs. This review waits for snooze-checks.");
   // A branch's name never breaks across lines.
   expect(within(paused).getByText("fix-docs").className).toContain("whitespace-nowrap");
-  fireEvent.click(within(paused).getByRole("button", { name: "Start a review of fix-docs" }));
+  fireEvent.click(within(paused).getByRole("button", { name: "Follow fix-docs" }));
+  await waitFor(() => expect(followFolderBranch).toHaveBeenCalledWith({ targetKey: KEY }));
+  fireEvent.click(within(paused).getByRole("button", { name: "New review for fix-docs" }));
   await waitFor(() => expect(reviewFolderBranch).toHaveBeenCalledWith({ targetKey: KEY }));
   slot.lifecycle.unmount();
   cleanup();
@@ -89,6 +92,16 @@ test("a folder on another branch pauses the review: Start a review of that branc
   fireEvent.click(within(await existing.slot.findByRole("status", { name: "Review paused" })).getByRole("button", { name: "Open fix-docs review" }));
   expect(opening).not.toHaveBeenCalled();
   existing.slot.lifecycle.unmount();
+});
+
+test("a review that followed its renamed branch says so, with Got it", async () => {
+  const dismissFollowed = vi.fn(() => ({ ok: true }));
+  const { slot } = await renderWorkspace({ checkFeature: () => nothing, dismissFollowed }, { ...local, followed: { from: "feat/qa", branch: "feat/nice", at: 1 } });
+  const followed = await slot.findByRole("status", { name: "Branch renamed" });
+  expect(followed.textContent).toContain("Now following feat/nice.");
+  fireEvent.click(within(followed).getByRole("button", { name: "Got it" }));
+  await waitFor(() => expect(dismissFollowed).toHaveBeenCalledWith({ targetKey: KEY }));
+  slot.lifecycle.unmount();
 });
 
 test("an offline machine is said calmly, with Check again", async () => {
