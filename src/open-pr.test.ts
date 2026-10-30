@@ -109,6 +109,8 @@ test("open_pr shows the title, the description, base ← head and the account fi
   expect(await prReviewKey(store, { repo: "acme/api", number: 7 })).toBe(KEY);
   expect((await store.listReviews()).map((r) => r.targetKey)).toEqual([KEY]);
   expect(review.activity).toEqual([expect.objectContaining({ text: "Opened PR #7", asking: "direct", url: "https://github.com/acme/api/pull/7" })]);
+  // Yours at once, and said, for its notice.
+  expect(review).toMatchObject({ ownPr: true, became: { number: 7, url: "https://github.com/acme/api/pull/7", from: "api:feat/qa", carried: 1, local: 0, outside: 0 } });
 });
 
 test("a yes for what's no longer the same, as a new title, opens nothing and shows it again", async () => {

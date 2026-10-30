@@ -74,15 +74,12 @@ export async function createPr(writes: GithubWrites, run: Run, pr: { repo: strin
 }
 
 /**
- * The review becomes the PR's, through the one converter, and the sync reads the PR at once. Returns the line that says
- * what became of the review.
+ * The review becomes the PR's, through the one converter, which has the sync read the PR at once. Returns the line that
+ * says what became of the review.
  */
 export async function becomeOpened(deps: Pick<ServeDeps, "bb" | "store" | "gh" | "sync" | "changed">, review: FolderReview, pr: { number: number }): Promise<string> {
   const became = await becomePr(deps, review.targetKey, { repo: review.feature.repo, number: pr.number }).catch(() => "skipped" as const);
-  if (became === "converted") {
-    await deps.sync.one(review.targetKey, true).catch(() => {});
-    return "This review is now its review, with its comments.";
-  }
+  if (became === "converted") return "This review is now its review, with its comments.";
   return became === "linked" ? "That PR has a review of its own, which this review links to." : "This review becomes the PR’s on its next check.";
 }
 

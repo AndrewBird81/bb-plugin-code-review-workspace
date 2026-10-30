@@ -161,4 +161,6 @@ export interface DiscoveredPr {
   /** The viewer wrote it: found by the search for your own PRs, with its head branch. */
   own?: true;
   head?: string | null;
+  /** Your own PR's head branch's repo, lowercased: a fork's, for a PR from one. */
+  headRepo?: string | null;
 }

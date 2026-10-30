@@ -34,7 +34,7 @@ test("ghErrorMessage falls back to the raw text without the 'gh:' prefix", () =>
 
 test("pr view requests the json fields we need, with optional -R", () => {
   expect(ghPrViewArgs(12)).toEqual([
-    "pr", "view", "12", "--json", "number,title,body,author,baseRefName,headRefName,url,headRefOid,state",
+    "pr", "view", "12", "--json", "number,title,body,author,baseRefName,headRefName,url,headRefOid,state,createdAt",
   ]);
   expect(ghPrViewArgs(12, "acme/web")).toContain("-R");
 });

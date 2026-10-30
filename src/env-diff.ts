@@ -84,6 +84,14 @@ export function callGit<T>(bb: BbPluginApi, method: string, input: Parameters<Bb
   return bb.sdk.plugins.callRpc({ pluginId: GIT_PLUGIN, method, input, outputSchema });
 }
 
+const statusOutput = z.object({ outcome: z.string(), workspace: z.object({ mergeBase: z.object({ behindCount: z.number().optional() }).nullable().optional() }).optional() });
+
+/** Whether the folder has commit `sha`: nothing in it is missing from the folder's head. False when bb can't say. */
+export async function folderHas(bb: BbPluginApi, environmentId: string, sha: string): Promise<boolean> {
+  const read = await callGit(bb, "workspaceStatus", { environmentId, mergeBaseBranch: sha }, statusOutput).catch(() => null);
+  return read?.outcome === "available" && read.workspace?.mergeBase?.behindCount === 0;
+}
+
 /** BB answered that the thing asked for doesn’t exist: not that it couldn’t say. */
 export const isNotFound = (error: unknown) => (error as { status?: number } | null)?.status === 404 || String(error).includes("HTTP 404");
 const errorText = (error: unknown) => error instanceof Error ? error.message : String(error);

@@ -64,7 +64,7 @@ function setup(folder: Folder = { files: [{ path: "src/a.ts", body: BODY }] }, t
     return { code: 1, stderr: "unexpected gh call", stdout: "" };
   });
   const changed = vi.fn();
-  const deps = { bb: host.bb, store, gh: { runGh, runGit: vi.fn() }, changed };
+  const deps = { bb: host.bb, store, gh: { runGh, runGit: vi.fn() }, changed, sync: { one: vi.fn(async () => {}) } };
   return { ...host, store, spawns, deps, all, ghCalls, folder, failing, view };
 }
 const key = featureKey("env1", "feat/qa");
@@ -239,19 +239,25 @@ test("changed files are counted; Update shows them with the comments moved and n
 });
 
 test("once its branch has a PR, the same review becomes the PR's at its head, keeping its comments and folder, with no guide writer", async () => {
-  const s = setup();
+  const s = setup({ files: [{ path: "src/a.ts", body: BODY }, { path: "src/b.ts" }] });
   await run(s, "main");
   await settled(s);
   await s.store.upsertDraftComment(key, { file: "src/a.ts", line: 3, side: "RIGHT", body: "Keep this", author: "reviewer" } as any);
+  // On a file the PR doesn't have.
+  await s.store.upsertDraftComment(key, { file: "src/b.ts", line: 1, side: "RIGHT", body: "Not pushed", author: "reviewer" } as any);
   Object.assign(s.folder, { prBase: "main", pr: { number: 7, url: "https://github.com/acme/api/pull/7", headRefName: "feat/qa" } });
   expect((await checkFeature(s.deps, key)).state).toBe("current");
   const review = (await s.store.getReview(key))!;
   expect(review).toMatchObject({ kind: "pr", repo: "acme/api", number: 7, url: "https://github.com/acme/api/pull/7", headSha: "c0ffee", title: "Snooze flaky checks for a day", head: "feat/qa", base: "main" });
   expect(review.feature?.branch).toBe("feat/qa");
+  expect(review.feature?.remoteBranch).toBeUndefined();
   expect(review.cwd).toBeUndefined();
   expect(await s.store.patch(key)).toBe(PR_DIFF);
-  expect((await s.store.getDraft(key)).comments.map((c) => c.body)).toEqual(["Keep this"]);
+  expect((await s.store.getDraft(key)).comments.map((c) => c.body)).toEqual(["Keep this", "Not pushed"]);
   expect(await prReviewKey(s.store, { repo: "acme/api", number: 7 })).toBe(key);
+  // Yours, so Push carries on before the sync has read it, which it does at once; and said, for its notice.
+  expect(review).toMatchObject({ ownPr: true, prPending: null, became: { at: expect.any(Number), number: 7, url: "https://github.com/acme/api/pull/7", from: "api:feat/qa", carried: 2, local: 0, outside: 1 } });
+  expect(s.deps.sync.one).toHaveBeenCalledWith(key, true);
   expect(s.deps.changed).toHaveBeenCalledWith(key);
   await new Promise((resolve) => setTimeout(resolve, 20));
   expect(s.spawns).toHaveLength(1);
@@ -289,6 +295,38 @@ test("a PR opened while the guide is being written makes the review the PR's at 
   await checkFeature(s.deps, key);
   expect(await s.store.getReview(key)).toMatchObject({ kind: "pr", number: 7, status: "generating" });
   expect(await s.store.patch(key)).toBe(PR_DIFF);
+});
+
+test("a PR opened before the review waits, unless the folder has its head; one GitHub didn't answer for waits for the next check", async () => {
+  const s = setup();
+  let behind = 2;
+  s.folder.answers = { workspaceStatus: (input) => ({ outcome: "available", workspace: { mergeBase: input.mergeBaseBranch === "c0ffee" ? { aheadCount: 1, behindCount: behind, commits: [] } : null } }) };
+  await run(s, "main");
+  await settled(s);
+  s.view.createdAt = new Date(Date.now() - 86_400_000).toISOString();
+  Object.assign(s.folder, { prBase: "main", pr: { number: 7, url: "https://github.com/acme/api/pull/7", headRefName: "feat/qa" } });
+  await checkFeature(s.deps, key);
+  expect(await s.store.getReview(key)).toMatchObject({ kind: "ref", prPending: { number: 7, url: "https://github.com/acme/api/pull/7", why: "older", at: expect.any(Number) } });
+  // Found again, it isn't read again: it waits for your click.
+  const reads = s.ghCalls.length;
+  expect(await becomePr(s.deps, key, { repo: "acme/api", number: 7 })).toBe("skipped");
+  expect(s.ghCalls).toHaveLength(reads);
+
+  // The folder has its head: it's this work's PR.
+  await s.store.setLifecycle(key, { prPending: null });
+  behind = 0;
+  expect(await becomePr(s.deps, key, { repo: "acme/api", number: 7 })).toBe("converted");
+
+  const failing = setup();
+  await run(failing, "main");
+  await settled(failing);
+  const answers = failing.deps.gh.runGh.getMockImplementation()!;
+  failing.deps.gh.runGh.mockImplementation(async (args) => args[1] === "view" ? { code: 1, stderr: "HTTP 502: Bad gateway", stdout: "" } : answers(args));
+  expect(await becomePr(failing.deps, key, { repo: "acme/api", number: 7 })).toBe("skipped");
+  expect(await failing.store.getReview(key)).toMatchObject({ kind: "ref", prPending: { number: 7, why: "error", error: "HTTP 502: Bad gateway" } });
+  failing.deps.gh.runGh.mockImplementation(answers);
+  expect(await becomePr(failing.deps, key, { repo: "acme/api", number: 7 })).toBe("converted");
+  expect((await failing.store.getReview(key))?.prPending).toBeNull();
 });
 
 // Fails until src/pr-watch.ts reads the folder's threads (1.9.0 step 2).

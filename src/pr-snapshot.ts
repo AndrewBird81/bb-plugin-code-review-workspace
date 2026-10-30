@@ -4,7 +4,7 @@ import { ghErrorMessage, ghPrViewArgs, ghPrDiffArgs, ghPrHeadArgs, type runGh } 
 export async function readPrSnapshot(run: typeof runGh, number: number, repo: string, cwd?: string) {
   const view = await run(ghPrViewArgs(number, repo), { cwd });
   if (view.code !== 0) throw new Error(ghErrorMessage(view));
-  let pr: { title: string; author?: { login?: string }; baseRefName: string; headRefName: string; url: string; headRefOid: string; state?: string };
+  let pr: { title: string; author?: { login?: string }; baseRefName: string; headRefName: string; url: string; headRefOid: string; state?: string; createdAt?: string };
   try {
     pr = JSON.parse(view.stdout);
     if (!pr || typeof pr.headRefOid !== "string" || !pr.headRefOid || typeof pr.title !== "string" || typeof pr.baseRefName !== "string" || typeof pr.headRefName !== "string") throw new Error();

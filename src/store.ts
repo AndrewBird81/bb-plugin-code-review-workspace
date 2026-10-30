@@ -173,6 +173,13 @@ export interface ReviewLifecycle {
   notPushedSeen?: { environmentId: string; base: string; at: number } | null;
   /** The review's branch on GitHub as last read, to tell when it moves with no Push: its head, null for not there. */
   remoteHead?: { repo: string; head: string; sha: string | null; at: number } | null;
+  /**
+   * The local review became its branch's PR's (src/feature-review.ts becomePr): which, its id before (`from`), and how
+   * many comments came with it, not on GitHub yet (`local`), and outside the PR's diff. Null once you said Got it.
+   */
+  became?: { at: number; number: number; url: string; from: string; carried: number; local: number; outside: number } | null;
+  /** A PR found on the local review's branch that it didn't become: opened before it and not in its folder, or GitHub didn't answer. */
+  prPending?: { number: number; url: string; why: "older" | "error"; error?: string; at: number } | null;
 }
 
 /**

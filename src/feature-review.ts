@@ -5,7 +5,7 @@
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import { reanchorDraft, type FeatureReview, type MainThread, type ReviewLifecycle, type ReviewMeta } from "./store";
 import type { AsyncStore } from "./store-queue";
-import { diffFilesHead, isNotFound, isSecretPath, readFeatureDiff, readFeatureRevisions, type FeatureDiff, type FolderPr, type HiddenFile } from "./env-diff";
+import { diffFilesHead, folderHas, isNotFound, isSecretPath, readFeatureDiff, readFeatureRevisions, type FeatureDiff, type FolderPr, type HiddenFile } from "./env-diff";
 import { featureKey, prReviewKey, targetKey } from "./targets";
 import { beginGuide, guideWriterUnavailable } from "./generate";
 import { pruneDiffs } from "./feedback-view";
@@ -14,6 +14,7 @@ import { ensureGitHeaders } from "./patch";
 import { machineStatus } from "./machines";
 import { identityIn, placeFacts, remoteRepo } from "./review-places";
 import { defaultName } from "../lib/review-name";
+import { reviewIdentity } from "../lib/review-identity";
 import { assistantReview } from "./draft-comments";
 import { formerWorkerReview } from "./former-workers";
 import { parsePrLink } from "../lib/pr-link";
@@ -21,7 +22,7 @@ import type { EventListeners, RpcHandlers, ServeDeps } from "./server-modules";
 
 type Thread = Awaited<ReturnType<BbPluginApi["sdk"]["threads"]["get"]>>;
 type Environment = Awaited<ReturnType<BbPluginApi["sdk"]["environments"]["get"]>>;
-interface Deps { bb: BbPluginApi; store: AsyncStore; gh: ServeDeps["gh"]; changed(targetKey: string): void }
+interface Deps { bb: BbPluginApi; store: AsyncStore; gh: ServeDeps["gh"]; changed(targetKey: string): void; sync?: Pick<ServeDeps["sync"], "one"> }
 
 const live = (thread: Pick<Thread, "archivedAt" | "deletedAt">) => !thread.archivedAt && !thread.deletedAt;
 const threadTitle = (thread: Pick<Thread, "title" | "titleFallback">) => thread.title ?? thread.titleFallback ?? null;
@@ -348,11 +349,13 @@ function prOfBranch(feature: FeatureReview, pr: FolderPr | undefined): { repo: s
 
 /**
  * The review of a folder becomes its branch's PR's, `pr`: the same review, now of the PR, its diff the PR's at its head,
- * the comments moved with their lines, and no guide writer. Its folder stays, for what isn't pushed yet. When the PR
- * already has a review of its own, this one links to it instead. Returns which, or "skipped" when it can't now.
+ * the comments moved with their lines, and no guide writer. Its folder stays, for what isn't pushed yet; the PR is
+ * yours, and the sync reads it at once. A PR opened before the review, whose head the folder doesn't have, waits for
+ * your click, as one GitHub didn't answer for waits for the next check (`prPending`). When the PR already has a review
+ * of its own, this one links to it instead. Returns which, or "skipped" when it can't now.
  */
 export async function becomePr(deps: Deps, key: string, pr: { repo: string; number: number }): Promise<"converted" | "linked" | "skipped"> {
-  const { store, gh } = deps;
+  const { bb, store, gh } = deps;
   const link = async (prKey: string) => {
     const linked = await store.exclusive(async (tx) => {
       const review = featureOf(await tx.getReview(key));
@@ -367,20 +370,39 @@ export async function becomePr(deps: Deps, key: string, pr: { repo: string; numb
   if (prKey !== key && await store.getReview(prKey)) return link(prKey);
   // A guide being written goes on: it's checked against the diff as it is when it's done, the PR's.
   const now = featureOf(await store.getReview(key));
-  if (!now || now.kind !== "ref") return "skipped";
+  const url = `https://github.com/${pr.repo}/pull/${pr.number}`;
+  if (!now || now.kind !== "ref" || now.prPending?.why === "older" && now.prPending.url.toLowerCase() === url.toLowerCase()) return "skipped";
+  /** Kept as found and not become, once per PR and why, so a check that finds it again changes nothing. */
+  const pending = async (state: NonNullable<ReviewLifecycle["prPending"]>) => {
+    const saved = await store.exclusive(async (tx) => {
+      const review = featureOf(await tx.getReview(key));
+      if (!review || review.kind !== "ref" || review.prPending?.url === state.url && review.prPending.why === state.why) return false;
+      await tx.setLifecycle(key, { prPending: state });
+      return true;
+    });
+    if (saved) deps.changed(key);
+    return "skipped" as const;
+  };
   let snapshot: Awaited<ReturnType<typeof readPrSnapshot>>;
   try {
     snapshot = await readPrSnapshot(gh.runGh, pr.number, pr.repo);
-  } catch {
-    return "skipped";
+  } catch (error) {
+    return pending({ number: pr.number, url, why: "error", error: error instanceof Error ? error.message : String(error), at: Date.now() });
   }
   if (snapshot.pr.state !== undefined && snapshot.pr.state !== "OPEN") return "skipped";
+  // A branch used again may have an open PR from before the review: it's this work's only when the folder has its head.
+  const opened = Date.parse(snapshot.pr.createdAt ?? "");
+  if (opened < now.createdAt && !await folderHas(bb, now.feature.environmentId, snapshot.pr.headRefOid)) {
+    return pending({ number: pr.number, url: snapshot.pr.url, why: "older", at: Date.now() });
+  }
   const done = await store.exclusive(async (tx) => {
     const review = featureOf(await tx.getReview(key));
     if (!review || review.kind !== "ref") return "skipped" as const;
     // A review of the PR started meanwhile.
     if (await tx.getReview(targetKey({ kind: "pr", ...pr }))) return "link" as const;
     const { pr: read } = snapshot;
+    // Named as it was, for the notice that says what it became.
+    const from = reviewIdentity({ ...review, place: { repo: review.feature.repo ?? undefined } }).id;
     const previous = await tx.patch(key);
     const next = ensureGitHeaders(snapshot.patch);
     await tx.savePatch(key, next);
@@ -391,16 +413,26 @@ export async function becomePr(deps: Deps, key: string, pr: { repo: string; numb
       status: review.status, createdAt: review.createdAt, ...review.projectId ? { projectId: review.projectId } : {},
     });
     await tx.saveSnapshot(key, read.headRefOid, next);
-    await tx.rebaseDraftComments(key, await reanchorDraft(tx, key, previous, next));
-    // Pushed under another name: its branch on GitHub.
-    if (read.headRefName !== review.feature.branch) await tx.setLifecycle(key, { feature: { ...review.feature, remoteBranch: read.headRefName } });
-    // What gh said of the PR, until the sync reads it (src/start-review.ts recordPrState).
-    if (read.state === "OPEN" || read.state === "CLOSED" || read.state === "MERGED") await tx.setLifecycle(key, { startedPrState: read.state });
+    const { comments } = await tx.getDraft(key);
+    const placed = await reanchorDraft(tx, key, previous, next);
+    await tx.rebaseDraftComments(key, placed);
+    await tx.setLifecycle(key, {
+      // Pushed under another name: its branch on GitHub.
+      ...read.headRefName !== review.feature.branch ? { feature: { ...review.feature, remoteBranch: read.headRefName } } : {},
+      // Yours, until the sync reads it, so Push carries on (lib/push.ts pushTarget).
+      ownPr: true, prPending: null,
+      became: { at: Date.now(), number: pr.number, url: read.url, from, carried: comments.length, local: 0, outside: comments.length - placed.length },
+      // What gh said of the PR, until the sync reads it (src/start-review.ts recordPrState).
+      ...read.state === "OPEN" || read.state === "CLOSED" || read.state === "MERGED" ? { startedPrState: read.state } : {},
+    });
     await pruneDiffs(tx, (await tx.getReview(key))!);
     return "converted" as const;
   });
   if (done === "link") return link(targetKey({ kind: "pr", ...pr }));
-  if (done === "converted") deps.changed(key);
+  if (done === "converted") {
+    await deps.sync?.one(key, true).catch(() => {});
+    deps.changed(key);
+  }
   return done;
 }
 
