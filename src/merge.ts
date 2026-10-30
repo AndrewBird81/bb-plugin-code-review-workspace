@@ -3,7 +3,7 @@
 // has nothing of yours, else on your click, which the review offers (src/feature-review.ts becomePr). What's left of it
 // is archived and points at the one that stays, whose page it opens.
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
-import type { MergeNote, ReviewMeta } from "./store";
+import type { MergeNote, ReviewMeta, Store } from "./store";
 import type { AsyncStore } from "./store-queue";
 import type { ServeDeps } from "./server-modules";
 import { localIdOf } from "../lib/review-identity";
@@ -42,7 +42,7 @@ const known = (review: ReviewMeta) => review.feature ? `the local review ${local
  * the same step, and what its agent is told, once, of the review it didn't know. Returns whether it merged: not when
  * either was merged already.
  */
-export async function mergeIn(tx: AsyncStore, from: string, into: string): Promise<boolean> {
+export async function mergeIn(tx: Store, from: string, into: string): Promise<boolean> {
   const [source, target] = [(await tx.getReview(from))!, (await tx.getReview(into))!];
   const merged = await tx.mergeReview(from, into);
   if (!merged) return false;

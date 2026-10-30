@@ -1,7 +1,6 @@
 // What's out with the thread that fixes a review's comments, counted, and when the review is Ready to re-review: kept
 // on the review (`fixes`, each Send's `readyAt`), so whose turn it is reads it without the draft.
-import type { FixTally, SendEntry } from "./store";
-import type { AsyncStore } from "./store-queue";
+import type { FixTally, SendEntry, Store } from "./store";
 import { commentsOut, tallyOf } from "../lib/fixes";
 import { sendKey } from "../lib/send-baseline";
 import type { AssessmentVerdict } from "../lib/feedback";
@@ -12,7 +11,7 @@ import type { AssessmentVerdict } from "../lib/feedback";
  * or a `report` that leaves nothing out unreported, `by` whoever ran ready. Each Send waiting then is ready; with nothing
  * out, none is. Returns whether it became ready now; null for a review that sent nothing.
  */
-export async function settleFixes(tx: AsyncStore, key: string, fire?: "report" | "ready", by?: SendEntry["readyBy"]): Promise<{ ready: boolean; tally: FixTally } | null> {
+export async function settleFixes(tx: Store, key: string, fire?: "report" | "ready", by?: SendEntry["readyBy"]): Promise<{ ready: boolean; tally: FixTally } | null> {
   const review = await tx.getReview(key);
   if (!review || !review.sends?.length && !review.fixes) return null;
   const out = commentsOut((await tx.getDraft(key)).comments, review.threadSends);

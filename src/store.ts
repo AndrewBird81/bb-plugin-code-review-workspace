@@ -463,6 +463,11 @@ export interface Store extends AgentCommentStore {
   /** Remove the review and everything stored for it. */
   deleteReview(targetKey: string): Promise<void>;
   /**
+   * Run `fn` on this Store in one transaction, rolled back if it throws. `fn` gets the Store itself, not the queue's:
+   * called on a block's tx, the whole of it is one of the block's calls.
+   */
+  transaction<T>(fn: (store: Store) => Promise<T>): Promise<T>;
+  /**
    * Merge review `from` into `into`, in one transaction: its comments follow their lines onto `into`'s diff, its Sends
    * number on after `into`'s, and its summary, notes, viewed marks and what it knows of the PR join `into`'s; its
    * agent's conversation becomes `into`'s when `into` has none (`adopted`). `from` is left archived and empty, pointing
@@ -885,6 +890,9 @@ export function storeOn(sql: Sql): Store {
     async setReviewContext(k, text) {
       if (text === null) await sql.run(`DELETE FROM review_context WHERE target_key=?`, [k]);
       else await sql.run(`INSERT INTO review_context (target_key,text) VALUES (?,?) ON CONFLICT(target_key) DO UPDATE SET text=excluded.text`, [k, text]);
+    },
+    transaction(fn) {
+      return sql.transaction(() => fn(this));
     },
     async deleteReview(k) {
       await sql.transaction(async () => {

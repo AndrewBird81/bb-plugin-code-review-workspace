@@ -6,7 +6,9 @@ import { runReviewCommand } from "./review-command";
 import { becomePr, checkFeature, updateFeature } from "./feature-review";
 import { featureKey, prReviewKey, reviewNamed, targetKey } from "./targets";
 import { folderHost, type Folder } from "./env-diff.test-support";
-import { testStore } from "./test-store.test-support";
+import { testSql, testStore } from "./test-store.test-support";
+import { storeOn } from "./store";
+import { queueStore } from "./store-queue";
 import { changedFiles, splitPatchByFile } from "./patch";
 import { defaultPreferences } from "./preferences";
 import { computeTurn } from "../lib/turn";
@@ -580,6 +582,57 @@ test("a PR whose own review has nothing of yours is merged into the folder's at 
   expect(await t.store.getReview(key)).toMatchObject({ kind: "pr", prOffer: null, became: { merged: { comments: 1, summary: false, sends: 0 } } });
   expect((await t.store.getDraft(key)).comments.map((c) => c.body)).toEqual(["Theirs"]);
   expect(await t.store.getReview(prKey)).toMatchObject({ mergedInto: key });
+});
+
+// The design's "Merge fails partway": the connection drops in the merge, after the conversion's writes.
+test("a merge that fails as the review becomes the PR's leaves it as it was, local and offering, never two live reviews of one PR", async () => {
+  const s = setup();
+  await run(s, "main");
+  await settled(s);
+  const prKey = targetKey({ kind: "pr", repo: "acme/api", number: 7 });
+  await s.store.saveReview({ targetKey: prKey, kind: "pr", repo: "acme/api", number: 7, url: "https://github.com/acme/api/pull/7", status: "tracked", createdAt: 1 });
+  const before = { review: await s.store.getReview(key), patch: await s.store.patch(key), draft: await s.store.getDraft(key) };
+  const sql = testSql(s.bb);
+  const dropping: typeof sql = { ...sql, run: (text, params) => /INSERT INTO feedback_threads/.test(text) ? Promise.reject(new Error("Connection terminated unexpectedly")) : sql.run(text, params) };
+  const failing = { ...s.deps, store: queueStore(storeOn(dropping)) };
+  await expect(becomePr(failing, key, { repo: "acme/api", number: 7 })).rejects.toThrow("Connection terminated unexpectedly");
+  expect(await s.store.getReview(key)).toEqual(before.review);
+  expect(await s.store.patch(key)).toBe(before.patch);
+  expect(await s.store.getDraft(key)).toEqual(before.draft);
+  expect((await s.store.getReview(prKey))?.mergedInto).toBeUndefined();
+  // Found again, it converts and merges.
+  expect(await becomePr(s.deps, key, { repo: "acme/api", number: 7 })).toBe("merged");
+
+  // Your click on the offer: the offer stays, to click again.
+  const t = setup();
+  await run(t, "main");
+  await settled(t);
+  await t.store.saveReview({ targetKey: prKey, kind: "pr", repo: "acme/api", number: 7, url: "https://github.com/acme/api/pull/7", status: "ready", createdAt: 1 });
+  await t.store.upsertDraftComment(prKey, { file: "src/a.ts", line: 2, side: "RIGHT", body: "Theirs" });
+  expect(await becomePr(t.deps, key, { repo: "acme/api", number: 7 })).toBe("offered");
+  const tSql = testSql(t.bb);
+  const tDropping: typeof tSql = { ...tSql, run: (text, params) => /INSERT INTO feedback_threads/.test(text) ? Promise.reject(new Error("Connection terminated unexpectedly")) : tSql.run(text, params) };
+  await expect(becomePr({ ...t.deps, store: queueStore(storeOn(tDropping)) }, key, { repo: "acme/api", number: 7 }, "merge")).rejects.toThrow("Connection terminated unexpectedly");
+  expect(await t.store.getReview(key)).toMatchObject({ kind: "ref", prOffer: { key: prKey } });
+  expect((await t.store.getDraft(prKey)).comments).toHaveLength(1);
+});
+
+// It reads GitHub and the folder for seconds between deciding to merge on its own and merging.
+test("a comment of yours added to the PR's review while the review becomes the PR's is offered, not merged on its own", async () => {
+  const s = setup();
+  await run(s, "main");
+  await settled(s);
+  const prKey = targetKey({ kind: "pr", repo: "acme/api", number: 7 });
+  await s.store.saveReview({ targetKey: prKey, kind: "pr", repo: "acme/api", number: 7, url: "https://github.com/acme/api/pull/7", status: "tracked", createdAt: 1 });
+  const answers = s.deps.gh.runGh.getMockImplementation()!;
+  s.deps.gh.runGh.mockImplementation(async (args) => {
+    if (args[1] === "view") await s.store.upsertDraftComment(prKey, { file: "src/a.ts", line: 2, side: "RIGHT", body: "Mine, meanwhile" });
+    return answers(args);
+  });
+  expect(await becomePr(s.deps, key, { repo: "acme/api", number: 7 })).toBe("offered");
+  expect(await s.store.getReview(key)).toMatchObject({ kind: "ref", prOffer: { key: prKey, moves: { comments: 1 } } });
+  expect(await s.store.getReview(prKey)).not.toHaveProperty("mergedInto");
+  expect(s.deps.changed).toHaveBeenCalledWith(key);
 });
 
 test("a 1.8.0 folder's review linked to its PR's review merges with it when read, or offers to", async () => {

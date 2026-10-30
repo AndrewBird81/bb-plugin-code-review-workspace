@@ -3,7 +3,7 @@
 // checks the folder (changed, on another branch, its machine offline, other threads there); once its branch has a PR
 // the same review becomes that PR's; and bb removing the folder ends it, unless comments wait on it.
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
-import { placeOn, reanchorDraft, type FeatureReview, type MainThread, type ReviewLifecycle, type ReviewMeta } from "./store";
+import { placeOn, reanchorDraft, type FeatureReview, type MainThread, type ReviewLifecycle, type ReviewMeta, type Store } from "./store";
 import type { AsyncStore } from "./store-queue";
 import { diffFilesHead, folderHas, folderHasBranch, folderHead, isNotFound, isSecretPath, readFeatureDiff, readFeatureRevisions, type FeatureDiff, type FolderPr, type HiddenFile } from "./env-diff";
 import { featureKey, prReviewKey, targetKey } from "./targets";
@@ -388,25 +388,25 @@ export async function becomePr(deps: Deps, key: string, pr: { repo: string; numb
   const url = `https://github.com/${pr.repo}/pull/${pr.number}`;
   if (!now || now.mergedInto) return "skipped";
   const other = prKey !== key ? await store.getReview(prKey) : null;
+  /**
+   * In the caller's block, the merge offered when the review that would go has something of yours, once, as it stands;
+   * a 1.8.0 link to the PR's review is offered so too. Null when it has nothing of yours.
+   */
+  const offerIn = async (tx: AsyncStore, intoPr: boolean) => {
+    const [review, theirs] = [featureOf(await tx.getReview(key)), await tx.getReview(prKey)];
+    if (!review || !theirs || !await hasUserContent(tx, intoPr ? review : theirs)) return null;
+    const offer = { key: prKey, number: pr.number, url, moves: await movesOf(tx, theirs), ...intoPr ? { intoPr: true as const } : {} };
+    if (JSON.stringify(review.prOffer) === JSON.stringify(offer) && !review.feature.prReview) return "kept" as const;
+    await tx.setLifecycle(key, { prOffer: offer, feature: { ...review.feature, prReview: undefined } });
+    return "saved" as const;
+  };
   if (other) {
     // Two folders on one branch: the PR's review that began as the other folder's stays, and this one goes into it.
     const intoPr = !!other.feature;
-    const offered = clicked !== "merge" && await store.exclusive(async (tx) => {
-      const [review, theirs] = [featureOf(await tx.getReview(key)), await tx.getReview(prKey)];
-      if (!review || !theirs || !await hasUserContent(tx, intoPr ? review : theirs)) return null;
-      const offer = { key: prKey, number: pr.number, url, moves: await movesOf(tx, theirs), ...intoPr ? { intoPr: true as const } : {} };
-      // Offered once, as it stands; a 1.8.0 link to the PR's review is offered so too.
-      if (JSON.stringify(review.prOffer) !== JSON.stringify(offer) || review.feature.prReview) {
-        await tx.setLifecycle(key, { prOffer: offer, feature: { ...review.feature, prReview: undefined } });
-        return "saved";
-      }
-      return "kept";
-    });
+    const offered = clicked !== "merge" && await store.exclusive((tx) => offerIn(tx, intoPr));
     if (offered === "saved") deps.changed(key);
     if (offered) return "offered";
-    if (intoPr || now.kind === "pr") {
-      return await mergeReviews(deps, intoPr ? key : prKey, intoPr ? prKey : key) ? "merged" : "skipped";
-    }
+    if (intoPr || now.kind === "pr") return await mergeReviews(deps, intoPr ? key : prKey, intoPr ? prKey : key) ? "merged" : "skipped";
   }
   if (now.kind !== "ref" || !clicked && now.prPending?.why === "older" && now.prPending.url.toLowerCase() === url.toLowerCase()) return "skipped";
   /** Kept as found and not become, once per PR and why, so a check that finds it again changes nothing. */
@@ -420,7 +420,7 @@ export async function becomePr(deps: Deps, key: string, pr: { repo: string; numb
     if (saved) deps.changed(key);
     return "skipped" as const;
   };
-  let snapshot: Awaited<ReturnType<typeof readPrSnapshot>>;
+  let snapshot: PrSnapshot;
   try {
     snapshot = await readPrSnapshot(gh.runGh, pr.number, pr.repo);
   } catch (error) {
@@ -440,41 +440,15 @@ export async function becomePr(deps: Deps, key: string, pr: { repo: string; numb
     if (!review || review.kind !== "ref") return "skipped" as const;
     // A review of the PR started meanwhile: looked at again.
     if (await prReviewKey(tx, pr) !== prKey) return "again" as const;
-    const { pr: read } = snapshot;
-    // Named as it was, for the notice that says what it became.
-    const from = localIdOf(review);
-    const previous = await tx.patch(key);
-    const next = ensureGitHeaders(snapshot.patch);
-    await tx.savePatch(key, next);
-    // Your name for it stays; the main thread's title gives way to the PR's.
-    await tx.saveReview({
-      targetKey: key, kind: "pr", number: pr.number, repo: pr.repo, url: read.url, title: read.title, author: read.author?.login,
-      base: read.baseRefName, head: read.headRefName, gitRef: `${read.baseRefName}...${read.headRefName}`, headSha: read.headRefOid,
-      status: review.status, createdAt: review.createdAt, ...review.projectId ? { projectId: review.projectId } : {},
-    });
-    await tx.saveSnapshot(key, read.headRefOid, next);
-    const { comments } = await tx.getDraft(key);
-    const placed = await reanchorDraft(tx, key, previous, next);
-    const lost = comments.filter((comment) => !placed.some(({ at }) => sameLocation(at, comment)) && comment.side === "RIGHT" && !comment.startSide);
-    if (ahead?.outcome === "available") await tx.saveSnapshot(key, NOT_PUSHED, ahead.patch);
-    const local = ahead?.outcome === "available" ? await placeOn(tx, key, lost, previous, ahead.patch, "LOCAL") : [];
-    await tx.rebaseDraftComments(key, [...placed, ...local]);
-    await tx.setLifecycle(key, {
-      // Pushed under another name: its branch on GitHub. A 1.8.0 link to the PR's review is gone with the merge.
-      feature: { ...review.feature, prReview: undefined, ...read.headRefName !== review.feature.branch ? { remoteBranch: read.headRefName } : {} },
-      // Yours, until the sync reads it, so Push carries on (lib/push.ts pushTarget).
-      ownPr: true, prPending: null, prOffer: null,
-      became: { at: Date.now(), number: pr.number, url: read.url, from, carried: comments.length, local: local.length, outside: comments.length - placed.length - local.length },
-      // Its agent, mid-conversation, is told once; never by a turn of its own (src/agent.ts takePrNote).
-      ...await tx.getAssistantThread(key) ? { agentPrNote: { number: pr.number, url: read.url, from } } : {},
-      // What gh said of the PR, until the sync reads it (src/start-review.ts recordPrState).
-      ...read.state === "OPEN" || read.state === "CLOSED" || read.state === "MERGED" ? { startedPrState: read.state } : {},
-    });
-    await pruneDiffs(tx, (await tx.getReview(key))!);
-    if (!other) return "converted" as const;
-    return await mergeIn(tx, prKey, key) ? "merged" as const : "converted" as const;
+    // Something of yours put in the PR's review while GitHub and the folder were read: offered, not merged on its own.
+    const offered = other && clicked !== "merge" ? await offerIn(tx, false) : null;
+    if (offered) return offered;
+    // In one transaction: a merge that fails leaves the review as it was, to become the PR's when it's found again.
+    return tx.transaction((db) => convertIn(db, review, pr, snapshot, ahead?.outcome === "available" ? ahead : null, other ? prKey : null));
   });
   if (done === "again") return becomePr(deps, key, pr, clicked);
+  if (done === "saved") deps.changed(key);
+  if (done === "saved" || done === "kept") return "offered";
   if (done === "converted" || done === "merged") {
     await deps.sync?.one(key, true).catch(() => {});
     await retitleAssistant(bb, store, key).catch(() => {});
@@ -482,6 +456,50 @@ export async function becomePr(deps: Deps, key: string, pr: { repo: string; numb
     if (done === "merged") deps.changed(prKey);
   }
   return done;
+}
+
+type PrSnapshot = Awaited<ReturnType<typeof readPrSnapshot>>;
+
+/**
+ * In the caller's transaction, the review of a folder becomes `pr`'s, as `snapshot` read it: its diff the PR's at its
+ * head, the comments moved with their lines, one the PR's diff loses kept on what the folder has that the PR's head
+ * doesn't (`ahead`), not on GitHub yet; and, with `mergeFrom`, the PR's own review merged in (src/merge.ts mergeIn).
+ */
+async function convertIn(db: Store, review: ReviewMeta & { feature: FeatureReview }, pr: { repo: string; number: number }, snapshot: PrSnapshot, ahead: Extract<FeatureDiff, { outcome: "available" }> | null, mergeFrom: string | null): Promise<"converted" | "merged"> {
+  const key = review.targetKey;
+  const { pr: read } = snapshot;
+  // Named as it was, for the notice that says what it became.
+  const from = localIdOf(review);
+  const previous = await db.patch(key);
+  const next = ensureGitHeaders(snapshot.patch);
+  await db.savePatch(key, next);
+  // Your name for it stays; the main thread's title gives way to the PR's.
+  await db.saveReview({
+    targetKey: key, kind: "pr", number: pr.number, repo: pr.repo, url: read.url, title: read.title, author: read.author?.login,
+    base: read.baseRefName, head: read.headRefName, gitRef: `${read.baseRefName}...${read.headRefName}`, headSha: read.headRefOid,
+    status: review.status, createdAt: review.createdAt, ...review.projectId ? { projectId: review.projectId } : {},
+  });
+  await db.saveSnapshot(key, read.headRefOid, next);
+  const { comments } = await db.getDraft(key);
+  const placed = await reanchorDraft(db, key, previous, next);
+  const lost = comments.filter((comment) => !placed.some(({ at }) => sameLocation(at, comment)) && comment.side === "RIGHT" && !comment.startSide);
+  if (ahead) await db.saveSnapshot(key, NOT_PUSHED, ahead.patch);
+  const local = ahead ? await placeOn(db, key, lost, previous, ahead.patch, "LOCAL") : [];
+  await db.rebaseDraftComments(key, [...placed, ...local]);
+  await db.setLifecycle(key, {
+    // Pushed under another name: its branch on GitHub. A 1.8.0 link to the PR's review is gone with the merge.
+    feature: { ...review.feature, prReview: undefined, ...read.headRefName !== review.feature.branch ? { remoteBranch: read.headRefName } : {} },
+    // Yours, until the sync reads it, so Push carries on (lib/push.ts pushTarget).
+    ownPr: true, prPending: null, prOffer: null,
+    became: { at: Date.now(), number: pr.number, url: read.url, from, carried: comments.length, local: local.length, outside: comments.length - placed.length - local.length },
+    // Its agent, mid-conversation, is told once; never by a turn of its own (src/agent.ts takePrNote).
+    ...await db.getAssistantThread(key) ? { agentPrNote: { number: pr.number, url: read.url, from } } : {},
+    // What gh said of the PR, until the sync reads it (src/start-review.ts recordPrState).
+    ...read.state === "OPEN" || read.state === "CLOSED" || read.state === "MERGED" ? { startedPrState: read.state } : {},
+  });
+  await pruneDiffs(db, (await db.getReview(key))!);
+  if (!mergeFrom) return "converted";
+  return await mergeIn(db, mergeFrom, key) ? "merged" : "converted";
 }
 
 /**
