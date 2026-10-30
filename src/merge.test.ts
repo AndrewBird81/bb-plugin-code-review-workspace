@@ -259,6 +259,22 @@ test("a merge that fails partway changes nothing", async () => {
   expect((await store.getReview(P))?.mergedInto).toBeUndefined();
 });
 
+test("a review merged into one that was merged in turn names the last: its PR's key, its key and its ids lead there", async () => {
+  const { bb } = createFakePluginHost({ pluginId: "code-review-workspace" });
+  const store = testStore(bb);
+  const prKey = targetKey({ kind: "pr", repo: "acme/api", number: 7 });
+  for (const [k, createdAt] of [[prKey, 1], ["br-b", 2], ["br-c", 3]] as const) {
+    await store.saveReview({ targetKey: k, kind: "pr", repo: "acme/api", number: 7, url: "https://github.com/acme/api/pull/7", status: "ready", createdAt });
+  }
+  await store.setLifecycle(prKey, { mergedInto: "br-b", archivedAt: 5 });
+  await store.setLifecycle("br-b", { mergedInto: "br-c", archivedAt: 6 });
+  expect(await prReviewKey(store, { repo: "acme/api", number: 7 })).toBe("br-c");
+  for (const named of [prKey, "br-b"]) expect((await reviewNamed(store, bb, named))?.targetKey, named).toBe("br-c");
+  // A merge that points back, which the store never makes, still ends.
+  await store.setLifecycle("br-c", { mergedInto: prKey, archivedAt: 7 });
+  expect(await prReviewKey(store, { repo: "acme/api", number: 7 })).toMatch(/^(pr-|br-)/);
+});
+
 // Two triggers, or two windows' Merge the two, can reach the same merge at once.
 test("merging twice, at once or later, merges once: nothing is copied again, what moved is kept, and the agent is told once", async () => {
   const { store } = await setup();

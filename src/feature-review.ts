@@ -6,7 +6,7 @@ import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import { placeOn, reanchorDraft, type FeatureReview, type MainThread, type ReviewLifecycle, type ReviewMeta, type Store } from "./store";
 import type { AsyncStore } from "./store-queue";
 import { diffFilesHead, folderHas, folderHasBranch, folderHead, isNotFound, isSecretPath, readFeatureDiff, readFeatureRevisions, type FeatureDiff, type FolderPr, type HiddenFile } from "./env-diff";
-import { featureKey, prReviewKey, targetKey } from "./targets";
+import { featureKey, mergedSurvivor, prReviewKey, targetKey } from "./targets";
 import { beginGuide, guideWriterUnavailable, stopGuide } from "./generate";
 import { pruneDiffs } from "./feedback-view";
 import { readPrSnapshot } from "./pr-snapshot";
@@ -134,15 +134,22 @@ async function openFolderReview(deps: Deps, folder: Folder, main: Thread | null,
   const { bb, store } = deps;
   const { env, machine, repo } = folder;
   // A review re-homed to a fixer's worktree, on that worktree's branch, is the folder's review: its key is its old folder's;
-  // so is one that followed the folder onto this branch. A key whose review moved on gives way to the next.
+  // so is one that followed the folder onto this branch. A key whose review moved on gives way to the next; one merged
+  // into another review of its PR, which goes on, to that one.
   const reviews = await store.listReviews();
   let exact = featureKey(env.id, env.branchName);
+  let survivor: string | undefined;
   for (let n = 2, keyed = reviews.find((review) => review.targetKey === exact); keyed && movedOn(keyed, env.branchName); n++) {
+    const into = keyed.mergedInto ? mergedSurvivor(keyed, reviews) : null;
+    if (into && !into.mergedInto && !prEnded(into)) {
+      survivor = into.targetKey;
+      break;
+    }
     exact = featureKey(env.id, env.branchName, n);
     keyed = reviews.find((review) => review.targetKey === exact);
   }
-  const key = reviews.some((review) => review.targetKey === exact) ? exact
-    : reviewOfFolder(reviews.filter((review) => !movedOn(review, env.branchName)), env.id, env.branchName)?.targetKey ?? exact;
+  const key = survivor ?? (reviews.some((review) => review.targetKey === exact) ? exact
+    : reviewOfFolder(reviews.filter((review) => !movedOn(review, env.branchName)), env.id, env.branchName)?.targetKey ?? exact);
   const existing = await store.getReview(key);
   // A recorded main thread that's archived or deleted gives way to the live one asking. One BB can't read now stays.
   const checked = existing?.mainThread && main && existing.mainThread.threadId !== main.id ? await threadGone(bb, existing.mainThread.threadId) : null;
@@ -202,8 +209,9 @@ export const folderBranchOf = (feature: Pick<FeatureReview, "branch" | "workBran
  * or it became a PR's that merged, or closed and went to Archive, and the branch is used again for new work; or it was
  * merged into another review of its PR.
  */
-const movedOn = (review: ReviewMeta, branch: string) => !!review.feature && folderBranchOf(review.feature) !== branch
-  || review.kind === "pr" && (review.prState === "MERGED" || review.prState === "CLOSED" && !!review.archivedAt) || !!review.mergedInto;
+const movedOn = (review: ReviewMeta, branch: string) => !!review.feature && folderBranchOf(review.feature) !== branch || prEnded(review) || !!review.mergedInto;
+/** Whether a review's PR merged, or closed and went to Archive. */
+const prEnded = (review: ReviewMeta) => review.kind === "pr" && (review.prState === "MERGED" || review.prState === "CLOSED" && !!review.archivedAt);
 
 /**
  * The review of a folder at the branch it's on, by where the review reads it (folderBranchOf), as the thread pages'

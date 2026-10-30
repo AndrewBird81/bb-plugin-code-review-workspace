@@ -685,7 +685,7 @@ test("a 1.8.0 folder's review linked to its PR's review merges with it when read
 });
 
 test("two folders on one branch: the PR's review that began as the first folder's stays, and the second's goes into it", async () => {
-  const s = setup();
+  const s = setup(undefined, { other2: { id: "other2", environmentId: "env2", title: "Second folder" } });
   await run(s, "main");
   await settled(s);
   Object.assign(s.folder, { prBase: "main", pr: { number: 7, url: "https://github.com/acme/api/pull/7", headRefName: "feat/qa" } });
@@ -703,6 +703,12 @@ test("two folders on one branch: the PR's review that began as the first folder'
   const kept = (await s.store.getReview(key))!;
   expect(kept).toMatchObject({ kind: "pr", mainThread: { threadId: "main" }, implementers: [{ threadId: "other2" }], mergedFrom: [{ key: second, id: "api:feat/qa" }] });
   expect(kept.mergedFrom).toHaveLength(1);
+  // bb review in the second folder opens the review it went into, not a new one.
+  const reviews = (await s.store.listReviews()).length;
+  const opened = await run(s, "other2");
+  expect(opened.stdout).toContain(`Opened the review of ~/src/api on MaxBook: api#7`);
+  expect(opened.stdout).toContain(`(${key})`);
+  expect(await s.store.listReviews()).toHaveLength(reviews);
 
   // With a comment of yours, it offers to go into it.
   const third = featureKey("env3", "feat/qa");

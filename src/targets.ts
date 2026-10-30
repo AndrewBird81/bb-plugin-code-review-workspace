@@ -38,16 +38,33 @@ export function featureKey(environmentId: string, branch: string, n?: number): s
   return `br-${createHash("sha1").update(JSON.stringify(n ? [environmentId, branch, n] : [environmentId, branch])).digest("hex").slice(0, 16)}`;
 }
 
+/** How many merges on a review is followed, so a cycle, which the store never makes, still ends. */
+const MERGE_HOPS = 10;
+
+/**
+ * The review that stays of `review`'s merges, among `reviews`: the one it was merged into, and on through each merge
+ * after that. `review` itself when it wasn't merged; the last one found when the next is gone.
+ */
+export function mergedSurvivor(review: ReviewMeta, reviews: readonly ReviewMeta[]): ReviewMeta {
+  let at = review;
+  for (let hop = 0; at.mergedInto && hop < MERGE_HOPS; hop++) {
+    const into = reviews.find((other) => other.targetKey === at.mergedInto);
+    if (!into) break;
+    at = into;
+  }
+  return at;
+}
+
 /**
  * The key of the saved review of a PR: its own, else, for a renamed or transferred repository, or a folder's review that
- * became the PR's, the one with the PR's link. One merged into another review is that one's. The PR's own key when
- * none is saved.
+ * became the PR's, the one with the PR's link. One merged into another review is the one that stays of its merges. The
+ * PR's own key when none is saved.
  */
 export async function prReviewKey(store: Pick<AsyncStore, "getReview" | "listReviews" | "exclusive">, pr: { repo: string; number: number }): Promise<string> {
   return store.exclusive(async (tx) => {
     const key = targetKey({ kind: "pr", ...pr });
     const own = await tx.getReview(key);
-    if (own) return own.mergedInto && await tx.getReview(own.mergedInto) ? own.mergedInto : key;
+    if (own) return own.mergedInto ? mergedSurvivor(own, await tx.listReviews()).targetKey : key;
     const url = `https://github.com/${pr.repo.toLowerCase()}/pull/${pr.number}`;
     const linked = (await tx.listReviews()).filter((review) => review.kind === "pr" && review.url && parsePrLink(review.url)?.url === url);
     return (linked.find((review) => !review.mergedInto) ?? linked[0])?.targetKey ?? key;
@@ -64,7 +81,7 @@ export async function reviewNamed(store: AsyncStore, bb: BbPluginApi, given: str
   const text = given.trim();
   if (!text) return null;
   const all = await store.listReviews();
-  const merged = (review: ReviewMeta) => review.mergedInto ? all.find((into) => into.targetKey === review.mergedInto) ?? review : review;
+  const merged = (review: ReviewMeta) => mergedSurvivor(review, all);
   const keyed = all.find((review) => review.targetKey === text);
   if (keyed) return merged(keyed);
   const link = parsePrLink(text);
