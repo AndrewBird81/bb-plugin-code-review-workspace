@@ -206,3 +206,28 @@ test("a re-homed review whose PR merged, archived by the sync, isn't the fixer's
   expect((await store.listReviews()).map((review) => review.targetKey).sort()).toEqual([fresh, "pr-1"].sort());
   expect((await store.getReview("pr-1"))?.archivedAt).toBe(5);
 });
+
+test("a thread page shows the review its folder's review became, a PR's under the same key, and after a merge the review that stays, never the one merged away", async () => {
+  const { threadReview } = await import("../lib/thread-links");
+  const s = await setup();
+  const store = testStore(s.bb);
+  const feature = { environmentId: "env1", hostId: "host_max", machine: "MaxBook", path: "/w", branch: "feat/qa", baseRef: "main", repo: "acme/api" };
+  // The folder's review, now PR #7's.
+  await store.saveReview({ targetKey: key, kind: "pr", repo: "acme/api", number: 7, url: "https://github.com/acme/api/pull/7", status: "ready", createdAt: 1 });
+  await store.setLifecycle(key, { feature, mainThread: { threadId: "main", environmentId: "env1", origin: "adopted", since: 1 } });
+  const shown = async (threadId: string, environmentId: string | null, branch?: string | null) => threadReview(await s.call("threadLinks", null), threadId, environmentId, branch)?.targetKey ?? null;
+  expect(await shown("main", "env1")).toBe(key);
+  expect(await shown("other", "env1", "feat/qa")).toBe(key);
+
+  // The PR's own review, with a Send to its fixer, and another folder's review of the branch, merged into it.
+  await store.saveReview({ targetKey: "pr-7", kind: "pr", repo: "acme/api", number: 7, status: "ready", createdAt: 2 });
+  await store.setLifecycle("pr-7", { mainThread: { threadId: "pr-fixer", environmentId: "env_fix", origin: "fresh", since: 2 }, sends: [{ n: 1, at: 2, threadId: "pr-fixer", ids: ["c1"] }] });
+  await store.saveReview({ targetKey: "br-second", kind: "ref", gitRef: "feat/qa", status: "ready", createdAt: 3 });
+  await store.setLifecycle("br-second", { feature: { ...feature, environmentId: "env2", path: "/w2" }, mainThread: { threadId: "second", environmentId: "env2", origin: "adopted", since: 3 } });
+  for (const from of ["pr-7", "br-second"]) await store.exclusive((tx) => tx.mergeReview(from, key));
+  expect(await shown("main", "env1")).toBe(key);
+  expect(await shown("pr-fixer", "env_fix")).toBe(key);
+  expect(await shown("second", "env2")).toBe(key);
+  // The folder that went: no review of its own there now.
+  expect(await shown("other", "env2", "feat/qa")).toBeNull();
+});
