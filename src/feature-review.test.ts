@@ -392,6 +392,32 @@ test("each read of Not pushed yet keeps what it showed, and a comment there foll
   expect(await s.store.draftCommentCode(key, { file: "src/b.ts", line: 2, side: "LOCAL" })).toBe("b");
 });
 
+test("Update on a PR's review with its folder reads the PR at its new head, without the guide writer: a comment not on GitHub before is on its line there now, its id, Send and report kept", async () => {
+  const s = setup({ files: [{ path: "src/a.ts", body: BODY }, { path: "src/b.ts" }] });
+  await run(s, "main");
+  await settled(s);
+  await s.store.upsertDraftComment(key, { file: "src/b.ts", line: 1, side: "RIGHT", body: "Not pushed" });
+  s.view.headRefOid = "c0ffee".padEnd(40, "0");
+  Object.assign(s.folder, { prBase: "main", pr: { number: 7, url: "https://github.com/acme/api/pull/7", headRefName: "feat/qa" } });
+  await checkFeature(s.deps, key);
+  const local = { file: "src/b.ts", line: 1, side: "LOCAL" } as const;
+  const claim = { outcome: "done" as const, threadId: "main", at: 1 };
+  await s.store.trackComments(key, [{ at: local, id: "c1", state: "sent", sendN: 1, claim }]);
+  // Pushed: the PR's head has b.ts now.
+  const pushed = `${PR_DIFF}diff --git a/src/b.ts b/src/b.ts\nindex 1111111..2222222 100644\n--- a/src/b.ts\n+++ b/src/b.ts\n@@ -1 +1 @@\n-a\n+b\n`;
+  s.view.headRefOid = "beef".padEnd(40, "0");
+  s.deps.gh.runGh.mockImplementation(async (args: string[]) => args[1] === "view" ? { code: 0, stderr: "", stdout: JSON.stringify(s.view) } : { code: 0, stderr: "", stdout: pushed });
+  const spawns = s.spawns.length;
+  expect(await updateFeature(s.deps, key)).toEqual({ ok: true });
+  const review = (await s.store.getReview(key))!;
+  expect(review).toMatchObject({ kind: "pr", headSha: s.view.headRefOid, feature: { guideOlderThanDiff: "update" } });
+  expect(await s.store.patch(key)).toBe(pushed);
+  expect((await s.store.getDraft(key)).comments).toEqual([{ file: "src/b.ts", line: 1, side: "RIGHT", body: "Not pushed", id: "c1", state: "sent", sendN: 1, claim }]);
+  expect(await s.store.staleDraftComments(key)).toEqual([]);
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  expect(s.spawns).toHaveLength(spawns);
+});
+
 test("once it's the PR's, the review answers to its old id as to its new one: bb review opens it as it is, and ready, comment and summary find it", async () => {
   const s = setup();
   await plugin(s.bb);

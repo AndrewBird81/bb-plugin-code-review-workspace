@@ -166,7 +166,7 @@ export function useFeatureNotices(targetKey: string, review: (Reviewed & PrRevie
   // While a guide is being written, its own notice says so.
   // Not while a guide is being written, which has its own notice, nor once Rewrite guide can't run: the folder's gone,
   // or the review's archived.
-  if (feature.guideOlderThanDiff && review.kind === "ref" && review.status !== "generating" && check.state !== "gone" && !review.archivedAt && !review.userArchivedAt) {
+  if (feature.guideOlderThanDiff && review.status !== "generating" && check.state !== "gone" && !review.archivedAt && !review.userArchivedAt) {
     add({ id: "guide-behind", tone: "info", icon: "Route", label: "Guide out of date",
       text: feature.guideOlderThanDiff === "include" ? "The guide was written before you changed which files are shown." : "The guide was written before your last Update.",
       action: button("rewrite", "Rewrite guide", () => void act("rewrite", () => rpc.call("rewriteGuide", { targetKey }), "Couldn’t rewrite the guide."), { description: REWRITE_GUIDE, agent: true }) });

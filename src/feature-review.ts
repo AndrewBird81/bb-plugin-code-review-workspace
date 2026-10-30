@@ -22,7 +22,7 @@ import { hasUserContent, mergeIn, mergeReviews, movesOf } from "./merge";
 import { formerWorkerReview } from "./former-workers";
 import { parsePrLink } from "../lib/pr-link";
 import { NOT_PUSHED } from "../lib/push";
-import { sameLocation } from "./draft";
+import { isLocal, sameLocation } from "./draft";
 import type { EventListeners, RpcHandlers, ServeDeps } from "./server-modules";
 
 type Thread = Awaited<ReturnType<BbPluginApi["sdk"]["threads"]["get"]>>;
@@ -594,12 +594,14 @@ async function followBranch(deps: Deps, key: string, branch: string, said: boole
 
 /**
  * Update: read a feature review's folder again and show it, the comments following their lines, without the guide
- * writer. Not while its guide is being written, and not from another branch: the review waits for its own. A diff that
- * moves is newer than the guide: `why` says what moved it, your Update or Include and Keep out.
+ * writer; a PR's review with its folder, the PR at its head (updatePr). Not while its guide is being written, and not
+ * from another branch: the review waits for its own. A diff that moves is newer than the guide: `why` says what moved
+ * it, your Update or Include and Keep out.
  */
 export async function updateFeature(deps: Deps, key: string, why: "update" | "include" = "update"): Promise<{ ok: boolean; error?: string }> {
   const { bb, store } = deps;
   const review = featureOf(await store.getReview(key));
+  if (review?.kind === "pr" && !review.feature.folderGone) return updatePr(deps, review);
   if (!review || review.kind !== "ref") return { ok: false, error: "Only a local review of a folder updates this way. Use Update guide." };
   if (review.status === "generating") return { ok: false, error: "The guide writer is writing this review’s guide. Update once it’s done." };
   if (review.feature.folderGone) return { ok: false, error: "BB removed this folder, so there’s nothing to update from." };
@@ -618,6 +620,47 @@ export async function updateFeature(deps: Deps, key: string, why: "update" | "in
     // A diff the guide wasn't written for: the review says so, with Rewrite guide.
     const moved = await tx.patch(key) !== read.patch;
     await saveRead(tx, key, moved ? { ...now.feature, guideOlderThanDiff: why } : now.feature, read);
+    return { ok: true };
+  });
+  if (saved.ok) deps.changed(key);
+  return saved;
+}
+
+/**
+ * Update a PR's review with its folder to the PR's head now, without the guide writer: its diff, the comments moved
+ * with their lines, and a LOCAL comment whose line is on GitHub now a comment there, with its id, state, Send and
+ * report; one whose line another comment has stays LOCAL. A diff that moves is newer than the guide.
+ */
+async function updatePr(deps: Deps, review: ReviewMeta & { feature: FeatureReview }): Promise<{ ok: boolean; error?: string }> {
+  const key = review.targetKey;
+  const writing = "The guide writer is writing this review’s guide. Update once it’s done.";
+  if (!review.number || !review.repo) return { ok: false, error: "This review’s PR isn’t known. Reload it." };
+  if (review.status === "generating") return { ok: false, error: writing };
+  let snapshot: Awaited<ReturnType<typeof readPrSnapshot>>;
+  try {
+    snapshot = await readPrSnapshot(deps.gh.runGh, review.number, review.repo);
+  } catch (error) {
+    return { ok: false, error: `Couldn’t read the PR: ${error instanceof Error ? error.message : String(error)}` };
+  }
+  const saved = await deps.store.exclusive(async (tx) => {
+    const now = featureOf(await tx.getReview(key));
+    if (!now || now.kind !== "pr") return { ok: false, error: "This review changed meanwhile. Reload it." };
+    if (now.status === "generating") return { ok: false, error: writing };
+    const { pr } = snapshot;
+    const previous = await tx.patch(key);
+    const next = ensureGitHeaders(snapshot.patch);
+    const shown = await tx.getSnapshot(key, NOT_PUSHED);
+    const placed = [
+      ...await reanchorDraft(tx, key, previous, next),
+      ...shown ? await placeOn(tx, key, (await tx.getDraft(key)).comments.filter(isLocal), shown, next, "RIGHT") : [],
+    ];
+    await tx.savePatch(key, next);
+    await tx.saveReview({ ...now, title: pr.title, base: pr.baseRefName, head: pr.headRefName, gitRef: `${pr.baseRefName}...${pr.headRefName}`, headSha: pr.headRefOid });
+    await tx.saveSnapshot(key, pr.headRefOid, next);
+    await tx.rebaseDraftComments(key, placed);
+    // A diff the guide wasn't written for: the review says so, with Rewrite guide.
+    if (previous !== next) await tx.setLifecycle(key, { feature: { ...now.feature, guideOlderThanDiff: "update" } });
+    await pruneDiffs(tx, (await tx.getReview(key))!);
     return { ok: true };
   });
   if (saved.ok) deps.changed(key);

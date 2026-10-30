@@ -21,6 +21,7 @@ import type { PushRun, ReviewLifecycle, ReviewMeta, SendEntry } from "./store";
 import { failed, type EventListeners, type RpcHandlers, type ServeDeps } from "./server-modules";
 import { ONLY_WITH_THESE_TOOLS } from "./review-agent-tools";
 import { becomeFound, readBranches } from "./pr-watch";
+import { updateFeature } from "./feature-review";
 
 type Run = typeof runGh;
 type Deps = Pick<ServeDeps, "bb" | "store" | "gh" | "changed">;
@@ -404,9 +405,9 @@ async function readAfter(deps: Deps & Pick<ServeDeps, "sync">, thread: { id: str
     const branch = place.pr ? null : (await readBranches(gh.runGh, [{ repo: place.repo, branch: place.head }]))[0]!;
     const read = branch ?? await githubHead(gh.runGh, place);
     const github = "sha" in read ? { repo: place.repo, head: place.head, sha: read.sha } : null;
-    await store.exclusive(async (tx) => {
+    const landed = await store.exclusive(async (tx) => {
       const stored = await tx.getReview(review.targetKey);
-      if (!stored) return;
+      if (!stored) return false;
       // A thread that failed, or was archived or deleted, closes its Sends' cover now, on this event, before anything is
       // judged, and whether or not GitHub could be read.
       const closing = why ? (stored.sends ?? []).filter((send) => send.threadId === thread.id && send.letPush && !send.coverClosed) : [];
@@ -428,7 +429,10 @@ async function readAfter(deps: Deps & Pick<ServeDeps, "sync">, thread: { id: str
       else if (stopped) next = { ...run!, state: "flagged", flag: "stopped", why, at: Date.now() };
       await tx.setLifecycle(review.targetKey, { ...write, ...accept && github ? accepted(github) : {}, ...next !== undefined ? { push: next } : {} });
       if (next !== undefined) deps.changed(review.targetKey);
+      return accept;
     });
+    // A PR's review pushed from its folder at exactly the commit Push checked: it shows the PR there, without the guide writer.
+    if (landed && review.kind === "pr" && review.feature) await updateFeature(deps, review.targetKey).catch(() => {});
     // Its PR, once there is one: the review becomes its review, the Push it shows going on.
     if (branch) await becomeFound(deps, review.targetKey, branch);
   }

@@ -231,6 +231,12 @@ test("after Update, a guide written before it says so, after Changed, with Rewri
   const included = await renderWorkspace({ checkFeature: () => nothing }, { ...local, feature: { ...feature, guideOlderThanDiff: "include" } });
   expect(await included.slot.findByText("The guide was written before you changed which files are shown.")).toBeTruthy();
   included.slot.lifecycle.unmount();
+  cleanup();
+
+  // A PR's review its folder updated to the PR's new head says so too.
+  const pr = await renderWorkspace({ checkFeature: () => nothing }, { ...review, kind: "pr", repo: "acme/api", number: 7, headSha: "c0ffee", ownPr: true });
+  expect(await pr.slot.findByText(text)).toBeTruthy();
+  pr.slot.lifecycle.unmount();
 });
 
 test("a PR's review whose folder has files not on GitHub yet says how many, with Review them; paused, it offers only a New review", async () => {

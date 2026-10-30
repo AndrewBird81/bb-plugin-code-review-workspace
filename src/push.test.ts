@@ -185,6 +185,33 @@ test("a PR's review with its folder pushes from the folder's own origin to its b
   expect(pushTarget({ ...converted, feature: { ...folder, folderGone: true } })).toMatchObject({ head: "feat/nice", remote: "<remote>" });
 });
 
+test("a Push on a PR's review that lands on the commit it checked updates the review to the PR's new head", async () => {
+  const { push, cli, idle, run, github, store, key } = await setup();
+  const answers = runGh.getMockImplementation()!;
+  const pr = { head: HEAD, patch: PATCH };
+  runGh.mockImplementation(async (args: string[]) => {
+    if (args[0] === "pr" && args[1] === "view") return ok(JSON.stringify({ number: 7, title: "Snooze flaky checks", author: { login: "me" }, baseRefName: "main", headRefName: "feat/qa", url: "https://github.com/acme/api/pull/7", headRefOid: pr.head, state: "OPEN", createdAt: new Date().toISOString() }));
+    if (args[0] === "pr" && args[1] === "diff") return ok(pr.patch);
+    if (args.some((a) => a.includes("pullRequest(number"))) return ok(JSON.stringify({ data: { repository: { pullRequest: { headRefOid: github.sha } } } }));
+    return answers(args);
+  });
+  await push();
+  await cli("coder", "report", "--commit", HEAD);
+  github.sha = HEAD;
+  github.prs = [{ number: 7, url: "https://github.com/acme/api/pull/7", createdAt: new Date().toISOString() }];
+  await idle();
+  expect(await store.getReview(key)).toMatchObject({ kind: "pr", number: 7, headSha: HEAD });
+  // Pushed again, exactly the commit Push checked.
+  const next = PATCH.replace("+b", "+c");
+  Object.assign(pr, { head: OTHER, patch: next });
+  await store.setLifecycle(key, { push: { state: "pushing", at: Date.now(), threadId: "coder", repo: "acme/api", head: "feat/qa", sha: OTHER } });
+  github.sha = OTHER;
+  await idle();
+  expect(await run()).toMatchObject({ state: "pushed", sha: OTHER });
+  expect(await store.getReview(key)).toMatchObject({ headSha: OTHER, feature: { guideOlderThanDiff: "update" } });
+  expect(await store.patch(key)).toBe(next);
+});
+
 test("a folder with nothing to commit is checked at its head: a match tells the thread to push it; GitHub at it already has nothing to push", async () => {
   const { sent, push, run, text, folder, github } = await setup();
   folder.dirty = false;
