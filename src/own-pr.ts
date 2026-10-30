@@ -211,35 +211,38 @@ export async function githubItems(tx: AsyncStore, review: ReviewMeta, ids: reado
 
 /** What Not pushed yet shows: the fixer's folder against the PR's head, or why there's nothing, or it can't be read. */
 export type NotPushed =
-  | { state: "available"; patch: string; base: string; branch: string; machine: string | null; threadId: string; hidden: Array<{ path: string; reason: "secret" | "binary" | "large" }>; notice: string | null; environmentId: string; revisions: Record<string, string> }
+  | { state: "available"; patch: string; base: string; branch: string; machine: string | null; threadId: string | null; hidden: Array<{ path: string; reason: "secret" | "binary" | "large" }>; notice: string | null; environmentId: string; revisions: Record<string, string> }
   | { state: "none" | "offline" | "gone" | "unavailable"; message: string };
 
 /**
- * Not pushed yet: everything in the folder of the review's main thread, committed or not, that the PR's head on GitHub
- * doesn't have, as bb's diff of that folder against the head commit. Secret-looking new files stay out, as a local
- * review keeps them.
+ * Not pushed yet: everything in the review's own folder, committed or not, that the PR's head on GitHub doesn't have,
+ * as bb's diff of that folder against the head commit, as its notice counts it (src/feature-review.ts checkPrFolder);
+ * with no folder of its own, as your PR's in 1.8.0, or once BB removed it, the folder of its main thread. Secret-looking
+ * new files stay out, as a local review keeps them.
  */
 export async function notPushed(bb: BbPluginApi, review: ReviewMeta): Promise<NotPushed> {
   const main = review.mainThread;
-  if (review.kind !== "pr" || !main?.environmentId) return { state: "none", message: "No thread is working on this PR in a folder, so there's nothing waiting to be pushed." };
+  const own = review.feature && !review.feature.folderGone ? review.feature : null;
+  const environmentId = own?.environmentId ?? main?.environmentId;
+  if (review.kind !== "pr" || !environmentId) return { state: "none", message: "No thread is working on this PR in a folder, so there's nothing waiting to be pushed." };
   const sha = prHead(review);
   if (!sha) return { state: "unavailable", message: "The PR’s head commit isn’t known yet. Refresh the review, then try again." };
-  const inFolder = main.environmentId === review.feature?.environmentId;
+  const inFolder = environmentId === review.feature?.environmentId;
   let env: Awaited<ReturnType<BbPluginApi["sdk"]["environments"]["get"]>> | null;
   try {
-    env = await bb.sdk.environments.get({ environmentId: main.environmentId });
+    env = await bb.sdk.environments.get({ environmentId });
   } catch (failure) {
-    if (isNotFound(failure)) return { state: "gone", message: "BB removed the folder of the thread working on this PR." };
+    if (isNotFound(failure)) return { state: "gone", message: own ? "BB removed this review’s folder." : "BB removed the folder of the thread working on this PR." };
     env = null;
   }
   // The branch it must be on, so the diff is against the head whatever bb's own base for the folder is.
-  const branch = main.branch ?? (inFolder ? review.feature!.workBranch ?? review.feature!.branch : env?.branchName ?? undefined);
+  const branch = own ? own.workBranch ?? own.branch : main!.branch ?? (inFolder ? review.feature!.workBranch ?? review.feature!.branch : env?.branchName ?? undefined);
   if (!branch) return { state: "unavailable", message: "Couldn’t read the folder of the thread working on this PR. Try again in a moment." };
   const machine = (await machineStatus(bb, env?.hostId ?? undefined))?.name ?? (inFolder ? review.feature!.machine : null);
-  const read = await readFeatureDiff(bb, { environmentId: main.environmentId, machine: machine ?? "Its machine", repo: null, baseRef: sha, workBranch: branch });
+  const read = await readFeatureDiff(bb, { environmentId, machine: machine ?? "Its machine", repo: null, baseRef: sha, workBranch: branch });
   if (read.outcome === "paused") return { state: "unavailable", message: read.message };
   if (read.outcome !== "available") return { state: read.outcome, message: read.message };
-  return { state: "available", patch: read.patch, base: sha, branch, machine, threadId: main.threadId, hidden: read.hidden, notice: read.notice, environmentId: main.environmentId, revisions: read.revisions };
+  return { state: "available", patch: read.patch, base: sha, branch, machine, threadId: main?.threadId ?? null, hidden: read.hidden, notice: read.notice, environmentId, revisions: read.revisions };
 }
 
 export function register(deps: ServeDeps) {

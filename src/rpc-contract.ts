@@ -453,14 +453,14 @@ export const rpcContract = defineRpcContract({
     output: z.object({ ok: z.boolean(), error: z.string().optional() }),
   },
   /**
-   * Not pushed yet, on a PR: what the folder of its main thread, a fixer's or its own, has that the PR's head on GitHub
-   * doesn't, committed or not (src/own-pr.ts); or, with no such folder, or one that can't be read now, why.
+   * Not pushed yet, on a PR: what its own folder, or without one its main thread's, a fixer's, has that the PR's head
+   * on GitHub doesn't, committed or not (src/own-pr.ts); or, with no such folder, or one that can't be read now, why.
    */
   getNotPushed: {
     input: targetKey,
     output: z.union([
       z.object({
-        state: z.literal("available"), patch: z.string(), base: z.string(), branch: z.string(), machine: z.string().nullable(), threadId: z.string(),
+        state: z.literal("available"), patch: z.string(), base: z.string(), branch: z.string(), machine: z.string().nullable(), threadId: z.string().nullable(),
         hidden: z.array(z.object({ path: z.string(), reason: z.enum(["secret", "binary", "large"]) })), notice: z.string().nullable(),
       }),
       z.object({ state: z.enum(["none", "offline", "gone", "unavailable"]), message: z.string() }),

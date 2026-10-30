@@ -198,6 +198,18 @@ test("Not pushed yet is the fixer's folder against the PR's head commit, secrets
   noGit();
 });
 
+test("Not pushed yet on a PR's review with its own folder reads that folder, as its notice counts it, not its main thread's; once BB removes it, the main thread's", async () => {
+  const feature = { environmentId: "env_old", hostId: "host_max", machine: "MaxBook", path: "/Users/me/src/web", branch: "retry-uploads", baseRef: "main", repo: "acme/web" };
+  const p = await ownPr({ over: { feature, mainThread: { threadId: "fresh", environmentId: "env_fix", origin: "fresh", since: 2, branch: "bb/fixes-for-web-12-thr_env_fix" } } });
+  expect(await p.rpc("getNotPushed", { targetKey: "pr-1" })).toMatchObject({ state: "available", base: SHA, branch: "retry-uploads", machine: "MaxBook" });
+  expect(p.gitCalls.filter((c) => c.method === "files").map((c) => c.input.environmentId)).toEqual(["env_old"]);
+  expect((await p.store.getReview("pr-1"))!.notPushedSeen).toMatchObject({ environmentId: "env_old", base: SHA });
+  await p.store.setLifecycle("pr-1", { feature: { ...feature, folderGone: true } });
+  expect(await p.rpc("getNotPushed", { targetKey: "pr-1" })).toMatchObject({ state: "available", branch: "bb/fixes-for-web-12-thr_env_fix", threadId: "fresh" });
+  expect(p.gitCalls.filter((c) => c.method === "files").at(-1)!.input.environmentId).toBe("env_fix");
+  noGit();
+});
+
 test("once BB removes the fixer's folder, the review keeps its branch's name and machine, until Got it; the plugin runs no git", async () => {
   const p = await ownPr({ over: { mainThread: { threadId: "fresh", environmentId: "env_fix", origin: "fresh", since: 2, branch: "bb/fixes-for-web-12-thr_env_fix" } } });
   await p.harness.emitThreadEvent("experimental_environment.removed", { removal: { environmentId: "env_fix", removedAt: 50, hostId: "host_max", path: "/Users/me/.bb/worktrees/env_fix", providerOwnedPath: false } } as any);
