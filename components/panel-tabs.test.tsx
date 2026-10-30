@@ -50,14 +50,21 @@ test("Review agent shows beside a review, not All reviews or Settings; Main thre
   expect(visible("main", "local-b")).toBe("true");
 });
 
-test("the tabs say what they wait for: a review to open, or its page to load", async () => {
+test("the agent's tab says what it waits for: the review's page, or its guide; beside no review, either tab draws nothing", async () => {
   const app = await loadPluginApp(() => import("../app"));
   const { renderPanelTab } = await import("./panel-tabs.test-support");
   const loading = renderPanelTab(app, "agent", "local-a", { rpc: rpc() });
   expect(loading.getByRole("status").textContent).toBe("Opening the review…");
+  // Its page shows it without a guide, as while one is built.
+  const { publishReviewTitle } = await import("../lib/workspace-store");
+  act(() => { withdraws.push(publishReviewTitle("local-a", { id: "api:local-a", name: "A", line: "api:local-a · A" })); });
+  expect(loading.getByRole("status").textContent).toBe("This shows once the review’s guide is ready.");
   loading.lifecycle.unmount();
-  const none = renderPanelTab(app, "main", "", { rpc: rpc() });
-  expect(none.getByRole("status").textContent).toBe("Open a review to see its main thread.");
+  for (const id of ["agent", "main"] as const) {
+    const none = renderPanelTab(app, id, "", { rpc: rpc() });
+    expect(none.container.innerHTML).toBe("");
+    none.lifecycle.unmount();
+  }
 });
 
 test("switching reviews switches the tabs: each shows the review the page shows, never the last one", async () => {
@@ -73,16 +80,4 @@ test("switching reviews switches the tabs: each shows the review the page shows,
   act(() => tab.lifecycle.rerender(<ReviewAgentTab subPath="local-b" />));
   await waitFor(() => expect(heading()).toBe("Review agent·api:local-b"));
   expect(calls.getConversation.mock.calls.map(([input]: [{ targetKey: string }]) => input.targetKey)).toEqual(["local-a", "local-b"]);
-});
-
-test("a review's Main thread tab with no main thread yet offers to choose one", async () => {
-  await publish("local-a", { mainThread: { threadId: "gone", title: null, machine: null }, review: { targetKey: "local-a", kind: "ref", projectId: "p1" } });
-  const app = await loadPluginApp(() => import("../app"));
-  const { renderPanelTab } = await import("./panel-tabs.test-support");
-  const tab = renderPanelTab(app, "main", "local-a", { rpc: rpc(), sidebarThreads: { threads: [{ id: "coder", displayTitle: "Build it", projectId: "p1", status: "idle", isHidden: false, isArchived: false }] } as any });
-  const notice = await tab.findByText(/This review has no main thread yet/);
-  expect(notice.textContent).toBe("This review has no main thread yet. Choose the thread working on the change, or run bb review in it, and your Sends go there.");
-  fireEvent.click(tab.getByRole("button", { name: "Choose a thread" }));
-  const menu = within(await tab.findByRole("menu", { name: "Change main thread" }));
-  expect(menu.getByRole("menuitemradio", { name: /Build it/ })).toBeTruthy();
 });

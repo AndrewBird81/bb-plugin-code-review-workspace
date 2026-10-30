@@ -32,7 +32,7 @@ function moveFocus(event: KeyboardEvent<HTMLElement>) {
  * folder, in its project; not this plugin's agents, nor archived ones. Choosing one sends there from now on; Start a
  * fresh thread here starts one, which does.
  */
-function ChangeMainThread({ current, onChanged, label }: { current: string | null; onChanged: () => void; label?: string }) {
+function ChangeMainThread({ current, onChanged }: { current: string | null; onChanged: () => void }) {
   const { targetKey, review } = useWorkspace();
   const rpc = useRpc<typeof rpcContract>();
   const [open, setOpen] = useState(false);
@@ -57,8 +57,7 @@ function ChangeMainThread({ current, onChanged, label }: { current: string | nul
   }
   return <Popover open={open} onOpenChange={setOpen}>
     <PopoverTrigger asChild>
-      {label ? <Button variant="outline" size="sm" className={TOUCH_CONTROL}>{label}</Button>
-        : <Button variant="ghost" size="sm" className={cn("h-7 shrink-0 px-2 text-xs text-muted-foreground", TOUCH_CONTROL)}>Change<span className="sr-only"> main thread</span></Button>}
+      <Button variant="ghost" size="sm" className={cn("h-7 shrink-0 px-2 text-xs text-muted-foreground", TOUCH_CONTROL)}>Change<span className="sr-only"> main thread</span></Button>
     </PopoverTrigger>
     <PopoverContent align="end" mobileTitle="Change main thread" className="w-72 p-1">
       <div role="menu" aria-label="Change main thread" className="flex flex-col">
@@ -136,10 +135,7 @@ export function MainThreadPanel({ active, reviewId }: { active: boolean; reviewI
   const [view, setView] = useState<"chat" | "not-pushed">("chat");
   useEffect(() => { if (take()) setView("not-pushed"); }, [take]);
   const showing = unpushed ? view : "chat";
-  const notice = (text: string, change = false) => <div role="status" className="m-3 space-y-2 rounded-lg border border-border bg-muted/25 p-3 text-sm text-muted-foreground">
-    <p>{text}</p>
-    {change && active && <ChangeMainThread current={null} onChanged={reload} label="Choose a thread" />}
-  </div>;
+  const notice = (text: string) => <p role="status" className="m-3 rounded-lg border border-border bg-muted/25 p-3 text-sm text-muted-foreground">{text}</p>;
   return <section aria-label="Main thread" className="flex h-full min-h-0 flex-1 flex-col">
     <div className="flex h-11 shrink-0 items-center gap-2 border-b border-border pl-3 pr-1.5">
       <Icon name="Code" className="size-4 text-primary" aria-hidden />
@@ -150,7 +146,7 @@ export function MainThreadPanel({ active, reviewId }: { active: boolean; reviewI
     {unpushed && <ViewTabs targetKey={targetKey} view={showing} onView={setView} />}
     {showing === "not-pushed" ? <div id={`${targetKey}-main-not-pushed`} role="tabpanel" aria-label="Not pushed yet" className="flex min-h-0 flex-1 flex-col"><NotPushed targetKey={targetKey} active={active} /></div>
       : thread === undefined ? <p role="status" className="p-3 text-sm text-muted-foreground">Loading the main thread…</p>
-      : thread === null ? notice("This review has no main thread yet. Choose the thread working on the change, or run bb review in it, and your Sends go there.", true)
+      : thread === null ? notice("This review has no main thread yet. Run bb review in the thread working on the change, and your Sends go there.")
       : thread.state === "gone" ? notice("The main thread was deleted. Your next Send starts a fresh thread, or choose another with Change.")
       : <>
         {thread.state === "archived" && <p role="status" className="shrink-0 border-b border-warning/20 bg-warning/10 px-3 py-2 text-xs text-warning-text">This thread is archived. Your next Send offers to unarchive it or start a fresh thread, or choose another with Change.</p>}
