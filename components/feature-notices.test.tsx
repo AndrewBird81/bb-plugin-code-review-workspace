@@ -178,9 +178,9 @@ test("other threads editing the folder: the first named, the rest listed from â€
   slot.lifecycle.unmount();
 });
 
-test("a review that isn't of a folder, or became its PR's, asks nothing about one", async () => {
+test("a review that isn't of a folder, or became its PR's and lost its folder, asks nothing about one", async () => {
   const checkFeature = vi.fn(() => nothing);
-  const pr = await renderWorkspace({ checkFeature }, { ...local, kind: "pr", repo: "acme/api", number: 7, headSha: "c0ffee" });
+  const pr = await renderWorkspace({ checkFeature }, { ...local, kind: "pr", repo: "acme/api", number: 7, headSha: "c0ffee", feature: { ...feature, folderGone: true } });
   await new Promise((resolve) => setTimeout(resolve, 50));
   pr.slot.lifecycle.unmount();
   cleanup();
@@ -231,6 +231,22 @@ test("after Update, a guide written before it says so, after Changed, with Rewri
   const included = await renderWorkspace({ checkFeature: () => nothing }, { ...local, feature: { ...feature, guideOlderThanDiff: "include" } });
   expect(await included.slot.findByText("The guide was written before you changed which files are shown.")).toBeTruthy();
   included.slot.lifecycle.unmount();
+});
+
+test("a PR's review whose folder has files not on GitHub yet says how many, with Review them; paused, it offers only a New review", async () => {
+  const pr = { ...local, kind: "pr", repo: "acme/api", number: 7, headSha: "c0ffee", ownPr: true };
+  const { slot } = await renderWorkspace({ checkFeature: () => ({ ...nothing, state: "ahead", aheadFiles: 3 }) }, pr);
+  const text = "3 files in the folder arenâ€™t on GitHub yet.";
+  await slot.findByText(text);
+  expect(notice(slot, text).querySelector("svg")?.getAttribute("data-icon")).toBe("FileDiff");
+  expect(within(notice(slot, text)).getByRole("button", { name: "Review them" })).toBeTruthy();
+  slot.lifecycle.unmount();
+  cleanup();
+  const paused = await renderWorkspace({ checkFeature: () => ({ ...nothing, state: "paused", branch: "bb/fix-docs-thr_cd34" }) }, pr);
+  const shown = await paused.slot.findByRole("status", { name: "Review paused" });
+  expect(within(shown).getByRole("button", { name: "New review for fix-docs" })).toBeTruthy();
+  expect(within(shown).queryByRole("button", { name: "Follow fix-docs" })).toBeNull();
+  paused.slot.lifecycle.unmount();
 });
 
 test("while the page shows a local review, its branch's PR is looked for every 30 seconds; not on a PR's review, nor while hidden", async () => {

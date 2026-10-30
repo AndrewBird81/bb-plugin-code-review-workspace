@@ -138,6 +138,8 @@ export interface MainThreadName { threadId: string; title: string | null; machin
 
 /** The `activeId` of the review's Overview, which comes before its chapters. */
 export const OVERVIEW = "overview";
+/** The `activeId` of Not pushed yet, after the chapters: what a PR's review's folder has that GitHub doesn't. */
+export const NOT_PUSHED_PAGE = "not-pushed";
 
 const WorkspaceContext = createContext<WorkspaceApi | null>(null);
 

@@ -13,7 +13,7 @@ import { notRunReason } from "../lib/trust";
 import { cn } from "../lib/utils";
 import { experimental_useCodeTheme } from "@get-bb/plugin-sdk/app";
 import { getCommentsFolded, getGithubThreadsInCode, getHideWhitespace, getNavOpen, getNavView, getNavWidth, getPanelWidth, getReviewState, getWrapLines, patchReviewState, setCommentsFolded, setGithubThreadsInCode, setHideWhitespace, setNavOpen as saveNavOpen, setNavView, setNavWidth as saveNavWidth, setPanelWidth as savePanelWidth, setWrapLines, type NavView, type PanelView, type SideView } from "../lib/panel-state";
-import { OVERVIEW, WorkspaceProvider, type WorkspaceApi } from "../lib/workspace-context";
+import { NOT_PUSHED_PAGE, OVERVIEW, WorkspaceProvider, type WorkspaceApi } from "../lib/workspace-context";
 import { currentFileOf, publishReviewTitle, setCurrentFile as storeCurrentFile, takeAskedComment, useAskedComment, useCurrentFile, useReviewInUse, useTabShown } from "../lib/workspace-store";
 import { reviewIdentity } from "../lib/review-identity";
 import { NAV_WIDTH, PANEL_WIDTH, READER_MIN, panelDockWidth, useWorkspaceLayout, type LayoutState } from "../lib/workspace-layout";
@@ -771,8 +771,8 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   useRealtime("gh-account", () => {
     void checkAccess();
   });
-  // A local review's folder: changed, on another branch, offline or gone, and who else works there.
-  const featureNotices = useFeatureNotices(targetKey, review, load);
+  // A local review's folder: changed, on another branch, offline or gone, and who else works there; a PR's, what's not pushed yet.
+  const featureNotices = useFeatureNotices(targetKey, review, load, () => setActiveId(NOT_PUSHED_PAGE));
   // A fixer's branch, once BB removed its folder.
   const branchKept = useBranchKeptNotices(targetKey, review, load);
 

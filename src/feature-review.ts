@@ -10,6 +10,7 @@ import { featureKey, prReviewKey, targetKey } from "./targets";
 import { beginGuide, guideWriterUnavailable, stopGuide } from "./generate";
 import { pruneDiffs } from "./feedback-view";
 import { readPrSnapshot } from "./pr-snapshot";
+import { prHead } from "./own-pr";
 import { ensureGitHeaders } from "./patch";
 import { machineStatus } from "./machines";
 import { identityIn, placeFacts, remoteRepo } from "./review-places";
@@ -299,9 +300,13 @@ export async function runFeatureCommand(deps: Deps, command: FeatureCommand, ctx
 
 /** What a feature review's page says about its folder. */
 export interface FeatureCheck {
-  /** current: as the review shows it. changed: `changedFiles` differ. paused: on `branch`. offline, gone, unavailable: `message`. */
-  state: "current" | "changed" | "paused" | "offline" | "gone" | "unavailable";
+  /**
+   * current: as the review shows it. changed: `changedFiles` differ. ahead: a PR's review whose folder has `aheadFiles`
+   * not on GitHub yet. paused: on `branch`. offline, gone, unavailable: `message`.
+   */
+  state: "current" | "changed" | "ahead" | "paused" | "offline" | "gone" | "unavailable";
   changedFiles?: number;
+  aheadFiles?: number;
   branch?: string | null;
   message?: string;
   /** Other threads working in the folder: not the main thread, nor its subagents. */
@@ -484,8 +489,8 @@ export async function checkFeature(deps: Deps, key: string): Promise<FeatureChec
   const empty: FeatureCheck = { state: "current", alsoActive: [], hidden: [], flagged: [] };
   if (!review) return empty;
   const { feature } = review;
-  // Once it's a PR's review, the PR says what changed.
-  if (review.kind !== "ref") return empty;
+  // Once it's a PR's review, the PR says what changed, and its folder what isn't pushed yet.
+  if (review.kind !== "ref") return review.kind === "pr" && !feature.folderGone ? checkPrFolder(deps, review, empty) : empty;
   // A 1.8.0 link to its PR's own review: merged with it now, or offered.
   const linked = feature.prReview ? await store.getReview(feature.prReview) : null;
   if (linked?.repo && linked.number && await becomePr(deps, key, { repo: linked.repo, number: linked.number }) !== "skipped") return checkFeature(deps, key);
@@ -543,6 +548,25 @@ export async function checkFeature(deps: Deps, key: string): Promise<FeatureChec
     if (saved) deps.changed(key);
   }
   return changed ? { ...withOthers, state: "changed", changedFiles: changed } : withOthers;
+}
+
+/**
+ * A PR's review's folder, read against the PR's head as GitHub last said, with no GitHub call: gone, paused and offline
+ * as a local review's, and how many files in it aren't on GitHub yet.
+ */
+async function checkPrFolder(deps: Deps, review: ReviewMeta & { feature: FeatureReview }, empty: FeatureCheck): Promise<FeatureCheck> {
+  const { feature } = review;
+  const sha = prHead(review);
+  if (!sha) return empty;
+  const read = await readFeatureRevisions(deps.bb, { environmentId: feature.environmentId, machine: feature.machine, repo: null, baseRef: sha, workBranch: folderBranchOf(feature) });
+  if (read.outcome === "gone") {
+    if (await deps.store.exclusive(async (tx) => { const now = featureOf(await tx.getReview(review.targetKey)); return !!now && await markFolderGone(tx, now); })) deps.changed(review.targetKey);
+    return { ...empty, state: "gone", message: read.message };
+  }
+  if (read.outcome === "paused") return { ...empty, state: "paused", branch: read.branch };
+  if (read.outcome !== "available") return { ...empty, state: read.outcome, message: read.message };
+  const ahead = Object.keys(read.revisions).length;
+  return ahead ? { ...empty, state: "ahead", aheadFiles: ahead } : empty;
 }
 
 /**

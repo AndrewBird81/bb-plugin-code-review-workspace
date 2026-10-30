@@ -263,7 +263,7 @@ export function register(deps: ServeDeps) {
     const reviews = await store.listReviews();
     if (thread.environmentId) {
       for (const review of reviews) {
-        if (review.kind !== "ref" || !review.feature || review.mainThread?.threadId !== thread.id || review.feature.folderGone) continue;
+        if (!review.feature || review.mainThread?.threadId !== thread.id || review.feature.folderGone) continue;
         await checkFeature(deps, review.targetKey).catch(() => {});
         bb.realtime.publish(`folder:${review.targetKey}`, { ts: Date.now() });
       }

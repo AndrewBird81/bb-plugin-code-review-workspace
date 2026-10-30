@@ -54,22 +54,24 @@ function MoreThreads({ threads, onOpen }: { threads: FeatureCheck["alsoActive"];
  * review followed its renamed branch, with Got it; its machine is offline;
  * it changed, with Update; its guide is older than what Update last showed, with Rewrite guide; committed files that look like secrets, with Got it; its PR's (PrNotices.tsx),
  * which a PR's review has too; files it keeps out, each secret named on its own button; and the other threads editing
- * it. Asked on open, and again when the review or its folder changes. `onChanged` reloads the review.
+ * it. A PR's review whose folder is still there says what in it isn't on GitHub yet, with Review them (`onNotPushed`).
+ * Asked on open, and again when the review or its folder changes. `onChanged` reloads the review.
  */
-export function useFeatureNotices(targetKey: string, review: (Reviewed & PrReviewed) | null, onChanged: () => void): Notice[] {
+export function useFeatureNotices(targetKey: string, review: (Reviewed & PrReviewed) | null, onChanged: () => void, onNotPushed: () => void): Notice[] {
   const rpc = useRpc<typeof rpcContract>();
   const navigate = useBbNavigate();
   const localDiffChanges = useKnob("localDiffChanges");
   const container = useFullscreenPortalContainer();
   const prNotices = usePrNotices(targetKey, review, onChanged);
   const local = !!review?.feature && review.kind === "ref";
+  const attached = local || !!review?.feature && review.kind === "pr" && !review.feature.folderGone;
   const [read, setRead] = useState<{ targetKey: string; check: FeatureCheck } | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const ask = useCallback(() => {
-    if (!local) return;
+    if (!attached) return;
     // Without an answer there's nothing to say.
     rpc.call("checkFeature", { targetKey }).then((check) => setRead({ targetKey, check }), () => {});
-  }, [rpc, targetKey, local]);
+  }, [rpc, targetKey, attached]);
   useEffect(ask, [ask, localDiffChanges]);
   useRealtime(`review:${targetKey}`, ask);
   useRealtime(`folder:${targetKey}`, ask);
@@ -80,7 +82,7 @@ export function useFeatureNotices(targetKey: string, review: (Reviewed & PrRevie
     const timer = setInterval(() => { if (document.visibilityState === "visible") rpc.call("checkPr", { targetKey }).catch(() => {}); }, 30_000);
     return () => clearInterval(timer);
   }, [rpc, targetKey, local]);
-  const check = local && read?.targetKey === targetKey ? read.check : null;
+  const check = attached && read?.targetKey === targetKey ? read.check : null;
   if (!check || !review?.feature) return prNotices;
   const { feature } = review;
 
@@ -111,7 +113,7 @@ export function useFeatureNotices(targetKey: string, review: (Reviewed & PrRevie
   // Each with one action, its icon and the action on the text's first line however it wraps.
   const notices: Notice[] = [];
   const add = (notice: Notice) => notices.push({ firstLine: true, ...notice });
-  if (check.state === "gone") {
+  if (check.state === "gone" && local) {
     const archived = !!review.archivedAt || !!review.userArchivedAt;
     // Its main thread worked there: the next Send starts a fresh thread from the branch (src/loop.ts).
     const fresh = !archived && (!review.mainThread || review.mainThread.environmentId === feature.environmentId);
@@ -133,7 +135,7 @@ export function useFeatureNotices(targetKey: string, review: (Reviewed & PrRevie
       // A detached HEAD has no branch to review. A fresh thread's worktree's branch isn't the review's to follow.
       ...check.branch ? { action: existing
         ? button("branch", `Open ${short} review`, () => navigate.toPluginPanel("review", { subPath: existing }), { warning: true })
-        : feature.workBranch ? start
+        : feature.workBranch || !local ? start
         : <span className="flex flex-wrap gap-1">
           {button("follow", `Follow ${short}`, () => void act("follow", () => rpc.call("followFolderBranch", { targetKey }), "Couldn’t follow that branch."), { warning: true })}
           {start}
@@ -149,6 +151,12 @@ export function useFeatureNotices(targetKey: string, review: (Reviewed & PrRevie
     add(check.state === "offline"
       ? { id: "folder-unread", tone: "info", icon: "WifiOff", label: "Machine offline", text: `${feature.machine} is offline. This is the folder as last read.`, action: checkAgain }
       : { id: "folder-unread", tone: "warning", icon: "AlertTriangle", text: check.message ?? "Couldn’t read the folder.", action: checkAgain });
+  }
+  if (check.state === "ahead") {
+    const n = check.aheadFiles ?? 1;
+    add({ id: "folder-ahead", tone: "info", icon: "FileDiff", label: "Not pushed yet",
+      text: `${files(n)} in the folder ${n === 1 ? "isn’t" : "aren’t"} on GitHub yet.`,
+      action: button("not-pushed", "Review them", onNotPushed) });
   }
   if (check.state === "changed" && localDiffChanges) {
     add({ id: "folder-changed", tone: "info", icon: "FileDiff", label: "Folder changed",

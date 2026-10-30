@@ -351,6 +351,28 @@ test("a PR whose head has another name than the folder's branch makes the review
   expect(review.feature).toMatchObject({ branch: "feat/qa", remoteBranch: "feat/nice" });
 });
 
+test("a PR's review with its folder says how many files there aren't on GitHub yet, read against the PR's head with no GitHub call; paused and offline as a local review", async () => {
+  const s = setup({ files: [{ path: "src/a.ts", body: BODY }, { path: "src/b.ts" }] });
+  await run(s, "main");
+  await settled(s);
+  s.view.headRefOid = "c0ffee".padEnd(40, "0");
+  Object.assign(s.folder, { prBase: "main", pr: { number: 7, url: "https://github.com/acme/api/pull/7", headRefName: "feat/qa" } });
+  await checkFeature(s.deps, key);
+  expect((await s.store.getReview(key))?.kind).toBe("pr");
+  const gh = s.ghCalls.length;
+  s.calls.length = 0;
+  expect(await checkFeature(s.deps, key)).toMatchObject({ state: "ahead", aheadFiles: 2, alsoActive: [] });
+  expect(s.calls.find((call) => call.method === "files")?.input.target.mergeBaseBranch).toBe(s.view.headRefOid);
+  expect(s.ghCalls).toHaveLength(gh);
+  s.folder.files.length = 0;
+  expect((await checkFeature(s.deps, key)).state).toBe("current");
+  s.folder.env = { branchName: "feat/other" };
+  expect(await checkFeature(s.deps, key)).toMatchObject({ state: "paused", branch: "feat/other" });
+  s.folder.env = {};
+  s.folder.connected = false;
+  expect((await checkFeature(s.deps, key)).state).toBe("offline");
+});
+
 test("once it's the PR's, the review answers to its old id as to its new one: bb review opens it as it is, and ready, comment and summary find it", async () => {
   const s = setup();
   await plugin(s.bb);
