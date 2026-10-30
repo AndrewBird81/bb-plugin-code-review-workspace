@@ -344,8 +344,8 @@ export function register(deps: ServeDeps) {
   } satisfies Partial<RpcHandlers>;
   const changedDraft = (targetKey: string) => bb.realtime.publish(`draft:${targetKey}`, {});
   const commands = {
-    comment: (args, _ctx, ownReview) => runCommentCommand(store, args, changedDraft, ownReview),
-    summary: (args, _ctx, ownReview) => runSummaryCommand(store, args, changedDraft, ownReview),
+    comment: (args, _ctx, ownReview) => runCommentCommand(store, bb, args, changedDraft, ownReview),
+    summary: (args, _ctx, ownReview) => runSummaryCommand(store, bb, args, changedDraft, ownReview),
   } satisfies Subcommands;
   return { handlers, commands, submit };
 }

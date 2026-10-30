@@ -1,7 +1,8 @@
 import { NOT_OWN_REVIEW } from "./review-command";
 import { BODY_LIMIT, firstGuideRefusal } from "./comment-command";
 import { verdictPicked, type Verdict } from "./draft";
-import { parseTarget, prReviewKey } from "./targets";
+import type { BbPluginApi } from "@get-bb/plugin-sdk";
+import { reviewNamed } from "./targets";
 import { describeSummary, writeSummary } from "./draft-summary";
 import type { AsyncStore } from "./store-queue";
 
@@ -10,7 +11,7 @@ export const SUMMARY_USAGE = [
   "       bb review summary <review> --body <text> [--suggest APPROVE|COMMENT|REQUEST_CHANGES]",
   "",
   "Shows or writes the review summary in a review's local draft in this bb. Nothing is posted to GitHub; the reviewer picks the verdict and submits the draft from Code Review Workspace.",
-  "  <review>   a GitHub PR URL, or a review key (pr-…, ref-…)",
+  "  <review>   the review's id (web#12, api:feat-x), a GitHub PR URL, or a review key (pr-…, ref-…)",
   "  --body     the summary, in GitHub Markdown, up to 65,000 characters; quote it for your shell. A summary the reviewer wrote stays theirs",
   "  --suggest  the verdict you'd suggest; the reviewer picks",
   "  --json     show the summary, who wrote it, and the verdicts as JSON",
@@ -23,7 +24,7 @@ const usage = (problem: string): CliResult => ({ exitCode: 2, stderr: `${problem
 
 /** `bb review summary …`: show or write a review's summary as an agent. `changed` runs after a successful change.
  * `ownReview`, set when a review's own agent runs it, refuses every other review. */
-export async function runSummaryCommand(store: AsyncStore, argv: string[], changed: (targetKey: string) => void, ownReview?: string): Promise<CliResult> {
+export async function runSummaryCommand(store: AsyncStore, bb: BbPluginApi, argv: string[], changed: (targetKey: string) => void, ownReview?: string): Promise<CliResult> {
   return store.exclusive(async (tx) => {
     const positional: string[] = [];
     const values: { body?: string; suggest?: string; json?: string } = {};
@@ -46,10 +47,10 @@ export async function runSummaryCommand(store: AsyncStore, argv: string[], chang
     const suggest = values.suggest?.toUpperCase();
     if (suggest !== undefined && !VERDICTS.includes(suggest)) return usage("--suggest is APPROVE, COMMENT, or REQUEST_CHANGES.");
 
-    const target = parseTarget(positional[0]);
-    const key = target.kind === "pr" && target.repo ? await prReviewKey(tx, { repo: target.repo, number: target.number }) : positional[0].trim();
-    if (ownReview !== undefined && key !== ownReview) return { exitCode: 2, stderr: NOT_OWN_REVIEW };
-    if (!await tx.getReview(key)) return { exitCode: 1, stderr: `No saved review for ${positional[0]}. Pass the PR's URL or the review's key.` };
+    const named = await reviewNamed(tx, bb, positional[0]);
+    if (ownReview !== undefined && named?.targetKey !== ownReview) return { exitCode: 2, stderr: NOT_OWN_REVIEW };
+    if (!named) return { exitCode: 1, stderr: `No saved review for ${positional[0]}. Pass its id, the PR's URL or the review's key.` };
+    const key = named.targetKey;
     if (values.body === undefined) {
       if (values.json === undefined) return { exitCode: 0, stdout: await describeSummary(tx, key) };
       const draft = await tx.getDraft(key);

@@ -14,7 +14,7 @@ import { ensureGitHeaders } from "./patch";
 import { machineStatus } from "./machines";
 import { identityIn, placeFacts, remoteRepo } from "./review-places";
 import { defaultName } from "../lib/review-name";
-import { reviewIdentity } from "../lib/review-identity";
+import { localIdOf } from "../lib/review-identity";
 import { assistantReview } from "./draft-comments";
 import { formerWorkerReview } from "./former-workers";
 import { parsePrLink } from "../lib/pr-link";
@@ -402,7 +402,7 @@ export async function becomePr(deps: Deps, key: string, pr: { repo: string; numb
     if (await tx.getReview(targetKey({ kind: "pr", ...pr }))) return "link" as const;
     const { pr: read } = snapshot;
     // Named as it was, for the notice that says what it became.
-    const from = reviewIdentity({ ...review, place: { repo: review.feature.repo ?? undefined } }).id;
+    const from = localIdOf(review);
     const previous = await tx.patch(key);
     const next = ensureGitHeaders(snapshot.patch);
     await tx.savePatch(key, next);

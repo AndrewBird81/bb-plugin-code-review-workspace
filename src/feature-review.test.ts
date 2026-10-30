@@ -4,7 +4,7 @@ import { afterEach, expect, test, vi } from "vitest";
 vi.mock("./gh", async (orig) => ({ ...(await orig<any>()), runGh: vi.fn(async () => ({ stdout: "", stderr: "no GitHub here", code: 1 })) }));
 import { runReviewCommand } from "./review-command";
 import { becomePr, checkFeature, updateFeature } from "./feature-review";
-import { featureKey, prReviewKey, targetKey } from "./targets";
+import { featureKey, prReviewKey, reviewNamed, targetKey } from "./targets";
 import { folderHost, type Folder } from "./env-diff.test-support";
 import { testStore } from "./test-store.test-support";
 import { changedFiles, splitPatchByFile } from "./patch";
@@ -284,6 +284,36 @@ test("a PR whose head has another name than the folder's branch makes the review
   const review = (await s.store.getReview(key))!;
   expect(review).toMatchObject({ kind: "pr", number: 7, head: "feat/nice" });
   expect(review.feature).toMatchObject({ branch: "feat/qa", remoteBranch: "feat/nice" });
+});
+
+test("once it's the PR's, the review answers to its old id as to its new one: bb review opens it as it is, and ready, comment and summary find it", async () => {
+  const s = setup();
+  await plugin(s.bb);
+  await run(s, "main");
+  await settled(s);
+  Object.assign(s.folder, { prBase: "main", pr: { number: 7, url: "https://github.com/acme/api/pull/7", headRefName: "feat/qa" } });
+  await checkFeature(s.deps, key);
+  expect(await s.store.getReview(key)).toMatchObject({ kind: "pr", number: 7 });
+  const reads = s.ghCalls.length;
+  for (const id of ["api:feat/qa", "API#7", key]) {
+    // Not a git ref: the review, opened as it is, nothing read again.
+    expect(await run(s, "other", [id]), id).toEqual({ exitCode: 0, stdout: expect.stringMatching(new RegExp(`^Opened the review of api#7 "Snooze flaky checks for a day" \\(${key}\\), as it was; nothing was rebuilt\\.`)) });
+    expect(JSON.parse((await s.harness.behavior.runCli(["comment", "list", id, "--json"])).stdout).review, id).toBe(key);
+    expect(JSON.parse((await s.harness.behavior.runCli(["summary", id, "--json"])).stdout).review, id).toBe(key);
+    expect(await s.harness.behavior.runCli(["ready", id]), id).toMatchObject({ exitCode: 0, stdout: "No comments from api#7 are out with a thread, so there's nothing to finish." });
+  }
+  expect(s.ghCalls).toHaveLength(reads);
+  expect(await s.harness.behavior.runCli(["comment", "list", "api:feat/other"])).toMatchObject({ exitCode: 1, stderr: "No saved review for api:feat/other. Pass its id, the PR's URL or the review's key." });
+});
+
+test("of two reviews one old id names, one not archived opens, then the newer", async () => {
+  const s = setup();
+  const review = (targetKey: string, createdAt: number, archivedAt?: number) => s.store.saveReview({ targetKey, kind: "ref", gitRef: "feat/qa", status: "ready", createdAt, ...archivedAt ? { archivedAt } : {} } as any)
+    .then(() => s.store.setLifecycle(targetKey, { feature: { environmentId: "env1", hostId: "host_max", machine: "MaxBook", path: "/Users/me/src/api", branch: "feat/qa", baseRef: "main", repo: "acme/api" }, ...archivedAt ? { archivedAt } : {} }));
+  await review("br-old", 1);
+  await review("br-new", 3, 4);
+  await review("br-mid", 2);
+  expect((await reviewNamed(s.store, s.bb, "api:feat/qa"))?.targetKey).toBe("br-mid");
 });
 
 test("a PR opened while the guide is being written makes the review the PR's at once; the guide goes on", async () => {

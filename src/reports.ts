@@ -10,7 +10,7 @@ import type { ReviewMeta, SendEntry } from "./store";
 import type { AsyncStore } from "./store-queue";
 import { fixesState, reportedText } from "../lib/fixes";
 import { settleFixes } from "./fix-tally";
-import { parseTarget, prReviewKey } from "./targets";
+import { reviewNamed } from "./targets";
 import { identityIn, placeFacts } from "./review-places";
 import { checkFeature } from "./feature-review";
 import { refusedFromAgents } from "./relays";
@@ -185,14 +185,11 @@ export function register(deps: ServeDeps) {
     let review: ReviewMeta | undefined;
     if (args[0]) {
       const given = args[0].trim();
-      const target = parseTarget(given);
-      const key = target.kind === "pr" && target.repo ? await prReviewKey(store, { repo: target.repo, number: target.number }) : given;
-      // Or by its id, as the Send's first line names it.
-      const sent = all.filter((r) => r.sends?.length);
-      const ids = await idsOf(sent);
-      review = all.find((r) => r.targetKey === key) ?? sent.find((r) => ids.get(r.targetKey)?.toLowerCase() === given.toLowerCase());
+      // Or by its id, as the Send's first line names it, which may be the one it had before it became its PR's.
+      review = await reviewNamed(store, bb, given) ?? undefined;
       if (!review) {
-        const out = sent.filter((r) => fixesState(r));
+        const out = all.filter((r) => r.sends?.length && fixesState(r));
+        const ids = await idsOf(out);
         return { exitCode: 1, stderr: `No review ${given}. ${out.length ? `Reviews with comments out: ${out.map((r) => ids.get(r.targetKey)).join(", ")}.` : "No review has comments out."} Give its id as the message that sent you its comments names it, or its key.` };
       }
     } else {

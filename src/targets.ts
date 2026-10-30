@@ -1,5 +1,9 @@
 import { createHash } from "node:crypto";
+import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import { parsePrLink } from "../lib/pr-link";
+import { localIdOf, reviewIdentity } from "../lib/review-identity";
+import { placeFacts, reviewPlaces } from "./review-places";
+import type { ReviewMeta } from "./store";
 import type { AsyncStore } from "./store-queue";
 
 export type ReviewTarget =
@@ -42,4 +46,32 @@ export async function prReviewKey(store: Pick<AsyncStore, "getReview" | "listRev
     const url = `https://github.com/${pr.repo.toLowerCase()}/pull/${pr.number}`;
     return (await tx.listReviews()).find((review) => review.kind === "pr" && review.url && parsePrLink(review.url)?.url === url)?.targetKey ?? key;
   });
+}
+
+/**
+ * The review `given` names, as every command takes it: its key; a PR's link or owner/repo#n; its id as the review shows
+ * it, api#4512 or api:feat; or a folder's review's id from before it became its PR's (localIdOf). Of the reviews an id
+ * names, one not archived, then the newest. Null for none.
+ */
+export async function reviewNamed(store: AsyncStore, bb: BbPluginApi, given: string): Promise<ReviewMeta | null> {
+  const text = given.trim();
+  if (!text) return null;
+  const keyed = await store.getReview(text);
+  if (keyed) return keyed;
+  const link = parsePrLink(text);
+  if (link) return store.getReview(await prReviewKey(store, link));
+  const all = await store.listReviews();
+  const places = reviewPlaces(await placeFacts(bb, all), all);
+  const archived = (review: ReviewMeta) => Number(!!(review.archivedAt || review.userArchivedAt));
+  // Each id in turn: a merged review's former ids (mergedFrom[].id) go after these, and a tombstone found leads on to
+  // the review it was merged into.
+  const ids: Array<(review: ReviewMeta) => string | null> = [
+    (review) => reviewIdentity({ ...review, place: places.get(review.targetKey) }).id,
+    (review) => review.feature ? localIdOf({ ...review, feature: review.feature }) : null,
+  ];
+  for (const idOf of ids) {
+    const named = all.filter((review) => idOf(review)?.toLowerCase() === text.toLowerCase());
+    if (named.length) return named.sort((a, b) => archived(a) - archived(b) || b.createdAt - a.createdAt)[0];
+  }
+  return null;
 }

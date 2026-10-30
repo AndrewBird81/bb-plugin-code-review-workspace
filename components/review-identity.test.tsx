@@ -6,7 +6,7 @@ import { cleanup, fireEvent, render as draw, renderHook, waitFor, within } from 
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import { defaultPreferences } from "../src/preferences";
 import { patchReviewState } from "../lib/panel-state";
-import { reviewIdentity } from "../lib/review-identity";
+import { localIdOf, reviewIdentity } from "../lib/review-identity";
 import { publishReviewTitle, useReviewTitle } from "../lib/workspace-store";
 import { bandFit, chipWidth } from "./reading/ReaderBar";
 import { ID_CHIP, ReviewIdChip } from "./ReviewIdChip";
@@ -258,6 +258,14 @@ test("a long repository's chip cuts only its name, never the PR's number, and sa
   expect(tail.className).not.toContain("truncate");
   // The band reserves the number whole, and the name at most 160px.
   expect(chipWidth(identity)).toBe(160 + Math.ceil(4 * 6.6) + 18);
+});
+
+test("a folder's review that became its PR's keeps its id from before, derived from its folder and branch", () => {
+  const feature = { branch: "bb/snooze-checks-thr_ab12", repo: "acme/api", path: "/Users/ana/src/api" };
+  expect(reviewIdentity({ targetKey: "br-1", kind: "pr", repo: "acme/api", number: 4512 }).id).toBe("api#4512");
+  expect(localIdOf({ targetKey: "br-1", feature })).toBe("api:snooze-checks");
+  // Without a repository, the folder names it, as it did.
+  expect(localIdOf({ targetKey: "br-1", feature: { ...feature, repo: null } })).toBe("api:snooze-checks");
 });
 
 test("two panes on one review keep its title until the last of them closes", () => {

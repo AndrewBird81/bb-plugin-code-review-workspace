@@ -1,5 +1,6 @@
 import { NOT_OWN_REVIEW } from "./review-command";
-import { parseTarget, prReviewKey } from "./targets";
+import type { BbPluginApi } from "@get-bb/plugin-sdk";
+import { reviewNamed } from "./targets";
 import { addComment, deleteComment, describeComments, editComment, listComments, type DraftResult } from "./draft-comments";
 import { SEVERITIES, type Severity } from "./draft";
 import type { AsyncStore } from "./store-queue";
@@ -11,7 +12,7 @@ export const COMMENT_USAGE = [
   "       bb review comment delete <review> <file>:<line> [--side LEFT|RIGHT]",
   "",
   "Changes a review's local draft in this bb. Nothing is posted to GitHub; the reviewer submits the draft from Code Review Workspace.",
-  "  <review>       a GitHub PR URL, or a review key (pr-…, ref-…)",
+  "  <review>       the review's id (web#12, api:feat-x), a GitHub PR URL, or a review key (pr-…, ref-…)",
   "  <file>:<line>  the line's number in the new file, or with --side LEFT, in the old file;",
   "                 <file>:<start>-<end> for lines in one hunk, where edit sets the comment's first line",
   "  --code         the line's text, without the diff's +, -, or space, or a range's lines, one per line;",
@@ -47,7 +48,7 @@ export async function firstGuideRefusal(store: AsyncStore, targetKey: string): P
 
 /** `bb review comment …`: list and change a review's draft comments. `changed` runs after a successful change.
  * `ownReview`, set when a review's own agent runs it, refuses every other review. */
-export async function runCommentCommand(store: AsyncStore, argv: string[], changed: (targetKey: string) => void, ownReview?: string): Promise<CliResult> {
+export async function runCommentCommand(store: AsyncStore, bb: BbPluginApi, argv: string[], changed: (targetKey: string) => void, ownReview?: string): Promise<CliResult> {
   return store.exclusive(async (tx) => {
     const [action, ...rest] = argv;
     if (action === "--help" || action === "-h") return { exitCode: 0, stdout: COMMENT_USAGE };
@@ -68,10 +69,10 @@ export async function runCommentCommand(store: AsyncStore, argv: string[], chang
     }
     if (positional.length !== (spec.location ? 2 : 1)) return usage(spec.location ? "Give the review and the comment's <file>:<line>." : "Give the review.");
 
-    const target = parseTarget(positional[0]);
-    const key = target.kind === "pr" && target.repo ? await prReviewKey(tx, { repo: target.repo, number: target.number }) : positional[0].trim();
-    if (ownReview !== undefined && key !== ownReview) return { exitCode: 2, stderr: NOT_OWN_REVIEW };
-    if (!await tx.getReview(key)) return { exitCode: 1, stderr: `No saved review for ${positional[0]}. Pass the PR's URL or the review's key.` };
+    const named = await reviewNamed(tx, bb, positional[0]);
+    if (ownReview !== undefined && named?.targetKey !== ownReview) return { exitCode: 2, stderr: NOT_OWN_REVIEW };
+    if (!named) return { exitCode: 1, stderr: `No saved review for ${positional[0]}. Pass its id, the PR's URL or the review's key.` };
+    const key = named.targetKey;
     if (action === "list") {
       return { exitCode: 0, stdout: values.json === undefined ? await describeComments(tx, key) : JSON.stringify({ review: key, comments: await listComments(tx, key) }, null, 2) };
     }
