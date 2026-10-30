@@ -617,9 +617,13 @@ test("two folders on one branch: the PR's review that began as the first folder'
   const feature = (environmentId: string, path: string) => ({ environmentId, hostId: "host_max", machine: "MaxBook", path, branch: "feat/qa", baseRef: "main", repo: "acme/api" });
   await s.store.saveReview({ targetKey: second, kind: "ref", gitRef: "feat/qa", status: "ready", createdAt: Date.now() });
   await s.store.setLifecycle(second, { feature: feature("env2", "/Users/me/src/api2"), mainThread: { threadId: "other2", environmentId: "env2", origin: "adopted", since: 1 } });
-  expect(await becomePr(s.deps, second, { repo: "acme/api", number: 7 })).toBe("merged");
+  // Its main thread's idle, Push's read after it and the poll can each find it at once: it merges once.
+  const found = await Promise.all([1, 2, 3].map(() => becomePr(s.deps, second, { repo: "acme/api", number: 7 })));
+  expect(found.sort()).toEqual(["merged", "skipped", "skipped"]);
   expect(await s.store.getReview(second)).toMatchObject({ kind: "ref", mergedInto: key, archivedAt: expect.any(Number) });
-  expect(await s.store.getReview(key)).toMatchObject({ kind: "pr", mainThread: { threadId: "main" }, implementers: [{ threadId: "other2" }], mergedFrom: [{ key: second, id: "api:feat/qa" }] });
+  const kept = (await s.store.getReview(key))!;
+  expect(kept).toMatchObject({ kind: "pr", mainThread: { threadId: "main" }, implementers: [{ threadId: "other2" }], mergedFrom: [{ key: second, id: "api:feat/qa" }] });
+  expect(kept.mergedFrom).toHaveLength(1);
 
   // With a comment of yours, it offers to go into it.
   const third = featureKey("env3", "feat/qa");

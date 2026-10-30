@@ -405,8 +405,7 @@ export async function becomePr(deps: Deps, key: string, pr: { repo: string; numb
     if (offered === "saved") deps.changed(key);
     if (offered) return "offered";
     if (intoPr || now.kind === "pr") {
-      await mergeReviews(deps, intoPr ? key : prKey, intoPr ? prKey : key);
-      return "merged";
+      return await mergeReviews(deps, intoPr ? key : prKey, intoPr ? prKey : key) ? "merged" : "skipped";
     }
   }
   if (now.kind !== "ref" || !clicked && now.prPending?.why === "older" && now.prPending.url.toLowerCase() === url.toLowerCase()) return "skipped";
@@ -473,8 +472,7 @@ export async function becomePr(deps: Deps, key: string, pr: { repo: string; numb
     });
     await pruneDiffs(tx, (await tx.getReview(key))!);
     if (!other) return "converted" as const;
-    await mergeIn(tx, prKey, key);
-    return "merged" as const;
+    return await mergeIn(tx, prKey, key) ? "merged" as const : "converted" as const;
   });
   if (done === "again") return becomePr(deps, key, pr, clicked);
   if (done === "converted" || done === "merged") {

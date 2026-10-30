@@ -38,15 +38,19 @@ const known = (review: ReviewMeta) => review.feature ? `the local review ${local
 
 /**
  * In the caller's block, `from` merged into `into`: what the review that stays says of it, once it became the PR's in
- * the same step, and what its agent is told, once, of the review it didn't know.
+ * the same step, and what its agent is told, once, of the review it didn't know. Returns whether it merged: not when
+ * either was merged already.
  */
-export async function mergeIn(tx: AsyncStore, from: string, into: string): Promise<void> {
+export async function mergeIn(tx: AsyncStore, from: string, into: string): Promise<boolean> {
   const [source, target] = [(await tx.getReview(from))!, (await tx.getReview(into))!];
-  const { moved, adopted } = await tx.mergeReview(from, into);
+  const merged = await tx.mergeReview(from, into);
+  if (!merged) return false;
+  const { moved, adopted } = merged;
   const review = (await tx.getReview(into))!;
   const note = review.number && review.url && await tx.getAssistantThread(into)
     ? { number: review.number, url: review.url, from: adopted ? "" : review.agentPrNote?.from ?? "", merged: adopted ? known(target) : known(source) } : null;
   await tx.setLifecycle(into, { ...review.became ? { became: { ...review.became, merged: moved } } : {}, ...note ? { agentPrNote: note } : {} });
+  return true;
 }
 
 /** After a merge: the review that stays is read from GitHub, its agent's thread named for it, and both pages told. */
@@ -57,9 +61,10 @@ export async function afterMerge(deps: Deps, from: string, into: string): Promis
   deps.changed(from);
 }
 
-/** Merge `from` into `into` now, a guide still being written for `from` stopped first. */
-export async function mergeReviews(deps: Deps, from: string, into: string): Promise<void> {
+/** Merge `from` into `into` now, a guide still being written for `from` stopped first. Returns whether it merged (mergeIn). */
+export async function mergeReviews(deps: Deps, from: string, into: string): Promise<boolean> {
   if ((await deps.store.getReview(from))?.status === "generating") await stopGuide(deps.bb, deps.store, from);
-  await deps.store.exclusive((tx) => mergeIn(tx, from, into));
-  await afterMerge(deps, from, into);
+  const merged = await deps.store.exclusive((tx) => mergeIn(tx, from, into));
+  if (merged) await afterMerge(deps, from, into);
+  return merged;
 }

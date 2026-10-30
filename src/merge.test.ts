@@ -103,7 +103,7 @@ const rows = async (sql: ReturnType<typeof testSql>, table: string, key: string)
 
 test("merging the PR's own review into the folder's moves every table's rows, or joins them, and leaves it archived, empty and pointing there", async () => {
   const { store, sql, current } = await setup();
-  const { moved, adopted } = await store.mergeReview(P, S);
+  const { moved, adopted } = (await store.mergeReview(P, S))!;
   expect(moved).toEqual({ comments: 4, summary: true, sends: 1, verdict: "REQUEST_CHANGES" });
   expect(adopted).toBe(false);
   const tables = new Set<string>();
@@ -191,7 +191,7 @@ test("merging the PR's own review into the folder's moves every table's rows, or
 
 test("a review with no agent of its own takes the other's conversation, which goes on there", async () => {
   const { store } = await setup({ agentOnBoth: false });
-  const { adopted } = await store.mergeReview(P, S);
+  const { adopted } = (await store.mergeReview(P, S))!;
   expect(adopted).toBe(true);
   expect(await store.getAssistantThread(S)).toBe("agent-p");
   expect(await store.getAssistantThread(P)).toBeNull();
@@ -210,6 +210,28 @@ test("a merge that fails partway changes nothing", async () => {
   expect(await store.getReview(S)).toEqual(before.review);
   expect(await store.getFileViews(S)).toEqual(before.views);
   expect((await store.getReview(P))?.mergedInto).toBeUndefined();
+});
+
+// Two triggers, or two windows' Merge the two, can reach the same merge at once.
+test("merging twice, at once or later, merges once: nothing is copied again, what moved is kept, and the agent is told once", async () => {
+  const { store } = await setup();
+  await store.setLifecycle(S, { became: { at: 1, number: 7, url: "https://github.com/acme/api/pull/7", from: "api:feat", carried: 2, local: 0, outside: 0 } });
+  const deps = { bb: createFakePluginHost({ pluginId: "code-review-workspace" }).bb, store, changed: vi.fn() };
+  expect(await Promise.all([mergeReviews(deps, P, S), mergeReviews(deps, P, S)])).toEqual([true, false]);
+  const merged = (await store.getReview(S))!;
+  expect(merged.mergedFrom).toHaveLength(1);
+  expect(merged.activity?.map((entry) => entry.at)).toEqual([40, 50, 60]);
+  expect(merged.became?.merged).toEqual({ comments: 4, summary: true, sends: 1, verdict: "REQUEST_CHANGES" });
+  // The agent took its note; merged again, it isn't told again.
+  expect(merged.agentPrNote).toMatchObject({ number: 7 });
+  await store.setLifecycle(S, { agentPrNote: null });
+  const draft = await store.getDraft(S);
+  expect(await mergeReviews(deps, P, S)).toBe(false);
+  expect(await store.getReview(S)).toMatchObject({ agentPrNote: null, mergedFrom: [{ key: P }], became: { merged: { comments: 4 } } });
+  expect(await store.getDraft(S)).toEqual(draft);
+  // Nor into a review that was itself merged away.
+  expect(await store.mergeReview("br-s", P)).toBeNull();
+  expect((await store.getReview(S))?.mergedInto).toBeUndefined();
 });
 
 test("what's left of a merged review: its page opens the one it went into, Archive says so, its ids and link lead there, and its agent's tools say where the reviewer went", async () => {

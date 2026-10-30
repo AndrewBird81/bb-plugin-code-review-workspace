@@ -466,9 +466,9 @@ export interface Store extends AgentCommentStore {
    * Merge review `from` into `into`, in one transaction: its comments follow their lines onto `into`'s diff, its Sends
    * number on after `into`'s, and its summary, notes, viewed marks and what it knows of the PR join `into`'s; its
    * agent's conversation becomes `into`'s when `into` has none (`adopted`). `from` is left archived and empty, pointing
-   * at `into`. Returns what it took.
+   * at `into`. Returns what it took; null, changing nothing, when either was merged into a review already.
    */
-  mergeReview(from: string, into: string): Promise<{ moved: MergeNote; adopted: boolean }>;
+  mergeReview(from: string, into: string): Promise<{ moved: MergeNote; adopted: boolean } | null>;
   savePatch(targetKey: string, patch: string): Promise<void>;
   patch(targetKey: string): Promise<string>;
   /** Whether the review has a diff stored; pruneOldDiffs drops it. */
@@ -897,6 +897,8 @@ export function storeOn(sql: Sql): Store {
       return sql.transaction(async () => {
         const source = await this.getReview(from), target = await this.getReview(into);
         if (!source || !target || from === into) throw new Error("Review not found.");
+        // Merged already: another trigger, or another window's click, got here first.
+        if (source.mergedInto || target.mergedInto) return null;
         // A guide still being written for it ends, with its earlier guide back.
         await this.interruptGeneration(from);
         const now = Date.now();
