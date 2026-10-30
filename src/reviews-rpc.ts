@@ -112,7 +112,9 @@ export function register(deps: ServeDeps) {
         if (review?.agentReads && review.agentReads.head !== await agentReadsHead(tx, targetKey)) review.agentReads = null;
         // The PR's own review names the folder's review offering to merge with it (src/merge.ts), and its comments.
         const offering = all.find((other) => other.kind === "ref" && !other.archivedAt && (other.prOffer?.key ?? other.feature?.prReview) === targetKey);
-        if (review && offering) review.localReview = { targetKey: offering.targetKey, id: identityIn(facts, all, offering).id, comments: (await tx.getDraft(offering.targetKey)).comments.length };
+        if (review && offering) {
+          review.localReview = { targetKey: offering.targetKey, id: identityIn(facts, all, offering).id, comments: (await tx.getDraft(offering.targetKey)).comments.length, ...offering.prOffer?.intoPr ? { intoPr: true } : {} };
+        }
         return { review, guide: await tx.getGuide(targetKey),
           patch: revision === knownRevision ? null : await tx.patch(targetKey), revision,
           ...(diffError ? { diffError } : {}) };

@@ -530,7 +530,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     try {
       // Views come with the diff, so viewed files are folded before it first draws.
       const known = shownPatch?.targetKey === targetKey ? shownPatch : null;
-      const [{ review, guide, patch: sent, revision, diffError }, viewsRes, generatedRes, settings] = await Promise.all([
+      const [{ review, guide, patch: sent, revision, diffError, mergedInto }, viewsRes, generatedRes, settings] = await Promise.all([
         rpc.call("getReviewBundle", { targetKey, ...(known ? { knownRevision: known.revision } : {}) }),
         rpc.call("getFileViews", { targetKey }).catch(() => null),
         // Like views, so files the repo marks generated are folded before the diff draws.
@@ -539,6 +539,12 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
         Promise.race([settledRef.current.finally(() => clearTimeout(settingsWait)), new Promise<ReviewPreferences>((resolve) => { settingsWait = setTimeout(() => resolve(settingsFallback), SETTINGS_WAIT_MS); })]),
       ]);
       if (id !== request.current) return;
+      // Merged into another review (src/merge.ts): that one opens in its place.
+      if (mergedInto) {
+        toast.info(`This review is part of ${mergedInto.id} now.`);
+        navigateRef.current.toPluginPanel("review", { subPath: mergedInto.targetKey, replace: true });
+        return;
+      }
       if (accessRetry.current) {
         accessRetry.current = false;
         void checkAccess();
@@ -1530,7 +1536,8 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     ...fixNotices,
     ...branchKept,
     ...pushNotices,
-    ...(became?.targetKey === targetKey ? [{ id: "became-pr", tone: "info", icon: "GitPullRequest", text: `This review is now ${became.to}, the PR’s. It was ${became.from}; your comments came with it.`,
+    // One that stores its notice (1.9.0, shell/PrNotices.tsx) says so there, and Got it there leaves it null.
+    ...(became?.targetKey === targetKey && review?.became === undefined ? [{ id: "became-pr", tone: "info", icon: "GitPullRequest", text: `This review is now ${became.to}, the PR’s. It was ${became.from}; your comments came with it.`,
       action: <Button variant="outline" size="sm" className={noticeButton} onClick={() => setBecame(null)}>Got it</Button> }] as const : []),
     ...(generatingReplacement ? [{ id: "updating", tone: "warning", icon: "Loading", busy: true, text: "Updating the guide for the new commits. Your current view and unsaved edits stay here.", ...(stopGenerating ? { action: <Button variant="outline" size="sm" className={noticeButton} disabled={stopping} onClick={() => void stopGuide()}>{stopping ? "Stopping…" : "Stop"}</Button> } : {}) }] as const : []),
     ...(review?.skippedRun && !archived ? [{ id: "not-run", tone: "warning", icon: "Lock", label: "Not run automatically", text: `${notRunReason(review, { unattendedAgents })}.`, action: <NotRunButton review={review} /> }] as const : []),

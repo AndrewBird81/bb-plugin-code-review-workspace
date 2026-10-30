@@ -15,6 +15,7 @@ import { Icon } from "../ui/icon";
 import { useFullscreenPortalContainer } from "../../lib/portal-scope";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover";
 import { REWRITE_GUIDE, type Notice } from "./ReviewNotices";
+import { usePrNotices, type PrReviewed } from "./PrNotices";
 
 /** The review, as far as its folder's notices read it. */
 interface Reviewed { kind?: "pr" | "ref"; status?: string; feature?: FeatureReview | null; mainThread?: Pick<MainThread, "environmentId"> | null; archivedAt?: number | null; userArchivedAt?: number | null; followed?: { branch: string } | null }
@@ -51,15 +52,16 @@ function MoreThreads({ threads, onOpen }: { threads: FeatureCheck["alsoActive"];
  * A local review's notices about its folder (src/feature-review.ts checkFeature), the most pressing first: BB removed
  * it; it's on another branch, which pauses the review, with Follow it or a New review for it, or Open its review; the
  * review followed its renamed branch, with Got it; its machine is offline;
- * it changed, with Update; its guide is older than what Update last showed, with Rewrite guide; committed files that look like secrets, with Got it; the review its PR had already; files it
- * keeps out, each secret named on its own button; and the other threads editing it. Asked on open, and again when the
- * review or its folder changes. `onChanged` reloads the review.
+ * it changed, with Update; its guide is older than what Update last showed, with Rewrite guide; committed files that look like secrets, with Got it; its PR's (PrNotices.tsx),
+ * which a PR's review has too; files it keeps out, each secret named on its own button; and the other threads editing
+ * it. Asked on open, and again when the review or its folder changes. `onChanged` reloads the review.
  */
-export function useFeatureNotices(targetKey: string, review: Reviewed | null, onChanged: () => void): Notice[] {
+export function useFeatureNotices(targetKey: string, review: (Reviewed & PrReviewed) | null, onChanged: () => void): Notice[] {
   const rpc = useRpc<typeof rpcContract>();
   const navigate = useBbNavigate();
   const localDiffChanges = useKnob("localDiffChanges");
   const container = useFullscreenPortalContainer();
+  const prNotices = usePrNotices(targetKey, review, onChanged);
   const local = !!review?.feature && review.kind === "ref";
   const [read, setRead] = useState<{ targetKey: string; check: FeatureCheck } | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -79,7 +81,7 @@ export function useFeatureNotices(targetKey: string, review: Reviewed | null, on
     return () => clearInterval(timer);
   }, [rpc, targetKey, local]);
   const check = local && read?.targetKey === targetKey ? read.check : null;
-  if (!check || !review?.feature) return [];
+  if (!check || !review?.feature) return prNotices;
   const { feature } = review;
 
   /** Run one notice's action; what went wrong shows as a toast, and the review reloads after one that worked. */
@@ -166,6 +168,7 @@ export function useFeatureNotices(targetKey: string, review: Reviewed | null, on
       text: check.flagged.length === 1 ? flaggedFileNotice(check.flagged[0]!) : `${listed(check.flagged, 3)} look like secrets and are committed. Check they belong in the repo.`,
       action: button("flagged", "Got it", () => void act("flagged", () => rpc.call("dismissFlagged", { targetKey, files: check.flagged }), "Couldn’t save that."), { warning: true }) });
   }
+  notices.push(...prNotices);
   // A secret goes to agents only from a button that names it: its name, whole, on the button; its path in the text, the
   // hover and the button's accessible name.
   for (const file of check.hidden.filter((hidden) => hidden.reason === "secret")) {
