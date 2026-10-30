@@ -19,7 +19,7 @@ export function openable(review: ReviewMeta | null): FolderReview | string {
   if (review.kind === "pr") return `This review is of ${review.repo ? `${review.repo}#${review.number}` : "a PR"} already, so there’s no PR to open.`;
   if (!review.feature) return "Only a local review of a folder’s branch opens a PR.";
   if (!review.feature.repo) return "This folder’s project has no GitHub repo, so there’s nowhere to open a PR.";
-  if (review.feature.prReview) return "This branch’s PR has a review of its own already. Open it from the notice on this review.";
+  if (review.feature.prReview || review.prOffer) return "This branch’s PR has a review of its own already. Merge the two from the notice on this review.";
   return review as FolderReview;
 }
 
@@ -80,7 +80,8 @@ export async function createPr(writes: GithubWrites, run: Run, pr: { repo: strin
 export async function becomeOpened(deps: Pick<ServeDeps, "bb" | "store" | "gh" | "sync" | "changed">, review: FolderReview, pr: { number: number }): Promise<string> {
   const became = await becomePr(deps, review.targetKey, { repo: review.feature.repo, number: pr.number }).catch(() => "skipped" as const);
   if (became === "converted") return "This review is now its review, with its comments.";
-  return became === "linked" ? "That PR has a review of its own, which this review links to." : "This review becomes the PR’s on its next check.";
+  if (became === "merged") return "This review is now its review, with its comments and those of the review it had.";
+  return became === "offered" ? "That PR has a review of its own: merge the two from the notice on this review." : "This review becomes the PR’s on its next check.";
 }
 
 export function register(deps: ServeDeps) {

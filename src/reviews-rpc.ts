@@ -9,7 +9,8 @@ import { NOT_LISTED, runListCommand } from "./list-command";
 import { createPrReview } from "./start-review";
 import { isAssistantAnswering } from "./agent";
 import { personalProjectId } from "./machines";
-import { placeFacts, reviewPlaces } from "./review-places";
+import { identityIn, placeFacts, reviewPlaces } from "./review-places";
+import { reviewIdentity } from "../lib/review-identity";
 import { agentReadsHead } from "./agent-reads";
 import { isMissingThread } from "./thread-errors";
 import { ghPrChecksJsonArgs, runGh, runGit } from "./gh";
@@ -62,7 +63,11 @@ export function register(deps: ServeDeps) {
     const reviews = all.map((review) => ownPrOf(review, login));
     const stacks = findStacks(reviews);
     const places = reviewPlaces(await placeFacts(bb, reviews), reviews);
-    return await Promise.all(reviews.map(async ({ reviewBodies: _bodies, agentReads: _reads, prConversation: _said, ...review }) => await decorate(review, options, stacks, places, titles)));
+    // Archive says which review one merged into another went to (src/merge.ts).
+    const idOf = (key: string) => { const into = reviews.find((review) => review.targetKey === key); return into ? reviewIdentity({ ...into, place: places.get(key) }).id : null; };
+    return await Promise.all(reviews.map(async ({ reviewBodies: _bodies, agentReads: _reads, prConversation: _said, ...review }) => ({
+      ...await decorate(review, options, stacks, places, titles), ...review.mergedInto ? { mergedIntoId: idOf(review.mergedInto) } : {},
+    })));
   };
   /** A review whose diff pruneOldDiffs dropped reads it again when it's opened; returns why it couldn't. */
   async function rereadPrunedDiff(targetKey: string): Promise<string | undefined> {
@@ -86,6 +91,13 @@ export function register(deps: ServeDeps) {
   }
   const handlers = {
     async getReviewBundle({ targetKey, knownRevision }) {
+      // One merged into another review opens that one (src/merge.ts).
+      const tombstone = await store.getReview(targetKey);
+      const into = tombstone?.mergedInto ? await store.getReview(tombstone.mergedInto) : null;
+      if (into) {
+        const all = await store.listReviews();
+        return { review: null, guide: null, patch: null, revision: "", mergedInto: { targetKey: into.targetKey, id: identityIn(await placeFacts(bb, all), all, into).id } };
+      }
       const diffError = await rereadPrunedDiff(targetKey);
       const { revision, found, listedNow } = await store.exclusive(async (tx) => ({ revision: await reviewRevision(tx, targetKey), found: await tx.getReview(targetKey), listedNow: await tx.listReviews() }));
       const owned = await withOwnPr(found);
@@ -98,6 +110,9 @@ export function register(deps: ServeDeps) {
         const review = owned && await decorate(owned, turnOptions((await tx.getPreferences()).preferences), stacks, reviewPlaces(facts, all), await guideTitles(tx, [owned]));
         // Reads of a local review's earlier diff don't count toward its rebuilt one, which the client can't tell apart.
         if (review?.agentReads && review.agentReads.head !== await agentReadsHead(tx, targetKey)) review.agentReads = null;
+        // The PR's own review names the folder's review offering to merge with it (src/merge.ts), and its comments.
+        const offering = all.find((other) => other.kind === "ref" && !other.archivedAt && (other.prOffer?.key ?? other.feature?.prReview) === targetKey);
+        if (review && offering) review.localReview = { targetKey: offering.targetKey, id: identityIn(facts, all, offering).id, comments: (await tx.getDraft(offering.targetKey)).comments.length };
         return { review, guide: await tx.getGuide(targetKey),
           patch: revision === knownRevision ? null : await tx.patch(targetKey), revision,
           ...(diffError ? { diffError } : {}) };

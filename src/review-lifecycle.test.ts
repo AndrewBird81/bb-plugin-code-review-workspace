@@ -1648,3 +1648,48 @@ test("with Include your own PRs off, discovery doesn't look for them", async () 
   expect(s.github.discover).toHaveBeenCalled();
   expect(s.github.ownPrs).not.toHaveBeenCalled();
 });
+
+test("the PR's own review merged into the folder's that became the PR's alerts nothing it already alerted, and isn't read again", async () => {
+  const s = await setup({ reviewed: true, preferences: { knobs: { ...defaultPreferences.knobs, prepareOnReturn: false } } });
+  await s.sync.all();
+  s.pr({ headSha: "sha2", commits: ["sha1", "sha2"], requests: [{ at: T0 + 0.1 * HOUR, by: "alice", via: "user" }] });
+  s.at(0.2);
+  await s.sync.all(true);
+  await vi.waitFor(() => expect(s.published).toHaveLength(1));
+  await s.store.saveReview({ targetKey: "br-1", kind: "pr", repo: "acme/web", number: 1, url: "https://github.com/acme/web/pull/1", headSha: "sha2", createdAt: 2, status: "ready", projectId: "p1" });
+  await s.store.mergeReview("pr-1", "br-1");
+  vi.mocked(s.github.facts).mockClear();
+  s.at(0.3);
+  await s.sync.all(true);
+  expect(vi.mocked(s.github.facts).mock.calls.flatMap(([refs]) => refs.map((ref) => ref.targetKey))).toEqual(["br-1"]);
+  expect(await s.sync.turnOf((await s.store.getReview("br-1"))!)).toMatchObject({ signal: `re-requested:${T0 + 0.1 * HOUR}` });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  expect(s.published).toHaveLength(1);
+});
+
+test("a 1.8.0 folder's review linked to your PR's review merges with it on discovery when that review has nothing of yours, else offers to", async () => {
+  const s = await setup();
+  await s.sync.all();
+  const { becomePr } = await import("./feature-review");
+  const { targetKey } = await import("./targets");
+  const view = (n: number) => ({ number: n, title: `Mine ${n}`, author: { login: "me" }, baseRefName: "main", headRefName: `feat/${n}`, url: `https://github.com/acme/web/pull/${n}`, headRefOid: "c0ffee", state: "OPEN" });
+  const runGh = vi.fn(async (args: string[]) => ({ code: 0, stderr: "", stdout: args[1] === "diff" ? "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1 +1 @@\n-a\n+b\n" : JSON.stringify(view(Number(args[2]))) }));
+  vi.mocked(s.actions.becomePr).mockImplementation((key, pr) => becomePr({ bb: s.bb, store: s.store, gh: { runGh, runGit: vi.fn() } as any, changed: vi.fn() }, key, pr));
+  const feature = (n: number, prReview: string) => ({ environmentId: "env1", hostId: "h1", machine: "MaxBook", path: "/src/web", branch: `feat/${n}`, baseRef: "main", repo: "acme/web", prReview });
+  // #4's review was found on GitHub and has nothing of yours; #1's has its agent's conversation.
+  const tracked = targetKey({ kind: "pr", repo: "acme/web", number: 4 });
+  await s.store.saveReview({ targetKey: tracked, kind: "pr", repo: "acme/web", number: 4, url: "https://github.com/acme/web/pull/4", status: "tracked", createdAt: 1 });
+  for (const [key, n, linked] of [["br-4", 4, tracked], ["br-1", 1, "pr-1"]] as const) {
+    await s.store.saveReview({ targetKey: key, kind: "ref", status: "ready", createdAt: 1, projectId: "p1" });
+    await s.store.setLifecycle(key, { feature: feature(n, linked) });
+  }
+  vi.mocked(s.github.ownPrs).mockResolvedValue([ownPr(4), ownPr(1)]);
+  s.at(1);
+  await s.sync.all(true);
+  expect(await s.store.getReview("br-4")).toMatchObject({ kind: "pr", number: 4 });
+  expect(await s.store.getReview(tracked)).toMatchObject({ mergedInto: "br-4", archivedAt: expect.any(Number) });
+  const offering = (await s.store.getReview("br-1"))!;
+  expect(offering).toMatchObject({ kind: "ref", prOffer: { key: "pr-1", number: 1 } });
+  expect(offering.feature?.prReview).toBeUndefined();
+  expect(await s.store.getReview("pr-1")).not.toHaveProperty("mergedInto");
+});

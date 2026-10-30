@@ -7,7 +7,7 @@
 import { createHash } from "node:crypto";
 import type { PluginAgentToolResult } from "@get-bb/plugin-sdk";
 import { z } from "zod";
-import { assistantReview } from "./draft-comments";
+import { assistantReview, mergedAway } from "./draft-comments";
 import { linesOf, postedBody, sameComments, VERDICT_LABEL, type CommentLocation, type DraftComment, type Verdict } from "./draft";
 import { writeSummary } from "./draft-summary";
 import { ghReplyThreadArgs, ghResolveThreadArgs, ghUnresolveThreadArgs, runGh } from "./gh";
@@ -98,6 +98,8 @@ export function register(deps: ServeDeps, { submit }: {
   async function reviewOf(threadId: string): Promise<Review | string> {
     const review = await reviewFor(threadId);
     if (!review) return "This conversation is no longer a review's agent.";
+    const away = await mergedAway(store, review.targetKey);
+    if (away) return away;
     if (review.kind !== "pr" || !review.repo || !review.number) return review.feature?.repo ? "This is a local review, with no PR yet: nothing in it goes to GitHub until open_pr opens its PR." : "This is a local review: nothing in it goes to GitHub.";
     return { ...review, repo: review.repo, number: review.number };
   }
@@ -598,7 +600,7 @@ export function register(deps: ServeDeps, { submit }: {
     async execute({ title, body = "", base: named, confirm: answer }, { threadId, signal }) {
       if (!await acting()) return failed(OFF);
       const found = await reviewFor(threadId);
-      const review = found ? openable(found) : "This conversation is no longer a review's agent.";
+      const review = found ? await mergedAway(store, found.targetKey) ?? openable(found) : "This conversation is no longer a review's agent.";
       if (typeof review === "string") return failed(review);
       // Opening a PR posts under the reviewer's name: a turn they didn't start opens none.
       const turn = await classify(threadId);

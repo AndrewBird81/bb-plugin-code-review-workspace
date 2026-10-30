@@ -1,7 +1,7 @@
 // The review assistant's tools on its own review's local draft: its comments, the summary, and replies in your discussions.
 import type { PluginAgentToolResult } from "@get-bb/plugin-sdk";
 import { z } from "zod";
-import { addComment, assistantReview, deleteComment, editComment, replyInDiscussion, REVIEWERS, type DraftResult } from "./draft-comments";
+import { addComment, assistantReview, deleteComment, editComment, mergedAway, replyInDiscussion, REVIEWERS, type DraftResult } from "./draft-comments";
 import { SEVERITIES, SUMMARY_AT } from "./draft";
 import { describeDraft, writeSummary } from "./draft-summary";
 import { describeRemovals, removalWarning } from "./learning";
@@ -27,7 +27,8 @@ export function register(deps: ServeDeps) {
   async function assistantDraft(threadId: string, changes: boolean, act: (tx: AsyncStore, targetKey: string) => Promise<DraftResult>): Promise<PluginAgentToolResult> {
     const { targetKey, result } = await store.exclusive(async (tx) => {
       const targetKey = await assistantReview(tx, threadId);
-      const result: DraftResult = targetKey ? await act(tx, targetKey) : { ok: false, error: "This conversation is no longer a review's assistant, so it has no draft." };
+      const away = await mergedAway(tx, targetKey);
+      const result: DraftResult = !targetKey ? { ok: false, error: "This conversation is no longer a review's assistant, so it has no draft." } : away ? { ok: false, error: away } : await act(tx, targetKey);
       return { targetKey, result };
     });
     if (!result.ok) return failed(result.error);

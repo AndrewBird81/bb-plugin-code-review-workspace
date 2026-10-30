@@ -166,9 +166,6 @@ export function useFeatureNotices(targetKey: string, review: Reviewed | null, on
       text: check.flagged.length === 1 ? flaggedFileNotice(check.flagged[0]!) : `${listed(check.flagged, 3)} look like secrets and are committed. Check they belong in the repo.`,
       action: button("flagged", "Got it", () => void act("flagged", () => rpc.call("dismissFlagged", { targetKey, files: check.flagged }), "Couldn’t save that."), { warning: true }) });
   }
-  if (check.prReview) {
-    add({ id: "pr-review", tone: "info", icon: "GitPullRequest", text: "This branch’s PR has a review of its own.", action: button("pr", "Open PR review", () => navigate.toPluginPanel("review", { subPath: check.prReview! })) });
-  }
   // A secret goes to agents only from a button that names it: its name, whole, on the button; its path in the text, the
   // hover and the button's accessible name.
   for (const file of check.hidden.filter((hidden) => hidden.reason === "secret")) {

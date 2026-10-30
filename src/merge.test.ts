@@ -1,10 +1,23 @@
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
+import { startPlugin } from "./plugin-store.test-support";
+import { prReviewKey, reviewNamed, targetKey } from "./targets";
+import { toolText } from "./fake-host.test-support";
+import { statusWhy } from "../lib/status-line";
+import { defaultKnobs } from "../lib/knobs";
 import { REVIEW_TABLES, storeOn, type ReviewLifecycle } from "./store";
 import { queueStore } from "./store-queue";
+import { mergeReviews } from "./merge";
 import { SUMMARY_AT, type DraftComment } from "./draft";
 import type { FeedbackThread } from "./github/types";
 import { testSql, testStore } from "./test-store.test-support";
+
+// The plugin reads GitHub as it starts: here it can't.
+vi.mock("./gh", async (original) => ({ ...await original<typeof import("./gh")>(), runGh: vi.fn(async () => ({ stdout: "", stderr: "no GitHub here", code: 1 })) }));
+vi.mock("./store-queue", async (original) => {
+  const actual = await original<typeof import("./store-queue")>();
+  return { ...actual, queueStore: vi.fn(actual.queueStore) };
+});
 
 const file = (lines: string[], header = "@@ -1,3 +1,4 @@") => ["diff --git a/a.ts b/a.ts", "--- a/a.ts", "+++ b/a.ts", header, ...lines, ""].join("\n");
 const GONE = "diff --git a/gone.ts b/gone.ts\n--- a/gone.ts\n+++ b/gone.ts\n@@ -1 +1 @@\n-old\n+new\n";
@@ -197,4 +210,35 @@ test("a merge that fails partway changes nothing", async () => {
   expect(await store.getReview(S)).toEqual(before.review);
   expect(await store.getFileViews(S)).toEqual(before.views);
   expect((await store.getReview(P))?.mergedInto).toBeUndefined();
+});
+
+test("what's left of a merged review: its page opens the one it went into, Archive says so, its ids and link lead there, and its agent's tools say where the reviewer went", async () => {
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: { threads: { get: async () => ({ archivedAt: null, deletedAt: null, status: "idle" }), update: async () => ({}) } } as any });
+  const store = await startPlugin(bb);
+  const prKey = targetKey({ kind: "pr", repo: "acme/api", number: 7 });
+  for (const [k, createdAt] of [[prKey, 1], [S, 2]] as const) {
+    await store.saveReview({ targetKey: k, kind: "pr", repo: "acme/api", number: 7, url: "https://github.com/acme/api/pull/7", title: "Snooze checks", status: "ready", createdAt });
+    await store.savePatch(k, PATCH_S);
+  }
+  await store.setAssistantThread(prKey, "agent-p");
+  await store.setAssistantThread(S, "agent-s");
+  await mergeReviews({ bb, store, changed: vi.fn() }, prKey, S);
+  // S's agent is told once, by its review tools' next answer if no message of the review's reaches it first.
+  const note = "This review is PR #7: https://github.com/acme/api/pull/7. Since your last turn it and the PR's other review were merged into one: the comments, summaries and Sends of both are here now. Treat it as that PR.";
+  const patchRead = async () => toolText(await harness.behavior.callAgentTool("read_review_patch", { targetKey: S }, { threadId: "agent-s" }));
+  expect(await patchRead()).toBe(`${note}\n\n${PATCH_S}`);
+  expect(await patchRead()).toBe(PATCH_S);
+
+  expect(await harness.behavior.callRpc("getReviewBundle", { targetKey: prKey })).toMatchObject({ review: null, mergedInto: { targetKey: S, id: "api#7" } });
+  const { reviews } = await harness.behavior.callRpc("listReviews", null) as { reviews: any[] };
+  expect(reviews.find((review: any) => review.targetKey === prKey)).toMatchObject({ mergedIntoId: "api#7", turn: { group: "archive", reason: "merged-into" } });
+  expect(statusWhy(reviews.find((review: any) => review.targetKey === prKey), defaultKnobs)?.text).toBe("Merged into api#7");
+  for (const named of [prKey, "api#7", "https://github.com/acme/api/pull/7"]) expect((await reviewNamed(store, bb, named))?.targetKey, named).toBe(S);
+  expect(await prReviewKey(store, { repo: "acme/api", number: 7 })).toBe(S);
+
+  const away = "This review was merged into `api#7`. The reviewer continues there.";
+  for (const [tool, input] of [["list_draft_comments", {}], ["read_review_patch", { targetKey: prKey }], ["list_feedback", {}]] as const) {
+    expect(toolText(await harness.behavior.callAgentTool(tool, input, { threadId: "agent-p" })), tool).toBe(away);
+  }
+  expect(toolText(await harness.behavior.callAgentTool("list_draft_comments", {}, { threadId: "agent-s" }))).not.toBe(away);
 });

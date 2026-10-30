@@ -17,6 +17,8 @@ export type TurnReason =
   | "own" | "new-comments"
   // A local review whose folder is on another branch, or that bb removed (src/feature-review.ts).
   | "paused" | "folder-gone"
+  // Merged into another review of its PR (src/merge.ts).
+  | "merged-into"
   | "ready-to-approve"
   // Comments sent to the thread that fixes them: waiting for its reports, or back to you (src/reports.ts).
   | "fixes-sent" | "fixes-ready" | "fixes-stopped";
@@ -107,6 +109,8 @@ export interface TurnInput {
   prState?: "OPEN" | "CLOSED" | "MERGED";
   archivedAt?: number | null;
   userArchivedAt?: number | null;
+  /** Merged into another review of its PR, which goes on (src/merge.ts). */
+  mergedInto?: string;
   submittedVerdict?: Verdict | null;
   submittedAt?: number | null;
   submittedHeadSha?: string | null;
@@ -195,6 +199,7 @@ export function computeTurn(review: TurnInput, options: TurnOptions = defaultTur
   const make = (group: TurnGroup, reason: TurnReason, label: string, extra: Partial<Turn> = {}): Turn =>
     ({ ...base, group, reason, label, ...extra });
 
+  if (review.mergedInto) return make("archive", "merged-into", "Merged into another review");
   if (review.prState === "MERGED") return make("archive", "merged", "Merged");
   // A local review whose folder bb removed, with nothing left open or sent (src/feature-review.ts).
   if (review.kind === "ref" && review.archivedAt && review.feature?.folderGone) return make("archive", "folder-gone", "Folder removed");

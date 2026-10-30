@@ -473,19 +473,120 @@ test("a branch whose PR merged or closed, or another repo's PR, leaves the revie
   expect(s.ghCalls).toEqual([]);
 });
 
-test("a PR that has a review already is linked, not converted", async () => {
+test("a PR whose own review has nothing of yours is merged into the folder's at once; one with your comments waits for your click", async () => {
   const s = setup();
   await run(s, "main");
   await settled(s);
   const prKey = targetKey({ kind: "pr", repo: "acme/api", number: 7 });
-  await s.store.saveReview({ targetKey: prKey, kind: "pr", repo: "acme/api", number: 7, status: "tracked", createdAt: 1 });
+  await s.store.saveReview({ targetKey: prKey, kind: "pr", repo: "acme/api", number: 7, url: "https://github.com/acme/api/pull/7", status: "tracked", createdAt: 1 });
+  await s.store.setLifecycle(prKey, { notifiedSignal: "requested:1", watchingSince: 1 });
   Object.assign(s.folder, { prBase: "main", pr: { number: 7, url: "https://github.com/acme/api/pull/7", headRefName: "feat/qa" } });
-  expect(await checkFeature(s.deps, key)).toMatchObject({ state: "current", prReview: prKey });
+  expect(await checkFeature(s.deps, key)).toMatchObject({ state: "current" });
+  expect(await s.store.getReview(key)).toMatchObject({ kind: "pr", number: 7, notifiedSignal: "requested:1", watchingSince: 1,
+    became: { number: 7, merged: { comments: 0, summary: false, sends: 0 } }, mergedFrom: [{ key: prKey, id: "api#7", agentThreadId: null }] });
+  expect(await s.store.getReview(prKey)).toMatchObject({ mergedInto: key, archivedAt: expect.any(Number) });
+  expect(await prReviewKey(s.store, { repo: "acme/api", number: 7 })).toBe(key);
+  expect(s.deps.changed).toHaveBeenCalledWith(prKey);
+
+  // The PR's review has your comment: the folder's offers to merge, and stays local, reading nothing of GitHub.
+  const t = setup();
+  await run(t, "main");
+  await settled(t);
+  await t.store.saveReview({ targetKey: prKey, kind: "pr", repo: "acme/api", number: 7, url: "https://github.com/acme/api/pull/7", status: "ready", createdAt: 1 });
+  await t.store.upsertDraftComment(prKey, { file: "src/a.ts", line: 2, side: "RIGHT", body: "Theirs" });
+  Object.assign(t.folder, { prBase: "main", pr: { number: 7, url: "https://github.com/acme/api/pull/7", headRefName: "feat/qa" } });
+  await checkFeature(t.deps, key);
+  expect(await t.store.getReview(key)).toMatchObject({ kind: "ref", prOffer: { key: prKey, number: 7, url: "https://github.com/acme/api/pull/7", moves: { comments: 1, summary: false, sends: 0 } } });
+  expect(t.ghCalls).toEqual([]);
+  // Asked again, it offers as it did, and changes nothing.
+  t.deps.changed.mockClear();
+  expect(await becomePr(t.deps, key, { repo: "acme/api", number: 7 })).toBe("offered");
+  expect(t.deps.changed).not.toHaveBeenCalled();
+  // Your click merges them: the PR's comment comes along, and the PR's review goes to Archive.
+  expect(await becomePr(t.deps, key, { repo: "acme/api", number: 7 }, "merge")).toBe("merged");
+  expect(await t.store.getReview(key)).toMatchObject({ kind: "pr", prOffer: null, became: { merged: { comments: 1, summary: false, sends: 0 } } });
+  expect((await t.store.getDraft(key)).comments.map((c) => c.body)).toEqual(["Theirs"]);
+  expect(await t.store.getReview(prKey)).toMatchObject({ mergedInto: key });
+});
+
+test("a 1.8.0 folder's review linked to its PR's review merges with it when read, or offers to", async () => {
+  const s = setup();
+  await run(s, "main");
+  await settled(s);
+  const prKey = targetKey({ kind: "pr", repo: "acme/api", number: 7 });
+  await s.store.saveReview({ targetKey: prKey, kind: "pr", repo: "acme/api", number: 7, url: "https://github.com/acme/api/pull/7", status: "ready", createdAt: 1 });
+  await s.store.saveReviewerNotes(prKey, "Mine", 0);
   const review = (await s.store.getReview(key))!;
-  expect(review.kind).toBe("ref");
-  expect(review.feature?.prReview).toBe(prKey);
-  expect(s.ghCalls).toEqual([]);
-  expect(await becomePr(s.deps, key, { repo: "acme/api", number: 7 })).toBe("linked");
+  await s.store.setLifecycle(key, { feature: { ...review.feature!, prReview: prKey } });
+  await checkFeature(s.deps, key);
+  const offered = (await s.store.getReview(key))!;
+  expect(offered).toMatchObject({ kind: "ref", prOffer: { key: prKey, moves: { comments: 0, summary: false, sends: 0 } } });
+  expect(offered.feature?.prReview).toBeUndefined();
+
+  // With nothing of yours, at once.
+  await s.store.saveReviewerNotes(prKey, "", 1);
+  await s.store.setLifecycle(key, { prOffer: null, feature: { ...offered.feature!, prReview: prKey } });
+  await checkFeature(s.deps, key);
+  expect(await s.store.getReview(key)).toMatchObject({ kind: "pr", number: 7 });
+  expect((await s.store.getReview(key))?.feature?.prReview).toBeUndefined();
+  expect(await s.store.getReview(prKey)).toMatchObject({ mergedInto: key });
+});
+
+test("two folders on one branch: the PR's review that began as the first folder's stays, and the second's goes into it", async () => {
+  const s = setup();
+  await run(s, "main");
+  await settled(s);
+  Object.assign(s.folder, { prBase: "main", pr: { number: 7, url: "https://github.com/acme/api/pull/7", headRefName: "feat/qa" } });
+  await checkFeature(s.deps, key);
+  expect(await s.store.getReview(key)).toMatchObject({ kind: "pr", number: 7 });
+  // A second folder's review of the branch, with nothing of yours, finds the PR.
+  const second = featureKey("env2", "feat/qa");
+  const feature = (environmentId: string, path: string) => ({ environmentId, hostId: "host_max", machine: "MaxBook", path, branch: "feat/qa", baseRef: "main", repo: "acme/api" });
+  await s.store.saveReview({ targetKey: second, kind: "ref", gitRef: "feat/qa", status: "ready", createdAt: Date.now() });
+  await s.store.setLifecycle(second, { feature: feature("env2", "/Users/me/src/api2"), mainThread: { threadId: "other2", environmentId: "env2", origin: "adopted", since: 1 } });
+  expect(await becomePr(s.deps, second, { repo: "acme/api", number: 7 })).toBe("merged");
+  expect(await s.store.getReview(second)).toMatchObject({ kind: "ref", mergedInto: key, archivedAt: expect.any(Number) });
+  expect(await s.store.getReview(key)).toMatchObject({ kind: "pr", mainThread: { threadId: "main" }, implementers: [{ threadId: "other2" }], mergedFrom: [{ key: second, id: "api:feat/qa" }] });
+
+  // With a comment of yours, it offers to go into it.
+  const third = featureKey("env3", "feat/qa");
+  await s.store.saveReview({ targetKey: third, kind: "ref", gitRef: "feat/qa", status: "ready", createdAt: Date.now() });
+  await s.store.setLifecycle(third, { feature: feature("env3", "/Users/me/src/api3") });
+  await s.store.upsertDraftComment(third, { file: "src/a.ts", line: 2, side: "RIGHT", body: "Mine" });
+  expect(await becomePr(s.deps, third, { repo: "acme/api", number: 7 })).toBe("offered");
+  expect(await s.store.getReview(third)).toMatchObject({ kind: "ref", prOffer: { key, intoPr: true } });
+});
+
+test("Merge the two works from either review's page; a PR opened before the review takes Make it PR #7's review, or Not this one", async () => {
+  const s = setup();
+  vi.mocked(runGh).mockImplementation(s.deps.gh.runGh as any);
+  await plugin(s.bb);
+  await run(s, "main");
+  await settled(s);
+  const prKey = targetKey({ kind: "pr", repo: "acme/api", number: 7 });
+  await s.store.saveReview({ targetKey: prKey, kind: "pr", repo: "acme/api", number: 7, url: "https://github.com/acme/api/pull/7", status: "ready", createdAt: 1 });
+  await s.store.upsertDraftComment(prKey, { file: "src/a.ts", line: 2, side: "RIGHT", body: "Theirs" });
+  expect(await becomePr(s.deps, key, { repo: "acme/api", number: 7 })).toBe("offered");
+  // From the PR's own review's page, Merge the two: the folder's stays.
+  expect(await s.harness.behavior.callRpc("mergeReviews", { targetKey: prKey })).toEqual({ ok: true, targetKey: key });
+  expect(await s.store.getReview(prKey)).toMatchObject({ mergedInto: key });
+  expect(await s.harness.behavior.callRpc("mergeReviews", { targetKey: key })).toMatchObject({ ok: false, error: "This review has no other review of its PR to merge with. Reload it." });
+
+  const t = setup();
+  vi.mocked(runGh).mockImplementation(t.deps.gh.runGh as any);
+  t.folder.answers = { workspaceStatus: () => ({ outcome: "available", workspace: { mergeBase: { aheadCount: 1, behindCount: 2, commits: [] } } }) };
+  await plugin(t.bb);
+  await run(t, "main");
+  await settled(t);
+  t.view.createdAt = new Date(Date.now() - 86_400_000).toISOString();
+  expect(await becomePr(t.deps, key, { repo: "acme/api", number: 7 })).toBe("skipped");
+  expect(await t.harness.behavior.callRpc("dismissPendingPr", { targetKey: key })).toEqual({ ok: true });
+  expect((await t.store.getReview(key))?.prPending).toMatchObject({ why: "older", declined: true });
+  // Found again, it stays declined.
+  expect(await becomePr(t.deps, key, { repo: "acme/api", number: 7 })).toBe("skipped");
+  expect((await t.store.getReview(key))?.prPending?.declined).toBe(true);
+  expect(await t.harness.behavior.callRpc("takePendingPr", { targetKey: key })).toEqual({ ok: true });
+  expect(await t.store.getReview(key)).toMatchObject({ kind: "pr", number: 7, prPending: null });
 });
 
 /** The sync, with your PR acme/api#7 of feat/qa found by its own search, converting through becomePr as the server does. */
@@ -516,16 +617,18 @@ test("your PR found on GitHub turns the review of its folder and branch into the
   expect(await prReviewKey(s.store, { repo: "acme/api", number: 7 })).toBe(key);
 });
 
-test("your PR found on GitHub that has a review already links the folder's review to it", async () => {
+test("your PR found on GitHub whose review has nothing of yours is merged into the folder's review", async () => {
   const s = setup();
   await run(s, "main");
   await settled(s);
   const prKey = targetKey({ kind: "pr", repo: "acme/api", number: 7 });
   await s.store.saveReview({ targetKey: prKey, kind: "pr", repo: "acme/api", number: 7, url: "https://github.com/acme/api/pull/7", status: "tracked", createdAt: 1 });
   await ownPrSync(s).all(true);
+  expect(await s.store.getReview(key)).toMatchObject({ kind: "pr", number: 7 });
+  expect(await s.store.getReview(prKey)).toMatchObject({ mergedInto: key, archivedAt: expect.any(Number) });
+  // Discovery still knows the PR's own key: it isn't added again.
+  await ownPrSync(s).all(true);
   expect((await s.store.listReviews()).map((r) => r.targetKey).sort()).toEqual([key, prKey].sort());
-  expect((await s.store.getReview(key))).toMatchObject({ kind: "ref", feature: expect.objectContaining({ prReview: prKey }) });
-  expect(s.ghCalls).toEqual([]);
 });
 
 test("bb removing the folder: a review that became a PR's goes on; a local one waits for its sent comments, else goes to Archive", async () => {

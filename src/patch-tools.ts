@@ -6,15 +6,19 @@ import { readGeneratedFiles } from "./file-contents";
 import { recordAgentReads } from "./agent-reads";
 import { runGh, runGit } from "./gh";
 import { toolThreadReview } from "./thread-review";
+import { mergedAway } from "./draft-comments";
 import { withPrNote } from "./agent";
 import { failed, type ServeDeps } from "./server-modules";
 
 export function register(deps: ServeDeps) {
   const { bb, store } = deps;
-  /** Why a thread may not read `targetKey`'s diff: only a review's own assistant or guide writer may. Null when it may. */
+  /**
+   * Why a thread may not read `targetKey`'s diff: only a review's own assistant or guide writer may, and not once the review
+   * was merged into another. Null when it may.
+   */
   async function notOwnReview(threadId: string, targetKey: string): Promise<string | null> {
     const own = await toolThreadReview(bb, store, threadId);
-    return own === targetKey ? null : `This conversation can read only its own review's diff${own ? `, targetKey ${own}` : ""}.`;
+    return own === targetKey ? await mergedAway(store, own) : `This conversation can read only its own review's diff${own ? `, targetKey ${own}` : ""}.`;
   }
   bb.agents.registerTool({
     name: "read_review_patch",

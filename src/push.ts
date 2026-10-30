@@ -11,7 +11,7 @@ import { mainThreadLink } from "./loop";
 import { callGit, diffFilesHead, isSecretPath } from "./env-diff";
 import { fenced, header, placed } from "./fix-handoff";
 import { ghErrorMessage, type runGh } from "./gh";
-import { assistantReview } from "./draft-comments";
+import { assistantReview, mergedAway } from "./draft-comments";
 import type { Turn } from "./asking";
 import { reviewIdentity } from "../lib/review-identity";
 import { behindText, mismatchText, pushAnywayOffered, pushFlagText, NOT_PUSHED, nothingToPush, plainText, pushCommand, pushTarget, type PushTarget } from "../lib/push";
@@ -482,6 +482,8 @@ export function register(deps: ServeDeps) {
     execute: async ({ force, at }, { threadId }) => {
       const targetKey = await store.exclusive((tx) => assistantReview(tx, threadId));
       if (!targetKey) return failed("This conversation is no longer a review's assistant, so it has nothing to push.");
+      const away = await mergedAway(store, targetKey);
+      if (away) return failed(away);
       if (!(await store.getPreferences()).preferences.knobs.reviewAgentActs) return failed("Settings has the review agent only draft now, so nothing was pushed. The reviewer can use Push in Finish review.");
       // Pushes happen when the reviewer says so, in the review: never on a relay, nor in a turn the plugin started.
       const turn = await classify(threadId).catch((): Turn => ({ asking: "unattended", message: null }));

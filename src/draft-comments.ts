@@ -5,6 +5,7 @@ import { isSummary, linesOf, postedBody, rangeOf, sameLocation, severityOf, type
 import { diffPositions, rangeProblem } from "./review-positions";
 import { asked } from "./asks";
 import type { AsyncStore } from "./store-queue";
+import { reviewIdentity } from "../lib/review-identity";
 
 /** A comment's location as callers give it; side defaults to RIGHT. */
 export interface LocationInput { file: string; line: number; side?: "LEFT" | "RIGHT" }
@@ -30,6 +31,13 @@ const where = (at: CommentLocation & RangeInput) => isSummary(at) ? "the review 
 /** The review whose assistant conversation this thread is. */
 export async function assistantReview(store: AsyncStore, threadId: string): Promise<string | null> {
   return (await store.listAssistantThreads()).find((thread) => thread.threadId === threadId)?.targetKey ?? null;
+}
+
+/** What a review agent's tools answer once its review was merged into another, where the reviewer goes on; null otherwise. */
+export async function mergedAway(store: Pick<AsyncStore, "getReview">, targetKey: string | null): Promise<string | null> {
+  const review = targetKey ? await store.getReview(targetKey) : null;
+  const into = review?.mergedInto ? await store.getReview(review.mergedInto) : null;
+  return into ? `This review was merged into \`${reviewIdentity(into).id}\`. The reviewer continues there.` : null;
 }
 
 export function unchangeable(review: ReviewMeta | null): string | null {

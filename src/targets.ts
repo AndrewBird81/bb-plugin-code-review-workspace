@@ -39,41 +39,46 @@ export function featureKey(environmentId: string, branch: string, n?: number): s
 }
 
 /**
- * The key of the saved review of a PR: its own, else, for a renamed or transferred repository, the one the sync keeps
- * under the old name with the PR's new link. The PR's own key when neither is saved.
+ * The key of the saved review of a PR: its own, else, for a renamed or transferred repository, or a folder's review that
+ * became the PR's, the one with the PR's link. One merged into another review is that one's. The PR's own key when
+ * none is saved.
  */
 export async function prReviewKey(store: Pick<AsyncStore, "getReview" | "listReviews" | "exclusive">, pr: { repo: string; number: number }): Promise<string> {
   return store.exclusive(async (tx) => {
     const key = targetKey({ kind: "pr", ...pr });
-    if (await tx.getReview(key)) return key;
+    const own = await tx.getReview(key);
+    if (own) return own.mergedInto && await tx.getReview(own.mergedInto) ? own.mergedInto : key;
     const url = `https://github.com/${pr.repo.toLowerCase()}/pull/${pr.number}`;
-    return (await tx.listReviews()).find((review) => review.kind === "pr" && review.url && parsePrLink(review.url)?.url === url)?.targetKey ?? key;
+    const linked = (await tx.listReviews()).filter((review) => review.kind === "pr" && review.url && parsePrLink(review.url)?.url === url);
+    return (linked.find((review) => !review.mergedInto) ?? linked[0])?.targetKey ?? key;
   });
 }
 
 /**
  * The review `given` names, as every command takes it: its key; a PR's link or owner/repo#n; its id as the review shows
- * it, api#4512 or api:feat; or a folder's review's id from before it became its PR's (localIdOf). Of the reviews an id
- * names, one not archived, then the newest. Null for none.
+ * it, api#4512 or api:feat; a folder's review's id from before it became its PR's (localIdOf); or the id of a review
+ * merged into it. One merged into another names that one. Of the reviews an id names, one not archived, then the
+ * newest. Null for none.
  */
 export async function reviewNamed(store: AsyncStore, bb: BbPluginApi, given: string): Promise<ReviewMeta | null> {
   const text = given.trim();
   if (!text) return null;
-  const keyed = await store.getReview(text);
-  if (keyed) return keyed;
+  const all = await store.listReviews();
+  const merged = (review: ReviewMeta) => review.mergedInto ? all.find((into) => into.targetKey === review.mergedInto) ?? review : review;
+  const keyed = all.find((review) => review.targetKey === text);
+  if (keyed) return merged(keyed);
   const link = parsePrLink(text);
   if (link) return store.getReview(await prReviewKey(store, link));
-  const all = await store.listReviews();
   const places = reviewPlaces(await placeFacts(bb, all), all);
   const archived = (review: ReviewMeta) => Number(!!(review.archivedAt || review.userArchivedAt));
-  // Each id in turn: a merged review's former ids (mergedFrom[].id) go after these, and a tombstone found leads on to
-  // the review it was merged into.
-  const ids: Array<(review: ReviewMeta) => string | null> = [
-    (review) => reviewIdentity({ ...review, place: places.get(review.targetKey) }).id,
-    (review) => review.feature ? localIdOf({ ...review, feature: review.feature }) : null,
+  // Each id in turn.
+  const ids: Array<(review: ReviewMeta) => Array<string | null>> = [
+    (review) => [reviewIdentity({ ...review, place: places.get(review.targetKey) }).id],
+    (review) => [review.feature ? localIdOf({ ...review, feature: review.feature }) : null],
+    (review) => review.mergedFrom?.map((from) => from.id) ?? [],
   ];
   for (const idOf of ids) {
-    const named = all.filter((review) => idOf(review)?.toLowerCase() === text.toLowerCase());
+    const named = [...new Set(all.filter((review) => idOf(review).some((id) => id?.toLowerCase() === text.toLowerCase())).map(merged))];
     if (named.length) return named.sort((a, b) => archived(a) - archived(b) || b.createdAt - a.createdAt)[0];
   }
   return null;

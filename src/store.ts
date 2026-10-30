@@ -267,7 +267,10 @@ export interface FeatureReview {
    * was on was removed, which the review then reads. `branch` stays what the review pushes to.
    */
   workBranch?: string;
-  /** The key of the review its branch's PR already had when the PR was found: this one links to it instead of becoming it. */
+  /**
+   * 1.8.0: the key of the review its branch's PR already had when the PR was found, which this one linked to. Read once
+   * (src/feature-review.ts checkFeature): the two merge, or this one offers to (`prOffer`). Never written again.
+   */
   prReview?: string;
   /** The branch's name on GitHub, its PR's head, when it isn't `branch`: pushed as HEAD:feat/nice, or renamed. */
   remoteBranch?: string;

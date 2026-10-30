@@ -7,7 +7,7 @@ import { reanchorDraft, type FeatureReview, type MainThread, type ReviewLifecycl
 import type { AsyncStore } from "./store-queue";
 import { diffFilesHead, folderHas, folderHasBranch, folderHead, isNotFound, isSecretPath, readFeatureDiff, readFeatureRevisions, type FeatureDiff, type FolderPr, type HiddenFile } from "./env-diff";
 import { featureKey, prReviewKey, targetKey } from "./targets";
-import { beginGuide, guideWriterUnavailable } from "./generate";
+import { beginGuide, guideWriterUnavailable, stopGuide } from "./generate";
 import { pruneDiffs } from "./feedback-view";
 import { readPrSnapshot } from "./pr-snapshot";
 import { ensureGitHeaders } from "./patch";
@@ -17,6 +17,7 @@ import { defaultName } from "../lib/review-name";
 import { localIdOf } from "../lib/review-identity";
 import { assistantReview } from "./draft-comments";
 import { retitleAssistant } from "./agent";
+import { hasUserContent, mergeIn, mergeReviews, movesOf } from "./merge";
 import { formerWorkerReview } from "./former-workers";
 import { parsePrLink } from "../lib/pr-link";
 import type { EventListeners, RpcHandlers, ServeDeps } from "./server-modules";
@@ -194,10 +195,11 @@ export const folderBranchOf = (feature: Pick<FeatureReview, "branch" | "workBran
 
 /**
  * Whether the review keyed for its folder and `branch` is no longer that branch's: it followed the folder onto another,
- * or it became a PR's that merged, or closed and went to Archive, and the branch is used again for new work.
+ * or it became a PR's that merged, or closed and went to Archive, and the branch is used again for new work; or it was
+ * merged into another review of its PR.
  */
 const movedOn = (review: ReviewMeta, branch: string) => !!review.feature && folderBranchOf(review.feature) !== branch
-  || review.kind === "pr" && (review.prState === "MERGED" || review.prState === "CLOSED" && !!review.archivedAt);
+  || review.kind === "pr" && (review.prState === "MERGED" || review.prState === "CLOSED" && !!review.archivedAt) || !!review.mergedInto;
 
 /**
  * The review of a folder at the branch it's on, by where the review reads it (folderBranchOf), as the thread pages'
@@ -295,7 +297,7 @@ export async function runFeatureCommand(deps: Deps, command: FeatureCommand, ctx
   return { exitCode: 0, stdout: lines.join("\n") };
 }
 
-/** What a feature review's page says about its folder, and the review its PR had already, if any. */
+/** What a feature review's page says about its folder. */
 export interface FeatureCheck {
   /** current: as the review shows it. changed: `changedFiles` differ. paused: on `branch`. offline, gone, unavailable: `message`. */
   state: "current" | "changed" | "paused" | "offline" | "gone" | "unavailable";
@@ -307,7 +309,6 @@ export interface FeatureCheck {
   /** Files the review keeps out, and committed files that look like secrets you haven't said Got it to. */
   hidden: HiddenFile[];
   flagged: string[];
-  prReview?: string;
   /** Paused: the review the folder's branch has already, if any. */
   branchReview?: string;
 }
@@ -366,27 +367,41 @@ function prOfBranch(feature: FeatureReview, pr: FolderPr | undefined): { repo: s
  * The review of a folder becomes its branch's PR's, `pr`: the same review, now of the PR, its diff the PR's at its head,
  * the comments moved with their lines, and no guide writer. Its folder stays, for what isn't pushed yet; the PR is
  * yours, and the sync reads it at once. A PR opened before the review, whose head the folder doesn't have, waits for
- * your click, as one GitHub didn't answer for waits for the next check (`prPending`). When the PR already has a review
- * of its own, this one links to it instead. Returns which, or "skipped" when it can't now.
+ * your click (`clicked` "pr"), as one GitHub didn't answer for waits for the next check (`prPending`). When the PR has
+ * a review of its own already, the two merge (src/merge.ts): this one stays, unless the PR's began as another folder's,
+ * and the one that goes is merged in at once when it has nothing of yours, else on your click (`clicked` "merge"), which
+ * this review offers (`prOffer`). Returns which, or "skipped" when it can't now.
  */
-export async function becomePr(deps: Deps, key: string, pr: { repo: string; number: number }): Promise<"converted" | "linked" | "skipped"> {
+export async function becomePr(deps: Deps, key: string, pr: { repo: string; number: number }, clicked?: "pr" | "merge"): Promise<"converted" | "merged" | "offered" | "skipped"> {
   const { bb, store, gh } = deps;
-  const link = async (prKey: string) => {
-    const linked = await store.exclusive(async (tx) => {
-      const review = featureOf(await tx.getReview(key));
-      if (!review || review.feature.prReview === prKey) return false;
-      await tx.setLifecycle(key, { feature: { ...review.feature, prReview: prKey } });
-      return true;
-    });
-    if (linked) deps.changed(key);
-    return "linked" as const;
-  };
   const prKey = await prReviewKey(store, pr);
-  if (prKey !== key && await store.getReview(prKey)) return link(prKey);
   // A guide being written goes on: it's checked against the diff as it is when it's done, the PR's.
   const now = featureOf(await store.getReview(key));
   const url = `https://github.com/${pr.repo}/pull/${pr.number}`;
-  if (!now || now.kind !== "ref" || now.prPending?.why === "older" && now.prPending.url.toLowerCase() === url.toLowerCase()) return "skipped";
+  if (!now || now.mergedInto) return "skipped";
+  const other = prKey !== key ? await store.getReview(prKey) : null;
+  if (other) {
+    // Two folders on one branch: the PR's review that began as the other folder's stays, and this one goes into it.
+    const intoPr = !!other.feature;
+    const offered = clicked !== "merge" && await store.exclusive(async (tx) => {
+      const [review, theirs] = [featureOf(await tx.getReview(key)), await tx.getReview(prKey)];
+      if (!review || !theirs || !await hasUserContent(tx, intoPr ? review : theirs)) return null;
+      const offer = { key: prKey, number: pr.number, url, moves: await movesOf(tx, theirs), ...intoPr ? { intoPr: true as const } : {} };
+      // Offered once, as it stands; a 1.8.0 link to the PR's review is offered so too.
+      if (JSON.stringify(review.prOffer) !== JSON.stringify(offer) || review.feature.prReview) {
+        await tx.setLifecycle(key, { prOffer: offer, feature: { ...review.feature, prReview: undefined } });
+        return "saved";
+      }
+      return "kept";
+    });
+    if (offered === "saved") deps.changed(key);
+    if (offered) return "offered";
+    if (intoPr || now.kind === "pr") {
+      await mergeReviews(deps, intoPr ? key : prKey, intoPr ? prKey : key);
+      return "merged";
+    }
+  }
+  if (now.kind !== "ref" || !clicked && now.prPending?.why === "older" && now.prPending.url.toLowerCase() === url.toLowerCase()) return "skipped";
   /** Kept as found and not become, once per PR and why, so a check that finds it again changes nothing. */
   const pending = async (state: NonNullable<ReviewLifecycle["prPending"]>) => {
     const saved = await store.exclusive(async (tx) => {
@@ -407,14 +422,15 @@ export async function becomePr(deps: Deps, key: string, pr: { repo: string; numb
   if (snapshot.pr.state !== undefined && snapshot.pr.state !== "OPEN") return "skipped";
   // A branch used again may have an open PR from before the review: it's this work's only when the folder has its head.
   const opened = Date.parse(snapshot.pr.createdAt ?? "");
-  if (opened < now.createdAt && !await folderHas(bb, now.feature.environmentId, snapshot.pr.headRefOid)) {
+  if (!clicked && opened < now.createdAt && !await folderHas(bb, now.feature.environmentId, snapshot.pr.headRefOid)) {
     return pending({ number: pr.number, url: snapshot.pr.url, why: "older", at: Date.now() });
   }
+  if (other?.status === "generating") await stopGuide(bb, store, prKey);
   const done = await store.exclusive(async (tx) => {
     const review = featureOf(await tx.getReview(key));
     if (!review || review.kind !== "ref") return "skipped" as const;
-    // A review of the PR started meanwhile.
-    if (await tx.getReview(targetKey({ kind: "pr", ...pr }))) return "link" as const;
+    // A review of the PR started meanwhile: looked at again.
+    if (await prReviewKey(tx, pr) !== prKey) return "again" as const;
     const { pr: read } = snapshot;
     // Named as it was, for the notice that says what it became.
     const from = localIdOf(review);
@@ -432,10 +448,10 @@ export async function becomePr(deps: Deps, key: string, pr: { repo: string; numb
     const placed = await reanchorDraft(tx, key, previous, next);
     await tx.rebaseDraftComments(key, placed);
     await tx.setLifecycle(key, {
-      // Pushed under another name: its branch on GitHub.
-      ...read.headRefName !== review.feature.branch ? { feature: { ...review.feature, remoteBranch: read.headRefName } } : {},
+      // Pushed under another name: its branch on GitHub. A 1.8.0 link to the PR's review is gone with the merge.
+      feature: { ...review.feature, prReview: undefined, ...read.headRefName !== review.feature.branch ? { remoteBranch: read.headRefName } : {} },
       // Yours, until the sync reads it, so Push carries on (lib/push.ts pushTarget).
-      ownPr: true, prPending: null,
+      ownPr: true, prPending: null, prOffer: null,
       became: { at: Date.now(), number: pr.number, url: read.url, from, carried: comments.length, local: 0, outside: comments.length - placed.length },
       // Its agent, mid-conversation, is told once; never by a turn of its own (src/agent.ts takePrNote).
       ...await tx.getAssistantThread(key) ? { agentPrNote: { number: pr.number, url: read.url, from } } : {},
@@ -443,13 +459,16 @@ export async function becomePr(deps: Deps, key: string, pr: { repo: string; numb
       ...read.state === "OPEN" || read.state === "CLOSED" || read.state === "MERGED" ? { startedPrState: read.state } : {},
     });
     await pruneDiffs(tx, (await tx.getReview(key))!);
-    return "converted" as const;
+    if (!other) return "converted" as const;
+    await mergeIn(tx, prKey, key);
+    return "merged" as const;
   });
-  if (done === "link") return link(targetKey({ kind: "pr", ...pr }));
-  if (done === "converted") {
+  if (done === "again") return becomePr(deps, key, pr, clicked);
+  if (done === "converted" || done === "merged") {
     await deps.sync?.one(key, true).catch(() => {});
     await retitleAssistant(bb, store, key).catch(() => {});
     deps.changed(key);
+    if (done === "merged") deps.changed(prKey);
   }
   return done;
 }
@@ -465,9 +484,11 @@ export async function checkFeature(deps: Deps, key: string): Promise<FeatureChec
   const empty: FeatureCheck = { state: "current", alsoActive: [], hidden: [], flagged: [] };
   if (!review) return empty;
   const { feature } = review;
-  const linked = feature.prReview ? { prReview: feature.prReview } : {};
   // Once it's a PR's review, the PR says what changed.
-  if (review.kind !== "ref") return { ...empty, ...linked };
+  if (review.kind !== "ref") return empty;
+  // A 1.8.0 link to its PR's own review: merged with it now, or offered.
+  const linked = feature.prReview ? await store.getReview(feature.prReview) : null;
+  if (linked?.repo && linked.number && await becomePr(deps, key, { repo: linked.repo, number: linked.number }) !== "skipped") return checkFeature(deps, key);
   const kept = await store.exclusive(async (tx) => {
     const hash = await tx.patchHash(key);
     return { hash, files: await tx.getSnapshotFiles(key, diffFilesHead(hash)), knobs: (await tx.getPreferences()).preferences.knobs };
@@ -476,7 +497,7 @@ export async function checkFeature(deps: Deps, key: string): Promise<FeatureChec
   const hidden = kept.files?.hidden ?? [];
   const seen = new Set(review.flaggedSeen ?? []);
   const flagged = Object.keys(kept.files?.revisions ?? {}).filter((path) => isSecretPath(path) && !included.has(path) && !seen.has(path) && !hidden.some((file) => file.path === path));
-  const base: FeatureCheck = { ...empty, hidden, flagged, ...linked };
+  const base: FeatureCheck = { ...empty, hidden, flagged };
   if (feature.folderGone) return { ...base, state: "gone", message: "BB removed this folder." };
 
   const [read, others, head] = await Promise.all([readFeatureRevisions(bb, feature), alsoActive(bb, review), folderHead(bb, feature.environmentId)]);
@@ -506,11 +527,10 @@ export async function checkFeature(deps: Deps, key: string): Promise<FeatureChec
     return { ...withOthers, state: "paused", branch: read.branch, ...other ? { branchReview: other } : {} };
   }
   if (read.outcome !== "available") return { ...withOthers, state: read.outcome, message: read.message };
-  // Its branch has a PR: the review becomes that PR's, or links to the review it has.
+  // Its branch has a PR: the review becomes that PR's, merged with the review it has or offering to.
   const pr = prOfBranch(feature, read.pr);
   const became = pr ? await becomePr(deps, key, pr) : "skipped";
-  if (became === "converted") return empty;
-  if (became === "linked") withOthers.prReview = featureOf(await store.getReview(key))?.feature.prReview;
+  if (became === "converted" || became === "merged") return empty;
   const changed = kept.knobs.localDiffChanges ? changedCount(kept.files?.revisions ?? null, read.revisions) : 0;
   // Kept for the lists' "3 files changed", as of this check.
   if ((feature.changedFiles ?? 0) !== changed) {
@@ -659,6 +679,49 @@ export function register(deps: ServeDeps) {
       await store.setLifecycle(targetKey, { followed: null });
       deps.changed(targetKey);
       return { ok: true };
+    },
+    async dismissBecame({ targetKey }) {
+      if (!await store.getReview(targetKey)) return { ok: false };
+      await store.setLifecycle(targetKey, { became: null });
+      deps.changed(targetKey);
+      return { ok: true };
+    },
+    async mergeReviews({ targetKey }) {
+      // The folder's review that offers: this one, or the one offering to merge with this PR's review.
+      const reviews = await store.listReviews();
+      const offering = (review: ReviewMeta) => review.kind === "ref" && !review.archivedAt && !!(review.prOffer || review.feature?.prReview);
+      const folder = featureOf(reviews.find((review) => review.targetKey === targetKey && offering(review))
+        ?? reviews.find((review) => offering(review) && (review.prOffer?.key ?? review.feature?.prReview) === targetKey) ?? null);
+      const other = folder && await store.getReview(folder.prOffer?.key ?? folder.feature.prReview!);
+      if (!folder || !other?.repo || !other.number) return { ok: false, error: "This review has no other review of its PR to merge with. Reload it." };
+      const pr = { repo: other.repo, number: other.number };
+      try {
+        if (await becomePr(deps, folder.targetKey, pr, "merge") !== "merged") {
+          return { ok: false, error: (await store.getReview(folder.targetKey))?.prPending?.error ?? "Couldn’t merge the two reviews. Try again." };
+        }
+      } catch (error) {
+        return { ok: false, error: `Couldn’t merge the two reviews: ${error instanceof Error ? error.message : String(error)}` };
+      }
+      return { ok: true, targetKey: await prReviewKey(store, pr) };
+    },
+    async takePendingPr({ targetKey }) {
+      const pending = (await store.getReview(targetKey))?.prPending;
+      const link = pending ? parsePrLink(pending.url) : null;
+      if (!pending || !link) return { ok: false, error: "This review isn’t waiting on a PR. Reload it." };
+      // Opened before it: your click says it's this review's. GitHub didn't answer: asked again.
+      const became = await becomePr(deps, targetKey, { repo: link.repo, number: link.number }, pending.why === "older" ? "pr" : undefined).catch(() => "skipped" as const);
+      if (became === "converted" || became === "merged" || became === "offered") return { ok: true };
+      return { ok: false, error: (await store.getReview(targetKey))?.prPending?.error ?? `Couldn’t make it PR #${link.number}’s review. Try again.` };
+    },
+    async dismissPendingPr({ targetKey }) {
+      const declined = await store.exclusive(async (tx) => {
+        const pending = (await tx.getReview(targetKey))?.prPending;
+        if (!pending) return false;
+        await tx.setLifecycle(targetKey, { prPending: { ...pending, declined: true } });
+        return true;
+      });
+      if (declined) deps.changed(targetKey);
+      return { ok: declined };
     },
     async reviewFolderBranch({ targetKey }) {
       const review = featureOf(await store.getReview(targetKey));

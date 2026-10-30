@@ -108,7 +108,8 @@ export const rpcContract = defineRpcContract({
   getReviewBundle: {
     input: z.object({ targetKey: z.string(), knownRevision: z.string().optional() }).strict(),
     // diffError: why a pruned review's diff couldn't be read again; the rest still loads.
-    output: z.object({ review: z.any().nullable(), guide: z.any().nullable(), patch: z.string().nullable(), revision: z.string(), diffError: z.string().optional() }),
+    // mergedInto: the review was merged into this one, which opens instead (src/merge.ts).
+    output: z.object({ review: z.any().nullable(), guide: z.any().nullable(), patch: z.string().nullable(), revision: z.string(), diffError: z.string().optional(), mergedInto: z.object({ targetKey: z.string(), id: z.string() }).optional() }),
   },
   getPreferences: { input: z.null(), output: z.object({ preferences: preferencesSchema, revision: z.number().int() }) },
   savePreferences: {
@@ -471,8 +472,8 @@ export const rpcContract = defineRpcContract({
   /**
    * A local review's folder now, for its notices: as the review shows it, `changedFiles` changed since, paused on
    * another `branch`, its machine offline, gone, or unreadable (`message`); the other threads working there; the files it
-   * keeps out, and committed ones that look like secrets; the review its PR had already, if any; and, paused, the review
-   * of the branch the folder is on, if any (src/feature-review.ts).
+   * keeps out, and committed ones that look like secrets; and, paused, the review of the branch the folder is on, if any
+   * (src/feature-review.ts).
    */
   checkFeature: {
     input: targetKey,
@@ -484,7 +485,6 @@ export const rpcContract = defineRpcContract({
       alsoActive: z.array(z.object({ threadId: z.string(), title: z.string() })),
       hidden: z.array(z.object({ path: z.string(), reason: z.enum(["secret", "binary", "large"]) })),
       flagged: z.array(z.string()),
-      prReview: z.string().optional(),
       branchReview: z.string().optional(),
     }),
   },
@@ -501,6 +501,17 @@ export const rpcContract = defineRpcContract({
   dismissFollowed: { input: targetKey, output: z.object({ ok: z.boolean() }) },
   /** Review the branch a local review's folder is on now, in that branch's own review, addressed to the same main thread. */
   reviewFolderBranch: { input: targetKey, output: z.object({ ok: z.boolean(), error: z.string().optional(), targetKey: z.string().optional() }) },
+  /** Got it on "Now PR #4512": the review stops saying it became its PR's. */
+  dismissBecame: { input: targetKey, output: z.object({ ok: z.boolean() }) },
+  /**
+   * Merge into this review, or Merge the two: a folder's review that offers to merge with its PR's own review, from
+   * either's page, merges with it (src/merge.ts). `targetKey`: the review that stays.
+   */
+  mergeReviews: { input: targetKey, output: z.object({ ok: z.boolean(), error: z.string().optional(), targetKey: z.string().optional() }) },
+  /** Make it PR #12's review, or Try again: the local review becomes the PR its branch has that it held (`prPending`). */
+  takePendingPr: { input: targetKey, output: z.object({ ok: z.boolean(), error: z.string().optional() }) },
+  /** Not this one: the PR held isn't this review's, and it stops asking. */
+  dismissPendingPr: { input: targetKey, output: z.object({ ok: z.boolean() }) },
 
   // BB's thread pages (src/thread-surfaces.ts): Review changes above a thread's message box, and the Review tab.
   /** Review changes: the review of the folder the thread works in, at its branch now, started or opened as it is, as bb review with no arguments. */

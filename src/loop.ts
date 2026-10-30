@@ -9,7 +9,7 @@ import { z } from "zod";
 import { sameLocation, type CommentLocation, type DraftComment } from "./draft";
 import { newCommentIds, type ReviewLifecycle, type ReviewMeta, type SendEntry, type SnapshotFiles } from "./store";
 import type { AsyncStore } from "./store-queue";
-import { assistantReview } from "./draft-comments";
+import { assistantReview, mergedAway } from "./draft-comments";
 import { requireReviewRevision } from "./review-revision";
 import { isMissingThread } from "./thread-errors";
 import { branchLine, commentText, fenced, fixerExecution, fixerTitle, GUARD, GUARD_BUT_PUSH, header, isOwnChange, placed, theirPr, where, type Placed } from "./fix-handoff";
@@ -657,6 +657,8 @@ export function register(deps: ServeDeps) {
     execute: async ({ file, line, side = "RIGHT", patch, force, thread }, { threadId }) => {
       const targetKey = await store.exclusive((tx) => assistantReview(tx, threadId));
       if (!targetKey) return failed("This conversation is no longer a review's assistant, so it has no comments to send.");
+      const away = await mergedAway(store, targetKey);
+      if (away) return failed(away);
       const { knobs } = (await store.getPreferences()).preferences;
       // Settings' switch holds at once, though a running agent keeps the tools it started with.
       if (!knobs.reviewAgentActs) return failed("Settings has the review agent only draft now, so nothing was sent. The reviewer can send it with Send now on the comment.");

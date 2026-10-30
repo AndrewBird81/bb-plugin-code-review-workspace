@@ -62,8 +62,8 @@ export interface TurnActions {
   autoStart(targetKey: string): Promise<boolean>;
   /** The project reviews found on GitHub run in. */
   projectId(): Promise<string | null>;
-  /** A folder's review becomes its branch's PR's, or links to the PR's own review (src/feature-review.ts becomePr). */
-  becomePr(targetKey: string, pr: { repo: string; number: number }): Promise<"converted" | "linked" | "skipped">;
+  /** A folder's review becomes its branch's PR's, merged with the PR's own review or offering to (src/feature-review.ts becomePr). */
+  becomePr(targetKey: string, pr: { repo: string; number: number }): Promise<"converted" | "merged" | "offered" | "skipped">;
 }
 
 const MINUTE = 60_000;
@@ -182,8 +182,9 @@ export function createReviewSync(bb: BbPluginApi, store: AsyncStore, run: typeof
   }
 
   // A merged PR isn't read again, but for once to fill in what earlier reads didn't keep, as when it merged and its labels.
+  // A review merged into another isn't: that one is read (src/merge.ts).
   const readable = (review: ReviewMeta | null): review is ReviewMeta & { repo: string; number: number } =>
-    !!review && review.kind === "pr" && !!review.repo && !!review.number && (review.prState !== "MERGED" || review.prMergedAt === undefined);
+    !!review && review.kind === "pr" && !!review.repo && !!review.number && (review.prState !== "MERGED" || review.prMergedAt === undefined) && !review.mergedInto;
 
   /**
    * Read these reviews' PRs in batches and apply what changed. `pass`: a sync pass, whose read speaks for every review.
@@ -578,7 +579,7 @@ export function createReviewSync(bb: BbPluginApi, store: AsyncStore, run: typeof
    * (and after tracking is turned back on) only fills the list, as does a look whose search widened;
    * later requests alert. A failure
    * recorded before `since` that a good look disproves is cleared. Your PR of a folder's branch makes that
-   * folder's review the PR's, or links it to the PR's review, instead of adding another.
+   * folder's review the PR's, merged with the PR's own review or offering to, instead of adding another.
    */
   async function discover(since: number): Promise<void> {
     if (!actions) return;
@@ -651,15 +652,15 @@ export function createReviewSync(bb: BbPluginApi, store: AsyncStore, run: typeof
 
   /**
    * Your PRs, drafts too, whose head is an open review of a folder's, by its repo, a fork's for a PR from one, and its
-   * branch, or that branch's name on GitHub: that review becomes the PR's, or links to the PR's own review (M4). Returns
-   * the reviews that became PRs', and the PRs whose folder's review couldn't yet, which wait for it rather than get a
-   * second review. A PR you took off the list stays off.
+   * branch, or that branch's name on GitHub: that review becomes the PR's, merged with the PR's own review or offering to
+   * (src/merge.ts), and one offering waits for your click. Returns the reviews that became PRs', and the PRs whose
+   * folder's review couldn't yet, which wait for it rather than get a second review. A PR you took off the list stays off.
    */
   async function adoptFeatures(own: DiscoveredPr[]): Promise<{ converted: string[]; waiting: Set<DiscoveredPr> }> {
     const converted: string[] = [];
     const waiting = new Set<DiscoveredPr>();
     if (!own.length || !actions) return { converted, waiting };
-    const folders = (await store.listReviews()).filter((r) => r.kind === "ref" && r.feature?.repo && !r.feature.prReview && !r.archivedAt && !r.userArchivedAt);
+    const folders = (await store.listReviews()).filter((r) => r.kind === "ref" && r.feature?.repo && !r.prOffer && !r.archivedAt && !r.userArchivedAt);
     for (const pr of own) {
       const at = folders.findIndex(({ feature }) => feature!.repo!.toLowerCase() === (pr.headRepo ?? pr.repo) && (feature!.branch === pr.head || feature!.remoteBranch === pr.head));
       if (at < 0 || await store.isDiscoveryIgnored(keyFor({ kind: "pr", number: pr.number, repo: pr.repo }))) continue;
@@ -668,7 +669,7 @@ export function createReviewSync(bb: BbPluginApi, store: AsyncStore, run: typeof
         bb.log.warn(`Could not make ${folder.targetKey} the review of ${pr.repo}#${pr.number}: ${String(error)}`);
         return "skipped" as const;
       });
-      if (became === "converted") converted.push(folder.targetKey);
+      if (became === "converted" || became === "merged") converted.push(folder.targetKey);
       else if (became === "skipped") waiting.add(pr);
     }
     return { converted, waiting };

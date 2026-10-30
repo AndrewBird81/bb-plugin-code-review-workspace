@@ -217,8 +217,9 @@ export async function retitleAssistant(bb: BbPluginApi, store: AsyncStore, targe
 }
 
 /**
- * What tells the review's agent its review became its PR's, once: taken, so it goes with whichever reaches the agent
- * first, the next message the review sends it or its review tools' next answer. Null when there's nothing to tell.
+ * What tells the review's agent its review became its PR's, or took in another review of it, once: taken, so it goes
+ * with whichever reaches the agent first, the next message the review sends it or its review tools' next answer. Null
+ * when there's nothing to tell.
  */
 export async function takePrNote(store: AsyncStore, targetKey: string): Promise<PrNote | null> {
   return store.exclusive(async (tx) => {
@@ -228,7 +229,12 @@ export async function takePrNote(store: AsyncStore, targetKey: string): Promise<
   });
 }
 type PrNote = NonNullable<ReviewMeta["agentPrNote"]>;
-const prNoteText = (note: PrNote) => `Since your last turn this review, ${note.from}, became PR #${note.number}: ${note.url}. Treat it as that PR.`;
+const prNoteText = ({ from, number, url, merged }: PrNote) => [
+  from ? `Since your last turn this review, ${from}, became PR #${number}: ${url}.` : `This review is PR #${number}: ${url}.`,
+  // Another review of the PR merged with it (src/merge.ts).
+  ...merged ? [`Since your last turn it and ${merged} were merged into one: the comments, summaries and Sends of both are here now.`] : [],
+  "Treat it as that PR.",
+].join(" ");
 
 /** A review tool's `answer` to `threadId`, after the note takePrNote gives when it's its review's agent. Failures go as they are. */
 export async function withPrNote<T>(store: AsyncStore, threadId: string, targetKey: string, answer: T): Promise<T | string> {

@@ -3,7 +3,7 @@ import { baselineOf, computeTurn, type Turn, type TurnReason, type feedbackProgr
 import type { StackPlace } from "./stacks";
 import type { ReviewPlace } from "./review-identity";
 /** A review as the server returns it, with its `turn`, `progress`, `stack`, `place`, and a local review's `guideTitle` attached. */
-export type ReviewItem = Pick<ReviewMeta, "targetKey"> & Partial<ReviewMeta> & { turn?: Turn; progress?: ReturnType<typeof feedbackProgress>; stack?: StackPlace | null; place?: ReviewPlace | null; guideTitle?: string | null };
+export type ReviewItem = Pick<ReviewMeta, "targetKey"> & Partial<ReviewMeta> & { turn?: Turn; progress?: ReturnType<typeof feedbackProgress>; stack?: StackPlace | null; place?: ReviewPlace | null; guideTitle?: string | null; mergedIntoId?: string | null };
 /** A guide's error when the reviewer stopped it before it was written (src/generate.ts stopGuide). */
 export const GUIDE_STOPPED = "Stopped";
 
