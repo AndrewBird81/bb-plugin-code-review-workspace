@@ -17,6 +17,7 @@ import { symlinkTarget } from "../lib/folder-files";
 import plugin from "../server";
 import { toolFailed, toolText } from "./fake-host.test-support";
 import { createReviewSync, type GithubReads, type TurnActions } from "./review-lifecycle";
+import { runGh } from "./gh";
 
 afterEach(() => { vi.useRealTimers(); });
 
@@ -54,15 +55,17 @@ function setup(folder: Folder = { files: [{ path: "src/a.ts", body: BODY }] }, t
   } });
   const store = testStore(host.bb);
   const ghCalls: string[][] = [];
+  /** The PR as gh pr view gives it. */
+  const view: Record<string, unknown> = { number: 7, title: "Snooze flaky checks for a day", author: { login: "me" }, baseRefName: "main", headRefName: "feat/qa", url: "https://github.com/acme/api/pull/7", headRefOid: "c0ffee", state: "OPEN" };
   const runGh = vi.fn(async (args: string[]) => {
     ghCalls.push(args);
-    if (args[0] === "pr" && args[1] === "view") return { code: 0, stderr: "", stdout: JSON.stringify({ number: 7, title: "Snooze flaky checks for a day", author: { login: "me" }, baseRefName: "main", headRefName: "feat/qa", url: "https://github.com/acme/api/pull/7", headRefOid: "c0ffee", state: "OPEN" }) };
+    if (args[0] === "pr" && args[1] === "view") return { code: 0, stderr: "", stdout: JSON.stringify(view) };
     if (args[0] === "pr" && args[1] === "diff") return { code: 0, stderr: "", stdout: PR_DIFF };
     return { code: 1, stderr: "unexpected gh call", stdout: "" };
   });
   const changed = vi.fn();
   const deps = { bb: host.bb, store, gh: { runGh, runGit: vi.fn() }, changed };
-  return { ...host, store, spawns, deps, all, ghCalls, folder, failing };
+  return { ...host, store, spawns, deps, all, ghCalls, folder, failing, view };
 }
 const key = featureKey("env1", "feat/qa");
 const run = (s: ReturnType<typeof setup>, threadId: string | undefined, argv: string[] = [], cwd = "/Users/me/src/api", ownReview?: string) =>
@@ -254,11 +257,60 @@ test("once its branch has a PR, the same review becomes the PR's at its head, ke
   expect(s.spawns).toHaveLength(1);
 });
 
-test("a branch whose PR is closed, or another branch's PR, leaves the review of the folder as it is", async () => {
+// PR Status reports a draft as "draft" (1.9.0): `gh pr create --draft`, as agents often run it, never converted.
+test("a draft PR on its branch makes the review the PR's, as an open one does", async () => {
   const s = setup();
   await run(s, "main");
   await settled(s);
-  for (const pr of [{ number: 7, url: "https://github.com/acme/api/pull/7", headRefName: "feat/qa", state: "MERGED" }, { number: 8, url: "https://github.com/acme/api/pull/8", headRefName: "feat/else" }, { number: 9, url: "https://github.com/acme/web/pull/9", headRefName: "feat/qa" }]) {
+  Object.assign(s.folder, { prBase: "main", pr: { number: 7, url: "https://github.com/acme/api/pull/7", headRefName: "feat/qa", state: "draft" } });
+  await checkFeature(s.deps, key);
+  expect(await s.store.getReview(key)).toMatchObject({ kind: "pr", number: 7, head: "feat/qa" });
+});
+
+// PR Status finds the folder's PR by its branch's upstream: one pushed as HEAD:feat/nice, or from a renamed branch, is the folder's.
+test("a PR whose head has another name than the folder's branch makes the review its own, and keeps that name", async () => {
+  const s = setup();
+  await run(s, "main");
+  await settled(s);
+  s.view.headRefName = "feat/nice";
+  Object.assign(s.folder, { prBase: "main", pr: { number: 7, url: "https://github.com/acme/api/pull/7", headRefName: "feat/nice", state: "open" } });
+  await checkFeature(s.deps, key);
+  const review = (await s.store.getReview(key))!;
+  expect(review).toMatchObject({ kind: "pr", number: 7, head: "feat/nice" });
+  expect(review.feature).toMatchObject({ branch: "feat/qa", remoteBranch: "feat/nice" });
+});
+
+test("a PR opened while the guide is being written makes the review the PR's at once; the guide goes on", async () => {
+  const s = setup();
+  await run(s, "main");
+  await settled(s);
+  await s.store.setStatus(key, "generating");
+  Object.assign(s.folder, { prBase: "main", pr: { number: 7, url: "https://github.com/acme/api/pull/7", headRefName: "feat/qa" } });
+  await checkFeature(s.deps, key);
+  expect(await s.store.getReview(key)).toMatchObject({ kind: "pr", number: 7, status: "generating" });
+  expect(await s.store.patch(key)).toBe(PR_DIFF);
+});
+
+// Fails until src/pr-watch.ts reads the folder's threads (1.9.0 step 2).
+test.fails("a PR another thread in the folder opened makes the review the PR's once that thread goes idle", async () => {
+  const s = setup();
+  vi.mocked(runGh).mockImplementation(s.deps.gh.runGh as any);
+  s.harness.inspection.sdk.stub("threads.events.list", async () => [
+    { id: "e1", seq: 4, threadId: "other", scope: {}, type: "item/completed", data: { item: { type: "commandExecution", id: "i1", command: "gh pr create --draft --fill", cwd: "/Users/me/src/api", status: "completed" } } },
+  ]);
+  await plugin(s.bb);
+  await run(s, "main");
+  await settled(s);
+  Object.assign(s.folder, { prBase: "main", pr: { number: 7, url: "https://github.com/acme/api/pull/7", headRefName: "feat/qa", state: "draft" } });
+  await s.harness.behavior.emitThreadEvent("thread.idle", { thread: full(s.all.other!) as any, lastAssistantText: null } as any);
+  await vi.waitFor(async () => expect((await s.store.getReview(key))?.kind).toBe("pr"));
+});
+
+test("a branch whose PR merged or closed, or another repo's PR, leaves the review of the folder as it is", async () => {
+  const s = setup();
+  await run(s, "main");
+  await settled(s);
+  for (const pr of [{ number: 7, url: "https://github.com/acme/api/pull/7", headRefName: "feat/qa", state: "merged" }, { number: 7, url: "https://github.com/acme/api/pull/7", headRefName: "feat/qa", state: "closed" }, { number: 9, url: "https://github.com/acme/web/pull/9", headRefName: "feat/qa" }]) {
     Object.assign(s.folder, { prBase: "main", pr });
     await checkFeature(s.deps, key);
     expect((await s.store.getReview(key))?.kind).toBe("ref");

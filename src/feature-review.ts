@@ -335,13 +335,14 @@ async function markFolderGone(tx: AsyncStore, review: ReviewMeta & { feature: Fe
 const featureOf = (review: ReviewMeta | null): (ReviewMeta & { feature: FeatureReview }) | null => review?.feature ? review as ReviewMeta & { feature: FeatureReview } : null;
 
 /**
- * The PR a folder's read found, when it's this review's branch's in this review's repo, and open: a branch used again
- * after its PR merged is new work, not that PR's.
+ * The PR a folder's read found, when it's in this review's repo, and open or a draft: a branch used again after its PR
+ * merged is new work, not that PR's. PR Status finds it by the branch's upstream, so its head may have another name,
+ * as when it was pushed as HEAD:feat/nice.
  */
 function prOfBranch(feature: FeatureReview, pr: FolderPr | undefined): { repo: string; number: number } | null {
   const link = pr?.url ? parsePrLink(pr.url) : null;
-  if (!link || !pr?.number || pr.headRefName !== feature.branch || !feature.repo || link.repo.toLowerCase() !== feature.repo.toLowerCase()) return null;
-  if (pr.state !== undefined && !/^open$/i.test(pr.state)) return null;
+  if (!link || !pr?.number || !feature.repo || link.repo.toLowerCase() !== feature.repo.toLowerCase()) return null;
+  if (pr.state !== undefined && !/^(open|draft)$/i.test(pr.state)) return null;
   return { repo: link.repo, number: pr.number };
 }
 
@@ -364,9 +365,9 @@ export async function becomePr(deps: Deps, key: string, pr: { repo: string; numb
   };
   const prKey = await prReviewKey(store, pr);
   if (prKey !== key && await store.getReview(prKey)) return link(prKey);
-  // A guide being written is for the folder's diff: it becomes the PR's once that's done.
+  // A guide being written goes on: it's checked against the diff as it is when it's done, the PR's.
   const now = featureOf(await store.getReview(key));
-  if (!now || now.kind !== "ref" || now.status === "generating") return "skipped";
+  if (!now || now.kind !== "ref") return "skipped";
   let snapshot: Awaited<ReturnType<typeof readPrSnapshot>>;
   try {
     snapshot = await readPrSnapshot(gh.runGh, pr.number, pr.repo);
@@ -376,7 +377,7 @@ export async function becomePr(deps: Deps, key: string, pr: { repo: string; numb
   if (snapshot.pr.state !== undefined && snapshot.pr.state !== "OPEN") return "skipped";
   const done = await store.exclusive(async (tx) => {
     const review = featureOf(await tx.getReview(key));
-    if (!review || review.kind !== "ref" || review.status === "generating") return "skipped" as const;
+    if (!review || review.kind !== "ref") return "skipped" as const;
     // A review of the PR started meanwhile.
     if (await tx.getReview(targetKey({ kind: "pr", ...pr }))) return "link" as const;
     const { pr: read } = snapshot;
@@ -391,6 +392,8 @@ export async function becomePr(deps: Deps, key: string, pr: { repo: string; numb
     });
     await tx.saveSnapshot(key, read.headRefOid, next);
     await tx.rebaseDraftComments(key, await reanchorDraft(tx, key, previous, next));
+    // Pushed under another name: its branch on GitHub.
+    if (read.headRefName !== review.feature.branch) await tx.setLifecycle(key, { feature: { ...review.feature, remoteBranch: read.headRefName } });
     // What gh said of the PR, until the sync reads it (src/start-review.ts recordPrState).
     if (read.state === "OPEN" || read.state === "CLOSED" || read.state === "MERGED") await tx.setLifecycle(key, { startedPrState: read.state });
     await pruneDiffs(tx, (await tx.getReview(key))!);

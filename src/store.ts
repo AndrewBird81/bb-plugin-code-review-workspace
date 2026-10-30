@@ -236,6 +236,8 @@ export interface FeatureReview {
   workBranch?: string;
   /** The key of the review its branch's PR already had when the PR was found: this one links to it instead of becoming it. */
   prReview?: string;
+  /** The branch's name on GitHub, its PR's head, when it isn't `branch`: pushed as HEAD:feat/nice, or renamed. */
+  remoteBranch?: string;
   /** How many files changed in the folder since the review read it, as last checked; null for none or not checked. */
   changedFiles?: number | null;
   /**
