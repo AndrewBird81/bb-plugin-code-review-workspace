@@ -542,6 +542,21 @@ test("on your own PR, Finish counts only the comments that post: one sent to fix
   slot.lifecycle.unmount();
 });
 
+test("comments not on GitHub yet are said in Finish to go with Send, not Submit, and aren't counted as posting or sent to fix", async () => {
+  const local = (line: number) => ({ file: "src/a.ts", line, side: "LOCAL", body: "Only in the folder." });
+  for (const [draft, said] of [
+    [[...comments, local(3), local(4)], "2 comments aren’t on GitHub yet. They go with Send, not Submit."],
+    [[comments[0], local(3)], "1 comment isn’t on GitHub yet. It goes with Send, not Submit."],
+  ] as const) {
+    const { slot } = await renderWorkspace({ review: { ownPr: true, feature: folderReview.feature }, rpc: { getDraft: vi.fn(() => ({ draft: draftOf({ comments: structuredClone(draft) }), stale: [] })) } });
+    const view = await finish(slot);
+    expect(view.getByText(said)).toBeTruthy();
+    expect(view.queryByText(/sent to fix won’t post/)).toBeNull();
+    slot.lifecycle.unmount();
+    cleanup();
+  }
+});
+
 test("a closed PR keeps its unsubmitted draft to read, with nothing to submit", async () => {
   const { slot } = await renderWorkspace({ review: { prState: "CLOSED", archivedAt: 1 } });
   fireEvent.keyDown(document.body, { key: "s" });

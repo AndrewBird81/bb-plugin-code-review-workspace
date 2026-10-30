@@ -406,8 +406,8 @@ function GoesToGitHub({ items, replyDrafts, onList }: { items: readonly CommentI
   const d = useDraft();
   const { reveal, showLocation } = useWorkspace();
   const comments = d.posting;
-  // Sent to fix from your own change, resolved or dismissed: they stay in BB.
-  const held = d.draft.comments.length - comments.length;
+  // Sent to fix from your own change, resolved or dismissed: they stay in BB. Those not on GitHub yet go with Send.
+  const held = d.draft.comments.length - comments.length - d.notOnGithub;
   const agent = comments.filter((comment) => comment.author === "agent").length;
   const older = items.filter((item) => item.kind === "draft" && item.state === "older-diff" && item.posts);
   // As MoveToSummary offers it.
@@ -447,6 +447,7 @@ function GoesToGitHub({ items, replyDrafts, onList }: { items: readonly CommentI
         </Row>}
       </ul>
       {held > 0 && <p className="px-0.5 text-xs text-muted-foreground">{held} sent to fix won’t post to GitHub. Reopen {held === 1 ? "it" : "one"} to post it.</p>}
+      {d.notOnGithub > 0 && <p className="px-0.5 text-xs text-muted-foreground">{d.notOnGithub === 1 ? "1 comment isn’t on GitHub yet. It goes" : `${d.notOnGithub} comments aren’t on GitHub yet. They go`} with Send, not Submit.</p>}
     </Part>
   );
 }
