@@ -182,6 +182,21 @@ test("Finish review's Change main thread opens the tab with its Change thread me
   again.lifecycle.unmount();
 });
 
+test("an ask of the Main thread tab that BB doesn't open goes, rather than open the menu unasked later", async () => {
+  const { askChangeThread } = await import("../lib/main-thread");
+  const { bar, page } = await renderReview(folderReview, [1440, 1000]);
+  askChangeThread("br-1");
+  // The harness's panel declines, as BB does where it doesn't list the tab.
+  fireEvent.click(await bar.findByRole("button", { name: "Show main thread beside review" }));
+  expect(toast.error).toHaveBeenCalledWith("The main thread isn’t available here.");
+  page.lifecycle.unmount();
+  bar.lifecycle.unmount();
+  const slot = await renderTab(folderReview, { getSourceThread: () => MAIN }, [listed("coder", "Build snooze")]);
+  await slot.findByRole("button", { name: "Change main thread" });
+  expect(slot.queryByRole("menu")).toBeNull();
+  slot.lifecycle.unmount();
+});
+
 test("Change main thread can start a fresh thread here, which gets your Sends from then on", async () => {
   const setMainThread = vi.fn(async () => ({ ok: true }));
   const slot = await renderTab(folderReview, { getSourceThread: () => MAIN, setMainThread }, [listed("coder", "Build snooze")]);
@@ -200,7 +215,7 @@ test("a main thread that's archived shows its conversation with no box to write 
   expect(archived.getByText(/This thread is archived\. Your next Send offers to unarchive it or start a fresh thread/)).toBeTruthy();
   archived.lifecycle.unmount();
   const gone = await renderTab(folderReview, { getSourceThread: () => ({ thread: { threadId: "coder", title: null, state: "gone" } }) });
-  await waitFor(() => expect(gone.getByRole("status").textContent).toBe("The main thread was deleted. Your next Send starts a fresh thread, or choose another with Change."));
+  await waitFor(() => expect(gone.getByRole("status").textContent).toBe("The main thread was deleted. Your next Send starts a fresh thread, or choose another with Change thread."));
   expect(gone.queryByTestId("bb-thread-chat")).toBeNull();
   gone.lifecycle.unmount();
 });

@@ -1,6 +1,6 @@
 // The Main thread tab in BB's side panel (components/PanelTabs.tsx): the review's main thread, the thread that writes the
 // code and gets your Sends, as BB's own chat beside the diff, its permissions the thread's own; which thread that is, on
-// which machine, Change main thread, and Go to thread.
+// which machine, Change thread, and Main thread ↗.
 import { useEffect, useState, type KeyboardEvent } from "react";
 import { experimental_useSidebarThreads, ThreadChat, useBbNavigate, useRpc } from "@get-bb/plugin-sdk/app";
 import { toast } from "sonner";
@@ -8,6 +8,7 @@ import type { rpcContract } from "../src/rpc-contract";
 import type { MainThreadLink } from "../src/loop";
 import { hasNotPushed, useChangeThreadAsked, useMainThread, useNotPushedAsked } from "../lib/main-thread";
 import { usesFixer } from "../lib/fixer";
+import { useKnob } from "../lib/settings";
 import { cn } from "../lib/utils";
 import { useWorkspace } from "../lib/workspace-context";
 import { ThreadName } from "./FixHandoff";
@@ -91,7 +92,7 @@ function ChangeMainThread({ current, onChanged }: { current: string | null; onCh
   </Popover>;
 }
 
-/** Which thread it is, on which machine, and whether it's working now, so a Send waits for its turn; Change and Go to thread. */
+/** Which thread it is, on which machine, and whether it's working now, so a Send waits for its turn; Change thread and Main thread ↗. */
 function ThreadLine({ thread, onChanged }: { thread: MainThreadLink; onChanged: () => void }) {
   const navigate = useBbNavigate();
   const listed = experimental_useSidebarThreads().threads.find((item) => item.id === thread.threadId);
@@ -127,20 +128,23 @@ function ViewTabs({ targetKey, view, onView }: { targetKey: string; view: "chat"
 }
 
 /**
- * The Main thread tab: its header names it and the review, `Main thread · api:snooze-checks`; a line says which thread
- * it is, on which machine, and whether it's working now, with Change and Go to thread; then the thread's chat, which
- * can't widen its permissions. An archived thread shows its conversation without a box to write in. `active`: the tab
- * shows, so it reads the main thread and BB's thread list.
+ * The Main thread tab: its header names it and the review, `Main thread · api:snooze-checks · Snooze checks`; a line
+ * says which thread it is, on which machine, and whether it's working now, with Change thread and Main thread ↗; then
+ * the thread's chat, which can't widen its permissions. An archived thread shows its conversation without a box to write
+ * in. With Send to thread off, a PR's tab is its Not pushed yet alone. `active`: the tab shows, so it reads the main
+ * thread and BB's thread list.
  */
 export function MainThreadPanel({ active, reviewId, reviewName }: { active: boolean; reviewId?: string; reviewName?: string }) {
   const { targetKey, review } = useWorkspace();
   const { thread, reload } = useMainThread(targetKey, review, active);
   // On a PR whose main thread works in a folder, what it hasn't pushed yet, beside its chat; the compare menu opens it.
   const unpushed = hasNotPushed(review);
+  // With Send to thread off there's no main thread to chat with here: only what it hasn't pushed.
+  const sendOn = useKnob("sendToThread");
   const take = useNotPushedAsked(targetKey);
   const [view, setView] = useState<"chat" | "not-pushed">("chat");
   useEffect(() => { if (take()) setView("not-pushed"); }, [take]);
-  const showing = unpushed ? view : "chat";
+  const showing = unpushed ? sendOn ? view : "not-pushed" : "chat";
   const notice = (text: string) => <p role="status" className="m-3 rounded-lg border border-border bg-muted/25 p-3 text-sm text-muted-foreground">{text}</p>;
   return <section aria-label="Main thread" className="flex h-full min-h-0 flex-1 flex-col">
     <div className="flex h-11 shrink-0 items-center gap-2 border-b border-border pl-3 pr-1.5">
@@ -149,13 +153,13 @@ export function MainThreadPanel({ active, reviewId, reviewName }: { active: bool
     </div>
     {/* BB's thread list is read only while the tab shows. */}
     {thread && active && <ThreadLine thread={thread} onChanged={reload} />}
-    {unpushed && <ViewTabs targetKey={targetKey} view={showing} onView={setView} />}
+    {unpushed && sendOn && <ViewTabs targetKey={targetKey} view={showing} onView={setView} />}
     {showing === "not-pushed" ? <div id={`${targetKey}-main-not-pushed`} role="tabpanel" aria-label="Not pushed yet" className="flex min-h-0 flex-1 flex-col"><NotPushed targetKey={targetKey} active={active} /></div>
       : thread === undefined ? <p role="status" className="p-3 text-sm text-muted-foreground">Loading the main thread…</p>
       : thread === null ? notice("This review has no main thread yet. Run bb review in the thread working on the change, and your Sends go there.")
-      : thread.state === "gone" ? notice("The main thread was deleted. Your next Send starts a fresh thread, or choose another with Change.")
+      : thread.state === "gone" ? notice("The main thread was deleted. Your next Send starts a fresh thread, or choose another with Change thread.")
       : <>
-        {thread.state === "archived" && <p role="status" className="shrink-0 border-b border-warning/20 bg-warning/10 px-3 py-2 text-xs text-warning-text">This thread is archived. Your next Send offers to unarchive it or start a fresh thread, or choose another with Change.</p>}
+        {thread.state === "archived" && <p role="status" className="shrink-0 border-b border-warning/20 bg-warning/10 px-3 py-2 text-xs text-warning-text">This thread is archived. Your next Send offers to unarchive it or start a fresh thread, or choose another with Change thread.</p>}
         <ThreadChat key={thread.threadId} threadId={thread.threadId} variant={thread.state === "archived" ? "timeline" : "compact"} permissionPolicy="inherit" className="min-h-0 flex-1" />
       </>}
   </section>;

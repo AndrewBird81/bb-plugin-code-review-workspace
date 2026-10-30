@@ -1,7 +1,7 @@
 // What BB's thread pages show of the reviews (app.tsx): Review changes in the row above a thread's message box, beside
 // BB's own Changed files, and the Review tab beside a thread linked to a review: its id and name, its comments with where
 // each stands, the review agent's chat, and Review ↗.
-import { useCallback, useEffect, useId, useMemo, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { experimental_Icon as HostIcon, experimental_usePluginId, ThreadChat, useBbNavigate, useRealtime, useRpc } from "@get-bb/plugin-sdk/app";
 import type { ExperimentalThreadContextSegmentInput, ExperimentalThreadContextSegmentProps, ExperimentalThreadTabProps } from "@get-bb/plugin-sdk/app";
 import { toast } from "sonner";
@@ -145,7 +145,14 @@ function ReviewPane({ targetKey }: { targetKey: string }) {
   const [agent, setAgent] = useState<string | null | "failed" | undefined>(undefined);
   const loadAgent = useCallback(() => { rpc.call("getConversation", { targetKey }).then(({ threadId }) => setAgent(threadId), () => setAgent((was) => was ?? "failed")); }, [rpc, targetKey]);
   useEffect(loadAgent, [loadAgent]);
-  useRealtime(`conversation:${targetKey}`, loadAgent);
+  // Its chat deleted while it shows: the first message's box says so.
+  const [deleted, setDeleted] = useState(false);
+  const shown = useRef(agent);
+  shown.current = agent;
+  useRealtime(`conversation:${targetKey}`, (payload) => {
+    if (typeof shown.current === "string" && (payload as { deleted?: string } | null)?.deleted === shown.current) setDeleted(true);
+    loadAgent();
+  });
   const items = useMemo(() => buildItems({ draft, threads: [], feedback: null, sections: [], patch: "", status }).filter((item) => item.kind === "draft"), [draft, status]);
   const open = () => navigate.toPluginPanel("review", { subPath: targetKey });
   // A comment's row opens the review at that comment.
@@ -169,7 +176,7 @@ function ReviewPane({ targetKey }: { targetKey: string }) {
         {agent === undefined ? <p role="status" className="px-3 py-2 text-sm text-muted-foreground">Loading the review agent…</p>
           : agent === "failed" ? <div role="alert" className="flex flex-wrap items-center gap-x-2 gap-y-1 px-3 py-2 text-sm text-muted-foreground">Couldn’t load the review agent’s chat.<Button variant="ghost" size="sm" className={cn("h-7 px-2 text-xs", TOUCH_CONTROL)} onClick={() => { setAgent(undefined); loadAgent(); }}>Try again</Button></div>
           // Its first message starts it here, choosing the agent, as in the review: you stay on the thread.
-          : agent === null ? <AgentDock targetKey={targetKey} patch="" bare />
+          : agent === null ? <AgentDock targetKey={targetKey} patch="" bare wasDeleted={deleted} />
           : <ThreadChat key={agent} threadId={agent} variant="compact" layout="contained" className="min-h-0 flex-1" />}
       </section>
     </section>

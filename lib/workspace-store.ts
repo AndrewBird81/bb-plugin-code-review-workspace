@@ -177,16 +177,16 @@ export function useTabShown(targetKey: string | null, tab: string): boolean {
 
 // A comment to show, asked for from another page, as a comment's row on a thread's Review tab asks: the review's page
 // shows it once it can, whether it opens now or is open already. For this page's life.
-const askedComments = new Map<string, CommentLocation>();
+const askedComments = new Map<string, { at: CommentLocation; asked: number }>();
 
 /** Ask the review's page to show the comment at `at` in its code. */
 export function askToShowComment(targetKey: string, at: CommentLocation) {
-  askedComments.set(targetKey, at);
+  askedComments.set(targetKey, { at, asked: Date.now() });
   notify();
 }
 
-/** The comment asked to show in the review, until taken. */
-export function useAskedComment(targetKey: string): CommentLocation | null {
+/** The comment asked to show in the review, and when, until taken: one asked long ago is the page's to drop. */
+export function useAskedComment(targetKey: string): { at: CommentLocation; asked: number } | null {
   return useSyncExternalStore(subscribe, () => askedComments.get(targetKey) ?? null);
 }
 

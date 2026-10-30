@@ -20,6 +20,7 @@ import { useEffect } from "react";
 import { panelPage, showPageTitle, useNarrowPane, useReviewTitle } from "./lib/workspace-store";
 import { useMediaQuery } from "./components/ui/hooks/use-media-query";
 import { MainThreadTab, REVIEW_TABS, ReviewAgentTab, useAgentTabVisible, useMainTabVisible } from "./components/PanelTabs";
+import { tabsRefused } from "./lib/app-panel";
 
 /** Needs review's rows in BB's own thread list: should they fail to draw, BB's list shows without them. */
 function SidebarOverlay() {
@@ -83,7 +84,7 @@ export default definePluginApp((app) => {
   try {
     app.slots.experimental_tab?.({ ...REVIEW_TABS.agent, title: "Review agent", icon: "code-review-workspace/agent", layout: "flush", component: ReviewAgentTab, useVisible: useAgentTabVisible });
     app.slots.experimental_tab?.({ ...REVIEW_TABS.main, title: "Main thread", icon: "Code", layout: "flush", component: MainThreadTab, useVisible: useMainTabVisible });
-  } catch { /* without them */ }
+  } catch { tabsRefused(); }
   // Optional call: BB hosts from before app overlays skip it rather than fail to load the plugin.
   app.slots.experimental_appOverlay?.({ id: "needs-review", component: SidebarOverlay });
   // The review agent's Post form (src/review-agent-tools.ts). A host without the slot shows none; "yes" in chat posts instead.

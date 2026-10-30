@@ -56,7 +56,8 @@ async function renderReview(review: Record<string, unknown>, rpc: Record<string,
   patchReviewState(review.targetKey as string, { activeId: "c1" });
   const app = await loadPluginApp(() => import("../app"));
   const calls = handlers(review, rpc);
-  const page = renderSlot(app.navPanels[0]!, { subPath: review.targetKey as string }, { rpc: calls as any, sidebarThreads: { threads: [] } as any });
+  // BB's panel takes the tabs the page opens.
+  const page = renderSlot(app.navPanels[0]!, { subPath: review.targetKey as string }, { rpc: calls as any, sidebarThreads: { threads: [] } as any, experimental_panel: { openTab: () => true } });
   await page.findByTestId("filediff");
   return { app, page, rpc: calls };
 }
@@ -161,6 +162,9 @@ test("with Send to thread off, Not pushed yet still opens beside the diff, as in
   expect(probe.container.textContent).toBe("true");
   const slot = renderPanelTab(app, "main", "pr-12", { rpc: rpc as any, sidebarThreads: { threads: [] } as any });
   expect(await slot.findByRole("tabpanel", { name: "Not pushed yet" })).toBeTruthy();
+  // Not pushed yet alone: no chat to switch to, and nothing saying the review has no main thread.
+  expect(slot.queryByRole("tab", { name: "Chat" })).toBeNull();
+  expect(slot.queryByText(/no main thread yet/)).toBeNull();
   slot.lifecycle.unmount();
   page.lifecycle.unmount();
 });

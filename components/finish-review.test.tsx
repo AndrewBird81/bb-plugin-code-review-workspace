@@ -73,7 +73,8 @@ async function renderWorkspace({ review = {}, rpc = {} }: { review?: Record<stri
     Object.assign(sent, { submittedVerdict: input.verdict, submittedAt: Date.now() });
     return result;
   }) as unknown as typeof handlers.submitReview;
-  const slot = renderSlot(app.navPanels[0]!, { subPath: "pr-42" }, { rpc: handlers as any });
+  // BB's panel takes the tabs the page opens.
+  const slot = renderSlot(app.navPanels[0]!, { subPath: "pr-42" }, { rpc: handlers as any, experimental_panel: { openTab: () => true } });
   await slot.findByRole("main", { name: /^Review\b/ });
   await slot.findByTestId("filediff");
   return { app, slot, rpc: handlers };

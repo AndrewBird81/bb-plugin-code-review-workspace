@@ -82,6 +82,10 @@ test("a host that refuses a navigation page's tabs, as a client from before them
   const loaded = await loadPluginApp(refusing);
   expect(loaded.navPanels.map((panel) => panel.id)).toEqual(["review"]);
   expect(loaded.tabs.map((tab) => tab.id)).toEqual(["review"]);
+  // The review then opens the agent's and the main thread's chats as threads (components/no-panel-hooks.test.tsx).
+  const { useAppPanel } = await import("../lib/app-panel");
+  const probe = renderSlot({ component: () => <p>{useAppPanel() === null ? "no panel" : "panel"}</p> }, {}, {});
+  expect(probe.container.textContent).toBe("no panel");
 });
 
 test("Review changes shows only for a folder with changes or a review, while Settings has it on", async () => {
@@ -254,6 +258,21 @@ test("before the review agent has started, its first message starts it in the ta
   await waitFor(() => expect(startConversation).toHaveBeenCalledWith(expect.objectContaining({ targetKey: "br-tab", text: "Is the snooze safe?", typed: "Is the snooze safe?" })));
   expect(await agent.findByTestId("bb-thread-chat")).toBeTruthy();
   expect(slot.navigateCalls).toEqual([]);
+});
+
+test("on a thread's page the agent's first message takes no focus from the thread's own box; a chat deleted while it shows says so", async () => {
+  let threadId: string | null = "agent-1";
+  const slot = renderSlot({ component: ReviewTab }, { threadId: "lead", environment: { id: "env-tab" } }, { rpc: handlers({ links: tabLinks, rpc: {
+    getDraft: () => draft, getConversation: () => ({ threadId, legacy: [], defaults: { providerId: "codex", model: "gpt-6", reasoningLevel: "medium" }, machine: null }),
+  } }) });
+  await slot.findByTestId("bb-thread-chat");
+  threadId = null;
+  await slot.emitRealtime("conversation:br-tab", { deleted: "agent-1" });
+  const agent = within(slot.getByRole("region", { name: "Review agent" }));
+  expect(await agent.findByText("This review’s agent chat was deleted.")).toBeTruthy();
+  const box = await agent.findByRole("textbox", { name: "Ask the agent" });
+  await new Promise((resolve) => requestAnimationFrame(resolve));
+  expect(document.activeElement).not.toBe(box);
 });
 
 test("when the review agent's chat can't be read, the tab says so, with Try again", async () => {

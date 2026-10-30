@@ -37,7 +37,7 @@ import { TrackedReview } from "./TrackedReview";
 import { NotRunButton } from "./NotRunBanner";
 import type { DockInjection } from "./AgentDock";
 import { REVIEW_TABS } from "./PanelTabs";
-import { recipientOf, useMainThread } from "../lib/main-thread";
+import { forgetMainThreadAsks, recipientOf, useMainThread } from "../lib/main-thread";
 import { ReviewSkeleton, ReviewError } from "./ReviewSkeleton";
 import { AccountBar } from "./AccountBar";
 import { defaultPreferences, type ReviewPreferences } from "../lib/review-preferences";
@@ -100,6 +100,9 @@ function newViews(shown: Map<string, FileViewFlags>, read: Map<string, FileViewF
   }
   return shown;
 }
+
+/** How long a comment asked for from a thread's page waits for the review's page to show it. */
+const ASKED_COMMENT_MS = 30_000;
 
 /** About as tall as the message box of BB's chat at the bottom of its side panel, with the row under it. */
 const CHAT_BOX_HEIGHT = 200;
@@ -372,13 +375,17 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     setCovering(false);
     if (layoutRef.current.panel === "overlay") closePanel();
     const panel = appPanel.current;
-    if (!panel) {
+    if (panel?.openTab({ tab: REVIEW_TABS[tab] })) return;
+    // What was asked of the Main thread tab (Not pushed yet, Change thread) goes with it, rather than open it unasked later.
+    if (tab === "main") forgetMainThreadAsks(targetKey);
+    if (panel) { panelDeclined(tab); return; }
+    if (tab === "main") {
       const main = mainThreadRef.current;
-      if (tab === "main") { if (main) navigate.toThread(main, { split: true }); return; }
-      void rpc.call("getConversation", { targetKey }).then(({ threadId }) => threadId ? navigate.toThread(threadId, { split: true }) : panelMissing(), panelMissing);
+      if (main) navigate.toThread(main, { split: true });
+      else panelDeclined("main");
       return;
     }
-    if (!panel.openTab({ tab: REVIEW_TABS[tab] })) panelDeclined(tab);
+    void rpc.call("getConversation", { targetKey }).then(({ threadId }) => threadId ? navigate.toThread(threadId, { split: true }) : panelMissing(), panelMissing);
   }, [closePanel, navigate, rpc, targetKey]);
   // One overlay at a time: BB's title bar, outside the dimmed workspace, can open the panel over the chapters.
   const openPanel = useCallback((view: PanelView) => {
@@ -1480,7 +1487,8 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   useEffect(() => {
     if (!askedComment || !hasApi) return;
     takeAskedComment(targetKey);
-    showComment(askedComment);
+    // One whose page took long, as a review that couldn't load, isn't shown later, unasked.
+    if (Date.now() - askedComment.asked < ASKED_COMMENT_MS) showComment(askedComment.at);
   }, [askedComment, hasApi, targetKey, showComment]);
   const { id, name, line } = identity ?? {};
   useEffect(() => id && name && line ? publishReviewTitle(targetKey, { id, name, line }) : undefined, [targetKey, id, name, line]);

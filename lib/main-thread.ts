@@ -78,5 +78,11 @@ export function useChangeThreadAsked(targetKey: string): () => boolean {
   return useCallback(() => asked && changeAsks.delete(targetKey), [asked, targetKey]);
 }
 
+/** The tab didn't open: what was asked of it goes, rather than open it unasked later. */
+export function forgetMainThreadAsks(targetKey: string) {
+  if (notPushedAsks.delete(targetKey)) for (const listener of notPushedListeners) listener();
+  if (changeAsks.delete(targetKey)) for (const listener of changeListeners) listener();
+}
+
 /** Whether a review has Not pushed yet: a PR whose main thread works in a folder, a fixer's or its own. */
 export const hasNotPushed = (review: Pick<ReviewLifecycle, "mainThread"> & { kind?: "pr" | "ref" }) => review.kind === "pr" && !!review.mainThread?.environmentId;

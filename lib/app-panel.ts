@@ -6,9 +6,16 @@ import { toast } from "sonner";
 const useAppPanelHook = experimental_useAppPanel as typeof experimental_useAppPanel | undefined;
 const useTabVisibleHook = experimental_useTabVisible as typeof experimental_useTabVisible | undefined;
 
-/** The side panel of the surface this renders in, or null on a client without one. */
+// Whether BB took the review page's tabs: a client from before them may refuse them (app.tsx).
+let tabsTaken = true;
+
+/** BB refused the review page's tabs: the review opens the agent's and the main thread's chats as threads instead. */
+export function tabsRefused() { tabsTaken = false; }
+
+/** The side panel of the surface this renders in, or null on a client without one, or without the review's tabs. */
 export function useAppPanel(): ExperimentalPanelController | null {
-  return useAppPanelHook?.() ?? null;
+  const panel = useAppPanelHook?.() ?? null;
+  return tabsTaken ? panel : null;
 }
 
 /** Whether the tab this renders in shows; on a client that can't say, it does. */

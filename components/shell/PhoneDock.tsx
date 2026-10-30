@@ -172,7 +172,7 @@ export function PhoneDock({ hidden }: { hidden: boolean }) {
         <Button variant="ghost" aria-label="Go to main thread" className={cn(tab, "relative")} onClick={() => navigate.toThread(mainThread.threadId)}>
           <Icon name="Code" aria-hidden />
           {/* It leaves the review for the thread's page. */}
-          <Icon name="ArrowUpRight" className="absolute right-1.5 top-2 size-3" aria-hidden />
+          <Icon name="ArrowUpRight" className="absolute right-0.5 top-1.5 size-3" aria-hidden />
         </Button>
       </Hint>}
       {fullscreen.available && (

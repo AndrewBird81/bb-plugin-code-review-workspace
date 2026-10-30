@@ -29,8 +29,10 @@ export interface AgentDockProps {
   injection?: DockInjection;
   /** Its tab shows in BB's side panel: it reads the conversation, and focuses its box, only then. */
   active?: boolean;
-  /** Within another view, as a thread's Review tab, with no header of its own: only its first message's box. */
+  /** Within another view, as a thread's Review tab, with no header of its own, nor taking the focus as it opens. */
   bare?: boolean;
+  /** The chat it showed was deleted, as the view around it saw: it says so. */
+  wasDeleted?: boolean;
 }
 interface Conversation {
   threadId: string | null; legacy: AgentMessage[]; defaults: AgentChoice | null;
@@ -55,7 +57,7 @@ const UNSET_AGENT: AgentChoice = { providerId: "", model: "", reasoningLevel: "m
 // The Review agent tab in BB's side panel (components/PanelTabs.tsx), mounted again for each review it shows, and by BB
 // 0.48 each time its panel opens. A review's conversation is a hidden bb thread shown with ThreadChat; until it exists, a
 // first-message composer chooses its agent.
-export const AgentDock = memo(function AgentDock({ targetKey, reviewId, reviewName, patch, injection, active = true, bare = false }: AgentDockProps) {
+export const AgentDock = memo(function AgentDock({ targetKey, reviewId, reviewName, patch, injection, active = true, bare = false, wasDeleted = false }: AgentDockProps) {
   const rpc = useRpc<typeof rpcContract>();
   const composers = useComposers();
   const [conversation, setConversation] = useState<Conversation | null>(null);
@@ -99,7 +101,7 @@ export const AgentDock = memo(function AgentDock({ targetKey, reviewId, reviewNa
   useEffect(() => { if (visible) void load(); }, [visible, load]);
   // Asking the agent from the diff can start the conversation.
   // A chat deleted while it shows says so (src/assistant-events.ts), over the first message's box for a new one.
-  const [deleted, setDeleted] = useState(false);
+  const [deleted, setDeleted] = useState(wasDeleted);
   const shownThread = useRef<string | null>(null);
   shownThread.current = conversation?.threadId ?? null;
   useRealtime(`conversation:${targetKey}`, (payload) => {
@@ -107,10 +109,10 @@ export const AgentDock = memo(function AgentDock({ targetKey, reviewId, reviewNa
     void load();
   });
   useEffect(() => {
-    if (!visible || threadId) return;
+    if (!visible || threadId || bare) return;
     const frame = requestAnimationFrame(() => composerRef.current?.focus());
     return () => cancelAnimationFrame(frame);
-  }, [visible, threadId]);
+  }, [visible, threadId, bare]);
   // Before the conversation exists, a selection becomes the first message's
   // context; afterwards it is quoted into bb's composer for the reviewer to edit.
   useEffect(() => {

@@ -67,7 +67,7 @@ export function ReviewAgentTab({ subPath }: PluginNavPanelProps) {
 }
 ReviewAgentTab.displayName = "ReviewAgentTab";
 
-/** Main thread: the thread that writes the code and gets your Sends, with Change and Go to thread. */
+/** Main thread: the thread that writes the code and gets your Sends, with Change thread and Main thread ↗. */
 export function MainThreadTab({ subPath }: PluginNavPanelProps) {
   const { targetKey, visible, api } = useTab(subPath, "main");
   // BB lists it only beside a review.

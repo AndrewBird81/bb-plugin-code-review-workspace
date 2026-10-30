@@ -21,17 +21,17 @@ export interface SendWarned { warning: string; offers: Offer[]; freshWhere?: str
 export type Choice = { force: true; thread?: "unarchive" | "fresh" | "fork" };
 export const choiceOf = (offer: Offer): Choice => offer === "anyway" ? { force: true } : { force: true, thread: offer };
 
-/** What a Send that went says, and to whom: queued behind a busy thread's turn, or sent. */
 /**
- * Watch, a Send's toast action: the thread it went to, beside the review in BB's Main thread tab, or on a phone, where
- * BB's panel would cover the review anyway, its own page.
+ * Watch, a Send's toast action: the thread it went to, beside the review in BB's Main thread tab, or on a phone, held
+ * either way, where BB's panel would cover the review anyway, its own page.
  */
 export function useWatch(targetKey: string): (threadId: string) => { label: string; onClick: () => void } {
   const api = useWorkspaceFor(targetKey);
   const navigate = useBbNavigate();
-  return (threadId) => ({ label: "Watch", onClick: () => api && api.layout.mode !== "phone" ? api.panel.open("main") : navigate.toThread(threadId) });
+  return (threadId) => ({ label: "Watch", onClick: () => api && api.layout.mode === "tablet" ? api.panel.open("main") : navigate.toThread(threadId) });
 }
 
+/** What a Send that went says, and to whom: queued behind a busy thread's turn, or sent. */
 export function sentNote(delivery: "sent" | "queued", title: string | null, what: string): string {
   const to = title ?? "the main thread";
   return delivery === "queued" ? `Queued for ${to}: it’s busy, and gets ${what} when its turn ends.` : `Sent ${what} to ${to}.`;
