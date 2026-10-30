@@ -8,7 +8,7 @@ The full layout detail behind the guide's [Phone and iPad](guide.md#phone-and-ip
 
 ## iPad
 
-- On an iPad, the layout is the desktop's at touch sizes, down to a review 480px wide, as beside BB's side panel, in a window at least 744px on its shorter side (Split View's and Slide Over's narrower ones keep 600px), and the band stays while the on-screen keyboard is up. Resizing the window (Split View, Stage Manager, turning the iPad) hides a docked panel that no longer fits, and docks it again when there's room; nothing opens over the code by itself. The band fits its room as with a mouse. Where touch leaves little room, the bars make way: beside docked Comments with under 600px of code, the selection and step bars sit at the code's left. On a 13" iPad held upright with BB's thread list collapsed, docked Comments leaves the code that little room.
+- On an iPad, the layout is the desktop's at touch sizes, down to a review 480px wide, as beside BB's side panel, except in a window under 744px on its shorter side (Split View's and Slide Over's narrower ones keep 600px), and the band stays while the on-screen keyboard is up. Resizing the window (Split View, Stage Manager, turning the iPad) hides a docked panel that no longer fits, and docks it again when there's room; nothing opens over the code by itself. The band fits its room as with a mouse. Where touch leaves little room, the bars make way: beside docked Comments with under 600px of code, the selection and step bars sit at the code's left. On a 13" iPad held upright with BB's thread list collapsed, docked Comments leaves the code that little room.
 
 ## Phone
 
