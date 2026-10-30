@@ -118,7 +118,7 @@ function randomCall(r: Rng, made: Made): Call {
   const k = r.pick(KEYS);
   const at = location(r);
   const call = (name: string, run: Call["run"]): Call => ({ name: `${name} ${k}`, run });
-  switch (r.int(0, 53)) {
+  switch (r.int(0, 54)) {
     case 0: case 1: {
       const meta: ReviewMeta = {
         targetKey: k, kind: k.startsWith("pr") ? "pr" : "ref", status: r.pick(["generating", "ready", "error", "tracked"] as const), createdAt: r.pick(TIMES),
@@ -241,6 +241,7 @@ function randomCall(r: Rng, made: Made): Call {
       const files = { revisions: Object.fromEntries(FILES.filter(() => r.bool(0.4)).map((file) => [file, `rev-${r.int(1, 3)}`])), hidden: FILES.filter(() => r.bool(0.2)).map((path) => ({ path, reason: r.pick(["secret", "binary", "large"] as const) })) };
       return r.bool(0.7) ? call("saveSnapshotFiles", (s) => s.saveSnapshotFiles(k, head, files)) : call("getSnapshotFiles", (s) => s.getSnapshotFiles(k, head));
     }
+    case 53: { const into = r.pick(KEYS); return call("mergeReview", (s) => s.mergeReview(k, into)); }
     default: {
       if (r.bool(0.5)) {
         // Mostly at the saved revision; otherwise a stale one, which is refused.

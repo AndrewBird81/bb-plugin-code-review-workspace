@@ -25,7 +25,7 @@ const KEEPS_VIEW = new Set<string>([
  */
 const CHANGES_GUIDES = new Set<string>([
   "saveGuide", "beginGeneration", "backupGuide", "restoreGuide", "dropGuideBackup", "interruptGenerations", "interruptGeneration",
-  "deleteReview", "savePatch", "dropPatch",
+  "deleteReview", "savePatch", "dropPatch", "mergeReview",
 ] satisfies Array<keyof Store>);
 
 /** The review a Store call names, as its first argument or that argument's targetKey; null for one naming none. */
