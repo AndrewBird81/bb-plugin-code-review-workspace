@@ -11,7 +11,8 @@ import { beginGuide, guideWriterUnavailable, stopGuide } from "./generate";
 import { pruneDiffs } from "./feedback-view";
 import { readPrSnapshot } from "./pr-snapshot";
 import { prHead } from "./own-pr";
-import { ensureGitHeaders } from "./patch";
+import { ensureGitHeaders, splitPatchByFile } from "./patch";
+import { normalizedFileHash } from "./diff-hash";
 import { machineStatus } from "./machines";
 import { identityIn, placeFacts, remoteRepo } from "./review-places";
 import { defaultName } from "../lib/review-name";
@@ -460,6 +461,13 @@ export async function becomePr(deps: Deps, key: string, pr: { repo: string; numb
 
 type PrSnapshot = Awaited<ReturnType<typeof readPrSnapshot>>;
 
+/** Whether two diffs change the same files the same way, by each file's rebase-proof hash (src/diff-hash.ts). */
+function sameChanges(a: string, b: string): boolean {
+  const hashes = (patch: string) => new Map(splitPatchByFile(patch).map((file) => [file.path, normalizedFileHash(file.text)]));
+  const [before, after] = [hashes(a), hashes(b)];
+  return before.size === after.size && [...before].every(([path, hash]) => after.get(path) === hash);
+}
+
 /**
  * In the caller's transaction, the review of a folder becomes `pr`'s, as `snapshot` read it: its diff the PR's at its
  * head, the comments moved with their lines, one the PR's diff loses kept on what the folder has that the PR's head
@@ -490,8 +498,12 @@ async function convertIn(db: Store, review: ReviewMeta & { feature: FeatureRevie
   const local = ahead ? await placeOn(db, key, lost, previous, ahead.patch, "LOCAL") : [];
   await db.rebaseDraftComments(key, [...placed, ...local]);
   await db.setLifecycle(key, {
-    // Pushed under another name: its branch on GitHub. A 1.8.0 link to the PR's review is gone with the merge.
-    feature: { ...review.feature, prReview: undefined, ...read.headRefName !== review.feature.branch ? { remoteBranch: read.headRefName } : {} },
+    // Pushed under another name: its branch on GitHub. A 1.8.0 link to the PR's review is gone with the merge. A guide
+    // written for local changes the PR's diff isn't says so, with Rewrite guide; never rewritten on its own.
+    feature: {
+      ...review.feature, prReview: undefined, ...read.headRefName !== review.feature.branch ? { remoteBranch: read.headRefName } : {},
+      ...sameChanges(previous, next) ? {} : { guideOlderThanDiff: "pr" as const },
+    },
     // Yours, until the sync reads it, so Push carries on (lib/push.ts pushTarget).
     ownPr: true, prPending: null, prOffer: null,
     // What the folder had that the PR doesn't, as Not pushed yet would show it: a Push waiting on its commit checks it there.
@@ -621,12 +633,12 @@ async function followBranch(deps: Deps, key: string, branch: string, said: boole
  * Update: read a feature review's folder again and show it, the comments following their lines, without the guide
  * writer; a PR's review with its folder, the PR at its head (updatePr). Not while its guide is being written, and not
  * from another branch: the review waits for its own. A diff that moves is newer than the guide: `why` says what moved
- * it, your Update or Include and Keep out.
+ * it, your Update or Include and Keep out, or on a PR's review, your Push landing.
  */
-export async function updateFeature(deps: Deps, key: string, why: "update" | "include" = "update"): Promise<{ ok: boolean; error?: string }> {
+export async function updateFeature(deps: Deps, key: string, why: "update" | "include" | "push" = "update"): Promise<{ ok: boolean; error?: string }> {
   const { bb, store } = deps;
   const review = featureOf(await store.getReview(key));
-  if (review?.kind === "pr" && !review.feature.folderGone) return updatePr(deps, review);
+  if (review?.kind === "pr" && !review.feature.folderGone) return updatePr(deps, review, why === "push" ? why : "update");
   if (!review || review.kind !== "ref") return { ok: false, error: "Only a local review of a folder updates this way. Use Update guide." };
   if (review.status === "generating") return { ok: false, error: "The guide writer is writing this review’s guide. Update once it’s done." };
   if (review.feature.folderGone) return { ok: false, error: "BB removed this folder, so there’s nothing to update from." };
@@ -654,9 +666,9 @@ export async function updateFeature(deps: Deps, key: string, why: "update" | "in
 /**
  * Update a PR's review with its folder to the PR's head now, without the guide writer: its diff, the comments moved
  * with their lines, and a LOCAL comment whose line is on GitHub now a comment there, with its id, state, Send and
- * report; one whose line another comment has stays LOCAL. A diff that moves is newer than the guide.
+ * report; one whose line another comment has stays LOCAL. A diff that moves is newer than the guide, as `why` says.
  */
-async function updatePr(deps: Deps, review: ReviewMeta & { feature: FeatureReview }): Promise<{ ok: boolean; error?: string }> {
+async function updatePr(deps: Deps, review: ReviewMeta & { feature: FeatureReview }, why: "update" | "push"): Promise<{ ok: boolean; error?: string }> {
   const key = review.targetKey;
   const writing = "The guide writer is writing this review’s guide. Update once it’s done.";
   if (!review.number || !review.repo) return { ok: false, error: "This review’s PR isn’t known. Reload it." };
@@ -684,7 +696,7 @@ async function updatePr(deps: Deps, review: ReviewMeta & { feature: FeatureRevie
     await tx.saveSnapshot(key, pr.headRefOid, next);
     await tx.rebaseDraftComments(key, placed);
     // A diff the guide wasn't written for: the review says so, with Rewrite guide.
-    if (previous !== next) await tx.setLifecycle(key, { feature: { ...now.feature, guideOlderThanDiff: "update" } });
+    if (previous !== next) await tx.setLifecycle(key, { feature: { ...now.feature, guideOlderThanDiff: why } });
     await pruneDiffs(tx, (await tx.getReview(key))!);
     return { ok: true };
   });

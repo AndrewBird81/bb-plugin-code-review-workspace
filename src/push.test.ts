@@ -226,6 +226,8 @@ test("a Push on a PR's review that lands on the commit it checked updates the re
   github.prs = [{ number: 7, url: "https://github.com/acme/api/pull/7", createdAt: new Date().toISOString() }];
   await idle();
   expect(await store.getReview(key)).toMatchObject({ kind: "pr", number: 7, headSha: HEAD });
+  // The PR's diff is the one the guide was written for.
+  expect((await store.getReview(key))?.feature?.guideOlderThanDiff).toBeUndefined();
   // Pushed again, exactly the commit Push checked.
   const next = PATCH.replace("+b", "+c");
   Object.assign(pr, { head: OTHER, patch: next });
@@ -233,7 +235,8 @@ test("a Push on a PR's review that lands on the commit it checked updates the re
   github.sha = OTHER;
   await idle();
   expect(await run()).toMatchObject({ state: "pushed", sha: OTHER });
-  expect(await store.getReview(key)).toMatchObject({ headSha: OTHER, feature: { guideOlderThanDiff: "update" } });
+  // Not your Update: the guide was written before the PR's latest commits.
+  expect(await store.getReview(key)).toMatchObject({ headSha: OTHER, feature: { guideOlderThanDiff: "push" } });
   expect(await store.patch(key)).toBe(next);
 });
 

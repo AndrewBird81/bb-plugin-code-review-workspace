@@ -462,7 +462,7 @@ async function readAfter(deps: Deps & Pick<ServeDeps, "sync">, thread: { id: str
       return accept;
     });
     // A PR's review pushed from its folder at exactly the commit Push checked: it shows the PR there, without the guide writer.
-    if (landed && review.kind === "pr" && review.feature) await updateFeature(deps, review.targetKey).catch(() => {});
+    if (landed && review.kind === "pr" && review.feature) await updateFeature(deps, review.targetKey, "push").catch(() => {});
     // Its PR, once there is one: the review becomes its review, the Push it shows going on.
     const found = branch ? await becomeFound(deps, review.targetKey, branch) : false;
     if (landed && !place.pr) await openPrAfter(deps, review.targetKey, found);

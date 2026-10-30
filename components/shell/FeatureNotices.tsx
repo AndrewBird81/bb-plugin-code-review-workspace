@@ -30,6 +30,13 @@ const Wrappable = ({ text }: { text: string }) => <>{text.split(/(?<=\w[/-])/).m
 const listed = (names: string[], shown = 2) => names.length > shown ? `${names.slice(0, shown).join(", ")} and ${names.length - shown} more`
   : names.length > 1 ? `${names.slice(0, -1).join(", ")} and ${names.at(-1)}` : names[0] ?? "";
 const files = (n: number) => `${n} file${n === 1 ? "" : "s"}`;
+/** Why the guide is older than the diff (FeatureReview's guideOlderThanDiff), as its notice says it. */
+const GUIDE_OLDER: Record<NonNullable<FeatureReview["guideOlderThanDiff"]>, string> = {
+  update: "The guide was written before your last Update.",
+  include: "The guide was written before you changed which files are shown.",
+  push: "The guide was written before the PR’s latest commits.",
+  pr: "The guide was written for the local changes, before the PR.",
+};
 const fileName = (path: string) => path.slice(path.lastIndexOf("/") + 1);
 
 /** "and 2 more", which opens a list of those threads, each going to its thread. */
@@ -171,7 +178,7 @@ export function useFeatureNotices(targetKey: string, review: (Reviewed & PrRevie
   // or the review's archived.
   if (feature.guideOlderThanDiff && review.status !== "generating" && check.state !== "gone" && !review.archivedAt && !review.userArchivedAt) {
     add({ id: "guide-behind", tone: "info", icon: "Route", label: "Guide out of date",
-      text: feature.guideOlderThanDiff === "include" ? "The guide was written before you changed which files are shown." : "The guide was written before your last Update.",
+      text: GUIDE_OLDER[feature.guideOlderThanDiff],
       action: button("rewrite", "Rewrite guide", () => void act("rewrite", () => rpc.call("rewriteGuide", { targetKey }), "Couldn’t rewrite the guide."), { description: REWRITE_GUIDE, agent: true }) });
   }
   if (check.flagged.length) {

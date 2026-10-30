@@ -338,6 +338,32 @@ test("once its branch has a PR, the same review becomes the PR's at its head, ke
   expect(s.spawns).toHaveLength(1);
 });
 
+test("a PR whose diff differs from the local changes says the guide was written for them; one with the same diff doesn't", async () => {
+  const s = setup();
+  await run(s, "main");
+  await settled(s);
+  Object.assign(s.folder, { prBase: "main", pr: { number: 7, url: "https://github.com/acme/api/pull/7", headRefName: "feat/qa" } });
+  await checkFeature(s.deps, key);
+  expect(await s.store.getReview(key)).toMatchObject({ kind: "pr" });
+  expect((await s.store.getReview(key))?.feature?.guideOlderThanDiff).toBeUndefined();
+
+  // The folder has a file the PR doesn't.
+  const t = setup({ files: [{ path: "src/a.ts", body: BODY }, { path: "src/b.ts" }] });
+  await run(t, "main");
+  await settled(t);
+  Object.assign(t.folder, { prBase: "main", pr: { number: 7, url: "https://github.com/acme/api/pull/7", headRefName: "feat/qa" } });
+  await checkFeature(t.deps, key);
+  expect(await t.store.getReview(key)).toMatchObject({ kind: "pr", feature: { guideOlderThanDiff: "pr" } });
+
+  // The same files, one changed otherwise.
+  const u = setup({ files: [{ path: "src/a.ts", body: BODY.replace("+TWO", "+Two") }] });
+  await run(u, "main");
+  await settled(u);
+  Object.assign(u.folder, { prBase: "main", pr: { number: 7, url: "https://github.com/acme/api/pull/7", headRefName: "feat/qa" } });
+  await checkFeature(u.deps, key);
+  expect(await u.store.getReview(key)).toMatchObject({ kind: "pr", feature: { guideOlderThanDiff: "pr" } });
+});
+
 // PR Status reports a draft as "draft" (1.9.0): `gh pr create --draft`, as agents often run it, never converted.
 test("a draft PR on its branch makes the review the PR's, as an open one does", async () => {
   const s = setup();

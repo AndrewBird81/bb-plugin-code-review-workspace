@@ -237,6 +237,16 @@ test("after Update, a guide written before it says so, after Changed, with Rewri
   const pr = await renderWorkspace({ checkFeature: () => nothing }, { ...review, kind: "pr", repo: "acme/api", number: 7, headSha: "c0ffee", ownPr: true });
   expect(await pr.slot.findByText(text)).toBeTruthy();
   pr.slot.lifecycle.unmount();
+  cleanup();
+
+  // Updated on its own as your Push landed, which you didn't click; or its PR's diff wasn't the local changes'.
+  for (const [flag, said] of [["push", "The guide was written before the PR’s latest commits."], ["pr", "The guide was written for the local changes, before the PR."]] as const) {
+    const flagged = await renderWorkspace({ checkFeature: () => nothing, rewriteGuide }, { ...review, kind: "pr", repo: "acme/api", number: 7, headSha: "c0ffee", ownPr: true, feature: { ...feature, guideOlderThanDiff: flag } });
+    await flagged.slot.findByText(said);
+    expect(within(notice(flagged.slot, said)).getByRole("button", { name: "Rewrite guide" })).toBeTruthy();
+    flagged.slot.lifecycle.unmount();
+    cleanup();
+  }
 });
 
 test("a PR's review whose folder has files not on GitHub yet says how many, with Review them; paused, it offers only a New review", async () => {

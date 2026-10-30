@@ -284,10 +284,11 @@ export interface FeatureReview {
   /** How many files changed in the folder since the review read it, as last checked; null for none or not checked. */
   changedFiles?: number | null;
   /**
-   * The diff shown is newer than its guide: your Update read the folder again ("update"), or Include or Keep out changed
-   * which files it shows ("include"). Null once a new guide is accepted.
+   * The diff shown is newer than its guide: your Update read the folder again ("update"), Include or Keep out changed
+   * which files it shows ("include"), a PR's review moved to the PR's head as your Push landed ("push"), or the review
+   * became its PR's, whose diff isn't the local changes the guide was written for ("pr"). Null once a new guide is accepted.
    */
-  guideOlderThanDiff?: "update" | "include" | null;
+  guideOlderThanDiff?: "update" | "include" | "push" | "pr" | null;
 }
 
 /** A thread that fixes the review's comments. */
