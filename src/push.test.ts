@@ -888,6 +888,27 @@ test("Cancel and Stop waiting drop Push and open PR: a push that lands after ask
   expect(prAsks(chat)).toBe(0);
 });
 
+// T1 or the poll makes the review the PR's while the thread pushes: the push lands on a PR's review.
+test("Push and open PR whose review became the PR's while it pushed drops its intent once the push lands, and asks the review agent nothing", async () => {
+  const { harness, bb, store, cli, idle, run, github, chat } = await setup();
+  const answers = runGh.getMockImplementation()!;
+  runGh.mockImplementation(async (args: string[]) => {
+    if (args[0] === "pr" && args[1] === "view") return ok(JSON.stringify({ number: 7, title: "Snooze flaky checks", author: { login: "me" }, baseRefName: "main", headRefName: "feat/qa", url: "https://github.com/acme/api/pull/7", headRefOid: OLD, state: "OPEN", createdAt: new Date().toISOString() }));
+    if (args[0] === "pr" && args[1] === "diff") return ok(PATCH);
+    if (args.some((a) => a.includes("pullRequest(number"))) return ok(JSON.stringify({ data: { repository: { pullRequest: { headRefOid: github.sha } } } }));
+    return answers(args);
+  });
+  await harness.behavior.callRpc("push", { targetKey: KEY, thenOpenPr: true });
+  await cli("coder", "report", "--commit", HEAD);
+  expect(await run()).toMatchObject({ state: "pushing", thenOpenPr: true });
+  expect(await becomePr({ bb, store, gh: { runGh, runGit }, changed: vi.fn() }, KEY, { repo: "acme/api", number: 7 })).toBe("converted");
+  github.sha = HEAD;
+  await idle();
+  expect(await run()).toMatchObject({ state: "pushed", sha: HEAD });
+  expect((await run())!.thenOpenPr).toBeUndefined();
+  expect(prAsks(chat)).toBe(0);
+});
+
 test("Push and open PR on a branch whose PR opened meanwhile makes the review the PR's, and asks the review agent nothing", async () => {
   const { harness, cli, idle, run, github, store, chat } = await setup();
   const answers = runGh.getMockImplementation()!;

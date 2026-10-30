@@ -237,8 +237,8 @@ const DRAFTING = "The review agent is drafting the PR; post it from its chat.";
 
 /**
  * Push and open PR, once its push landed or had nothing to push: the review agent drafts the PR, as Open PR asks it,
- * unless the read that found the push found the branch's PR too (`found`), which the review became. The intent is taken
- * first, so it runs once; "asked" once the agent was.
+ * unless the branch has its PR already (`found`), which the review became, as the read that found the push found, or
+ * before it landed. The intent is taken first, so it runs once; "asked" once the agent was.
  */
 async function openPrAfter(deps: Deps, key: string, found = false) {
   const run = await deps.store.exclusive(async (tx) => {
@@ -465,7 +465,8 @@ async function readAfter(deps: Deps & Pick<ServeDeps, "sync">, thread: { id: str
     if (landed && review.kind === "pr" && review.feature) await updateFeature(deps, review.targetKey, "push").catch(() => {});
     // Its PR, once there is one: the review becomes its review, the Push it shows going on.
     const found = branch ? await becomeFound(deps, review.targetKey, branch) : false;
-    if (landed && !place.pr) await openPrAfter(deps, review.targetKey, found);
+    // On a review that became its PR's meanwhile, Push and open PR has nothing left to open.
+    if (landed) await openPrAfter(deps, review.targetKey, found || !!place.pr);
   }
 }
 
