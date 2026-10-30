@@ -1,0 +1,42 @@
+{
+  "br-278040a3ec03412c": {
+    "plain": "{\"event\":\"COMMENT\",\"body\":\"\",\"comments\":[{\"path\":\"api.ts\",\"line\":1,\"side\":\"RIGHT\",\"body\":\"**Should fix:** Cap the retries at 3.\"},{\"path\":\"api.ts\",\"line\":4,\"side\":\"RIGHT\",\"body\":\"Say done once.\"},{\"path\":\"util.ts\",\"line\":1,\"side\":\"RIGHT\",\"body\":\"Not sent yet.\"}]}",
+    "preExisting": "{\"event\":\"COMMENT\",\"body\":\"\",\"comments\":[{\"path\":\"api.ts\",\"line\":1,\"side\":\"RIGHT\",\"body\":\"**Should fix:** Cap the retries at 3.\"},{\"path\":\"api.ts\",\"line\":4,\"side\":\"RIGHT\",\"body\":\"Say done once.\"},{\"path\":\"util.ts\",\"line\":1,\"side\":\"RIGHT\",\"body\":\"Not sent yet.\"}]}",
+    "own": "{\"event\":\"COMMENT\",\"body\":\"\",\"comments\":[{\"path\":\"api.ts\",\"line\":4,\"side\":\"RIGHT\",\"body\":\"Say done once.\"},{\"path\":\"util.ts\",\"line\":1,\"side\":\"RIGHT\",\"body\":\"Not sent yet.\"}]}"
+  },
+  "pr-86f279ce9c29f106-12": {
+    "plain": "{\"event\":\"COMMENT\",\"body\":\"\",\"comments\":[{\"path\":\"api.ts\",\"line\":1,\"side\":\"RIGHT\",\"body\":\"Open: still to send.\"},{\"path\":\"api.ts\",\"line\":2,\"side\":\"RIGHT\",\"body\":\"Sent: use the shared constant.\"}]}",
+    "preExisting": "{\"event\":\"COMMENT\",\"body\":\"\",\"comments\":[{\"path\":\"api.ts\",\"line\":1,\"side\":\"RIGHT\",\"body\":\"Open: still to send.\"},{\"path\":\"api.ts\",\"line\":2,\"side\":\"RIGHT\",\"body\":\"Sent: use the shared constant.\"}]}",
+    "own": "{\"event\":\"COMMENT\",\"body\":\"\",\"comments\":[{\"path\":\"api.ts\",\"line\":1,\"side\":\"RIGHT\",\"body\":\"Open: still to send.\"}]}"
+  },
+  "pr-86f279ce9c29f106-15": {
+    "plain": "{\"event\":\"APPROVE\",\"body\":\"Looks good once the retries are counted.\",\"comments\":[{\"path\":\"api.ts\",\"line\":2,\"side\":\"RIGHT\",\"body\":\"**Should fix:** Count the retries.\"}]}",
+    "preExisting": "{\"event\":\"APPROVE\",\"body\":\"Looks good once the retries are counted.\",\"comments\":[{\"path\":\"api.ts\",\"line\":2,\"side\":\"RIGHT\",\"body\":\"**Should fix:** Count the retries.\"}]}",
+    "own": "{\"event\":\"APPROVE\",\"body\":\"Looks good once the retries are counted.\",\"comments\":[]}"
+  },
+  "br-0a93e726f82b0934": {
+    "plain": "{\"event\":\"COMMENT\",\"body\":\"\",\"comments\":[{\"path\":\"api.ts\",\"line\":2,\"side\":\"RIGHT\",\"body\":\"Retry downloads too, 21.\"}]}",
+    "preExisting": "{\"event\":\"COMMENT\",\"body\":\"\",\"comments\":[{\"path\":\"api.ts\",\"line\":2,\"side\":\"RIGHT\",\"body\":\"Retry downloads too, 21.\"}]}",
+    "own": "{\"event\":\"COMMENT\",\"body\":\"\",\"comments\":[{\"path\":\"api.ts\",\"line\":2,\"side\":\"RIGHT\",\"body\":\"Retry downloads too, 21.\"}]}"
+  },
+  "br-9eb956119044eee4": {
+    "plain": "{\"event\":\"COMMENT\",\"body\":\"\",\"comments\":[{\"path\":\"api.ts\",\"line\":2,\"side\":\"RIGHT\",\"body\":\"Retry downloads too, 22.\"}]}",
+    "preExisting": "{\"event\":\"COMMENT\",\"body\":\"\",\"comments\":[{\"path\":\"api.ts\",\"line\":2,\"side\":\"RIGHT\",\"body\":\"Retry downloads too, 22.\"}]}",
+    "own": "{\"event\":\"COMMENT\",\"body\":\"\",\"comments\":[{\"path\":\"api.ts\",\"line\":2,\"side\":\"RIGHT\",\"body\":\"Retry downloads too, 22.\"}]}"
+  },
+  "pr-86f279ce9c29f106-22": {
+    "plain": "{\"event\":\"COMMENT\",\"body\":\"\",\"comments\":[]}",
+    "preExisting": "{\"event\":\"COMMENT\",\"body\":\"\",\"comments\":[]}",
+    "own": "{\"event\":\"COMMENT\",\"body\":\"\",\"comments\":[]}"
+  },
+  "br-8b39b2ddf5bd0076": {
+    "plain": "{\"event\":\"COMMENT\",\"body\":\"\",\"comments\":[{\"path\":\"api.ts\",\"line\":2,\"side\":\"RIGHT\",\"body\":\"Retry downloads too, 23.\"}]}",
+    "preExisting": "{\"event\":\"COMMENT\",\"body\":\"\",\"comments\":[{\"path\":\"api.ts\",\"line\":2,\"side\":\"RIGHT\",\"body\":\"Retry downloads too, 23.\"}]}",
+    "own": "{\"event\":\"COMMENT\",\"body\":\"\",\"comments\":[{\"path\":\"api.ts\",\"line\":2,\"side\":\"RIGHT\",\"body\":\"Retry downloads too, 23.\"}]}"
+  },
+  "pr-86f279ce9c29f106-23": {
+    "plain": "{\"event\":\"COMMENT\",\"body\":\"\",\"comments\":[]}",
+    "preExisting": "{\"event\":\"COMMENT\",\"body\":\"\",\"comments\":[]}",
+    "own": "{\"event\":\"COMMENT\",\"body\":\"\",\"comments\":[]}"
+  }
+}

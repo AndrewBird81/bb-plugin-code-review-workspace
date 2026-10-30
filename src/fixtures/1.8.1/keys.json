@@ -1,0 +1,136 @@
+{
+  "feature": "br-278040a3ec03412c",
+  "own": "pr-86f279ce9c29f106-12",
+  "teammate": "pr-86f279ce9c29f106-15",
+  "converted": "br-0a93e726f82b0934",
+  "linked": [
+    {
+      "folder": "br-9eb956119044eee4",
+      "pr": "pr-86f279ce9c29f106-22"
+    },
+    {
+      "folder": "br-8b39b2ddf5bd0076",
+      "pr": "pr-86f279ce9c29f106-23"
+    }
+  ],
+  "featurePatch": "4c7066037813a18910705a742b95f61a530deaa2c3d603854b893f03bb6aeb69",
+  "comments": {
+    "br-278040a3ec03412c": [
+      {
+        "file": "api.ts",
+        "line": 1,
+        "side": "RIGHT",
+        "id": "c1",
+        "state": "sent"
+      },
+      {
+        "file": "api.ts",
+        "line": 2,
+        "side": "RIGHT",
+        "id": "c2",
+        "state": "resolved"
+      },
+      {
+        "file": "api.ts",
+        "line": 3,
+        "side": "RIGHT",
+        "id": "c3",
+        "state": "dismissed"
+      },
+      {
+        "file": "api.ts",
+        "line": 4,
+        "side": "RIGHT",
+        "id": "c4",
+        "state": "open"
+      },
+      {
+        "file": "util.ts",
+        "line": 1,
+        "side": "RIGHT"
+      }
+    ],
+    "pr-86f279ce9c29f106-12": [
+      {
+        "file": "api.ts",
+        "line": 1,
+        "side": "RIGHT"
+      },
+      {
+        "file": "api.ts",
+        "line": 2,
+        "side": "RIGHT",
+        "id": "c5",
+        "state": "sent"
+      },
+      {
+        "file": "api.ts",
+        "line": 3,
+        "side": "RIGHT",
+        "id": "c6",
+        "state": "resolved"
+      },
+      {
+        "file": "api.ts",
+        "line": 4,
+        "side": "RIGHT",
+        "id": "c7",
+        "state": "dismissed"
+      }
+    ],
+    "pr-86f279ce9c29f106-15": [
+      {
+        "file": "api.ts",
+        "line": 2,
+        "side": "RIGHT",
+        "id": "c9",
+        "state": "sent"
+      }
+    ],
+    "br-0a93e726f82b0934": [
+      {
+        "file": "api.ts",
+        "line": 2,
+        "side": "RIGHT"
+      }
+    ],
+    "br-9eb956119044eee4": [
+      {
+        "file": "api.ts",
+        "line": 2,
+        "side": "RIGHT"
+      }
+    ],
+    "pr-86f279ce9c29f106-22": [],
+    "br-8b39b2ddf5bd0076": [
+      {
+        "file": "api.ts",
+        "line": 2,
+        "side": "RIGHT"
+      }
+    ],
+    "pr-86f279ce9c29f106-23": []
+  },
+  "sendSnapshots": {
+    "br-278040a3ec03412c": [
+      "send:1",
+      "send:2"
+    ],
+    "pr-86f279ce9c29f106-12": [
+      "send:1"
+    ],
+    "pr-86f279ce9c29f106-15": [
+      "send:1"
+    ],
+    "br-0a93e726f82b0934": [],
+    "br-9eb956119044eee4": [],
+    "pr-86f279ce9c29f106-22": [],
+    "br-8b39b2ddf5bd0076": [],
+    "pr-86f279ce9c29f106-23": []
+  },
+  "knobs": {
+    "reviewAgentActs": false,
+    "reviewChangesLine": false,
+    "trackOwnPrs": false
+  }
+}
