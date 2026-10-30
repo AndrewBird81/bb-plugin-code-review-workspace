@@ -31,6 +31,7 @@ bb review [<pr-url | owner/repo#n | pr-number | git-ref> [--base <ref>]] [--cont
   reviewer sends.
 - A PR's URL, or `owner/repo#n`, works from anywhere; a PR number or a local ref needs this
   thread's checkout to be on the BB server.
+- A review's id, `bb review api:feat`, opens that review as it is, not as a git ref.
 - `--base <ref>` reviews a local ref against a base, as `git diff <base>...<ref>`.
 - `--context <text>` keeps text with the review for the review agent's automatic review, such as
   the ticket the change implements; `''` removes it.
@@ -73,7 +74,8 @@ its guide is ready. A review the reviewer renamed adds `named "…"`, the name t
 
 ## Draft comments
 
-A `<review>` is a PR's URL, `owner/repo#n`, or a review's key (`pr-…`, `ref-…`, or `br-…`). A line is its
+A `<review>` is a PR's URL, `owner/repo#n`, a review's id (`api#4512`, `api:branch`, even the id a folder's review
+had before it became its PR's), or its key (`pr-…`, `ref-…`, or `br-…`). A line is its
 number in the new file; add `--side LEFT` for a removed line, numbered in the old file.
 
 ```sh

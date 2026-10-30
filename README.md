@@ -155,7 +155,8 @@ bb review https://github.com/acme/web/pull/42
 - On your own change, Submit posts only open comments: ones sent to fix, resolved or dismissed stay in BB.
 - If it goes idle first, as it does while subagents work, the review says "1 of 6 reported", with **Check now**.
 - **Push** in Finish review has the main thread commit what you reviewed, checks that commit against what you reviewed, warning first when they differ, then has the thread push exactly that commit, never forced.
-- Then **Open PR** in Finish review has the review agent draft the PR, and the same review becomes the PR's.
+- **Push and open PR** in Finish review pushes, then has the review agent draft the PR. However the PR opens, the same review becomes the PR's within seconds, its id from before still naming it, and merges with the PR's own review if it has one.
+- The folder stays attached: **Not pushed yet**, a page after the chapters, shows what isn't on GitHub yet, and a comment on a line there goes with Send, then moves to the PR once it's pushed.
 - On your own PR, teammates' comments go through the same loop: **Send** them to the thread that wrote it, or to a fresh thread at the PR's head that the review briefs.
 - Agents in your threads can add draft comments and a summary with `bb review comment` and `bb review summary`. They change only the local draft.
 - **Open in editor** opens a local review's file at the line.

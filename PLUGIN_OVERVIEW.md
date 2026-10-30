@@ -26,7 +26,7 @@ For reviewers who need to understand a change before they approve it, often one 
 
 - **Review changes** above a thread's message box, or `bb review` in it, reviews that thread's folder on any machine: one review per folder and branch, uncommitted and new files included.
 - **Send** your comments to the thread that wrote the code. **Main thread ↗** goes to it, its **Review · 2 open ↗** comes back, and its chat can show beside the diff in BB's side panel. It reports each done or declined, and the review comes back **Ready to re-review** with each fix checked.
-- **Push** from the review: the thread commits what you reviewed, the review checks that commit, and the thread pushes exactly it. Then **Open PR**, and the review becomes the PR's. Teammates' comments on your own PR go through the same loop.
+- **Push** from the review: the thread commits what you reviewed, the review checks that commit, and the thread pushes exactly it. **Push and open PR** has the review agent draft the PR too, and however the PR opens, the review becomes the PR's, its folder still attached. Teammates' comments on your own PR go through the same loop.
 - Agents in your other threads can add draft comments with `bb review comment`, and relay your asks to the review agent.
 
 ## Trust
