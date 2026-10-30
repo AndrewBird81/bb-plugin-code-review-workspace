@@ -363,7 +363,7 @@ test("a PR's review with its folder says how many files there aren't on GitHub y
   expect((await s.store.getReview(key))?.kind).toBe("pr");
   const gh = s.ghCalls.length;
   s.calls.length = 0;
-  expect(await checkFeature(s.deps, key)).toMatchObject({ state: "ahead", aheadFiles: 2, alsoActive: [] });
+  expect(await checkFeature(s.deps, key)).toMatchObject({ state: "ahead", aheadFiles: 2, aheadPaths: ["src/a.ts", "src/b.ts"], alsoActive: [] });
   expect(s.calls.find((call) => call.method === "files")?.input.target.mergeBaseBranch).toBe(s.view.headRefOid);
   expect(s.ghCalls).toHaveLength(gh);
   s.folder.files.length = 0;

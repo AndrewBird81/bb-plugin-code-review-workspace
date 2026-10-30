@@ -304,11 +304,12 @@ export async function runFeatureCommand(deps: Deps, command: FeatureCommand, ctx
 export interface FeatureCheck {
   /**
    * current: as the review shows it. changed: `changedFiles` differ. ahead: a PR's review whose folder has `aheadFiles`
-   * not on GitHub yet. paused: on `branch`. offline, gone, unavailable: `message`.
+   * not on GitHub yet, `aheadPaths`. paused: on `branch`. offline, gone, unavailable: `message`.
    */
   state: "current" | "changed" | "ahead" | "paused" | "offline" | "gone" | "unavailable";
   changedFiles?: number;
   aheadFiles?: number;
+  aheadPaths?: string[];
   branch?: string | null;
   message?: string;
   /** Other threads working in the folder: not the main thread, nor its subagents. */
@@ -572,8 +573,8 @@ async function checkPrFolder(deps: Deps, review: ReviewMeta & { feature: Feature
   }
   if (read.outcome === "paused") return { ...empty, state: "paused", branch: read.branch };
   if (read.outcome !== "available") return { ...empty, state: read.outcome, message: read.message };
-  const ahead = Object.keys(read.revisions).length;
-  return ahead ? { ...empty, state: "ahead", aheadFiles: ahead } : empty;
+  const ahead = Object.keys(read.revisions);
+  return ahead.length ? { ...empty, state: "ahead", aheadFiles: ahead.length, aheadPaths: ahead } : empty;
 }
 
 /**

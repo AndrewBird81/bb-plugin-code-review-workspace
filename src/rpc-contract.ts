@@ -488,6 +488,7 @@ export const rpcContract = defineRpcContract({
       state: z.enum(["current", "changed", "ahead", "paused", "offline", "gone", "unavailable"]),
       changedFiles: z.number().int().optional(),
       aheadFiles: z.number().int().optional(),
+      aheadPaths: z.array(z.string()).optional(),
       branch: z.string().nullable().optional(),
       message: z.string().optional(),
       alsoActive: z.array(z.object({ threadId: z.string(), title: z.string() })),
