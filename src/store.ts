@@ -970,11 +970,14 @@ export function storeOn(sql: Sql): Store {
           if (!mine || mine.hash !== current.get(view.file) && (view.hash === current.get(view.file) || view.viewedAt > mine.viewedAt)) await this.setFileViewed(into, view.file, view.hash, view.viewedAt);
         }
 
-        // Its Sends' diffs move; its diffs at commits are copied, for Since your review.
+        // Its Sends' diffs move; its diffs at commits are copied where this review has none, for Since your review. Not
+        // its Not pushed yet: another folder's, which this review's LOCAL comments aren't on.
         for (const { head_sha } of await sql.all<{ head_sha: string }>(`SELECT head_sha FROM review_snapshots WHERE target_key=? ORDER BY head_sha`, [from])) {
+          if (head_sha === NOT_PUSHED || head_sha === `${NOT_PUSHED}${FILES}`) continue;
+          const head = renumbered(head_sha);
           await sql.run(`INSERT INTO review_snapshots (target_key,head_sha,patch,created_at) SELECT ?, ?, patch, created_at FROM review_snapshots WHERE target_key=? AND head_sha=?
-            ON CONFLICT(target_key,head_sha) DO UPDATE SET patch=excluded.patch`, [into, renumbered(head_sha), from, head_sha]);
-          if (renumbered(head_sha) !== head_sha) await sql.run(`DELETE FROM review_snapshots WHERE target_key=? AND head_sha=?`, [from, head_sha]);
+            ON CONFLICT(target_key,head_sha) DO ${head === head_sha ? "NOTHING" : "UPDATE SET patch=excluded.patch"}`, [into, head, from, head_sha]);
+          if (head !== head_sha) await sql.run(`DELETE FROM review_snapshots WHERE target_key=? AND head_sha=?`, [from, head_sha]);
         }
         for (const row of await sql.all<{ head_sha: string; item_id: string; data: string }>(`SELECT head_sha, item_id, data FROM assessment_items WHERE target_key=? ORDER BY head_sha, item_id`, [from])) {
           await sql.run(`INSERT INTO assessment_items (target_key,head_sha,item_id,data) VALUES (?,?,?,?) ON CONFLICT(target_key,head_sha,item_id) DO NOTHING`, [into, renumbered(row.head_sha), row.item_id, row.data]);

@@ -189,6 +189,31 @@ test("merging the PR's own review into the folder's moves every table's rows, or
   expect([...tables].sort()).toEqual([...REVIEW_TABLES].sort());
 });
 
+test("the review that stays keeps its own Not pushed yet and its diffs at commits; only the other's Sends' diffs move over its", async () => {
+  const { store } = await setup();
+  await store.saveSnapshot(S, "not-pushed", "S's folder");
+  await store.saveSnapshotFiles(S, "not-pushed", { revisions: { "a.ts": "s" }, hidden: [] });
+  await store.saveSnapshot(S, "sha-p", "S at sha-p");
+  await store.saveSnapshot(P, "not-pushed", "P's folder");
+  await store.saveSnapshotFiles(P, "not-pushed", { revisions: { "a.ts": "p" }, hidden: [] });
+  await store.saveSnapshotFiles(P, "sha-p", { revisions: { "a.ts": "p" }, hidden: [] });
+  await store.mergeReview(P, S);
+  expect(await store.getSnapshot(S, "not-pushed")).toBe("S's folder");
+  expect(await store.getSnapshotFiles(S, "not-pushed")).toEqual({ revisions: { "a.ts": "s" }, hidden: [] });
+  expect(await store.getSnapshot(S, "sha-p")).toBe("S at sha-p");
+  // One it has none of is copied, as before.
+  expect(await store.getSnapshotFiles(S, "sha-p")).toEqual({ revisions: { "a.ts": "p" }, hidden: [] });
+  expect(await store.getSnapshot(S, "send:3")).toBe(PATCH_P);
+
+  // With none of its own, it takes none of the other folder's.
+  const fresh = await setup();
+  await fresh.store.saveSnapshot(P, "not-pushed", "P's folder");
+  await fresh.store.saveSnapshotFiles(P, "not-pushed", { revisions: { "a.ts": "p" }, hidden: [] });
+  await fresh.store.mergeReview(P, S);
+  expect(await fresh.store.getSnapshot(S, "not-pushed")).toBeNull();
+  expect(await fresh.store.getSnapshotFiles(S, "not-pushed")).toBeNull();
+});
+
 test("a review with no agent of its own takes the other's conversation, which goes on there", async () => {
   const { store } = await setup({ agentOnBoth: false });
   const { adopted } = (await store.mergeReview(P, S))!;
