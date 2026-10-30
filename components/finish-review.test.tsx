@@ -801,18 +801,22 @@ test("no Open PR on a ref's review, a folder with no GitHub repo, or with the re
   }
 });
 
-test("a local review that becomes its PR's while open says so in a notice, as its id changes", async () => {
+test("a local review that becomes its PR's while open says so in the notice it stores, as its id changes, not one of the page's own", async () => {
   let review: Record<string, unknown> = folderReview;
-  const { slot } = await renderWorkspace({ rpc: { getReviewBundle: () => ({ review: { targetKey: "pr-42", status: "ready", createdAt: 1, title: "Parse rows", ...review }, guide: structuredClone(guide), patch, revision: "r1" }) } });
-  const text = "This review is now web#7, the PR’s. It was web:feat/qa; your comments came with it.";
-  expect(slot.queryByText(text)).toBeNull();
-  review = { kind: "pr", repo: "acme/web", number: 7, url: "https://github.com/acme/web/pull/7", headSha: "c0ffee", feature: folderReview.feature };
+  const dismissBecame = vi.fn(() => ({ ok: true }));
+  const { slot } = await renderWorkspace({ rpc: { dismissBecame, getReviewBundle: () => ({ review: { targetKey: "pr-42", status: "ready", createdAt: 1, title: "Parse rows", ...review }, guide: structuredClone(guide), patch, revision: "r1" }) } });
+  const converted = { kind: "pr", repo: "acme/web", number: 7, url: "https://github.com/acme/web/pull/7", headSha: "c0ffee", feature: folderReview.feature };
+  review = converted;
   await slot.emitRealtime("review:pr-42", {});
-  // A notice in the page's flow, covering nothing, until Got it.
-  const notice = (await slot.findByText(text)).closest("[role=status]")!;
-  expect(notice).toBeTruthy();
-  fireEvent.click(within(notice as HTMLElement).getByRole("button", { name: "Got it" }));
-  await waitFor(() => expect(slot.queryByText(text)).toBeNull());
+  await slot.findByText("web#7");
+  expect(slot.queryByText(/This review is now/)).toBeNull();
+  // Its stored notice, until Got it, which the server clears.
+  review = { ...converted, became: { at: 1, number: 7, url: "https://github.com/acme/web/pull/7", from: "web:feat/qa", carried: 2, local: 0, outside: 0 } };
+  await slot.emitRealtime("review:pr-42", {});
+  const notice = await slot.findByRole("status", { name: "Now a PR" });
+  expect(notice.textContent).toContain("Now PR #7 · 2 comments carried over. It was web:feat/qa.");
+  fireEvent.click(within(notice).getByRole("button", { name: "Got it" }));
+  await waitFor(() => expect(dismissBecame).toHaveBeenCalledWith({ targetKey: "pr-42" }));
   slot.lifecycle.unmount();
 });
 

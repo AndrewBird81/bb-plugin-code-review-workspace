@@ -1512,16 +1512,6 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   }, [askedComment, hasApi, targetKey, showComment]);
   const { id, name, line } = identity ?? {};
   useEffect(() => id && name && line ? publishReviewTitle(targetKey, { id, name, line }) : undefined, [targetKey, id, name, line]);
-  // A local review that became its PR's while it's open, as Open PR does: a notice says so, as its id changes
-  // everywhere, until Got it, in the page's flow so it covers nothing.
-  const shownAs = useRef<{ targetKey: string; kind: string; id: string } | null>(null);
-  const [became, setBecame] = useState<{ targetKey: string; from: string; to: string } | null>(null);
-  useEffect(() => {
-    if (!review || !id) return;
-    const was = shownAs.current;
-    shownAs.current = { targetKey, kind: review.kind, id };
-    if (was?.targetKey === targetKey && was.kind === "ref" && review.kind === "pr") setBecame({ targetKey, from: was.id, to: id });
-  }, [targetKey, review?.kind, id]);
 
   if (!guide || !api) {
     const back = () => navigate.toPluginPanel("review");
@@ -1553,9 +1543,6 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     ...fixNotices,
     ...branchKept,
     ...pushNotices,
-    // One that stores its notice (1.9.0, shell/PrNotices.tsx) says so there, and Got it there leaves it null.
-    ...(became?.targetKey === targetKey && review?.became === undefined ? [{ id: "became-pr", tone: "info", icon: "GitPullRequest", text: `This review is now ${became.to}, the PR’s. It was ${became.from}; your comments came with it.`,
-      action: <Button variant="outline" size="sm" className={noticeButton} onClick={() => setBecame(null)}>Got it</Button> }] as const : []),
     ...(generatingReplacement ? [{ id: "updating", tone: "warning", icon: "Loading", busy: true, text: "Updating the guide for the new commits. Your current view and unsaved edits stay here.", ...(stopGenerating ? { action: <Button variant="outline" size="sm" className={noticeButton} disabled={stopping} onClick={() => void stopGuide()}>{stopping ? "Stopping…" : "Stop"}</Button> } : {}) }] as const : []),
     ...(review?.skippedRun && !archived ? [{ id: "not-run", tone: "warning", icon: "Lock", label: "Not run automatically", text: `${notRunReason(review, { unattendedAgents })}.`, action: <NotRunButton review={review} /> }] as const : []),
     // A local review's buttons stay on its text's first line, as a folder's notices' do; Rewrite guide wears the agent's sparkle.
