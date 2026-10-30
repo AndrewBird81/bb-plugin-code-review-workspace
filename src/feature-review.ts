@@ -483,7 +483,10 @@ async function convertIn(db: Store, review: ReviewMeta & { feature: FeatureRevie
   const { comments } = await db.getDraft(key);
   const placed = await reanchorDraft(db, key, previous, next);
   const lost = comments.filter((comment) => !placed.some(({ at }) => sameLocation(at, comment)) && comment.side === "RIGHT" && !comment.startSide);
-  if (ahead) await db.saveSnapshot(key, NOT_PUSHED, ahead.patch);
+  if (ahead) {
+    await db.saveSnapshot(key, NOT_PUSHED, ahead.patch);
+    await db.saveSnapshotFiles(key, NOT_PUSHED, { revisions: ahead.revisions, hidden: ahead.hidden });
+  }
   const local = ahead ? await placeOn(db, key, lost, previous, ahead.patch, "LOCAL") : [];
   await db.rebaseDraftComments(key, [...placed, ...local]);
   await db.setLifecycle(key, {
@@ -491,6 +494,8 @@ async function convertIn(db: Store, review: ReviewMeta & { feature: FeatureRevie
     feature: { ...review.feature, prReview: undefined, ...read.headRefName !== review.feature.branch ? { remoteBranch: read.headRefName } : {} },
     // Yours, until the sync reads it, so Push carries on (lib/push.ts pushTarget).
     ownPr: true, prPending: null, prOffer: null,
+    // What the folder had that the PR doesn't, as Not pushed yet would show it: a Push waiting on its commit checks it there.
+    ...ahead ? { notPushedSeen: { environmentId: review.feature.environmentId, base: read.headRefOid, at: Date.now() } } : {},
     became: { at: Date.now(), number: pr.number, url: read.url, from, carried: comments.length, local: local.length, outside: comments.length - placed.length - local.length },
     // Its agent, mid-conversation, is told once; never by a turn of its own (src/agent.ts takePrNote).
     ...await db.getAssistantThread(key) ? { agentPrNote: { number: pr.number, url: read.url, from } } : {},

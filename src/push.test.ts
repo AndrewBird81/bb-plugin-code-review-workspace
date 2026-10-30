@@ -19,6 +19,7 @@ import { agentChat } from "./agent-chat.test-support";
 import { sendToAgent } from "./asking";
 import { startPlugin } from "./plugin-store.test-support";
 import { featureKey } from "./targets";
+import { becomePr } from "./feature-review";
 import { diffFilesHead } from "./env-diff";
 import { pushCommand, pushFlagText, pushTarget } from "../lib/push";
 
@@ -54,6 +55,8 @@ async function setup({ branch = "feat/qa", workBranch, pr }: { branch?: string; 
     shown: { "src/a.ts": REVIEWED["src/a.ts"] } as Record<string, string>,
     // Asked about GitHub's head, BB can't read the folder, as when its machine sleeps.
     unreadable: false,
+    // What the branch's commits are counted from: the review's base, or the PR's head once it's the PR's.
+    base,
   };
   // The branch's head on GitHub, and its open PRs, as the read of a local review's branch finds them (src/pr-watch.ts).
   const github: { sha: string | null; prs: Array<{ number: number; url: string; createdAt: string }> } = { sha: OLD, prs: [] };
@@ -77,10 +80,10 @@ async function setup({ branch = "feat/qa", workBranch, pr }: { branch?: string; 
     files: [{ path: "src/a.ts" }],
     env: { branchName: pr ? "bb/fixes-thr_fix" : workBranch ?? branch },
     answers: {
-      workspaceStatus: (input) => folder.unreadable && input.mergeBaseBranch && input.mergeBaseBranch !== base ? { outcome: "unavailable", failure: { code: "host_offline", message: "MaxBook is asleep" } } : ({ outcome: "available", workspace: {
+      workspaceStatus: (input) => folder.unreadable && input.mergeBaseBranch && input.mergeBaseBranch !== folder.base ? { outcome: "unavailable", failure: { code: "host_offline", message: "MaxBook is asleep" } } : ({ outcome: "available", workspace: {
         workingTree: { hasUncommittedChanges: folder.dirty, fileCount: folder.dirty ? 1 : 0 }, checkout: { kind: "branch", headSha: folder.head },
         // Against the review's base, the branch's commits; against GitHub's head, whether GitHub has commits the folder doesn't.
-        mergeBase: !input.mergeBaseBranch ? null : input.mergeBaseBranch === base ? { aheadCount: folder.commits.length, behindCount: folder.behind ? 2 : 0, commits: folder.commits.map(({ sha }) => ({ sha })) }
+        mergeBase: !input.mergeBaseBranch ? null : input.mergeBaseBranch === folder.base ? { aheadCount: folder.commits.length, behindCount: folder.behind ? 2 : 0, commits: folder.commits.map(({ sha }) => ({ sha })) }
           : { aheadCount: 1, behindCount: folder.behind ? 2 : 0, commits: [] },
       } }),
       files: (input) => {
@@ -92,7 +95,7 @@ async function setup({ branch = "feat/qa", workBranch, pr }: { branch?: string; 
           const files = Object.entries(folder.shown).map(([path, revision]) => ({ path, previousPath: null, changeKind: "modified", binary: false, origin: "tracked", loadMode: "auto", revision }));
           return { outcome: "available", truncated: false, mergeBaseRef: input.target.mergeBaseBranch, files, initialPatches: files.map(({ path }) => ({ path, patch: `diff --git a/${path} b/${path}\n--- a/${path}\n+++ b/${path}\n@@ -1 +1 @@\n-a\n+b\n`, truncated: false })) };
         }
-        expect(input.target).toEqual({ type: "branch_committed", mergeBaseBranch: base });
+        expect(input.target).toEqual({ type: "branch_committed", mergeBaseBranch: folder.base });
         return { outcome: "available", truncated: false, files: Object.entries(folder.committed).flatMap(([path, revision]) => revision ? [{ path, revision }] : []) };
       },
     },
@@ -175,6 +178,28 @@ test("when the main thread stops, the read of the branch finds its PR in the sam
   expect(await store.getReview(key)).toMatchObject({ kind: "pr", number: 7, ownPr: true, became: { number: 7, from: "api:feat/qa" } });
   // One read of GitHub, for the branch's head and its PR alike.
   expect(runGh.mock.calls.filter(([args]) => args[1] === "graphql").length - before).toBe(1);
+});
+
+// Another thread opens the PR while the main thread commits: T1 or the poll makes the review the PR's mid-Push.
+test("a review that becomes its PR's while Push waits on the commit checks it against what the folder had then, and Push goes on", async () => {
+  const { push, cli, run, store, key, folder, bb } = await setup();
+  const answers = runGh.getMockImplementation()!;
+  runGh.mockImplementation(async (args: string[]) => {
+    if (args[0] === "pr" && args[1] === "view") return ok(JSON.stringify({ number: 7, title: "Snooze flaky checks", author: { login: "me" }, baseRefName: "main", headRefName: "feat/qa", url: "https://github.com/acme/api/pull/7", headRefOid: OLD, state: "OPEN", createdAt: new Date().toISOString() }));
+    if (args[0] === "pr" && args[1] === "diff") return ok(PATCH);
+    if (args.some((a) => a.includes("pullRequest(number"))) return ok(JSON.stringify({ data: { repository: { pullRequest: { headRefOid: OLD } } } }));
+    return answers(args);
+  });
+  await push();
+  expect(await run()).toMatchObject({ state: "committing" });
+  expect(await becomePr({ bb, store, gh: { runGh, runGit }, changed: vi.fn() }, key, { repo: "acme/api", number: 7 })).toBe("converted");
+  expect(await store.getReview(key)).toMatchObject({ kind: "pr", notPushedSeen: { environmentId: "env1", base: OLD } });
+  expect(await store.getSnapshotFiles(key, "not-pushed")).toEqual({ revisions: folder.shown, hidden: [] });
+  folder.base = OLD;
+  const reported = await cli("coder", "report", "--commit", HEAD);
+  expect(reported.stderr).toBe("");
+  expect(reported.stdout).toContain("it’s what the reviewer reviewed. Push it now, exactly this commit:");
+  expect(await run()).toMatchObject({ state: "pushing", sha: HEAD });
 });
 
 test("a PR's review with its folder pushes from the folder's own origin to its branch on GitHub, a fork's too", () => {
