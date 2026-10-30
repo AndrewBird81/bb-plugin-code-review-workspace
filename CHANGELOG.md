@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.8.1 — unreleased
+## 1.8.1 — 2026-10-30
 
 Reviews in BB's thread list show their names, and checking Viewed keeps your place. Still **BB 0.48+** (plugin SDK **0.6.79+**) with Node 24+; installs at `^1.0.0` update to 1.8.1. 1.8.1 adds no migration, so rolling back to 1.8.0 keeps everything.
 
