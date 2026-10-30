@@ -204,6 +204,8 @@ export interface ReviewLifecycle {
   agentPrNote?: { number: number; url: string; from: string; merged?: string } | null;
   /** The folder's branch was renamed, `from` to `branch`, and the review followed it, under its key. Null once you said Got it. */
   followed?: { from: string; branch: string; at: number } | null;
+  /** The branches the review followed its folder off, renamed or on your Follow, oldest first: its ids then still name it (src/targets.ts reviewNamed). */
+  formerBranches?: string[];
 }
 
 /** What merging a review into another took from it (store.mergeReview), as its notices say: its comments, its summary, its Sends, and its verdict, when it differed from the one kept. */

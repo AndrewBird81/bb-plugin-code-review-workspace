@@ -227,6 +227,10 @@ test("a branch renamed in its folder is followed: the same review, its old branc
   // bb review there opens it, by its key; its id is the new branch's.
   expect((await run(s, "main")).stdout).toContain(`Opened the review of ~/src/api on MaxBook: api:feat/nice "Snooze flaky checks" (${key})`);
   expect((await s.store.listReviews()).map((r) => r.targetKey)).toEqual([key]);
+  // Its id from before still names it, after Got it too.
+  expect((await reviewNamed(s.store, s.bb, "api:feat/qa"))?.targetKey).toBe(key);
+  await s.store.setLifecycle(key, { followed: null });
+  expect((await reviewNamed(s.store, s.bb, "api:feat/qa"))?.targetKey).toBe(key);
 });
 
 test("a branch made from the review's (checkout -b), or one without its last commit, pauses it, with Follow and New review for that branch", async () => {
@@ -257,6 +261,8 @@ test("a branch made from the review's (checkout -b), or one without its last com
   s.folder.env = { ...s.folder.env, branchName: "feat/qa" };
   expect((await run(s, "main")).stdout).toMatch(/^Started a review/);
   expect((await s.store.listReviews()).map((r) => r.targetKey).sort()).toEqual([key, featureKey("env1", "feat/qa", 2)].sort());
+  // The old branch's id is that review's now, not the one that followed off it.
+  expect((await reviewNamed(s.store, s.bb, "api:feat/qa"))?.targetKey).toBe(featureKey("env1", "feat/qa", 2));
   // That one can't follow onto a branch with a review.
   s.folder.env = { ...s.folder.env, branchName: "feat/nice" };
   expect(await s.harness.behavior.callRpc("followFolderBranch", { targetKey: featureKey("env1", "feat/qa", 2) })).toMatchObject({ ok: false });

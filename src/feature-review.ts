@@ -586,7 +586,10 @@ async function followBranch(deps: Deps, key: string, branch: string, said: boole
     const review = featureOf(await tx.getReview(key));
     if (!review || review.kind !== "ref" || review.feature.workBranch || reviewOfFolder(await tx.listReviews(), review.feature.environmentId, branch)) return false;
     await tx.saveReview({ ...review, gitRef: branch });
-    await tx.setLifecycle(key, { feature: { ...review.feature, branch, pausedOn: null }, ...said ? { followed: { from: review.feature.branch, branch, at: Date.now() } } : {} });
+    await tx.setLifecycle(key, {
+      feature: { ...review.feature, branch, pausedOn: null }, formerBranches: [...review.formerBranches ?? [], review.feature.branch],
+      ...said ? { followed: { from: review.feature.branch, branch, at: Date.now() } } : {},
+    });
     return true;
   });
   if (followed) deps.changed(key);

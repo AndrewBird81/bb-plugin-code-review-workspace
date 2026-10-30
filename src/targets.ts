@@ -56,8 +56,8 @@ export async function prReviewKey(store: Pick<AsyncStore, "getReview" | "listRev
 
 /**
  * The review `given` names, as every command takes it: its key; a PR's link or owner/repo#n; its id as the review shows
- * it, api#4512 or api:feat; a folder's review's id from before it became its PR's (localIdOf); or the id of a review
- * merged into it. One merged into another names that one. Of the reviews an id names, one not archived, then the
+ * it, api#4512 or api:feat; a folder's review's id from before it became its PR's (localIdOf); the id of a review
+ * merged into it; or its id on a branch it followed its folder off. One merged into another names that one. Of the reviews an id names, one not archived, then the
  * newest. Null for none.
  */
 export async function reviewNamed(store: AsyncStore, bb: BbPluginApi, given: string): Promise<ReviewMeta | null> {
@@ -76,6 +76,7 @@ export async function reviewNamed(store: AsyncStore, bb: BbPluginApi, given: str
     (review) => [reviewIdentity({ ...review, place: places.get(review.targetKey) }).id],
     (review) => [review.feature ? localIdOf({ ...review, feature: review.feature }) : null],
     (review) => review.mergedFrom?.map((from) => from.id) ?? [],
+    (review) => review.feature ? (review.formerBranches ?? []).map((branch) => localIdOf({ ...review, feature: { ...review.feature!, branch } })) : [],
   ];
   for (const idOf of ids) {
     const named = [...new Set(all.filter((review) => idOf(review).some((id) => id?.toLowerCase() === text.toLowerCase())).map(merged))];
