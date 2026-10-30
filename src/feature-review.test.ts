@@ -375,6 +375,23 @@ test("a PR's review with its folder says how many files there aren't on GitHub y
   expect((await checkFeature(s.deps, key)).state).toBe("offline");
 });
 
+test("each read of Not pushed yet keeps what it showed, and a comment there follows its line", async () => {
+  const s = setup({ files: [{ path: "src/a.ts", body: BODY }, { path: "src/b.ts" }] });
+  await plugin(s.bb);
+  await run(s, "main");
+  await settled(s);
+  await s.store.upsertDraftComment(key, { file: "src/b.ts", line: 1, side: "RIGHT", body: "Not pushed" });
+  s.view.headRefOid = "c0ffee".padEnd(40, "0");
+  Object.assign(s.folder, { prBase: "main", pr: { number: 7, url: "https://github.com/acme/api/pull/7", headRefName: "feat/qa" } });
+  await checkFeature(s.deps, key);
+  expect((await s.store.getDraft(key)).comments.find((c) => c.file === "src/b.ts")).toMatchObject({ line: 1, side: "LOCAL" });
+  s.folder.files[1]!.body = "@@ -1 +1,2 @@\n-a\n+new\n+b\n";
+  expect(await s.harness.behavior.callRpc("getNotPushed", { targetKey: key })).toMatchObject({ state: "available", base: s.view.headRefOid, branch: "feat/qa" });
+  expect(await s.store.getSnapshot(key, "not-pushed")).toContain("+new\n+b\n");
+  expect((await s.store.getDraft(key)).comments.find((c) => c.file === "src/b.ts")).toMatchObject({ line: 2, side: "LOCAL" });
+  expect(await s.store.draftCommentCode(key, { file: "src/b.ts", line: 2, side: "LOCAL" })).toBe("b");
+});
+
 test("once it's the PR's, the review answers to its old id as to its new one: bb review opens it as it is, and ready, comment and summary find it", async () => {
   const s = setup();
   await plugin(s.bb);

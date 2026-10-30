@@ -7,7 +7,8 @@
 // that folder, the review says its branch is kept, with the command to delete it. The plugin runs no git.
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import { NOT_PUSHED, pushCommand } from "../lib/push";
-import type { ReviewMeta } from "./store";
+import { placeOn, type ReviewMeta } from "./store";
+import { isLocal } from "./draft";
 import type { AsyncStore } from "./store-queue";
 import type { FeedbackThread, PrConversationItem } from "./github/types";
 import { codeAt, fenced, fixerTitle, header, type Placed } from "./fix-handoff";
@@ -249,9 +250,13 @@ export function register(deps: ServeDeps) {
       if (!review) return { state: "none", message: "This review no longer exists." };
       const read = await notPushed(bb, review);
       if (read.state !== "available") return read;
-      // What you saw, for Push to check the fixer's commit against (src/push.ts).
+      // What you saw, for Push to check the fixer's commit against (src/push.ts), and for LOCAL comments, which follow
+      // their lines from what it showed before.
       const { environmentId, revisions, ...shown } = read;
       await store.exclusive(async (tx) => {
+        const before = await tx.getSnapshot(targetKey, NOT_PUSHED);
+        await tx.saveSnapshot(targetKey, NOT_PUSHED, read.patch);
+        if (before !== null && before !== read.patch) await tx.rebaseDraftComments(targetKey, await placeOn(tx, targetKey, (await tx.getDraft(targetKey)).comments.filter(isLocal), before, read.patch));
         await tx.saveSnapshotFiles(targetKey, NOT_PUSHED, { revisions, hidden: read.hidden });
         await tx.setLifecycle(targetKey, { notPushedSeen: { environmentId, base: read.base, at: Date.now() } });
       });
