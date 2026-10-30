@@ -20,7 +20,7 @@ import { sendToAgent } from "./asking";
 import { startPlugin } from "./plugin-store.test-support";
 import { featureKey } from "./targets";
 import { diffFilesHead } from "./env-diff";
-import { pushCommand, pushFlagText } from "../lib/push";
+import { pushCommand, pushFlagText, pushTarget } from "../lib/push";
 
 const KEY = featureKey("env1", "feat/qa");
 const PATCH = "diff --git a/src/a.ts b/src/a.ts\nindex 1111111..2222222 100644\n--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1 +1 @@\n-a\n+b\n";
@@ -175,6 +175,14 @@ test("when the main thread stops, the read of the branch finds its PR in the sam
   expect(await store.getReview(key)).toMatchObject({ kind: "pr", number: 7, ownPr: true, became: { number: 7, from: "api:feat/qa" } });
   // One read of GitHub, for the branch's head and its PR alike.
   expect(runGh.mock.calls.filter(([args]) => args[1] === "graphql").length - before).toBe(1);
+});
+
+test("a PR's review with its folder pushes from the folder's own origin to its branch on GitHub, a fork's too", () => {
+  const folder = { environmentId: "env1", hostId: "host_max", machine: "MaxBook", path: "/Users/me/src/api", branch: "feat/qa", remoteBranch: "feat/nice", baseRef: "main", repo: "me/api" };
+  const converted = { kind: "pr" as const, repo: "acme/api", number: 7, head: "feat/nice", ownPr: true, headFork: "me", feature: folder, mainThread: { threadId: "coder", environmentId: "env1", origin: "adopted" as const, since: 1 } };
+  expect(pushTarget(converted)).toEqual({ repo: "acme/api", head: "feat/nice", environmentId: "env1", remote: "origin", fixer: false, pr: 7 });
+  // Its folder gone, a fresh thread fixes it as any PR's.
+  expect(pushTarget({ ...converted, feature: { ...folder, folderGone: true } })).toMatchObject({ head: "feat/nice", remote: "<remote>" });
 });
 
 test("a folder with nothing to commit is checked at its head: a match tells the thread to push it; GitHub at it already has nothing to push", async () => {

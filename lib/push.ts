@@ -25,6 +25,13 @@ export function pushTarget(review: Pushable | null): PushTarget | string {
   if (review.kind === "pr") {
     const fixer = usesFixer(review);
     if (review.ownPr !== true || !fixer && !review.feature) return "Push works on a local review, or on your own PR with a thread fixing it.";
+    // The folder it became a PR from, its main thread there: its own origin and branch, a fork's too.
+    const feature = review.feature;
+    if (!fixer && feature && review.repo && review.number && review.mainThread?.environmentId === feature.environmentId) {
+      const head = feature.remoteBranch ?? feature.branch;
+      if (pushCommand("HEAD", head) === null) return unsafe(head);
+      return { repo: review.repo, head, environmentId: feature.environmentId, remote: "origin", fixer: false, pr: review.number };
+    }
     const environmentId = review.mainThread?.environmentId;
     if (!review.repo || !review.number || !review.head || !environmentId) return "No thread is working on this PR in a folder, so there’s nothing to push.";
     if (pushCommand("HEAD", review.head) === null) return unsafe(review.head);
