@@ -76,6 +76,14 @@ test.skipIf(!process.env.BB_E2E_URL || !process.env.BB_E2E_THREAD)("review ⇄ m
     expect(await beside.getAttribute("aria-pressed")).toBe("true");
     await page.waitForTimeout(1500);
     await page.screenshot({ animations: "disabled", path: `${dir}/main-tab-desktop.png` });
+    // BB keeps a chat's unsent reply per thread: through its panel closing, and on the thread's own page (below).
+    const reply = `Unsent reply ${Date.now()}`;
+    const box = () => tab.locator("[contenteditable=true]").last();
+    await box().click();
+    await page.keyboard.type(reply);
+    await hideBbPanel(page);
+    await beside.click();
+    await expect.poll(() => box().innerText()).toContain(reply);
     // Another review: no main thread, so no Main thread tab; the agent's is the review's own.
     await page.goto(`${base}/plugins/code-review-workspace/review/e2e-other`);
     const ask = commands.getByRole("button", { name: "Ask agent", exact: true });
@@ -91,6 +99,7 @@ test.skipIf(!process.env.BB_E2E_URL || !process.env.BB_E2E_THREAD)("review ⇄ m
     await page.goto(review);
     await commands.getByRole("button", { name: "Go to main thread", exact: true }).click();
     await page.waitForURL(new RegExp(main));
+    await expect.poll(() => page.locator("[contenteditable=true]").evaluateAll((boxes) => boxes.map((el) => (el as HTMLElement).innerText).join("\n"))).toContain(reply);
     // Its Review tab: the review, its comment, Review ↗, and Ask the review agent.
     const show = page.getByRole("button", { name: /^Show right panel/ }).first();
     await show.waitFor({ timeout: 5000 }).then(() => show.click()).catch(() => {});

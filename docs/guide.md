@@ -254,7 +254,7 @@ Where the band has no room for them, it also holds **Fold comments in code** and
 - The conversation is BB's own chat: streamed answers, stop, queued messages, approvals, attachments, and a per-message model and effort picker.
 - The agent can add, edit, and delete draft comments and write the summary, and the changes appear in Comments and the code as it works. When you ask, it posts for you too: see [Posting when you ask](#posting-when-you-ask).
 - Besides the diff, it reads the PR's description, linked issues, commits, failing CI, other reviewers' open threads, and the repository's AGENTS.md, CLAUDE.md, Copilot instructions, and REVIEW.md, from the PR's base, and treats all of it as untrusted.
-- A first message you haven't sent stays while BB's panel closes, or you go to another review and back.
+- A first message you haven't sent stays while BB's panel closes, or you go to another review and back. Once the conversation has started, BB keeps an unsent reply in its chat itself, as it does for each thread, the main thread's included, whose own page shows it too.
 - Each review's agent conversation is a hidden BB thread, shown in the review with BB's chat. Review context (guide intent, chapters, and your Assistant instructions) reaches it as hidden instructions, refreshed when an idle conversation continues after the guide is updated or rebuilt, or the instructions change.
 - Selections and the Ask agent button quote the file or lines into your message. With no file in view, Ask agent just opens the chat, its box focused.
 - **New conversation** archives the current one; if a conversation's thread is archived or deleted, the next question starts a new one.
