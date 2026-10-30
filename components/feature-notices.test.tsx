@@ -248,6 +248,18 @@ test("a PR's review whose folder has files not on GitHub yet says how many, with
   expect(within(notice(slot, text)).getByRole("button", { name: "Review them" })).toBeTruthy();
   slot.lifecycle.unmount();
   cleanup();
+  // With your comments on lines only in the folder, it says how many; Review them opens Not pushed yet's page.
+  const comments = [{ file: "src/a.ts", line: 1, side: "LOCAL", body: "One." }, { file: "src/a.ts", line: 2, side: "LOCAL", body: "Two." }, { file: "src/a.ts", line: 1, side: "RIGHT", body: "On GitHub." }];
+  const getNotPushed = vi.fn(async () => ({ state: "none", message: "Nothing waiting." }));
+  const withComments = await renderWorkspace({ checkFeature: () => ({ ...nothing, state: "ahead", aheadFiles: 3 }), getNotPushed,
+    getDraft: () => ({ draft: { targetKey: KEY, verdict: "COMMENT", body: "", comments }, stale: [] }) }, pr);
+  const said = "3 files in the folder aren’t on GitHub yet, with 2 of your comments.";
+  await withComments.slot.findByText(said);
+  fireEvent.click(within(notice(withComments.slot, said)).getByRole("button", { name: "Review them" }));
+  expect(within(await withComments.slot.findByRole("region", { name: "Not pushed yet" })).getByText("Nothing waiting.")).toBeTruthy();
+  expect(getNotPushed).toHaveBeenCalledWith({ targetKey: KEY });
+  withComments.slot.lifecycle.unmount();
+  cleanup();
   const paused = await renderWorkspace({ checkFeature: () => ({ ...nothing, state: "paused", branch: "bb/fix-docs-thr_cd34" }) }, pr);
   const shown = await paused.slot.findByRole("status", { name: "Review paused" });
   expect(within(shown).getByRole("button", { name: "New review for fix-docs" })).toBeTruthy();

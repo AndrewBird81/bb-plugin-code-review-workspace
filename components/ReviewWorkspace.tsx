@@ -1535,6 +1535,9 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
 
   const noticeButton = cn("h-7", TOUCH_CONTROL);
   const retryGuide = <Button variant="outline" size="sm" className={noticeButton} disabled={rebuilding} onClick={() => void rebuild()}>Try again</Button>;
+  const updateButton = <Button variant="outline" size="sm" className={noticeButton} disabled={rebuilding} onClick={() => void rebuild("updateFeature")}>Update</Button>;
+  const updateGuide = <Button variant="outline" size="sm" className={noticeButton} disabled={rebuilding} onClick={() => void rebuild()}>Update guide</Button>;
+  const prFolder = isPr && !!review?.feature && !review.feature.folderGone;
   // The most pressing first: what went wrong, then what's under way, then what you might do.
   const notices: Notice[] = [
     ...(connection === "reconnecting" ? [{ id: "reconnecting", tone: "warning", icon: "Loading", busy: true, text: "Reconnecting… The review reloads once it’s back." }] as const : []),
@@ -1556,12 +1559,13 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     ...(generatingReplacement ? [{ id: "updating", tone: "warning", icon: "Loading", busy: true, text: "Updating the guide for the new commits. Your current view and unsaved edits stay here.", ...(stopGenerating ? { action: <Button variant="outline" size="sm" className={noticeButton} disabled={stopping} onClick={() => void stopGuide()}>{stopping ? "Stopping…" : "Stop"}</Button> } : {}) }] as const : []),
     ...(review?.skippedRun && !archived ? [{ id: "not-run", tone: "warning", icon: "Lock", label: "Not run automatically", text: `${notRunReason(review, { unattendedAgents })}.`, action: <NotRunButton review={review} /> }] as const : []),
     // A local review's buttons stay on its text's first line, as a folder's notices' do; Rewrite guide wears the agent's sparkle.
-    ...(newCommits && !generatingReplacement ? [{ id: "new-commits", tone: "info", icon: "GitCommit", text: newCommitsText, ...localChanged ? { firstLine: true } : {}, action: localChanged ? <span className="flex gap-2">
-      <Button variant="outline" size="sm" className={noticeButton} disabled={rebuilding} onClick={() => void rebuild("updateFeature")}>Update</Button>
+    // A PR's review with its folder updates to the new commits without the guide writer too (src/feature-review.ts updatePr).
+    ...(newCommits && !generatingReplacement ? [{ id: "new-commits", tone: "info", icon: "GitCommit", text: newCommitsText, ...localChanged || prFolder ? { firstLine: true } : {}, action: localChanged ? <span className="flex gap-2">
+      {updateButton}
       <Hint label={REWRITE_GUIDE} container={portalContainer}>
         <Button variant="outline" size="sm" className={noticeButton} aria-description={REWRITE_GUIDE} disabled={rebuilding} onClick={() => void rebuild("rewriteGuide")}><Icon name="Sparkles" className="text-(--ansi-13)" aria-hidden />Rewrite guide</Button>
       </Hint>
-    </span> : <Button variant="outline" size="sm" className={noticeButton} disabled={rebuilding} onClick={() => void rebuild()}>Update guide</Button> }] as const : []),
+    </span> : prFolder ? <span className="flex gap-2">{updateButton}{updateGuide}</span> : updateGuide }] as const : []),
   ];
   // Inside the padding that keeps the workspace clear of the screen's edges.
   const rootStyle = rootEl && getComputedStyle(rootEl);

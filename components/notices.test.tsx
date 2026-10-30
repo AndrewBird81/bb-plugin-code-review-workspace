@@ -51,6 +51,21 @@ test("new commits show a notice with Update guide, which rebuilds it; once the g
   slot.lifecycle.unmount();
 });
 
+test("on a PR's review with its folder, new commits offer Update, to the PR's head without the guide writer, beside Update guide", async () => {
+  const checkForUpdates = vi.fn().mockReturnValueOnce({ hasNewCommits: true }).mockReturnValue({ hasNewCommits: false });
+  const updateFeature = vi.fn(() => ({ ok: true }));
+  const feature = { environmentId: "env1", hostId: "host_max", machine: "MaxBook", path: "/Users/me/src/web", branch: "feat/rows", baseRef: "main", repo: "acme/web" };
+  const { slot, rpc } = await renderWorkspace({ checkForUpdates, updateFeature, checkFeature: () => ({ state: "current", alsoActive: [], hidden: [], flagged: [] }) },
+    () => ({ review: { targetKey: "pr-42", kind: "pr", status: "ready", createdAt: 1, title: "Parse rows", headSha: "new", feature } }));
+  const text = "New commits since this guide was written.";
+  await slot.findByText(text);
+  expect(within(notice(slot, text)).getAllByRole("button").map((button) => button.textContent)).toEqual(["Update", "Update guide"]);
+  fireEvent.click(within(notice(slot, text)).getByRole("button", { name: "Update" }));
+  await waitFor(() => expect(updateFeature).toHaveBeenCalledWith({ targetKey: "pr-42" }));
+  expect(rpc.rereview).not.toHaveBeenCalled();
+  slot.lifecycle.unmount();
+});
+
 test("a PR retargeted to a new base says so in the Update guide notice, with or without new commits", async () => {
   const baseChanged = { from: "parent", to: "main" };
   const checkForUpdates = vi.fn().mockReturnValueOnce({ hasNewCommits: true, current: "new", stored: "new", baseChanged })

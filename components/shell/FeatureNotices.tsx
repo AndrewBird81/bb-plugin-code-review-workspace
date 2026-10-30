@@ -16,6 +16,7 @@ import { useFullscreenPortalContainer } from "../../lib/portal-scope";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover";
 import { REWRITE_GUIDE, type Notice } from "./ReviewNotices";
 import { usePrNotices, type PrReviewed } from "./PrNotices";
+import { useComments } from "../comments/store";
 
 /** The review, as far as its folder's notices read it. */
 interface Reviewed { kind?: "pr" | "ref"; status?: string; feature?: FeatureReview | null; mainThread?: Pick<MainThread, "environmentId"> | null; archivedAt?: number | null; userArchivedAt?: number | null; followed?: { branch: string } | null }
@@ -63,6 +64,8 @@ export function useFeatureNotices(targetKey: string, review: (Reviewed & PrRevie
   const localDiffChanges = useKnob("localDiffChanges");
   const container = useFullscreenPortalContainer();
   const prNotices = usePrNotices(targetKey, review, onChanged);
+  // Your open comments on lines only in the folder, as Comments lists them.
+  const localComments = useComments(targetKey, "items").filter((item) => item.kind === "draft" && item.comment.side === "LOCAL" && (!item.comment.state || item.comment.state === "open")).length;
   const local = !!review?.feature && review.kind === "ref";
   const attached = local || !!review?.feature && review.kind === "pr" && !review.feature.folderGone;
   const [read, setRead] = useState<{ targetKey: string; check: FeatureCheck } | null>(null);
@@ -155,7 +158,7 @@ export function useFeatureNotices(targetKey: string, review: (Reviewed & PrRevie
   if (check.state === "ahead") {
     const n = check.aheadFiles ?? 1;
     add({ id: "folder-ahead", tone: "info", icon: "FileDiff", label: "Not pushed yet",
-      text: `${files(n)} in the folder ${n === 1 ? "isn’t" : "aren’t"} on GitHub yet.`,
+      text: `${files(n)} in the folder ${n === 1 ? "isn’t" : "aren’t"} on GitHub yet${localComments ? `, with ${localComments} of your comments` : ""}.`,
       action: button("not-pushed", "Review them", onNotPushed) });
   }
   if (check.state === "changed" && localDiffChanges) {
