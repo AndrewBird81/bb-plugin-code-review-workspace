@@ -110,6 +110,7 @@ export const ChapterNav = memo(function ChapterNav({
   sinceWhat = "your review",
   patch,
   overview,
+  after,
   onMarkViewed,
   onNextUnviewed,
   sheet = false,
@@ -142,6 +143,8 @@ export const ChapterNav = memo(function ChapterNav({
   patch?: string;
   /** The Overview's row, the step before the first chapter. */
   overview?: ReactNode;
+  /** Not pushed yet's row, after the last chapter. */
+  after?: ReactNode;
   /** Mark a chapter's files viewed: an open chapter's button, and the ✓ a closed one shows on hover or focus. */
   onMarkViewed?: (id: string) => void;
   /** Open the next file not viewed yet (u). */
@@ -309,6 +312,7 @@ export const ChapterNav = memo(function ChapterNav({
           );
         })}
       </ol>
+      {after}
       </div>
       )}
     </nav>

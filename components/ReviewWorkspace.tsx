@@ -37,13 +37,14 @@ import { TrackedReview } from "./TrackedReview";
 import { NotRunButton } from "./NotRunBanner";
 import type { DockInjection } from "./AgentDock";
 import { REVIEW_TABS } from "./PanelTabs";
-import { forgetMainThreadAsks, recipientOf, useMainThread } from "../lib/main-thread";
+import { forgetMainThreadAsks, hasNotPushed, recipientOf, useMainThread } from "../lib/main-thread";
 import { ReviewSkeleton, ReviewError } from "./ReviewSkeleton";
 import { AccountBar } from "./AccountBar";
 import { defaultPreferences, type ReviewPreferences } from "../lib/review-preferences";
 import { TEXT_FIELD, inDiffOrder, readingOrder, shortcutKey } from "../lib/review-shortcuts";
 import { actOnComment, stepComment, useCommentStep } from "../lib/comment-stops";
 import { InlineDraftContext } from "./InlineDraft";
+import { NotPushedView } from "./NotPushedView";
 import { DiffThreadsContext, useDiffThreads } from "./LineThreads";
 import { CheckFailuresContext, useCheckFailures } from "./CheckFailures";
 import { ShortcutsHelp } from "./ShortcutsHelp";
@@ -575,7 +576,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
       if (!chapters.length) return;
       if (!review || opened.current) {
         // A reload keeps the page, unless its chapter went with the guide it was in.
-        setActiveId((prev) => prev === OVERVIEW || chapters.some((section) => section.id === prev) ? prev : OVERVIEW);
+        setActiveId((prev) => prev === OVERVIEW || prev === NOT_PUSHED_PAGE || chapters.some((section) => section.id === prev) ? prev : OVERVIEW);
         return;
       }
       opened.current = true;
@@ -585,7 +586,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
       const saved = getReviewState(targetKey);
       const turn = review.turn ?? computeTurn(review);
       const back = settings.knobs.returnToOverview && review.kind === "pr" && turn.group === "needs" && FEEDBACK_FIRST.has(turn.reason) && !!turn.signal && turn.signal !== saved.turnSignal;
-      const resumable = saved.activeId === OVERVIEW || chapters.some((section) => section.id === saved.activeId);
+      const resumable = saved.activeId === OVERVIEW || saved.activeId === NOT_PUSHED_PAGE && hasNotPushed(review) || chapters.some((section) => section.id === saved.activeId);
       const start = !back && resumable ? saved.activeId! : OVERVIEW;
       restoreScroll.current = start === saved.activeId ? { id: start, top: saved.scrollTop ?? 0 } : null;
       restoringPlace.current = !!restoreScroll.current && !!carriedPlace.current;
@@ -1192,8 +1193,8 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   }, [openPanel]);
   const askAgent = useCallback((context?: AgentMessageContext, quote?: string) => ask(context ?? { file: currentFileOf(targetKey), chapterId }, quote), [ask, targetKey, chapterId]);
   const showFeedback = useMemo(() => isPr ? () => openComments("feedback") : undefined, [isPr, openComments]);
-  // The diff remounts after the Overview; it shouldn't jump back to an old comment.
-  useEffect(() => { if (activeId === OVERVIEW) setReveal(undefined); }, [activeId]);
+  // The diff remounts after the Overview and Not pushed yet; it shouldn't jump back to an old comment.
+  useEffect(() => { if (activeId === OVERVIEW || activeId === NOT_PUSHED_PAGE) setReveal(undefined); }, [activeId]);
   // A selection's actions go with the chapter it was made in: a new chapter starts with none, but for the lines a
   // remounted workspace had selected.
   useEffect(() => {
@@ -1368,8 +1369,9 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
         return true;
       }
       case "n": case "p": {
-        // The Overview comes before the first chapter.
-        const next = key === "n" ? sections[activeIndex + 1]?.id : activeIndex > 0 ? sections[activeIndex - 1].id : activeIndex === 0 ? OVERVIEW : undefined;
+        // The Overview comes before the first chapter, Not pushed yet after the last.
+        const place = activeId === NOT_PUSHED_PAGE ? sections.length : activeIndex;
+        const next = key === "n" ? sections[place + 1]?.id : place > 0 ? sections[place - 1].id : place === 0 ? OVERVIEW : undefined;
         if (next) selectChapter(next);
         return true;
       }
@@ -1587,7 +1589,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
           {/* A spacer, not top padding: padding would hold sticky file headers 16px down, with code showing above them. */}
           {/* Focusable, for the chapters' Skip to code: its keys then scroll it. */}
           <div ref={(el) => { scrollBox.current = el; setScrollEl(el); }} data-review-code tabIndex={-1} onScroll={onScroll} onWheel={scrolledByYou} onTouchMove={scrolledByYou} onPointerDown={unpin} className={cn("min-h-0 flex-1 overflow-y-auto px-4 outline-none before:block before:h-4 before:content-['']", commentStep ? "pb-24" : "pb-6")}>
-            {activeSection ? (
+            {activeId === NOT_PUSHED_PAGE ? <NotPushedView /> : activeSection ? (
               <>
               <ChapterIntro key={activeSection.id} collapsedByDefault={layout.mode === "short"} brief={layout.mode !== "tablet"} index={activeIndex} total={sections.length} title={activeSection.title} overview={activeSection.overview} risk={activeSection.risk} focus={activeSection.focus} lines={chapterLines.get(activeSection.id) ?? 0} switchSlot={setSwitchSlot} />
               <CheckFailuresContext.Provider value={checkFailures}>

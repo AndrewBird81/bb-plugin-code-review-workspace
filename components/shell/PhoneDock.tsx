@@ -5,7 +5,7 @@ import { useDraftStatus } from "../../lib/draft-status";
 import { reviewIdentity, type ReviewIdentity } from "../../lib/review-identity";
 import { TEXT_FIELD } from "../../lib/review-shortcuts";
 import { cn } from "../../lib/utils";
-import { useWorkspace } from "../../lib/workspace-context";
+import { NOT_PUSHED_PAGE, useWorkspace } from "../../lib/workspace-context";
 import { useNeedsYou, useTabShown } from "../../lib/workspace-store";
 import { useFullscreenPortalContainer } from "../../lib/portal-scope";
 import { Button } from "../ui/button";
@@ -114,6 +114,8 @@ export function PhoneDock({ hidden }: { hidden: boolean }) {
   }, [dock]);
   const index = sections.findIndex((section) => section.id === activeId);
   const chapter = sections[index];
+  const notPushed = activeId === NOT_PUSHED_PAGE;
+  const page = notPushed ? "Not pushed yet" : "Overview";
   const chapterFiles = chapter?.diffs.map((diff) => diff.file) ?? [];
   const viewed = chapterFiles.filter((file) => files.views.get(file)?.viewed).length;
   // Finish review is part of Comments.
@@ -136,17 +138,17 @@ export function PhoneDock({ hidden }: { hidden: boolean }) {
       </Button>
       <Button
         variant="ghost"
-        aria-label={`${identity.id}, ${chapter ? `Chapters: Chapter ${index + 1} of ${sections.length}, ${chapter.title}, ${viewed} of ${chapterFiles.length} files viewed` : "Chapters: Overview"}`}
+        aria-label={`${identity.id}, ${chapter ? `Chapters: Chapter ${index + 1} of ${sections.length}, ${chapter.title}, ${viewed} of ${chapterFiles.length} files viewed` : `Chapters: ${page}`}`}
         aria-pressed={nav.open}
         aria-controls={navigatorId(targetKey)}
         className="h-11 min-w-0 flex-1 justify-start gap-2 bg-muted/40 px-2.5 text-foreground ring-1 ring-inset ring-border"
         onClick={nav.toggle}
       >
-        {chapter ? <ChapterStep index={index} viewed={viewed} total={chapterFiles.length} /> : <Icon name="AlignLeft" className="text-primary" aria-hidden />}
+        {chapter ? <ChapterStep index={index} viewed={viewed} total={chapterFiles.length} /> : <Icon name={notPushed ? "FileDiff" : "AlignLeft"} className="text-primary" aria-hidden />}
         {/* The id over the chapter, in 44px, so the review stays named whatever the chapter's title takes. */}
         <span className="flex min-w-0 flex-1 flex-col items-start text-left">
           <DockId identity={identity} />
-          <span className="w-full truncate leading-5">{chapter ? <InlineCode text={chapter.title} /> : "Overview"}</span>
+          <span className="w-full truncate leading-5">{chapter ? <InlineCode text={chapter.title} /> : page}</span>
         </span>
         <Icon name={nav.open ? "ChevronDown" : "ChevronUp"} className="text-subtle-foreground" aria-hidden />
       </Button>
