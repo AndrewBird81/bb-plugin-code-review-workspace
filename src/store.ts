@@ -909,22 +909,26 @@ export function storeOn(sql: Sql): Store {
 
         // Each comment follows its lines onto this diff, with its id, state and Send, its discussion, and the reviewer's
         // edits of it. One lost stays at its place, drafted against an older diff; one where this review has the same
-        // text is this review's; one where it has another goes into the summary.
+        // text is this review's; one where it has another goes into the summary, its discussion with it. One a thread
+        // tracks stays at its place too, where this review's comment there is another or tracked, so its report finds it.
         const placements = await reanchorDraft(this, from, await this.patch(from), await this.patch(into));
         const [hash, positions] = [await this.patchHash(into), await this.diffPositions(into)];
         const codeAt = (file: string, side: CommentLocation["side"], line: number) => positions.get(file)?.[side === "LEFT" ? "left" : "right"].get(line) ?? null;
         const toSummary: DraftComment[] = [];
         for (const c of was.comments) {
-          // On the other folder's lines not pushed yet, which this review's folder doesn't have.
-          if (isLocal(c)) {
-            toSummary.push(c);
-            continue;
+          const renumberedSend = c.sendN !== undefined ? { sendN: c.sendN + top } : {};
+          let place = placements.find(({ at: placed }) => sameLocation(placed, c));
+          let comment: DraftComment = { ...c, ...place ? { line: place.line, ...place.startLine !== undefined ? { startLine: place.startLine } : {} } : {}, ...renumberedSend };
+          let there = draft.comments.find((other) => sameLocation(other, comment));
+          if (!isLocal(c) && there && c.id !== undefined && (there.body !== c.body || there.id !== undefined) && !draft.comments.some((other) => sameLocation(other, c))) {
+            place = undefined;
+            comment = { ...c, ...renumberedSend };
+            there = undefined;
           }
-          const place = placements.find(({ at: placed }) => sameLocation(placed, c));
-          const comment: DraftComment = { ...c, ...place ? { line: place.line, ...place.startLine !== undefined ? { startLine: place.startLine } : {} } : {}, ...c.sendN !== undefined ? { sendN: c.sendN + top } : {} };
-          const there = draft.comments.find((other) => sameLocation(other, comment));
-          if (there && there.body !== c.body) {
+          // One on the other folder's lines not pushed yet, which this review's folder doesn't have, goes too.
+          if (isLocal(c) || there && there.body !== c.body) {
             toSummary.push(c);
+            await sql.run(`DELETE FROM discussion_entries WHERE target_key=? AND file=? AND line=? AND side=?`, at(from, c));
             continue;
           }
           if (there) {

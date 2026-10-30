@@ -9,6 +9,7 @@ import type { ServeDeps } from "./server-modules";
 import { localIdOf } from "../lib/review-identity";
 import { retitleAssistant } from "./agent";
 import { stopGuide } from "./generate";
+import { settleFixes } from "./fix-tally";
 
 type Deps = { bb: BbPluginApi; store: AsyncStore; changed(targetKey: string): void; sync?: Pick<ServeDeps["sync"], "one"> };
 
@@ -50,6 +51,8 @@ export async function mergeIn(tx: AsyncStore, from: string, into: string): Promi
   const note = review.number && review.url && await tx.getAssistantThread(into)
     ? { number: review.number, url: review.url, from: adopted ? "" : review.agentPrNote?.from ?? "", merged: adopted ? known(target) : known(source) } : null;
   await tx.setLifecycle(into, { ...review.became ? { became: { ...review.became, merged: moved } } : {}, ...note ? { agentPrNote: note } : {} });
+  // The other's sent comments are out with the thread too.
+  await settleFixes(tx, into);
   return true;
 }
 

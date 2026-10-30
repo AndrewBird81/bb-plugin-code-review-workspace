@@ -61,6 +61,7 @@ async function setup({ agentOnBoth = true } = {}) {
 
   await store.addDiscussionMessage(P, at(2), "reviewer", "Really?");
   await store.addDiscussionMessage(P, SUMMARY_AT, "reviewer", "About the summary");
+  await store.addDiscussionMessage(P, at(4), "reviewer", "On theirs at four");
   await store.noteAgentCommentChange(P, { ...at(2), kind: "edited", code: "two", body: "Why two?", removed: null });
   await store.noteAgentCommentChange(P, { ...at(1), kind: "removed", code: "one", body: "Nit", removed: "Nit" });
   await store.saveReviewerNotes(P, "P notes", 0);
@@ -174,7 +175,7 @@ test("merging the PR's own review into the folder's moves every table's rows, or
   expect(await store.getFileViews(P)).toEqual([]);
   expect(await store.getSnapshot(P, "send:1")).toBeNull();
   expect(await store.getSnapshot(P, "sha-p")).toBe(PATCH_P);
-  for (const table of ["draft_comment_revisions", "discussion_waits", "assessment_items", "assessment_runs", "feedback_threads", "feedback_fetches", "reply_drafts", "agent_comment_changes"]) {
+  for (const table of ["draft_comment_revisions", "discussion_entries", "discussion_waits", "assessment_items", "assessment_runs", "feedback_threads", "feedback_fetches", "reply_drafts", "agent_comment_changes"]) {
     expect(await rows(sql, table, P), table).toBe(0);
   }
   // Its own rows stay with it: the PR's row, its diff, guide, kept guide, generation, and its legacy chat.
@@ -212,6 +213,27 @@ test("the review that stays keeps its own Not pushed yet and its diffs at commit
   await fresh.store.mergeReview(P, S);
   expect(await fresh.store.getSnapshot(S, "not-pushed")).toBeNull();
   expect(await fresh.store.getSnapshotFiles(S, "not-pushed")).toBeNull();
+});
+
+test("a comment a thread tracks, where the review that stays has its own, stays where it was, drafted against an older diff, with its id, state and Send; the tally counts it", async () => {
+  const { store, sql } = await setup();
+  await store.deleteDraftComment(P, at(2));
+  await store.deleteDiscussion(P, at(2));
+  // At four, S's other comment; at three, the same as S's, both tracked.
+  await store.trackComments(P, [{ at: at(4), id: "c3", state: "sent", sendN: 1 }]);
+  await store.trackComments(S, [{ at: at(5), id: "c7", state: "sent", sendN: 2 }]);
+  await store.addDiscussionMessage(P, at(3), "reviewer", "On the same");
+  await mergeReviews({ bb: createFakePluginHost({ pluginId: "code-review-workspace" }).bb, store, changed: vi.fn() }, P, S);
+  const draft = await store.getDraft(S);
+  expect(draft.comments.map((c) => [c.line, c.body, c.id, c.state, c.sendN])).toEqual([
+    [5, "Same", "c7", "sent", 2], [6, "Mine at four", "c5", "sent", 2], [3, "Same", "c2", "sent", 3], [4, "Theirs at four", "c3", "sent", 3], [1, "Lost", undefined, undefined, undefined],
+  ]);
+  expect(draft.body).toBe("Mine\n\nTheirs");
+  expect((await store.staleDraftComments(S)).map((c) => c.body)).toEqual(["Same", "Theirs at four", "Lost"]);
+  expect((await store.listDiscussions(S)).map((d) => [d.line, d.entries.map((e) => e.body)])).toEqual([[0, ["About the summary"]], [4, ["On theirs at four"]], [3, ["On the same"]]]);
+  expect(await rows(sql, "discussion_entries", P)).toBe(0);
+  // Out with the thread: S's two, P's two and the thread Sends.
+  expect((await store.getReview(S))?.fixes).toEqual({ sent: 6, reported: 0, inferred: 0, checked: 0, fixed: 0 });
 });
 
 test("a review with no agent of its own takes the other's conversation, which goes on there", async () => {
