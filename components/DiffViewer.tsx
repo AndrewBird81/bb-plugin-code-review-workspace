@@ -96,7 +96,7 @@ function diffStats(text: string): { add: number; del: number } {
   return { add, del };
 }
 
-const annotationSide = (side: "LEFT" | "RIGHT"): AnnotationSide => (side === "LEFT" ? "deletions" : "additions");
+const annotationSide = (side: CommentLocation["side"]): AnnotationSide => (side === "LEFT" ? "deletions" : "additions");
 
 /** More changed lines than this start a file folded. */
 const LARGE_DIFF = 1500;

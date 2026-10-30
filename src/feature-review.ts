@@ -3,7 +3,7 @@
 // checks the folder (changed, on another branch, its machine offline, other threads there); once its branch has a PR
 // the same review becomes that PR's; and bb removing the folder ends it, unless comments wait on it.
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
-import { reanchorDraft, type FeatureReview, type MainThread, type ReviewLifecycle, type ReviewMeta } from "./store";
+import { placeOn, reanchorDraft, type FeatureReview, type MainThread, type ReviewLifecycle, type ReviewMeta } from "./store";
 import type { AsyncStore } from "./store-queue";
 import { diffFilesHead, folderHas, folderHasBranch, folderHead, isNotFound, isSecretPath, readFeatureDiff, readFeatureRevisions, type FeatureDiff, type FolderPr, type HiddenFile } from "./env-diff";
 import { featureKey, prReviewKey, targetKey } from "./targets";
@@ -21,6 +21,8 @@ import { retitleAssistant } from "./agent";
 import { hasUserContent, mergeIn, mergeReviews, movesOf } from "./merge";
 import { formerWorkerReview } from "./former-workers";
 import { parsePrLink } from "../lib/pr-link";
+import { NOT_PUSHED } from "../lib/push";
+import { sameLocation } from "./draft";
 import type { EventListeners, RpcHandlers, ServeDeps } from "./server-modules";
 
 type Thread = Awaited<ReturnType<BbPluginApi["sdk"]["threads"]["get"]>>;
@@ -431,6 +433,8 @@ export async function becomePr(deps: Deps, key: string, pr: { repo: string; numb
     return pending({ number: pr.number, url: snapshot.pr.url, why: "older", at: Date.now() });
   }
   if (other?.status === "generating") await stopGuide(bb, store, prKey);
+  // What the folder has that the PR's head doesn't, where a comment the PR's diff loses can stay, not on GitHub yet.
+  const ahead = await readFeatureDiff(bb, { environmentId: now.feature.environmentId, machine: now.feature.machine, repo: null, baseRef: snapshot.pr.headRefOid, workBranch: folderBranchOf(now.feature) }).catch(() => null);
   const done = await store.exclusive(async (tx) => {
     const review = featureOf(await tx.getReview(key));
     if (!review || review.kind !== "ref") return "skipped" as const;
@@ -451,13 +455,16 @@ export async function becomePr(deps: Deps, key: string, pr: { repo: string; numb
     await tx.saveSnapshot(key, read.headRefOid, next);
     const { comments } = await tx.getDraft(key);
     const placed = await reanchorDraft(tx, key, previous, next);
-    await tx.rebaseDraftComments(key, placed);
+    const lost = comments.filter((comment) => !placed.some(({ at }) => sameLocation(at, comment)) && comment.side === "RIGHT" && !comment.startSide);
+    if (ahead?.outcome === "available") await tx.saveSnapshot(key, NOT_PUSHED, ahead.patch);
+    const local = ahead?.outcome === "available" ? await placeOn(tx, key, lost, previous, ahead.patch, "LOCAL") : [];
+    await tx.rebaseDraftComments(key, [...placed, ...local]);
     await tx.setLifecycle(key, {
       // Pushed under another name: its branch on GitHub. A 1.8.0 link to the PR's review is gone with the merge.
       feature: { ...review.feature, prReview: undefined, ...read.headRefName !== review.feature.branch ? { remoteBranch: read.headRefName } : {} },
       // Yours, until the sync reads it, so Push carries on (lib/push.ts pushTarget).
       ownPr: true, prPending: null, prOffer: null,
-      became: { at: Date.now(), number: pr.number, url: read.url, from, carried: comments.length, local: 0, outside: comments.length - placed.length },
+      became: { at: Date.now(), number: pr.number, url: read.url, from, carried: comments.length, local: local.length, outside: comments.length - placed.length - local.length },
       // Its agent, mid-conversation, is told once; never by a turn of its own (src/agent.ts takePrNote).
       ...await tx.getAssistantThread(key) ? { agentPrNote: { number: pr.number, url: read.url, from } } : {},
       // What gh said of the PR, until the sync reads it (src/start-review.ts recordPrState).

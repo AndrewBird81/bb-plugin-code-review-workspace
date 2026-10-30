@@ -18,7 +18,7 @@ export type Chapter = Pick<Guide["sections"][number], "id" | "title" | "overview
   diffs: Array<{ file: string; summary?: string; hunks?: number[] }>;
 };
 
-type Side = "LEFT" | "RIGHT";
+type Side = CommentLocation["side"];
 
 export interface WorkspaceApi {
   targetKey: string;

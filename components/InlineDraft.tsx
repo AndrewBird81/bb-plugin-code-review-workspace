@@ -224,6 +224,11 @@ export function PreExistingBadge() {
   return <Badge size="sm" icon={<Icon name="History" aria-hidden />} title="In code this PR didn’t change">Pre-existing</Badge>;
 }
 
+/** A LOCAL comment, on a line only in the folder (src/draft.ts isLocal). */
+export function NotOnGithubBadge() {
+  return <Badge size="sm" icon={<Icon name="FileDiff" aria-hidden />} title="On a line only in the folder. It goes with Send, and can’t post until it’s pushed.">Not on GitHub yet</Badge>;
+}
+
 /** The comment box's choice of severity. */
 export function SeveritySelect({ value, onChange, disabled, className }: { value?: Severity; onChange: (severity: Severity | undefined) => void; disabled: boolean; className?: string }) {
   return (

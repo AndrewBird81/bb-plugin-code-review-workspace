@@ -1,9 +1,10 @@
 import { diffPositions, type FilePositions } from "./review-positions";
+import { diffSide, type CommentLocation } from "./draft";
 
 export interface AnchoredComment {
   file: string;
   line: number;
-  side: "LEFT" | "RIGHT";
+  side: CommentLocation["side"];
   /** The line's text when the comment was drafted, without the diff prefix; absent for older comments. */
   code?: string;
 }
@@ -12,9 +13,9 @@ export type Reanchored = { status: "same" } | { status: "moved"; line: number } 
 
 const normalize = (text: string) => text.replace(/\s+/g, " ").trim();
 
-function sideLines(positions: Map<string, FilePositions>, file: string, side: "LEFT" | "RIGHT"): Map<number, string> | undefined {
+function sideLines(positions: Map<string, FilePositions>, file: string, side: CommentLocation["side"]): Map<number, string> | undefined {
   const p = positions.get(file);
-  return p && (side === "RIGHT" ? p.right : p.left);
+  return p && (diffSide(side) === "RIGHT" ? p.right : p.left);
 }
 
 /** The text of a line in a diff: RIGHT for added/context lines by new-file number, LEFT for deleted/context by old-file number. */

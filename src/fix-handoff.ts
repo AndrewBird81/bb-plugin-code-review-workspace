@@ -1,6 +1,6 @@
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import type { ReviewMeta } from "./store";
-import { linesOf, postedBody, sameLocation, type CommentLocation, type DraftComment } from "./draft";
+import { isLocal, linesOf, postedBody, sameLocation, type CommentLocation, type DraftComment } from "./draft";
 import { runGh } from "./gh";
 import { patchRows, splitPatchByFile } from "./patch";
 import { spawnExecution } from "./preferences";
@@ -38,7 +38,7 @@ export function codeAt(patch: string, comment: Pick<FixComment, "file" | "line" 
   const file = splitPatchByFile(patch).find((f) => f.path === comment.file);
   if (!file) return "";
   const rows = patchRows(file.text).flatMap((row) => "oldLine" in row ? [row] : []);
-  const find = (side: "LEFT" | "RIGHT", line: number) => rows.findIndex((row) => side === "LEFT" ? row.kind !== "+" && row.oldLine === line : row.kind !== "-" && row.newLine === line);
+  const find = (side: DraftComment["side"], line: number) => rows.findIndex((row) => side === "LEFT" ? row.kind !== "+" && row.oldLine === line : row.kind !== "-" && row.newLine === line);
   const end = find(comment.side, comment.line);
   const start = comment.startLine === undefined ? end : find(comment.startSide ?? comment.side, comment.startLine);
   if (start < 0 || end < 0) return "";
@@ -93,7 +93,7 @@ export function branchLine(review: Placed): string {
  */
 export function commentText(comment: FixComment, patch: string, stale: readonly CommentLocation[], preExisting = false, { id, author }: { id?: string; author?: string | null } = {}): string {
   const cross = comment.startLine !== undefined && (comment.startSide ?? comment.side) !== comment.side;
-  const at = `${id ? `${id} · ` : ""}\`${comment.file}:${linesOf(comment)}\`${cross ? ` (old line ${comment.startLine} to new line ${comment.line})` : comment.side === "LEFT" ? " (old line)" : ""}`;
+  const at = `${id ? `${id} · ` : ""}\`${comment.file}:${linesOf(comment)}\`${cross ? ` (old line ${comment.startLine} to new line ${comment.line})` : comment.side === "LEFT" ? " (old line)" : isLocal(comment) ? " (in the folder, not on GitHub yet)" : ""}`;
   if (stale.some((s) => sameLocation(s, comment))) return `${at}, written against an older diff, so the line may have moved:\n${postedBody(comment, preExisting)}`;
   const code = codeAt(patch, comment);
   if (!code) return `${at}\n${postedBody(comment, preExisting)}`;

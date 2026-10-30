@@ -318,10 +318,12 @@ test("once its branch has a PR, the same review becomes the PR's at its head, ke
   expect(review.feature?.remoteBranch).toBeUndefined();
   expect(review.cwd).toBeUndefined();
   expect(await s.store.patch(key)).toBe(PR_DIFF);
-  expect((await s.store.getDraft(key)).comments.map((c) => c.body)).toEqual(["Keep this", "Not pushed"]);
+  // One on a file the PR doesn't have, still in the folder, stays there, not on GitHub yet.
+  expect((await s.store.getDraft(key)).comments.map((c) => [c.body, c.side])).toEqual([["Keep this", "RIGHT"], ["Not pushed", "LOCAL"]]);
+  expect(await s.store.draftCommentCode(key, { file: "src/b.ts", line: 1, side: "LOCAL" })).toBe("b");
   expect(await prReviewKey(s.store, { repo: "acme/api", number: 7 })).toBe(key);
   // Yours, so Push carries on before the sync has read it, which it does at once; and said, for its notice.
-  expect(review).toMatchObject({ ownPr: true, prPending: null, became: { at: expect.any(Number), number: 7, url: "https://github.com/acme/api/pull/7", from: "api:feat/qa", carried: 2, local: 0, outside: 1 } });
+  expect(review).toMatchObject({ ownPr: true, prPending: null, became: { at: expect.any(Number), number: 7, url: "https://github.com/acme/api/pull/7", from: "api:feat/qa", carried: 2, local: 1, outside: 0 } });
   expect(s.deps.sync.one).toHaveBeenCalledWith(key, true);
   expect(s.deps.changed).toHaveBeenCalledWith(key);
   await new Promise((resolve) => setTimeout(resolve, 20));

@@ -31,7 +31,8 @@ const commentShape = z
   .object({
     file: z.string(),
     line: lineNumber,
-    side: z.enum(["LEFT", "RIGHT"]),
+    // LOCAL: a line only in a PR's review's folder, on Not pushed yet's new side (src/draft.ts isLocal).
+    side: z.enum(["LEFT", "RIGHT", "LOCAL"]),
     // A range's first line, and its side when it isn't `side` (src/draft.ts DraftComment).
     startLine: startLine.optional(),
     startSide: z.enum(["LEFT", "RIGHT"]).optional(),
@@ -51,7 +52,7 @@ const commentShape = z
   })
   .strict();
 
-const location = { file: z.string(), line: lineNumber, side: z.enum(["LEFT", "RIGHT"]) };
+const location = { file: z.string(), line: lineNumber, side: z.enum(["LEFT", "RIGHT", "LOCAL"]) };
 // What Send to thread adds to what it sends (src/fix-handoff.ts): your message, as long as a summary may be, and the summary.
 const sendExtras = { message: z.string().max(65_000).optional(), includeSummary: z.boolean().optional() };
 // Where a Send goes past its warning (src/loop.ts): force, past it, as on a PR you don't own; thread, when the main
@@ -298,7 +299,7 @@ export const rpcContract = defineRpcContract({
     input: z.object({
       targetKey: z.string(), revision: z.string().optional(), account: z.string().optional(),
       // The comments, summary, and verdict the page shows; submission refuses a draft that no longer matches.
-      comments: z.array(z.object({ file: z.string(), line: z.number().int(), side: z.enum(["LEFT", "RIGHT"]), startLine: z.number().int().optional(), startSide: z.enum(["LEFT", "RIGHT"]).optional(), severity: z.enum(SEVERITIES).optional(), introduced: z.literal(false).optional(), body: z.string() })),
+      comments: z.array(z.object({ file: z.string(), line: z.number().int(), side: z.enum(["LEFT", "RIGHT", "LOCAL"]), startLine: z.number().int().optional(), startSide: z.enum(["LEFT", "RIGHT"]).optional(), severity: z.enum(SEVERITIES).optional(), introduced: z.literal(false).optional(), body: z.string() })),
       // Of those, the ones the page shows as posting: not one sent to fix from your own change, resolved or dismissed.
       // Submission refuses a draft whose comments that post differ; without it, one with any comment sent.
       posting: z.array(z.object(location).strict()).optional(),

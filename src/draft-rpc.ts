@@ -2,7 +2,7 @@
 // marked Viewed. Also bb review comment and bb review summary.
 import { undoable, undoChange } from "./draft-comments";
 import { z } from "zod";
-import { isSummary, rangeOf, sameLocation, severityOf, type CommentLocation, type Draft, type DraftComment } from "./draft";
+import { isLocal, isSummary, rangeOf, sameLocation, severityOf, type CommentLocation, type Draft, type DraftComment } from "./draft";
 import { summaryLine, withSummaryLine } from "../lib/move-to-summary";
 import { runSummaryCommand } from "./summary-command";
 import { askAgent } from "./discussions";
@@ -20,6 +20,7 @@ import type { RpcHandlers, ServeDeps, Subcommands } from "./server-modules";
 import { settleFixes } from "./fix-tally";
 import { forgetBefore, readBefore, rememberBefore, UNDO_FOR_MS } from "./fix-undo";
 import { sendKey } from "../lib/send-baseline";
+import { NOT_PUSHED } from "../lib/push";
 import type { AssessmentVerdict } from "../lib/feedback";
 
 /** A thread's report as the page read it, which Undo after Remove puts back. */
@@ -147,12 +148,14 @@ export function register(deps: ServeDeps) {
       return store.exclusive(async (tx) => {
         await requireReviewRevision(tx, targetKey, revision);
         const comment = { ...input, ...rangeOf({ ...input, startLine, startSide }), ...severityOf(body, severity) };
+        // A LOCAL comment is on Not pushed yet's new side, as it last showed (src/own-pr.ts), all its lines there.
+        const local = isLocal(comment) ? await tx.getSnapshot(targetKey, NOT_PUSHED) ?? "" : null;
         // GitHub refuses a comment on a line the diff doesn't show; say so now, not at submit.
-        if (invalidComments(await tx.diffPositions(targetKey), [{ ...comment, startLine: undefined }]).length) {
-          throw new Error(`${comment.file}:${comment.line} isn’t in the current diff. Choose a line the diff shows.`);
+        if (local === "" || local !== null && comment.startSide || invalidComments(local ?? await tx.diffPositions(targetKey), [{ ...comment, startLine: undefined }]).length) {
+          throw new Error(local !== null ? `${comment.file}:${comment.line} isn’t in Not pushed yet. Refresh it, then choose a new line it shows.` : `${comment.file}:${comment.line} isn’t in the current diff. Choose a line the diff shows.`);
         }
         // Only a range needs the diff's rows.
-        const range = comment.startLine === undefined ? null : rangeProblem(await tx.patch(targetKey), comment);
+        const range = comment.startLine === undefined ? null : rangeProblem(local ?? await tx.patch(targetKey), comment);
         if (range) throw new Error(range);
         // A new comment's box doesn't replace a comment it didn't show, such as the agent's, written as you wrote.
         if (replaces !== undefined && ((await tx.getDraft(targetKey)).comments.find((c) => sameLocation(c, comment))?.body ?? null) !== replaces) {

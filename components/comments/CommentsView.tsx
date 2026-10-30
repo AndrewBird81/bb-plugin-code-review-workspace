@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { useBbNavigate, useRpc } from "@get-bb/plugin-sdk/app";
 import { toast } from "sonner";
 import type { rpcContract } from "../../src/rpc-contract";
-import { sameLocation, SEVERITIES, VERDICT_LABEL } from "../../src/draft";
+import { sameLocation, SEVERITIES, VERDICT_LABEL, type CommentLocation } from "../../src/draft";
 import { buildItems, checkTally, FILTER_LABEL, FIX_STATES, groups, isFixFilter, itemFix, needsYou, shownItems, toSend, type CommentFilter, type CommentGroup, type CommentItem, type CommentSources, type FixState, type ThreadItem } from "../../lib/comments";
 import { clearOpenComments, forgetOpenComments, revealComment } from "../../lib/comments-fold";
 import { askReply, registerCommentKeys, registerCommentStepper, showCommentStep, useCommentStep } from "../../lib/comment-stops";
@@ -67,7 +67,7 @@ export function CommentsView({ shown, finish, tab, onTab, onShowThread }: {
   /** The review revision the page shows. */
   revision: string;
   /** Show a GitHub thread's line, with the threads showing in the code. */
-  onShowThread: (file: string, line: number | null, side: "LEFT" | "RIGHT", url?: string | null) => void;
+  onShowThread: (file: string, line: number | null, side: CommentLocation["side"], url?: string | null) => void;
 }) {
   const api = useWorkspace();
   const { targetKey, review, sections, display } = api;

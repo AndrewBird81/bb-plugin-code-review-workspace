@@ -6,7 +6,7 @@
 // that comment's Send, for the main thread to apply as written: the folder keeps one writer.
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import { z } from "zod";
-import { sameLocation, type CommentLocation, type DraftComment } from "./draft";
+import { isLocal, sameLocation, type CommentLocation, type DraftComment } from "./draft";
 import { newCommentIds, type ReviewLifecycle, type ReviewMeta, type SendEntry, type SnapshotFiles } from "./store";
 import type { AsyncStore } from "./store-queue";
 import { assistantReview, mergedAway } from "./draft-comments";
@@ -17,7 +17,8 @@ import { homeShort, mainThreadState } from "./feature-review";
 import { diffFilesHead } from "./env-diff";
 import { pruneDiffs } from "./feedback-view";
 import { machineStatus } from "./machines";
-import { sendKey } from "../lib/send-baseline";
+import { localSendKey, sendKey } from "../lib/send-baseline";
+import { NOT_PUSHED } from "../lib/push";
 import { inlineCode } from "./untrusted";
 import { isFixer, usesFixer } from "../lib/fixer";
 import { failed, type EventListeners, type RpcHandlers, type ServeDeps } from "./server-modules";
@@ -393,12 +394,14 @@ export async function send(deps: Deps, targetKey: string, picked: readonly Comme
       const named = comments.map((comment) => ({ ...comment, id: comment.id ?? ids[unnamed.indexOf(comment)] })) as Array<DraftComment & { id: string }>;
       const itemIds = items.map((item) => now.threadSends?.[githubId(item)]?.id ?? ids[unnamed.length + unsentItems.indexOf(item)]);
       const patch = await tx.patch(targetKey);
+      // LOCAL comments' code is in what Not pushed yet showed.
+      const local = named.some(isLocal) ? await tx.getSnapshot(targetKey, NOT_PUSHED) : null;
       const stale = await tx.staleDraftComments(targetKey);
       const preExisting = (await tx.getPreferences()).preferences.knobs.preExistingFindings;
       const files: SnapshotFiles | null = review.feature ? await tx.getSnapshotFiles(targetKey, diffFilesHead(await tx.patchHash(targetKey))) : null;
       const { message, summary } = extras(draft.body, add);
       const texts = [
-        ...named.map((comment) => commentText(comment, patch, stale, preExisting, { id: comment.id, author: theirs })),
+        ...named.map((comment) => commentText(comment, isLocal(comment) ? local ?? "" : patch, stale, preExisting, { id: comment.id, author: theirs })),
         ...items.map((item, i) => itemText(item, itemIds[i], patch)),
       ];
       const apply = add.patch === undefined ? [] : [
@@ -413,7 +416,7 @@ export async function send(deps: Deps, targetKey: string, picked: readonly Comme
         : moved ? where(moved.shown, moved.branch, lead) : where(shown, laterFixer && main ? fixerBranchLine(recordOf(now, main.threadId)?.branch ?? main.branch) : stayOn ?? undefined, lead);
       // A fixer sent to again stays on its branch, and is told again what the quoted words are.
       const text = [message, opening, ...texts, ...apply, summary, ...limits, ...laterFixer ? [UNTRUSTED_NOTE] : [], REPORT].filter(Boolean).join("\n\n");
-      return { comments: named, items: items.map((item, i) => ({ githubId: githubId(item), id: itemIds[i] })), skipped: github.length - items.length, patch, files, text };
+      return { comments: named, items: items.map((item, i) => ({ githubId: githubId(item), id: itemIds[i] })), skipped: github.length - items.length, patch, local, files, text };
     });
     if (!composed) throw new Error(github.length && !picked.length ? `${github.length === 1 ? "That comment is" : "Those comments are"} no longer on GitHub as the review last read it, so there's nothing to send.` : "Those comments are no longer in the draft.");
     const went = await go(deps, shown, routed, composed.text);
@@ -422,6 +425,7 @@ export async function send(deps: Deps, targetKey: string, picked: readonly Comme
       const n = Math.max(0, ...(now.sends ?? []).map((entry) => entry.n)) + 1;
       await tx.saveSnapshot(targetKey, sendKey(n), composed.patch);
       if (composed.files) await tx.saveSnapshotFiles(targetKey, sendKey(n), composed.files);
+      if (composed.local) await tx.saveSnapshot(targetKey, localSendKey(n), composed.local);
       // Each comment as it went, with no report yet; one edited meanwhile is open again, for the next Send.
       const { comments } = await tx.getDraft(targetKey);
       const unchanged = composed.comments.filter((sent) => comments.some((comment) => sameLocation(comment, sent) && comment.body === sent.body));

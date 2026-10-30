@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { Markdown, useBbNavigate } from "@get-bb/plugin-sdk/app";
-import { linesOf, sameLocation } from "../../src/draft";
+import { linesOf, sameLocation, type CommentLocation } from "../../src/draft";
 import { withLineBreaks } from "../../src/line-breaks";
 import { topLevelLabel, type AskItem, type CommentItem, type DraftItem, type PrivateItem, type ThreadItem, type ThreadMessage } from "../../lib/comments";
 import { answerReply, useReplyAsked } from "../../lib/comment-stops";
@@ -11,7 +11,7 @@ import { useKnob } from "../../lib/settings";
 import { cn } from "../../lib/utils";
 import { useWorkspaceFor } from "../../lib/workspace-store";
 import { useDraft } from "../DraftProvider";
-import { AgentEvidence, CommentBody, ComposerFields, DiscussionView, SeverityBadge, type InlineComposer } from "../InlineDraft";
+import { AgentEvidence, CommentBody, ComposerFields, DiscussionView, NotOnGithubBadge, SeverityBadge, type InlineComposer } from "../InlineDraft";
 import { age } from "../time-ago";
 import { TOUCH_CONTROL } from "../touch";
 import { Avatar } from "../ui/avatar";
@@ -254,7 +254,7 @@ export function usePanelComposer(): InlineComposer {
 }
 
 /** Whether the side panel's box is open at a place, rather than in the code or on the summary. */
-function boxAt(draft: ReturnType<typeof useDraft>, at: { file: string; line: number; side: "LEFT" | "RIGHT" }): "edit" | "ask" | null {
+function boxAt(draft: ReturnType<typeof useDraft>, at: CommentLocation): "edit" | "ask" | null {
   if (!draft.showComposer || draft.inline || draft.onSummary || !sameLocation({ file: draft.file, line: Number(draft.line), side: draft.side }, at)) return null;
   return draft.asking ? "ask" : draft.editing ? "edit" : null;
 }
@@ -287,9 +287,10 @@ function DraftCard({ targetKey, item }: { targetKey: string; item: DraftItem }) 
       </> : <div className="space-y-2 px-3 pb-2.5 pt-2.5">
         {/* The row above says its status; right after Resolve or Dismiss, Undo is here. */}
         <FixUndo targetKey={targetKey} comment={comment} onFix={draft.setFix} label />
-        {(comment.startLine !== undefined || comment.side === "LEFT") && <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+        {(comment.startLine !== undefined || comment.side !== "RIGHT") && <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
           {comment.startLine !== undefined && <span className="tabular-nums">Lines {linesOf(comment)}</span>}
           {comment.side === "LEFT" && <Badge size="sm">Old line</Badge>}
+          {comment.side === "LOCAL" && <NotOnGithubBadge />}
         </p>}
         <CommentBody body={comment.body} link={comment.author === "agent"} />
         {comment.evidence && <AgentEvidence evidence={comment.evidence} />}

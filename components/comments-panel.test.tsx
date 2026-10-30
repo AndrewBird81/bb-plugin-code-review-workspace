@@ -741,3 +741,15 @@ test("on your own PR, every thread whose latest comment isn't yours or a bot's n
   expect(rpc.replyToThread).not.toHaveBeenCalled();
   slot.lifecycle.unmount();
 });
+
+test("a comment on a line only in the folder shows in the list with Not on GitHub yet, never in the PR's code", async () => {
+  const local = { file: "src/a.ts", line: 2, side: "LOCAL", body: "Only in the folder." };
+  const getDraft = () => ({ draft: { targetKey: "pr-42", verdict: "COMMENT", body: "", comments: [local] }, stale: [], discussions: [] });
+  const { slot } = await renderWorkspace({ review: { ownPr: true, feature: { environmentId: "env1", hostId: "h", machine: "MaxBook", path: "/src/web", branch: "feat", baseRef: "main", repo: "acme/web" } }, rpc: { getDraft } });
+  const list = await openComments(slot);
+  const row = (await list.findByText("Only in the folder.")).closest<HTMLElement>("[data-comment-row]")!;
+  const pill = within(row).getByText("Not on GitHub yet");
+  expect(pill.closest("[title]")?.getAttribute("title")).toBe("On a line only in the folder. It goes with Send, and can’t post until it’s pushed.");
+  expect(code(slot, "src/a.ts").queryByText("Only in the folder.")).toBeNull();
+  slot.lifecycle.unmount();
+});

@@ -1152,7 +1152,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   }, [sections, isPr]);
   // A line from Comments, a thread, Find or Start here: the whole diff, so the line is there, unless it wasn't narrowed,
   // nor about to be. Without a line, the file.
-  const showLocation = useCallback((file: string, line: number | null, side: "LEFT" | "RIGHT", url: string | null = null) => {
+  const showLocation = useCallback((file: string, line: number | null, side: CommentLocation["side"], url: string | null = null) => {
     if (outsideGuide(file, url)) return;
     if (sinceOnly || !compared) narrow(false);
     showComment({ file, line: line ?? 0, side });
@@ -1160,7 +1160,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   const openHotspot = useCallback((file: string, line: number, side: "LEFT" | "RIGHT") => showLocation(file, line, side), [showLocation]);
   // Find in review's results: a line, a chapter, or a file's summary, in the diff.
   const openFoundFile = useCallback((_chapterId: string, file: string) => showLocation(file, null, "RIGHT"), [showLocation]);
-  const followUp = useCallback((file: string, line: number | null, side: "LEFT" | "RIGHT", url: string | null = null) => {
+  const followUp = useCallback((file: string, line: number | null, side: CommentLocation["side"], url: string | null = null) => {
     if (outsideGuide(file, url)) return;
     showLocation(file, line, side);
     if (line != null) setDraftPrefill({ file, line, side, nonce: Date.now() });
@@ -1255,7 +1255,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   const [showThreads, setShowThreadsState] = useState(getGithubThreadsInCode);
   const setShowThreads = useCallback((show: boolean) => { setShowThreadsState(show); setGithubThreadsInCode(show); }, []);
   // A GitHub thread's line, with the threads on so its card shows there.
-  const showThread = useCallback((file: string, line: number | null, side: "LEFT" | "RIGHT", url: string | null = null) => {
+  const showThread = useCallback((file: string, line: number | null, side: CommentLocation["side"], url: string | null = null) => {
     setShowThreads(true);
     showLocation(file, line, side, url);
   }, [setShowThreads, showLocation]);

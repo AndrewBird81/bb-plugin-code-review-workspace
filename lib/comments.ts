@@ -12,7 +12,7 @@ import { splitPatchByFile } from "../src/patch";
 import type { ReviewThread } from "../src/threads";
 import type { AssessmentVerdict, FeedbackItem, FeedbackView, ReplyDraft } from "./feedback";
 
-type Side = "LEFT" | "RIGHT";
+type Side = CommentLocation["side"];
 type Author = ReplyDraft["author"];
 
 /** Where an item stands, as its header says. */

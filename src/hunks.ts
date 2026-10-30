@@ -1,6 +1,7 @@
 // A guide can split a file that mixes unrelated changes across chapters, each showing some of its
 // hunks: numbered from 1 in patch order.
 import { patchRows, splitPatchByFile } from "./patch";
+import { isLocal, type CommentLocation } from "./draft";
 
 /** One hunk of a file's diff: its @@ header, its lines, the old- and new-file lines it shows, and where it starts in the old file. */
 export interface FileHunk { header: string; lines: string[]; old: Set<number>; new: Set<number>; oldStart: number }
@@ -102,8 +103,9 @@ export function fitHunks<S extends { diffs: Entry[] }>(sections: S[], patch: str
   }) as S).filter((section) => section.diffs.length);
 }
 
-/** The chapter that shows a line of a file: the one with its hunk, or else the first with the file. */
-export function chapterAt<S extends { diffs: Entry[] }>(sections: S[], patch: string, at: { file: string; line: number; side: "LEFT" | "RIGHT" }): S | undefined {
+/** The chapter that shows a line of a file: the one with its hunk, or else the first with the file. None shows a LOCAL one: Not pushed yet does. */
+export function chapterAt<S extends { diffs: Entry[] }>(sections: S[], patch: string, at: CommentLocation): S | undefined {
+  if (isLocal(at)) return undefined;
   const holding = sections.filter((section) => section.diffs.some((diff) => diff.file === at.file));
   if (holding.length < 2) return holding[0];
   const text = splitPatchByFile(patch).find((file) => file.path === at.file)?.text ?? "";

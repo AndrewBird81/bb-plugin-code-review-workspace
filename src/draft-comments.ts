@@ -8,7 +8,7 @@ import type { AsyncStore } from "./store-queue";
 import { reviewIdentity } from "../lib/review-identity";
 
 /** A comment's location as callers give it; side defaults to RIGHT. */
-export interface LocationInput { file: string; line: number; side?: "LEFT" | "RIGHT" }
+export interface LocationInput { file: string; line: number; side?: CommentLocation["side"] }
 /** A range's first line, when a comment covers several; `line` is its last. Its side defaults to the comment's. */
 export interface RangeInput { startLine?: number; startSide?: "LEFT" | "RIGHT" }
 export interface NewComment extends LocationInput, RangeInput {

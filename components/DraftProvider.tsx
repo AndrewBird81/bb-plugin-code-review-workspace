@@ -25,7 +25,7 @@ import { InlineComposerContext, InlineDraftContext, locationKey, type CommentSta
  * A request from the diff to comment on a line, or with `ask` to message the agent about it; the box
  * opens there. `startLine` and `startSide` are the other end of a selection, in either order.
  */
-export interface CommentPrefill { file: string; line: number; side: "LEFT" | "RIGHT"; startLine?: number; startSide?: "LEFT" | "RIGHT"; ask?: boolean; nonce: number; }
+export interface CommentPrefill { file: string; line: number; side: CommentLocation["side"]; startLine?: number; startSide?: "LEFT" | "RIGHT"; ask?: boolean; nonce: number; }
 
 export interface DraftProviderProps {
   targetKey: string; activeChapterId: string; activeFiles: string[];
@@ -88,7 +88,7 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
   const firstFile = activeFiles[0] ?? files[0] ?? "";
   const [file, setFile] = useState(firstFile);
   const [line, setLine] = useState("1");
-  const [side, setSide] = useState<"LEFT" | "RIGHT">("RIGHT");
+  const [side, setSide] = useState<CommentLocation["side"]>("RIGHT");
   const [body, setBody] = useState("");
   // The box's text as it opened: the comment or summary it edits, or nothing. Text other than that is yours, unsaved.
   const openedBody = useRef("");
@@ -629,14 +629,15 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
   // A box in the code on a line the code doesn't draw, as after a rebuild, a reload with one between, or with the diff
   // narrowed to what changed since, has no row to show under: it moves to the panel, whose fields say where it is and
   // can move it.
+  // A LOCAL comment's box is on Not pushed yet's lines, never the review's diff.
   useEffect(() => {
-    if (!showComposer || !inline || summaryBox || !patch || onLine(drawnOf(file))) return;
+    if (!showComposer || !inline || summaryBox || !patch || side === "LOCAL" || onLine(drawnOf(file))) return;
     setInline(false);
     onOpenPanel?.("comments");
   }, [showComposer, inline, summaryBox, patch, drawnOf, file, line, side, onOpenPanel]);
   // A box in the panel on a line the diff has, but the code doesn't draw, narrowed to what changed since: Show in diff
   // shows all of it and moves the box under its line.
-  const showBoxInDiff = showComposer && !inline && !summaryBox && !!patch && onLine(positionsOf(file)) && !onLine(drawnOf(file)) ? () => {
+  const showBoxInDiff = showComposer && !inline && !summaryBox && !!patch && side !== "LOCAL" && onLine(positionsOf(file)) && !onLine(drawnOf(file)) ? () => {
     showLocation(file, Number(line), side);
     setInline(true);
   } : null;
@@ -719,11 +720,18 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
   const composerInDiff = editable && showComposer && inline;
   const chat = useMemo(() => onOpenPanel ? () => onOpenPanel("agent") : null, [onOpenPanel]);
   const editingLine = showComposer && !summaryBox && !asking;
-  const inlineDraft = useMemo<InlineDraft>(() => ({
-    targetKey, comments: draft.comments, stale, discussions: lineDiscussions, editable, busy, writing, hideNits, open, ask, remove, dismiss, undo: undoAt, markPreExisting: markAt, chat, checks, setFix: fixAt,
-    composer: composerInDiff ? { file, line: Number(line), side, ...(startLine ? { startLine } : {}), editing: editing !== null, asking } : null,
-    editingAt: editingLine ? { file, line: Number(line), side } : null,
-  }), [targetKey, draft.comments, stale, lineDiscussions, editable, busy, writing, hideNits, open, ask, remove, dismiss, undoAt, markAt, chat, checks, fixAt, composerInDiff, editingLine, file, line, side, startLine, editing, asking]);
+  // The review's diff shows what's on GitHub; Not pushed yet (`local`), the LOCAL comments on lines only in the folder.
+  const inlineOn = (local: boolean): InlineDraft => {
+    const here = (at: Pick<CommentLocation, "side">) => (at.side === "LOCAL") === local;
+    return {
+      targetKey, comments: draft.comments.filter(here), stale, discussions: lineDiscussions.filter(here), editable, busy, writing, hideNits, open, ask, remove, dismiss, undo: undoAt, markPreExisting: markAt, chat, checks, setFix: fixAt,
+      composer: composerInDiff && here({ side }) ? { file, line: Number(line), side, ...(startLine ? { startLine } : {}), editing: editing !== null, asking } : null,
+      editingAt: editingLine && here({ side }) ? { file, line: Number(line), side } : null,
+    };
+  };
+  const inlineDeps = [targetKey, draft.comments, stale, lineDiscussions, editable, busy, writing, hideNits, open, ask, remove, dismiss, undoAt, markAt, chat, checks, fixAt, composerInDiff, editingLine, file, line, side, startLine, editing, asking];
+  const inlineDraft = useMemo(() => inlineOn(false), inlineDeps); // eslint-disable-line react-hooks/exhaustive-deps
+  const localDraft = useMemo(() => inlineOn(true), inlineDeps); // eslint-disable-line react-hooks/exhaustive-deps
   const canSuggest = !!suggestable;
   const inlineComposer = useMemo<InlineComposer | null>(() => composerInDiff ? {
     body, edited, replacing, changedWhileEditing, textareaRef: bodyRef, error: composerError, rebuilding, keepOnCurrentDiff: olderDiff ? () => latest.current.keepOnCurrentDiff() : null,
@@ -778,12 +786,14 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
   const approvingBlocked = draft.verdict === "APPROVE" && blockingCount > 0;
   const counts = severityCounts(posting);
   const nitCount = draft.comments.filter((comment) => comment.severity === "nit").length;
+  // Open comments on lines only in the folder: they go with Send, not Submit.
+  const notOnGithub = draft.comments.filter((comment) => comment.side === "LOCAL" && (!comment.state || comment.state === "open")).length;
   return {
     targetKey, loadError, load, refresh, loaded, closed, review, draft, posting, checks, setFix, completed, submittedVerdict, receiptUrl, setWriteAnother, status,
     summaryRef, summaryDiscussion, editable, busy, submitting, writing, onSummary, summaryComposer, isLocal, chat, asking, summaryBase, openComposer, saveSummary, revisionRef, undo, requestSummary,
     showComposer, inline, edited, replacing, counts, preExistingCount, blocks, markPreExisting, hideNits, nitCount, toggleNits, removeNits, listRef, sortedComments, stale, discussions, body, removeComment, setCommentSeverity, moveToSummary,
     file, boxLines, line, side, files, setFile, editing, showBoxInDiff, startLine, setLine, setSide, bodyRef, changeBody, canAdd, addComment, cancelComposer, composerError, rebuilding, olderDiff, keepOnCurrentDiff, composerControls, severity, setSeverity, suggestable, suggestChange,
     changedWhileEditing, ownPr, suggested, chooseVerdict, confirming, setConfirming, warned, setWarned, approval, agentCoverage, unreadApproval, approvingBlocked, blockingCount, commentCount, doubts, hasReview, needsSummary, staleComments, submit, confirmCancelRef, submitRef, hint,
-    inlineDraft, inlineComposer, askAgent, patch, account, why, setWhy,
+    inlineDraft, localDraft, notOnGithub, inlineComposer, askAgent, patch, account, why, setWhy,
   };
 }

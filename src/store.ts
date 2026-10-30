@@ -1,6 +1,6 @@
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import { renameOverviewChapter, type Guide } from "./guide";
-import { rangeOf, sameLocation, SUMMARY_AT, type Claim, type CommentLocation, type Discussion, type DiscussionEntry, type Draft, type DraftComment, type GithubReviewComment, type Severity, type Verdict } from "./draft";
+import { diffSide, isLocal, rangeOf, sameLocation, SUMMARY_AT, type Claim, type CommentLocation, type Discussion, type DiscussionEntry, type Draft, type DraftComment, type GithubReviewComment, type Severity, type Verdict } from "./draft";
 import { createHash, randomUUID } from "node:crypto";
 import { preferencesSchema, readPreferences, savedKnobs, unknownKnobs, type PreferencesRecord, type ReviewPreferences, type ReviewerNotesRecord } from "./preferences";
 import type { AssessmentSummary, TurnSignals } from "../lib/turn";
@@ -17,6 +17,7 @@ import { sqliteSql, withoutNul, type Sql } from "./db/sql";
 import type { AsyncStore } from "./store-queue";
 import { summaryLine, withSummaryLine } from "../lib/move-to-summary";
 import { localIdOf, reviewIdentity } from "../lib/review-identity";
+import { NOT_PUSHED } from "../lib/push";
 
 export interface ReviewLifecycle {
   prState?: "OPEN" | "CLOSED" | "MERGED";
@@ -603,10 +604,11 @@ export interface Store extends AgentCommentStore {
   /** The text a draft comment's line, or with "start" its range's first line, had when it was drafted. */
   draftCommentCode(targetKey: string, at: CommentLocation, end?: "start" | "line"): Promise<string | undefined>;
   /**
-   * Mark draft comments as drafted against the current diff, each at a possibly new line, all at once.
+   * Mark draft comments as drafted against the current diff, each at a possibly new line, all at once: a LOCAL one,
+   * or one given `side` LOCAL, against what Not pushed yet showed last; one given `side` RIGHT against the review's.
    * A comment whose new place another comment ends up on stays where it was, drafted against the older diff.
    */
-  rebaseDraftComments(targetKey: string, placements: ReadonlyArray<{ at: CommentLocation; line: number; startLine?: number }>): Promise<void>;
+  rebaseDraftComments(targetKey: string, placements: ReadonlyArray<Placement>): Promise<void>;
 }
 
 /** A comment's fields only the server sets, as trackComments changes them. */
@@ -779,6 +781,15 @@ export function storeOn(sql: Sql): Store {
     await writeDraft(sql, moved);
     return moved;
   };
+  // The diff a comment on `side` is drafted on: the review's, or a LOCAL one's, what Not pushed yet showed last.
+  const diffOf = async (k: string, side: CommentLocation["side"]) => {
+    if (!isLocal({ side })) {
+      const { entry, patch } = await parsedPatch(k);
+      return { positions: entry.positions ??= diffPositions(await patch()), hash: entry.hash };
+    }
+    const shown = (await sql.get<{ patch: string }>(`SELECT patch FROM review_snapshots WHERE target_key=? AND head_sha=?`, [k, NOT_PUSHED]))?.patch ?? "";
+    return { positions: diffPositions(shown), hash: patchHash(shown) };
+  };
 
   const rowToMeta = (r: any): ReviewMeta => ({
     targetKey: r.target_key, kind: r.kind, number: r.number ?? undefined, repo: r.repo ?? undefined,
@@ -898,6 +909,11 @@ export function storeOn(sql: Sql): Store {
         const codeAt = (file: string, side: CommentLocation["side"], line: number) => positions.get(file)?.[side === "LEFT" ? "left" : "right"].get(line) ?? null;
         const toSummary: DraftComment[] = [];
         for (const c of was.comments) {
+          // On the other folder's lines not pushed yet, which this review's folder doesn't have.
+          if (isLocal(c)) {
+            toSummary.push(c);
+            continue;
+          }
           const place = placements.find(({ at: placed }) => sameLocation(placed, c));
           const comment: DraftComment = { ...c, ...place ? { line: place.line, ...place.startLine !== undefined ? { startLine: place.startLine } : {} } : {}, ...c.sendN !== undefined ? { sendN: c.sendN + top } : {} };
           const there = draft.comments.find((other) => sameLocation(other, comment));
@@ -1158,12 +1174,13 @@ export function storeOn(sql: Sql): Store {
         const i = d.comments.findIndex((x) => x.file === c.file && x.line === c.line && x.side === c.side);
         if (i >= 0) d.comments[i] = savedOver(d.comments[i], c); else d.comments.push(savedOver(undefined, c));
         await writeDraft(sql, d);
-        const positions = (await this.diffPositions(k)).get(c.file);
-        const code = positions?.[c.side === "LEFT" ? "left" : "right"].get(c.line) ?? null;
-        const startCode = c.startLine === undefined ? null : positions?.[(c.startSide ?? c.side) === "LEFT" ? "left" : "right"].get(c.startLine) ?? null;
+        const { positions: all, hash } = await diffOf(k, c.side);
+        const positions = all.get(c.file);
+        const code = positions?.[diffSide(c.side) === "LEFT" ? "left" : "right"].get(c.line) ?? null;
+        const startCode = c.startLine === undefined ? null : positions?.[diffSide(c.startSide ?? c.side) === "LEFT" ? "left" : "right"].get(c.startLine) ?? null;
         await sql.run(`INSERT INTO draft_comment_revisions (target_key,file,line,side,patch_hash,code,start_code) VALUES (?,?,?,?,?,?,?)
           ON CONFLICT(target_key,file,line,side) DO UPDATE SET patch_hash=excluded.patch_hash, code=excluded.code, start_code=excluded.start_code`,
-          [k, c.file, c.line, c.side, await this.patchHash(k), code, startCode]);
+          [k, c.file, c.line, c.side, hash, code, startCode]);
         return d;
       }).catch((error: unknown) => {
         // Renames it followed were rolled back with it.
@@ -1223,7 +1240,8 @@ export function storeOn(sql: Sql): Store {
     async staleDraftComments(k) {
       const hash = await this.patchHash(k);
       const stale: DraftComment[] = [];
-      for (const c of (await this.getDraft(k)).comments) {
+      // A LOCAL comment is on what Not pushed yet showed, which Submit never posts.
+      for (const c of (await this.getDraft(k)).comments.filter((c) => !isLocal(c))) {
         const row = await sql.get<{ patch_hash: string }>(`SELECT patch_hash FROM draft_comment_revisions WHERE target_key=? AND file=? AND line=? AND side=?`, [k, c.file, c.line, c.side]);
         if (row?.patch_hash !== hash) stale.push(c);
       }
@@ -1484,27 +1502,29 @@ export function storeOn(sql: Sql): Store {
       return (end === "start" ? row?.start_code : row?.code) ?? undefined;
     },
     async rebaseDraftComments(k, placements) {
-      const positions = await this.diffPositions(k);
-      const hash = await this.patchHash(k);
+      const diffs = { main: await diffOf(k, "RIGHT"), local: await diffOf(k, "LOCAL") };
       await sql.transaction(async () => {
         const d = await this.getDraft(k);
         const moves = new Map<DraftComment, number>();
         const starts = new Map<DraftComment, number>();
-        for (const { at, line, startLine } of placements) {
+        // A LOCAL comment pushed since, onto a line of the review's diff, or one the diff lost that's in the folder.
+        const sides = new Map<DraftComment, NonNullable<Placement["side"]>>();
+        for (const { at, line, startLine, side } of placements) {
           const comment = d.comments.find((c) => sameLocation(c, at));
           if (comment) moves.set(comment, line);
           if (comment && startLine !== undefined) starts.set(comment, startLine);
+          if (comment && side && side !== comment.side) sides.set(comment, side);
         }
         // Collisions count only among final places; a comment that would share one keeps its old place.
         for (let clash = true; clash;) {
           clash = false;
           const places = new Map<string, DraftComment[]>();
           for (const c of d.comments) {
-            const place = JSON.stringify([c.file, moves.get(c) ?? c.line, c.side]);
+            const place = JSON.stringify([c.file, moves.get(c) ?? c.line, sides.get(c) ?? c.side]);
             places.set(place, [...(places.get(place) ?? []), c]);
           }
           for (const group of places.values()) {
-            if (group.length > 1) for (const c of group) if (moves.has(c) && moves.get(c) !== c.line) { moves.delete(c); clash = true; }
+            if (group.length > 1) for (const c of group) if (moves.has(c) && (moves.get(c) !== c.line || sides.has(c))) { moves.delete(c); sides.delete(c); clash = true; }
           }
         }
         for (const c of moves.keys()) await sql.run(`DELETE FROM draft_comment_revisions WHERE target_key=? AND file=? AND line=? AND side=?`, [k, c.file, c.line, c.side]);
@@ -1522,23 +1542,25 @@ export function storeOn(sql: Sql): Store {
         for (const { c, line, ids, waiting } of discussions) {
           // A range's first line follows the comment's, or shifts with its last.
           for (const { id } of ids) {
-            await sql.run(`UPDATE discussion_entries SET line=?, start_line=CASE WHEN start_line IS NULL THEN NULL ELSE COALESCE(?, start_line + ?) END WHERE id=?`,
-              [line, starts.get(c) ?? null, line - c.line, id]);
+            await sql.run(`UPDATE discussion_entries SET line=?, side=?, start_line=CASE WHEN start_line IS NULL THEN NULL ELSE COALESCE(?, start_line + ?) END WHERE id=?`,
+              [line, sides.get(c) ?? c.side, starts.get(c) ?? null, line - c.line, id]);
           }
-          if (waiting) await sql.run(`INSERT INTO discussion_waits (target_key,file,line,side) VALUES (?,?,?,?) ON CONFLICT DO NOTHING`, [k, c.file, line, c.side]);
+          if (waiting) await sql.run(`INSERT INTO discussion_waits (target_key,file,line,side) VALUES (?,?,?,?) ON CONFLICT DO NOTHING`, [k, c.file, line, sides.get(c) ?? c.side]);
         }
         const asks = (await this.getReview(k))?.commentAsks;
         if (asks?.length) {
           await this.setLifecycle(k, { commentAsks: asks.map((entry) => {
             const moved = [...moves].find(([c]) => sameLocation(c, entry));
-            return moved ? { ...entry, line: moved[1] } : entry;
+            return moved ? { ...entry, line: moved[1], side: sides.get(moved[0]) ?? entry.side } : entry;
           }) });
         }
         for (const [c, line] of moves) {
           c.line = line;
           if (starts.has(c)) c.startLine = starts.get(c);
-          const code = positions.get(c.file)?.[c.side === "LEFT" ? "left" : "right"].get(line) ?? null;
-          const startCode = c.startLine === undefined ? null : positions.get(c.file)?.[(c.startSide ?? c.side) === "LEFT" ? "left" : "right"].get(c.startLine) ?? null;
+          if (sides.has(c)) c.side = sides.get(c)!;
+          const { positions, hash } = isLocal(c) ? diffs.local : diffs.main;
+          const code = positions.get(c.file)?.[diffSide(c.side) === "LEFT" ? "left" : "right"].get(line) ?? null;
+          const startCode = c.startLine === undefined ? null : positions.get(c.file)?.[diffSide(c.startSide ?? c.side) === "LEFT" ? "left" : "right"].get(c.startLine) ?? null;
           await sql.run(`INSERT INTO draft_comment_revisions (target_key,file,line,side,patch_hash,code,start_code) VALUES (?,?,?,?,?,?,?)
             ON CONFLICT(target_key,file,line,side) DO UPDATE SET patch_hash=excluded.patch_hash, code=excluded.code, start_code=excluded.start_code`,
             [k, c.file, line, c.side, hash, code, startCode]);
@@ -1612,7 +1634,7 @@ export const REVIEW_TABLES = [
   "assessment_items", "assessment_runs", "reply_drafts", "guide_backups", "agent_comment_changes",
 ] as const;
 
-type Placement = { at: CommentLocation; line: number; startLine?: number };
+type Placement = { at: CommentLocation; line: number; startLine?: number; side?: "RIGHT" | "LOCAL" };
 
 /**
  * Where each unsent comment's line is in `next`, for rebaseDraftComments, and its range's first line. Comments whose
@@ -1620,12 +1642,21 @@ type Placement = { at: CommentLocation; line: number; startLine?: number };
  * the draft and each comment's code first.
  */
 export async function reanchorDraft(store: Pick<Store, "getDraft" | "draftCommentCode">, k: string, previous: string, next: string): Promise<Placement[]> {
-  const { comments } = await store.getDraft(k);
+  // A LOCAL comment is on Not pushed yet's diff, not the review's.
+  return placeOn(store, k, (await store.getDraft(k)).comments.filter((comment) => !isLocal(comment)), previous, next);
+}
+
+/**
+ * Where each of `comments` is in `next`, as reanchorDraft says, and with `side` on that side there: a LOCAL comment
+ * from Not pushed yet's diff onto the review's at the PR's new head, now on GitHub, or one the review's diff lost onto
+ * Not pushed yet's.
+ */
+export async function placeOn(store: Pick<Store, "draftCommentCode">, k: string, comments: DraftComment[], previous: string, next: string, side?: Placement["side"]): Promise<Placement[]> {
   const codes = new Map<DraftComment, { line?: string; start?: string }>();
   for (const comment of comments) {
     codes.set(comment, { line: await store.draftCommentCode(k, comment), start: comment.startLine === undefined ? undefined : await store.draftCommentCode(k, comment, "start") });
   }
-  return placeComments(comments, (comment, end) => codes.get(comment)![end ?? "line"], previous, next);
+  return placeComments(comments, (comment, end) => codes.get(comment)![end ?? "line"], previous, next).map((place) => side ? { ...place, side } : place);
 }
 
 function placeComments(comments: DraftComment[], codeOf: (comment: DraftComment, end?: "start") => string | undefined, previous: string, next: string): Placement[] {
