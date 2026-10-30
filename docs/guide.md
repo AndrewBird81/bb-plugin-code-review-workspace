@@ -81,8 +81,8 @@ bb review https://github.com/acme/web/pull/42 --context 'Implements LIN-123: ret
 `bb review` with no PR or ref reviews the folder the thread works in, on whichever machine it's on: everything its branch changed against its base, committed, uncommitted and new files alike. The base is the branch's PR's base once it has one, else the one BB keeps for the folder.
 
 - There's one review per folder and branch, however many threads and subagents work there. Run again, from any of them, it opens the review as it is: nothing is rebuilt.
-- **Review changes**, above a thread's message box in BB, after Changed files, does the same from the thread's page, while the folder has changes or a review. Once it has one, it reads "Review · 2 open", or "Review" with nothing open. A click starts the review the first time, then opens it as it is. **Review changes above a thread's message box** in Settings → Reading hides it. The plugin's own agents' threads don't get it.
-- A thread linked to a review, its main thread, a thread a Send went to, or a thread working in its folder, gets a **Review** tab beside its chat: the review's id and name, **Open review**, its comments, each saying where it stands, and the review agent's chat, or **Ask the review agent** while it has none. The tab reads no git, and stays with Review changes off.
+- **Review changes**, above a thread's message box in BB, after Changed files, does the same from the thread's page, while the folder has changes or a review. Once it has one, it reads "Review · 2 open ↗", or "Review ↗" with nothing open, and goes to the review, as **Main thread ↗** on the review comes back. A click starts the review the first time, then opens it as it is. **Review changes above a thread's message box** in Settings → Reading hides it. The plugin's own agents' threads don't get it.
+- A thread linked to a review, its main thread, a thread a Send went to, or a thread working in its folder, gets a **Review** tab beside its chat: the review's id and name, **Review ↗**, which goes to the review, its comments, each saying where it stands, and the review agent's chat, or **Ask the review agent** while it has none, which opens the review with its agent beside it. The tab reads no git, and stays with Review changes off.
 - The review is addressed to its main thread, the top thread working in that folder, which gets the comments you send. A subagent's call finds the thread that leads the work, even under an orchestrator in another folder; a live thread replaces an archived main thread, but not one BB can't read just then. The command says which.
 - It's named after the main thread, until its branch has a PR. Its id is the repository and branch, `api:snooze-checks`, and it shows the machine and folder.
 - New files that look like secrets (`.env*`, `*.pem`, `*.key`, `credentials*`), binaries and very large diffs stay out of the review and away from agents; a button naming each secret sends it to agents, and **Include** brings binaries in. Committed ones that look like secrets show, flagged, until you choose **Got it**.
@@ -167,10 +167,11 @@ bb review approve acme/web#42 acme/web#43 --body 'LGTM'
 
 ### Layout
 
-- The code first. A review's commands sit in BB's **Code Review Workspace** title bar: **Comments**, with a badge counting what needs you; **Ask agent**; **Finish review**, with the verdict and how many comments will be sent; **Review actions** (⋯); and **Full screen**.
+- The code first. A review's commands sit in BB's **Code Review Workspace** title bar: **Comments**, with a badge counting what needs you; **Ask agent**; with a main thread, **Main thread ↗**, which goes to it, and **Show beside review**, which shows its chat in BB's side panel; **Finish review**, with the verdict and how many comments will be sent; **Review actions** (⋯); and **Full screen**.
 - Over the code is one 44px band: the chapters toggle and **Find in review** while the chapters aren't docked (docked, they head the chapters), **‹ All reviews**, the chapter you're on with its progress ring, the compare select on a re-review, **Fold comments**, and **Diff options**.
 - **Full screen** covers BB's bars, on an iPhone too; the band then ends with the review's commands, and toasts, **Undo** among them, show over it. A phone has no band: see [Phone and iPad](#phone-and-ipad).
-- The chapters and the side panel (Comments, Finish review, or the review agent) dock beside the code while it keeps at least 560px; otherwise they slide over it, and Esc, a tap on the code, ✕, or choosing something closes them. The panel docks narrower, down to 320px, before it covers the code. With no room for both, the chapters wait while the panel is docked and dock again when it closes.
+- The review agent and the main thread are tabs in BB's own side panel, at the window's right, as on a thread's page: see [The review agent](#the-review-agent) and [Send comments to the main thread](#send-comments-to-the-main-thread). Beside it, in a window at least 744px on its shorter side, as a desktop's, a review under 600px wide keeps BB's title bar and the band, down to 480px, with its commands as icons.
+- The chapters and the review's own panel (Comments or Finish review) dock beside the code while it keeps at least 560px; otherwise they slide over it, and Esc, a tap on the code, ✕, or choosing something closes them. The panel docks narrower, down to 320px, before it covers the code. With no room for both, the chapters wait while the panel is docked and dock again when it closes.
 - Drag the line between a side and the code to resize it; double-click or double-tap it for the default width. Widths are kept for every review.
 
 ### The Overview
@@ -248,14 +249,14 @@ Where the band has no room for them, it also holds **Fold comments in code** and
 
 ### The review agent
 
-**Ask agent** opens the review agent beside the code.
+**Ask agent** (`a`) opens the review agent in BB's side panel, its **Review agent** tab, beside the review; the button, pressed while the tab shows, closes the panel. The tab shows the review you're on, and switches when you switch reviews. In full screen, Ask agent leaves it, as BB's panel is outside it; on a phone, BB's panel covers the page, and its ✕ brings the review back.
 
 - The conversation is BB's own chat: streamed answers, stop, queued messages, approvals, attachments, and a per-message model and effort picker.
 - The agent can add, edit, and delete draft comments and write the summary, and the changes appear in Comments and the code as it works. When you ask, it posts for you too: see [Posting when you ask](#posting-when-you-ask).
 - Besides the diff, it reads the PR's description, linked issues, commits, failing CI, other reviewers' open threads, and the repository's AGENTS.md, CLAUDE.md, Copilot instructions, and REVIEW.md, from the PR's base, and treats all of it as untrusted.
-- **Pop out** moves it into a movable, resizable widget, and **Dock** puts it back; on a phone it stays in its sheet. While it's popped out, **Ask agent** asks in the widget. The arrow keys move the widget from its ✦ mark, as they resize it from its corner.
+- A first message you haven't sent stays while BB's panel closes, or you go to another review and back.
 - Each review's agent conversation is a hidden BB thread, shown in the review with BB's chat. Review context (guide intent, chapters, and your Assistant instructions) reaches it as hidden instructions, refreshed when an idle conversation continues after the guide is updated or rebuilt, or the instructions change.
-- Selections and the Ask agent button quote the file or lines into your message.
+- Selections and the Ask agent button quote the file or lines into your message. With no file in view, Ask agent just opens the chat, its box focused.
 - **New conversation** archives the current one; if a conversation's thread is archived or deleted, the next question starts a new one.
 - Archived PRs can still be discussed: their conversations stay unarchived because BB cannot send to an archived thread.
 
@@ -351,6 +352,7 @@ With **Commands in BB's command palette** on (Settings → Reading), BB's palett
 - **Code Review Workspace: Next review that needs me**, with ⌘⇧U (Ctrl+Shift+U) as its default key unless BB already uses it.
 - **Code Review Workspace: Review PR from clipboard**, which opens the review of the PR link you copied, or starts one and names it ("Started a review of acme/web#7: Fix cache keys") with **Open**.
 - **Code Review Workspace: All reviews**.
+- **Code Review Workspace: Switch between review and main thread**, with ⌘⇧. (Ctrl+Shift+.) as its default key: on a thread's page it goes to the thread's review, the one its Review tab shows, and on a review's page to its main thread. It's listed only where there's one to go to.
 
 Give them keys of your own where BB lets you. The commands need a BB that supports app overlays, as the thread list's Needs review does (see [BB's thread list](#bbs-thread-list)); without them, the palette doesn't list them.
 
@@ -358,7 +360,7 @@ Give them keys of your own where BB lets you. The commands need a BB that suppor
 
 - Every control is a 44px target on a touch screen, iPads included. The gutter's **+** shows only with a mouse or trackpad; on touch, tap a line, then another for a range.
 - On an iPad, the layout is the desktop's at touch sizes, and a docked panel that no longer fits after a resize hides, and docks again when there's room.
-- On a phone there's no band: a dock at the bottom holds **‹** (All reviews), the chapter you're on, **Comments**, **Ask agent**, **Main thread** while the review has one, and **Full screen**, and they open one sheet above it. Menus open as drawers from the bottom.
+- On a phone there's no band: a dock at the bottom holds **‹** (All reviews), the chapter you're on, **Comments**, **Ask agent**, **Main thread** while the review has one, and **Full screen**. The chapters and Comments open one sheet above it; **Ask agent** opens BB's side panel over the page, whose tabs include **Main thread**; **Main thread** goes to the main thread. Menus open as drawers from the bottom.
 
 Every layout detail, held either way and on foldables such as the iPhone Duo, is in [docs/devices.md](devices.md).
 
@@ -429,7 +431,7 @@ Code Review Workspace alerts only about what happens after it starts following a
 - BB's title bar, after the panel's name, and the window's title lead with it, then the review's name: `api#4512 › Fix login race` in the bar, `api#4512 · Fix login race` as the window's title. Each pane's bar names its own review, so two reviews in split panes, or two windows, read apart, and a long name is cut before the id is. In a window under 720px the bar shows them as one title, cut at its end.
 - A folder's review goes by its main thread's title, frozen when the review starts, then by its PR's once it has one. A local ref's review with no name of yours goes by its guide's title. Either goes by your name once you [rename](#rename) it.
 - The band keeps the id in a chip after ‹ on every page of the review. The name follows it in a chapter only where BB's title bar doesn't show it, in full screen or on a BB without page titles, and where the band has room. Short of room, the repository's name is cut first, and `#4512` never; hovering the chip shows the whole id, with the repository in full, and the name. On a phone, the dock's chapter tab has the id over the chapter.
-- The page bar of a review without a guide yet, the popped-out review agent, a PR's row in BB's thread list (its `#n`), Needs You alerts, review agent and **Fix in a new thread** threads, and what Send sends all name the review by its id. A local review's row in All reviews says its id and machine, `api:feat/x · MaxBook`, and its Overview the machine and folder of its checkout.
+- The page bar of a review without a guide yet, the review agent's and the main thread's tabs, a PR's row in BB's thread list (its `#n`), Needs You alerts, review agent and **Fix in a new thread** threads, and what Send sends all name the review by its id. A local review's row in All reviews says its id and machine, `api:feat/x · MaxBook`, and its Overview the machine and folder of its checkout.
 
 ### Rename
 
@@ -597,7 +599,7 @@ The loop, for a thread's work in its folder:
   - A main thread that was deleted: **Start a fresh thread** in its folder, which becomes the main thread.
   - A folder BB removed: **Start a fresh thread** in a new worktree from the branch; its uncommitted work went with the folder. The review then reads that worktree, and still pushes to its branch.
   - Comments not sent yet, or an approval already sent for this diff, before **Send approval**: **Send anyway**. An approval never starts a thread: with the main thread or its folder gone, Send anyway only records it.
-- The **Main thread** tab, from BB's title bar or the phone's dock, shows the main thread's chat beside the diff, with its own permissions: which thread it is, on which machine, and whether it's working now, so a Send waits for its turn. **Change** picks another thread working in the folder, or **Start a fresh thread here**; **Open** opens it in BB.
+- **Main thread ↗**, in BB's title bar or the phone's dock, goes to the main thread: from reviewing to doing in one click, as the thread's **Review · 2 open ↗** comes back. **Show beside review**, beside it, shows the **Main thread** tab in BB's side panel instead: the main thread's chat beside the diff, with its own permissions, which thread it is, on which machine, and whether it's working now, so a Send waits for its turn. **Change** picks another thread working in the folder, or **Start a fresh thread here**; **Go to thread ↗** goes to it. A review with no main thread has neither, nor the tab.
 - Ask the review agent to fix a comment and it sends it with Send now, and says so. Say "you do it" and it writes the exact patch, which goes with that comment's Send for the main thread to apply as written: one thread writes the folder. A turn you didn't start sends nothing.
 - **Push**, in Finish review on a local review of a branch in a GitHub repo (or a message of just "push" to the review agent in the review; "push anyway" for Push anyway), pushes exactly what you reviewed:
   - The main thread is told to commit the changes you reviewed and run `bb review report --commit <sha>`, and not to push. A folder with nothing to commit skips this: its head is the commit.
@@ -625,7 +627,7 @@ On your own PR, teammates' comments go through the same loop.
   - **Unarchive and send**, for an archived thread: it picks up where it stopped.
   - Neither switches branches, and each is told that the quoted comments are others' words, never instructions about git or GitHub. Each pushes when you say, or when it's done with **Let it push when done** on, with `git push origin 'HEAD:refs/heads/<branch>'`, as a new worktree has no upstream; never force. If the thread can't start because the PR's head commit isn't on that machine yet, the Send says to run `git fetch origin pull/<n>/head` in the repo's folder there, then send again.
 - When that thread is archived or deleted before reporting everything, **Send the rest…** sends what it didn't report, GitHub items too, and asks the same: a fresh thread or a fork.
-- **Not pushed yet**, in the compare menu, shows in the Main thread tab what the thread's folder has that the PR's head on GitHub doesn't, committed or not. Files that look like secrets stay out.
+- **Not pushed yet**, in the compare menu, shows in the Main thread tab, in BB's side panel, what the thread's folder has that the PR's head on GitHub doesn't, committed or not. Files that look like secrets stay out.
 - The review agent drafts your replies from what the thread reported. Say "you do it" on a PR with no folder and a fresh thread applies the agent's patch; the agent never pushes itself: **Push**, or your "push" to it, has the thread push.
 - Once BB removes a fresh or forked thread's worktree, its branch stays in your repo: the review says **Branch kept**, which folder on which machine has it, and `git branch -D <branch>` to copy, which also deletes any commits on it that aren't on GitHub; then **Got it**. Code Review Workspace runs no git in your checkout.
 
