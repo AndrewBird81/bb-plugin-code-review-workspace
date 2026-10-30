@@ -60,6 +60,41 @@ test("checking Viewed reports up and collapses the diff body", () => {
   expect(screen.queryByTestId("filediff")).toBeNull(); // collapsed
 });
 
+test("checking Viewed on a file read past its top keeps its folded row at the top of the view, with the next file under it", () => {
+  const second = patch.replaceAll("src/a.ts", "src/b.ts");
+  const { container } = render(
+    <div data-testid="box" style={{ overflowY: "auto" }}>
+      <DiffViewer patch={patch + second} files={["src/a.ts", "src/b.ts"]} views={new Map<string, FileViewFlags>()} onToggleViewed={() => {}} />
+    </div>,
+  );
+  const box = screen.getByTestId("box");
+  const card = container.querySelector<HTMLElement>('[data-file="src/a.ts"]')!;
+  // The box's top at 0; the file starts 100px down the box's content, and 500px of it are scrolled past.
+  box.getBoundingClientRect = () => new DOMRect(0, 0, 800, 600);
+  card.getBoundingClientRect = () => new DOMRect(0, 100 - box.scrollTop, 800, 40);
+  box.scrollTop = 600;
+  fireEvent.click(screen.getByRole("checkbox", { name: "Viewed src/a.ts" }));
+  expect(box.scrollTop).toBe(100);
+  // Unchecked, it opens where it is.
+  fireEvent.click(screen.getByRole("checkbox", { name: "Viewed src/a.ts" }));
+  expect(box.scrollTop).toBe(100);
+});
+
+test("checking Viewed on a file whose top shows leaves the view where it is", () => {
+  const { container } = render(
+    <div data-testid="box" style={{ overflowY: "auto" }}>
+      <DiffViewer patch={patch} files={["src/a.ts"]} views={new Map<string, FileViewFlags>()} onToggleViewed={() => {}} />
+    </div>,
+  );
+  const box = screen.getByTestId("box");
+  const card = container.querySelector<HTMLElement>('[data-file="src/a.ts"]')!;
+  box.getBoundingClientRect = () => new DOMRect(0, 0, 800, 600);
+  card.getBoundingClientRect = () => new DOMRect(0, 300 - box.scrollTop, 800, 40);
+  box.scrollTop = 200;
+  fireEvent.click(screen.getByRole("checkbox"));
+  expect(box.scrollTop).toBe(200);
+});
+
 test("a file that changed since you viewed it says so", () => {
   render(
     <DiffViewer

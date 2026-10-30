@@ -713,11 +713,25 @@ export const DiffViewer = memo(function DiffViewer({
     setCollapsed((c) => ({ ...c, ...Object.fromEntries(perFile.map((f) => [f.path, foldAll.folded])) }));
   }, [foldAll]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Checking Viewed on a file read past its top folds it above the view: its row goes back to the top, the next file
+  // under it, rather than the view keeping its scroll and landing files further on.
+  const foldedByViewed = useRef<string | null>(null);
   function handleToggleViewed(file: string, next: boolean) {
     onToggleViewed(file, next);
     // Checking Viewed collapses the file; unchecking re-expands it.
-    if (foldViewed) setCollapsed((c) => ({ ...c, [file]: next }));
+    if (!foldViewed) return;
+    setCollapsed((c) => ({ ...c, [file]: next }));
+    if (next) foldedByViewed.current = file;
   }
+  useLayoutEffect(() => {
+    const file = foldedByViewed.current;
+    foldedByViewed.current = null;
+    const card = file && Array.from(root.current?.querySelectorAll<HTMLElement>("[data-file]") ?? []).find((el) => el.dataset.file === file);
+    const box = card && scrollParent(card);
+    if (!card || !box) return;
+    const above = card.getBoundingClientRect().top - box.getBoundingClientRect().top;
+    if (above < 0) box.scrollTop += above;
+  }, [collapsed]);
   // Likewise when it's marked another way: v, or Mark chapter viewed.
   const shownViews = useRef(views);
   useEffect(() => {
