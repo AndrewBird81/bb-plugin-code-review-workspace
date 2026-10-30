@@ -381,6 +381,29 @@ test("of two reviews one old id names, one not archived opens, then the newer", 
   expect((await reviewNamed(s.store, s.bb, "api:feat/qa"))?.targetKey).toBe("br-mid");
 });
 
+test("bb review on a branch used again once its PR merged, or closed and went to Archive, starts a new review; a closed PR's review still in the list opens", async () => {
+  const s = setup();
+  await run(s, "main");
+  await settled(s);
+  Object.assign(s.folder, { prBase: "main", pr: { number: 7, url: "https://github.com/acme/api/pull/7", headRefName: "feat/qa" } });
+  await checkFeature(s.deps, key);
+  expect(await s.store.getReview(key)).toMatchObject({ kind: "pr", number: 7 });
+  delete s.folder.pr;
+  delete s.folder.prBase;
+  await s.store.setLifecycle(key, { prState: "CLOSED" });
+  expect((await run(s, "main")).stdout).toMatch(new RegExp(`^Opened the review .*\\(${key}\\)`));
+  const again = featureKey("env1", "feat/qa", 2);
+  for (const state of [{ prState: "CLOSED", archivedAt: 5 }, { prState: "MERGED", archivedAt: null }] as const) {
+    await s.store.setLifecycle(key, state);
+    await s.store.deleteReview(again).catch(() => {});
+    expect((await run(s, "main")).stdout, state.prState).toMatch(new RegExp(`^Started a review of ~/src/api on MaxBook: .*\\(${again}\\)`));
+    expect(await s.store.getReview(again)).toMatchObject({ kind: "ref", gitRef: "feat/qa" });
+    // Asked again, the new one opens.
+    expect((await run(s, "main")).stdout).toMatch(new RegExp(`^Opened the review .*\\(${again}\\)`));
+  }
+  expect(await s.store.getReview(key)).toMatchObject({ kind: "pr", number: 7 });
+});
+
 test("a PR opened while the guide is being written makes the review the PR's at once; the guide goes on", async () => {
   const s = setup();
   await run(s, "main");

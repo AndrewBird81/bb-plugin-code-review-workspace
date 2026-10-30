@@ -136,7 +136,8 @@ async function openFolderReview(deps: Deps, folder: Folder, main: Thread | null,
     exact = featureKey(env.id, env.branchName, n);
     keyed = reviews.find((review) => review.targetKey === exact);
   }
-  const key = reviews.some((review) => review.targetKey === exact) ? exact : reviewOfFolder(reviews, env.id, env.branchName)?.targetKey ?? exact;
+  const key = reviews.some((review) => review.targetKey === exact) ? exact
+    : reviewOfFolder(reviews.filter((review) => !movedOn(review, env.branchName)), env.id, env.branchName)?.targetKey ?? exact;
   const existing = await store.getReview(key);
   // A recorded main thread that's archived or deleted gives way to the live one asking. One BB can't read now stays.
   const checked = existing?.mainThread && main && existing.mainThread.threadId !== main.id ? await threadGone(bb, existing.mainThread.threadId) : null;
@@ -191,8 +192,12 @@ async function openFolderReview(deps: Deps, folder: Folder, main: Thread | null,
 /** The branch a folder's review reads in its folder: a fresh thread's worktree's own branch, else the review's. */
 export const folderBranchOf = (feature: Pick<FeatureReview, "branch" | "workBranch">) => feature.workBranch ?? feature.branch;
 
-/** Whether the review keyed for its folder and `branch` is no longer that branch's: it followed the folder onto another. */
-const movedOn = (review: ReviewMeta, branch: string) => !!review.feature && folderBranchOf(review.feature) !== branch;
+/**
+ * Whether the review keyed for its folder and `branch` is no longer that branch's: it followed the folder onto another,
+ * or it became a PR's that merged, or closed and went to Archive, and the branch is used again for new work.
+ */
+const movedOn = (review: ReviewMeta, branch: string) => !!review.feature && folderBranchOf(review.feature) !== branch
+  || review.kind === "pr" && (review.prState === "MERGED" || review.prState === "CLOSED" && !!review.archivedAt);
 
 /**
  * The review of a folder at the branch it's on, by where the review reads it (folderBranchOf), as the thread pages'
