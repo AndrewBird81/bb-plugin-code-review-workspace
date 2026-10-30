@@ -202,7 +202,7 @@ function Push() {
       <div className="flex flex-wrap gap-2">
         {run?.flag === "unrequested" ? !target.pr && updateButton("Update", false) : <>
           {pushButton("Push again")}
-          <Button variant="outline" size="sm" className={cn("text-foreground", TOUCH_CONTROL)} onClick={() => navigate.toThread(run!.threadId)}>Open main thread</Button>
+          <Button variant="outline" size="sm" className={cn("text-foreground", TOUCH_CONTROL)} onClick={() => navigate.toThread(run!.threadId)}>Main thread<Icon name="ArrowUpRight" className="size-3.5" aria-hidden /></Button>
         </>}
         {cancel("Got it")}
       </div>

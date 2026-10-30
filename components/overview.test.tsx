@@ -3,9 +3,11 @@ import { test, expect, afterEach, vi } from "vitest";
 import { cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import { defaultPreferences } from "../src/preferences";
+import { panelTabCalls, renderPanelTab } from "./panel-tabs.test-support";
 import { patchReviewState } from "../lib/panel-state";
 import type { Knobs } from "../lib/knobs";
-afterEach(() => { cleanup(); localStorage.clear(); });
+// A first message left unsent stays for the page's life (components/AgentDock.tsx): each test starts without.
+afterEach(async () => { cleanup(); localStorage.clear(); (await import("./AgentDock")).forgetAgentDrafts(); });
 
 // jsdom can't run pierre's diff element; these tests are about the Overview.
 vi.mock("@pierre/diffs/react", () => ({ FileDiff: () => null }));
@@ -47,6 +49,14 @@ function renderWorkspace(review: Record<string, unknown>, rpc: Record<string, (i
   openUrl: () => true }));
 }
 type Slot = Awaited<ReturnType<typeof renderWorkspace>>;
+/** BB's Review agent tab beside the review, before its conversation starts. */
+async function agentTab() {
+  const app = await loadPluginApp(() => import("../app"));
+  return renderPanelTab(app, "agent", "pr-42", { rpc: {
+    getPreferences: () => ({ preferences: defaultPreferences, revision: 0 }),
+    getConversation: () => ({ threadId: null, legacy: [], defaults: { providerId: "codex", model: "gpt-6", reasoningLevel: "medium" } }),
+  } as any });
+}
 const main = (slot: Slot) => within(slot.getByRole("main"));
 
 test("a PR review's title on its Overview opens the pull request on GitHub, and in a chapter the band's goes back to the Overview", async () => {
@@ -163,7 +173,7 @@ test("the status line says whose turn it is, how your feedback fared and how the
   const feedback = status.getByRole("button", { name: "2/2 handled +1 nit" });
   expect(feedback.getAttribute("title")).toBe("Resolved or answered. Show your feedback in Comments");
   fireEvent.click(feedback);
-  const panel = within(await slot.findByRole("complementary", { name: "Comments and agent" }));
+  const panel = within(await slot.findByRole("complementary", { name: "Comments and Finish review" }));
   await waitFor(() => expect(panel.getByRole("radio", { name: /^Needs you, \d+$/ }).getAttribute("aria-checked")).toBe("true"));
   slot.lifecycle.unmount();
 });
@@ -180,7 +190,7 @@ test("your own PR's comments waiting for your reply say how many, in how many th
   expect(slot.queryByText(/^Your PR/)).toBeNull();
   expect(comments.closest("[title]")?.getAttribute("title")).toBe("Show them in Comments");
   fireEvent.click(comments);
-  const panel = within(await slot.findByRole("complementary", { name: "Comments and agent" }));
+  const panel = within(await slot.findByRole("complementary", { name: "Comments and Finish review" }));
   await waitFor(() => expect(panel.getByRole("radio", { name: /^Needs you, \d+$/ }).getAttribute("aria-checked")).toBe("true"));
   slot.lifecycle.unmount();
 });
@@ -282,7 +292,10 @@ test("a failing Actions check's Ask agent reads the end of its log, then quotes 
   expect(getCheckLog).toHaveBeenCalledWith({ targetKey: "pr-42", runId: 123 });
   expect(checks.getByRole("button", { name: "Reading the log…" })).toBeTruthy();
   answer({ ok: true, log: "test\tnpm test\t```\ntest\tnpm test\tFAIL src/auth.test.ts" });
-  const agent = within(await slot.findByRole("region", { name: "Review agent" }));
+  // BB's side panel opens on the Review agent tab, which takes the quote.
+  await waitFor(() => expect(panelTabCalls(slot)).toEqual(["openTab:agent"]));
+  const tab = await agentTab();
+  const agent = within(await tab.findByRole("region", { name: "Review agent" }));
   await waitFor(() => expect((agent.getByRole("textbox", { name: "Ask the agent" }) as HTMLTextAreaElement).value).toBe(
     "A check fails. Its name, then the end of its log:\n````text\n<untrusted source=\"CI log\">\ntest\n\ntest\tnpm test\t```\ntest\tnpm test\tFAIL src/auth.test.ts\n</untrusted>\n````",
   ));
@@ -299,7 +312,9 @@ test("a failing check's Ask agent puts the check's name, which the PR's workflow
     getConversation: () => ({ threadId: null, legacy: [], defaults: { providerId: "codex", model: "gpt-6", reasoningLevel: "medium" } }),
   });
   fireEvent.click(await slot.findByRole("button", { name: `Ask agent about ${name}` }));
-  const agent = within(await slot.findByRole("region", { name: "Review agent" }));
+  await waitFor(() => expect(panelTabCalls(slot)).toEqual(["openTab:agent"]));
+  const tab = await agentTab();
+  const agent = within(await tab.findByRole("region", { name: "Review agent" }));
   await waitFor(() => expect((agent.getByRole("textbox", { name: "Ask the agent" }) as HTMLTextAreaElement).value).toBe(
     `A check fails. Its name, then the end of its log:\n\`\`\`\`text\n<untrusted source="CI log">\n${name}\n\nFAIL\n</untrusted>\n\`\`\`\``,
   ));
@@ -315,7 +330,7 @@ test("a check's log that can't be read is said in a toast, and nothing is quoted
   });
   fireEvent.click(await slot.findByRole("button", { name: "Ask agent about test" }));
   await waitFor(() => expect(error).toHaveBeenCalledWith("Couldn’t read the check’s log: HTTP 404"));
-  expect(slot.queryByRole("region", { name: "Review agent" })).toBeNull();
+  expect(panelTabCalls(slot)).toEqual([]);
   slot.lifecycle.unmount();
 });
 

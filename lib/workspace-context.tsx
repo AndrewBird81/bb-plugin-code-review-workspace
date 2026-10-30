@@ -1,12 +1,13 @@
 // The review workspace's state and commands, for the views inside it (useWorkspace) and for BB's title bar outside it
 // (useWorkspaceFor, through the store), so panels can mount anywhere without the workspace passing props down.
 import { createContext, useContext, useEffect, type ReactNode } from "react";
+import type { DockInjection } from "../components/AgentDock";
 import type { FileViewFlags } from "../components/DiffViewer";
 import type { CommentLocation } from "../src/draft";
 import type { Guide } from "../src/guide";
 import type { FileInterdiff } from "../src/interdiff";
 import type { AgentMessageContext } from "../src/store";
-import type { NavView, PanelView } from "./panel-state";
+import type { NavView, PanelView, SideView } from "./panel-state";
 import type { ReviewPreferences } from "./review-preferences";
 import type { ReviewItem } from "./review-state";
 import type { WorkspaceLayout } from "./workspace-layout";
@@ -41,7 +42,7 @@ export interface WorkspaceApi {
     setView(view: NavView): void;
   };
   /** The side panel. `view` is the one showing, docked or over the code; null while it's closed. */
-  panel: { view: PanelView | null; open(view: PanelView): void; toggle(view: PanelView): void; close(): void };
+  panel: { view: SideView | null; open(view: PanelView): void; toggle(view: PanelView): void; close(): void };
   files: {
     views: Map<string, FileViewFlags>;
     toggleViewed(file: string, viewed: boolean): void;
@@ -123,6 +124,12 @@ export interface WorkspaceApi {
    * once the server says; null for none.
    */
   mainThread: MainThreadName | null;
+  /** The review's patch, which the agent quotes selected lines from. */
+  patch: string;
+  /** The last ask for the agent (askAgent), which the Review agent tab takes once. */
+  injection?: DockInjection;
+  /** The review's id (lib/review-identity.ts), `api#4512`. */
+  reviewId?: string;
 }
 
 /** The thread a review's Sends go to, by its title and machine as the server last said: null until it does. */
@@ -136,6 +143,11 @@ const WorkspaceContext = createContext<WorkspaceApi | null>(null);
 /** Gives the workspace's views its api, and BB's title bar too, through the store. */
 export function WorkspaceProvider({ api, children }: { api: WorkspaceApi; children: ReactNode }) {
   useEffect(() => publishWorkspace(api), [api]);
+  return <WorkspaceContext.Provider value={api}>{children}</WorkspaceContext.Provider>;
+}
+
+/** Gives a view outside the workspace's tree, such as a tab in BB's side panel, the workspace's api from the store. */
+export function WorkspaceView({ api, children }: { api: WorkspaceApi; children: ReactNode }) {
   return <WorkspaceContext.Provider value={api}>{children}</WorkspaceContext.Provider>;
 }
 

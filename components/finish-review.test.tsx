@@ -8,6 +8,7 @@ import { defaultPreferences } from "../src/preferences";
 import { defaultKnobs } from "../lib/knobs";
 import { commentsKey } from "../src/draft";
 import { patchReviewState } from "../lib/panel-state";
+import { panelTabCalls, renderPanelTab } from "./panel-tabs.test-support";
 import type { FeedbackView } from "../lib/feedback";
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }));
@@ -75,7 +76,7 @@ async function renderWorkspace({ review = {}, rpc = {} }: { review?: Record<stri
   const slot = renderSlot(app.navPanels[0]!, { subPath: "pr-42" }, { rpc: handlers as any });
   await slot.findByRole("main", { name: /^Review\b/ });
   await slot.findByTestId("filediff");
-  return { slot, rpc: handlers };
+  return { app, slot, rpc: handlers };
 }
 type Slot = Awaited<ReturnType<typeof renderWorkspace>>["slot"];
 /** Finish review, with s. */
@@ -748,7 +749,8 @@ test("a local review of a branch in a GitHub repo offers Open PR, which asks the
   expect(view.getByText(/shows you its title and description before it opens/).textContent).toBe("The review agent drafts a PR from feat/qa in acme/web, and shows you its title and description before it opens.");
   fireEvent.click(view.getByRole("button", { name: "Open PR" }));
   await waitFor(() => expect(openPr).toHaveBeenCalledWith({ targetKey: "pr-42" }));
-  expect(await slot.findByRole("region", { name: "Review agent" })).toBeTruthy();
+  // Its chat, in BB's side panel.
+  await waitFor(() => expect(panelTabCalls(slot)).toEqual(["openTab:agent"]));
   slot.lifecycle.unmount();
 });
 
@@ -822,9 +824,9 @@ async function renderPush(push: Record<string, unknown> | null, rpc: Record<stri
     updateFeature: vi.fn(() => ({ ok: true })),
     ...rpc,
   };
-  const { slot } = await renderWorkspace({ rpc: { ...calls, getReviewBundle: () => ({ review: { targetKey: "pr-42", status: "ready", createdAt: 1, title: "Parse rows", ...review, push: state.push }, guide: structuredClone(guide), patch, revision: "r1" }) } });
+  const { app, slot, rpc: handlers } = await renderWorkspace({ rpc: { ...calls, getReviewBundle: () => ({ review: { targetKey: "pr-42", status: "ready", createdAt: 1, title: "Parse rows", ...review, push: state.push }, guide: structuredClone(guide), patch, revision: "r1" }) } });
   const view = await finish(slot);
-  return { slot, view, state, calls, part: () => view.getByRole("heading", { name: "Push" }).closest("section")! as HTMLElement };
+  return { app, handlers, slot, view, state, calls, part: () => view.getByRole("heading", { name: "Push" }).closest("section")! as HTMLElement };
 }
 const HEAD = "abc1234def5678abc1234def5678abc1234def56";
 
@@ -890,9 +892,9 @@ test("pushed says so; GitHub not at the commit, or a push no one asked for, is f
   // A status in Finish: the strip's notice is the alert, so it's said once.
   expect(within(differs.part()).getByRole("status").textContent).toContain(text);
   expect(within(differs.part()).queryByRole("alert")).toBeNull();
-  for (const name of ["Push again", "Open main thread", "Got it"]) expect(within(differs.part()).getByRole("button", { name })).toBeTruthy();
+  for (const name of ["Push again", "Main thread", "Got it"]) expect(within(differs.part()).getByRole("button", { name })).toBeTruthy();
   const warned = differs.slot.getByRole("alert", { name: "Push not on GitHub" });
-  for (const name of ["Push again", "Open main thread", "Got it"]) expect(within(warned).getByRole("button", { name })).toBeTruthy();
+  for (const name of ["Push again", "Main thread", "Got it"]) expect(within(warned).getByRole("button", { name })).toBeTruthy();
   differs.slot.lifecycle.unmount();
   cleanup();
 
@@ -972,11 +974,15 @@ test("on your PR with a fixer, Push says the fixer commits what Not pushed yet s
   const getNotPushed = vi.fn(async () => ({ state: "none", message: "Nothing waiting." }));
   const getSourceThread = vi.fn(() => ({ thread: { threadId: "fixer", title: "Fixes for web#42", state: "open", machine: "MaxBook" } }));
   const mismatch = { state: "mismatch", at: now, threadId: "fixer", repo: "acme/web", head: "feat/qa", sha: HEAD, warning: "1 file changed since you reviewed.", files: ["src/a.ts"] };
-  const { slot, calls, part } = await renderPush(mismatch, { getNotPushed, getSourceThread }, fixerReview);
+  const { app, handlers, slot, calls, part } = await renderPush(mismatch, { getNotPushed, getSourceThread }, fixerReview);
   fireEvent.click(within(part()).getByRole("button", { name: "Update first" }));
   await waitFor(() => expect(calls.dismissPush).toHaveBeenCalledWith({ targetKey: "pr-42" }));
   expect(calls.updateFeature).not.toHaveBeenCalled();
-  expect(await slot.findByRole("tabpanel", { name: "Not pushed yet" })).toBeTruthy();
+  // BB's side panel opens on the Main thread tab, at Not pushed yet.
+  expect(panelTabCalls(slot)).toEqual(["openTab:main"]);
+  const tab = renderPanelTab(app, "main", "pr-42", { rpc: handlers as any });
+  expect(await tab.findByRole("tabpanel", { name: "Not pushed yet" })).toBeTruthy();
+  tab.lifecycle.unmount();
   slot.lifecycle.unmount();
 });
 

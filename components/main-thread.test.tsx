@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
-// The main thread beside the diff: the Main thread tab, from BB's title bar and a phone's dock, showing the thread that
-// writes the code with BB's chat, which thread and machine it is, and Change main thread; and Send now on a comment's card.
+// The main thread: Main thread ↗ in BB's title bar and a phone's dock, which goes to it, and its tab in BB's side panel
+// beside the diff, showing the thread that writes the code with BB's chat, which thread and machine it is, Change main
+// thread and Go to thread; and Send now on a comment's card.
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
@@ -9,6 +10,7 @@ import { defaultPreferences } from "../src/preferences";
 import { patchReviewState } from "../lib/panel-state";
 import { updateComments } from "./comments/store";
 import type { ReviewLinks } from "../lib/review-links";
+import { panelTabCalls, renderPanelTab } from "./panel-tabs.test-support";
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() }, Toaster: () => null }));
 vi.mock("@pierre/diffs/react", () => ({ FileDiff: () => <div data-testid="filediff" /> }));
@@ -75,16 +77,22 @@ async function renderReview(review: Record<string, unknown>, size: [number, numb
   const bar = renderSlot({ component: registration.headerContent! }, { subPath: review.targetKey as string }, options);
   const page = renderSlot(registration, { subPath: review.targetKey as string }, options);
   await page.findByTestId("filediff");
-  return { bar, page };
+  return { app, bar, page, options };
 }
 
-test("BB's title bar opens the Main thread tab beside the diff: the main thread's own chat, which can't widen its permissions, named with its machine", async () => {
+test("BB's title bar goes to the main thread, and shows it beside the diff in BB's side panel: its own chat, which can't widen its permissions, named with its machine", async () => {
   const getSourceThread = vi.fn(() => MAIN);
-  const { bar, page } = await renderReview(folderReview, [1440, 1000], { getSourceThread });
-  const button = await bar.findByRole("button", { name: "Main thread" });
-  expect(button.getAttribute("aria-pressed")).toBe("false");
-  fireEvent.click(button);
-  const tab = await page.findByRole("region", { name: "Main thread" });
+  const { app, bar, page, options } = await renderReview(folderReview, [1440, 1000], { getSourceThread });
+  // Main thread ↗ is the switch from reviewing to doing.
+  fireEvent.click(await bar.findByRole("button", { name: "Go to main thread" }));
+  expect(bar.inspection.navigateCalls).toEqual([{ method: "toThread", threadId: "coder" }]);
+  // Show beside review opens BB's Main thread tab.
+  const beside = bar.getByRole("button", { name: "Show main thread beside review" });
+  expect(beside.getAttribute("aria-pressed")).toBe("false");
+  fireEvent.click(beside);
+  expect(panelTabCalls(page)).toEqual(["openTab:main"]);
+  const slot = renderPanelTab(app, "main", "br-1", options);
+  const tab = await slot.findByRole("region", { name: "Main thread" });
   expect(within(tab).getByRole("heading", { level: 2 }).textContent).toBe("Main thread·api:feat/snooze");
   const chat = await within(tab).findByTestId("bb-thread-chat");
   expect(chat.dataset).toMatchObject({ threadId: "coder", variant: "compact", permissionPolicy: "inherit" });
@@ -92,33 +100,61 @@ test("BB's title bar opens the Main thread tab beside the diff: the main thread'
   expect(within(tab).getByText("MaxBook")).toBeTruthy();
   expect(within(tab).getByText(/Working: a Send waits for its turn/)).toBeTruthy();
   expect(getSourceThread).toHaveBeenCalledWith({ targetKey: "br-1" });
-  await waitFor(() => expect(bar.getByRole("button", { name: "Main thread" }).getAttribute("aria-pressed")).toBe("true"));
-  fireEvent.click(within(tab).getByRole("button", { name: "Open in BB" }));
-  expect(page.inspection.navigateCalls).toContainEqual({ method: "toThread", threadId: "coder" });
+  await waitFor(() => expect(bar.getByRole("button", { name: "Show main thread beside review" }).getAttribute("aria-pressed")).toBe("true"));
+  fireEvent.click(within(tab).getByRole("button", { name: "Go to thread" }));
+  expect(slot.inspection.navigateCalls).toEqual([{ method: "toThread", threadId: "coder" }]);
+  slot.lifecycle.unmount();
   bar.lifecycle.unmount();
   page.lifecycle.unmount();
 });
 
-test("on a phone, the dock has Main thread, which opens the tab as its sheet", async () => {
+test("a review left on its main thread, as 1.8 kept it, opens BB's Main thread tab once its page is ready, once; one without a main thread doesn't", async () => {
+  patchReviewState("br-1", { panel: "main" });
+  const { page, bar } = await renderReview(folderReview, [1440, 1000]);
+  await waitFor(() => expect(panelTabCalls(page)).toEqual(["openTab:main"]));
+  page.lifecycle.unmount();
+  bar.lifecycle.unmount();
+  const again = await renderReview(folderReview, [1440, 1000]);
+  await new Promise((resolve) => requestAnimationFrame(resolve));
+  expect(panelTabCalls(again.page)).toEqual([]);
+  again.page.lifecycle.unmount();
+  again.bar.lifecycle.unmount();
+  patchReviewState("br-1", { panel: "main" });
+  const none = await renderReview({ ...folderReview, mainThread: null, sourceThreadId: null }, [1440, 1000]);
+  await new Promise((resolve) => requestAnimationFrame(resolve));
+  expect(panelTabCalls(none.page)).toEqual([]);
+  none.page.lifecycle.unmount();
+  none.bar.lifecycle.unmount();
+});
+
+test("on a phone, the dock's Main thread goes to the main thread", async () => {
   const { page, bar } = await renderReview(folderReview, [390, 844]);
   const dock = within(page.getByRole("group", { name: "Review commands" }));
-  fireEvent.click(dock.getByRole("button", { name: "Main thread" }));
-  const sheet = await page.findByRole("dialog", { name: "Main thread" });
-  expect((await within(sheet).findByTestId("bb-thread-chat")).dataset.threadId).toBe("coder");
-  expect(within(sheet).getByRole("button", { name: "Close" })).toBeTruthy();
-  expect(dock.getByRole("button", { name: "Main thread" }).getAttribute("aria-pressed")).toBe("true");
+  fireEvent.click(dock.getByRole("button", { name: "Go to main thread" }));
+  expect(page.inspection.navigateCalls).toEqual([{ method: "toThread", threadId: "coder" }]);
+  expect(page.queryByRole("dialog", { name: "Main thread" })).toBeNull();
   page.lifecycle.unmount();
   bar.lifecycle.unmount();
 });
 
 test("a review with no main thread, or with Send to thread off, has no Main thread tab", async () => {
-  const { page, bar } = await renderReview({ ...folderReview, mainThread: null, sourceThreadId: null }, [1440, 1000]);
+  const { app, page, bar } = await renderReview({ ...folderReview, mainThread: null, sourceThreadId: null }, [1440, 1000]);
   await bar.findByRole("button", { name: "Ask agent" });
-  expect(bar.queryByRole("button", { name: "Main thread" })).toBeNull();
+  expect(bar.queryByRole("button", { name: "Go to main thread" })).toBeNull();
+  expect(bar.queryByRole("button", { name: "Show main thread beside review" })).toBeNull();
+  // BB's panel doesn't list the tab either; it does beside a review with one.
+  const visible = (subPath: string) => {
+    const tab = app.tabs.find((registration) => registration.id === "main")!;
+    const probe = renderSlot({ component: () => <p>{String(tab.useVisible!({ subPath } as never))}</p> }, {}, {});
+    const text = probe.container.textContent;
+    probe.lifecycle.unmount();
+    return text;
+  };
+  expect(visible("br-1")).toBe("false");
   page.lifecycle.unmount();
   bar.lifecycle.unmount();
   const off = await renderReview(folderReview, [390, 844], { getPreferences: () => ({ preferences: { ...defaultPreferences, knobs: { ...defaultPreferences.knobs, sendToThread: false } }, revision: 0 }) });
-  await waitFor(() => expect(within(off.page.getByRole("group", { name: "Review commands" })).queryByRole("button", { name: "Main thread" })).toBeNull());
+  await waitFor(() => expect(within(off.page.getByRole("group", { name: "Review commands" })).queryByRole("button", { name: "Go to main thread" })).toBeNull());
   off.page.lifecycle.unmount();
   off.bar.lifecycle.unmount();
 });
@@ -130,7 +166,7 @@ async function renderTab(review: Record<string, unknown>, rpc: Record<string, un
   const { testWorkspace } = await import("./draft-tray.test-support");
   const { MainThreadPanel } = await import("./MainThreadPanel");
   const api = testWorkspace(review.targetKey as string, { review: review as any, mainThread: { threadId: "coder", title: "Build snooze", machine: "MaxBook" } });
-  const component = () => <WorkspaceProvider api={api}><MainThreadPanel active reviewId="api:feat/snooze" onClose={() => {}} /></WorkspaceProvider>;
+  const component = () => <WorkspaceProvider api={api}><MainThreadPanel active reviewId="api:feat/snooze" /></WorkspaceProvider>;
   return renderSlot({ component }, {}, { rpc: rpc as any, sidebarThreads: { threads } as any });
 }
 const listed = (id: string, displayTitle: string, over: Record<string, unknown> = {}) => ({ id, displayTitle, projectId: "p1", status: "idle", isHidden: false, isArchived: false, environment: { id: "env1" }, ...over });
@@ -170,7 +206,7 @@ test("a main thread that's archived shows its conversation with no box to write 
   expect(archived.getByText(/This thread is archived\. Your next Send offers to unarchive it or start a fresh thread/)).toBeTruthy();
   archived.lifecycle.unmount();
   const gone = await renderTab(folderReview, { getSourceThread: () => ({ thread: { threadId: "coder", title: null, state: "gone" } }) });
-  expect((await gone.findByRole("status")).textContent).toBe("The main thread was deleted. Your next Send starts a fresh thread, or choose another with Change.");
+  await waitFor(() => expect(gone.getByRole("status").textContent).toBe("The main thread was deleted. Your next Send starts a fresh thread, or choose another with Change."));
   expect(gone.queryByTestId("bb-thread-chat")).toBeNull();
   gone.lifecycle.unmount();
 });

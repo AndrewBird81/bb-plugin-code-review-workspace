@@ -14,6 +14,11 @@ export const SHORT_BELOW = 500;
  */
 export const PHONE_BELOW = 600;
 /**
+ * On a bigger screen than a phone's, a desktop's or an iPad's, a workspace is a phone's only under this: beside BB's
+ * side panel, at its default width in a 1440px window, the review is 560 wide, and keeps BB's title bar and its band.
+ */
+export const NARROW_BELOW = 480;
+/**
  * A window whose shorter side is under this is a phone's, the iPhone Duo's inner screen's included: the smallest iPad's
  * screen is 744 on its shorter side. A phone's fold, unfold or rotation keeps what's open (`phoneResized`); an iPad's or
  * a desktop's window resizing is as BB's pane resizing.
@@ -58,6 +63,8 @@ export interface WorkspaceLayout {
   narrowReader: boolean;
   /** The pane is at least 1000px wide: room for the title bar's labeled controls. */
   widePane: boolean;
+  /** A tablet's pane under PHONE_BELOW, as beside BB's side panel on a desktop: the title bar keeps to icons. */
+  narrowPane: boolean;
   /** It came with a phone's window resizing (a fold, an unfold, a rotation) rather than BB's pane alone. Not compared. */
   phoneResized: boolean;
 }
@@ -85,11 +92,12 @@ export function readerWidth(width: number, state: LayoutState, layout: Pick<Work
  * while the code keeps READER_MIN, and the panel gets the room first; overlays never open by themselves. Out of room,
  * a docked panel hides, unless a phone's window resized (`phoneResized`: a fold, an unfold, a rotation), which takes
  * it over the code instead: what you had open stays open as the screen changes. Not a side you're not typing in,
- * though: that hides as before, rather than cover the box you're typing in.
+ * though: that hides as before, rather than cover the box you're typing in. `phoneScreen`: the window is a phone's
+ * (phoneWindow), where PHONE_BELOW makes a phone's workspace; elsewhere NARROW_BELOW does.
  */
-export function workspaceLayout(width: number, height: number, state: LayoutState, previous?: WorkspaceLayout, phoneResized = false): WorkspaceLayout {
+export function workspaceLayout(width: number, height: number, state: LayoutState, previous?: WorkspaceLayout, phoneResized = false, phoneScreen = true): WorkspaceLayout {
   const mode: WorkspaceMode = below(height, SHORT_BELOW, previous && previous.mode === "short") ? "short"
-    : below(width, PHONE_BELOW, previous && previous.mode === "phone") ? "phone" : "tablet";
+    : below(width, phoneScreen ? PHONE_BELOW : NARROW_BELOW, previous && previous.mode === "phone") ? "phone" : "tablet";
   // Docked, a side stays docked down to HYSTERESIS under READER_MIN; anything else docks at READER_MIN.
   const fits = (room: number, docked: boolean) => mode === "tablet" && room >= READER_MIN - (docked ? HYSTERESIS : 0);
   const panelWidth = panelDockWidth(width, state.panelWidth);
@@ -108,6 +116,7 @@ export function workspaceLayout(width: number, height: number, state: LayoutStat
     mode, nav, panel, navCanDock, panelCanDock,
     narrowReader: below(readerWidth(width, state, { nav, panel }), 720, previous?.narrowReader),
     widePane: !below(width, 1000, previous && !previous.widePane),
+    narrowPane: mode === "tablet" && below(width, PHONE_BELOW, previous?.narrowPane),
     phoneResized,
   };
 }
@@ -171,7 +180,8 @@ export function useWorkspaceLayout(el: HTMLElement | null, state: LayoutState, c
   const shown = useRef<WorkspaceLayout | undefined>(seed?.shown);
   const [, remeasured] = useReducer((count: number) => count + 1, 0);
   const { width, height, phoneResized } = size.current ?? { ...windowSize(), phoneResized: false };
-  const next = workspaceLayout(width, height, state, shown.current, phoneResized);
+  const phoneScreen = phoneWindow(windowLast.current ?? windowNow());
+  const next = workspaceLayout(width, height, state, shown.current, phoneResized, phoneScreen);
   const layout = shown.current && sameLayout(next, shown.current) ? shown.current : next;
   const kept = useRef<unknown[]>([]);
   useLayoutEffect(() => {
@@ -214,7 +224,7 @@ export function useWorkspaceLayout(el: HTMLElement | null, state: LayoutState, c
       windowWas = windowIs;
       windowLast.current = windowIs;
       size.current = { width, height, phoneResized };
-      if (!shown.current || !sameLayout(workspaceLayout(width, height, latest.current, shown.current, phoneResized), shown.current)) remeasured();
+      if (!shown.current || !sameLayout(workspaceLayout(width, height, latest.current, shown.current, phoneResized, phoneWindow(windowIs)), shown.current)) remeasured();
     };
     // Before the first paint, rather than when the observer first reports.
     measure(roomOf(el));

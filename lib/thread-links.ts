@@ -44,6 +44,24 @@ export function useThreadLinks(): ThreadLinks | null {
   return useSyncExternalStore(subscribe, () => links);
 }
 
+/** The index as last read, for a command, which can't wait for it: null until a thread page has read it. */
+export function threadLinksNow(): ThreadLinks | null {
+  return links;
+}
+
+// The folder each thread page's thread works in, as BB's tabs and segments are told: a command is told only the thread.
+const environments = new Map<string, string | null>();
+
+/** Note the folder a thread page's thread works in, for threadEnvironment. */
+export function noteThreadEnvironment(threadId: string, environmentId: string | null) {
+  environments.set(threadId, environmentId);
+}
+
+/** The folder a thread works in, as its page last said; null for none, or where no page has said. */
+export function threadEnvironment(threadId: string): string | null {
+  return environments.get(threadId) ?? null;
+}
+
 /** Newest first, as a folder's latest review is the one it's on. */
 const newest = (found: ThreadLink[]) => found.sort((a, b) => b.createdAt - a.createdAt)[0] ?? null;
 

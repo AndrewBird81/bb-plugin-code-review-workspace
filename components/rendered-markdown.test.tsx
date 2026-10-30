@@ -5,6 +5,7 @@ import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import { useState, type MutableRefObject } from "react";
 import { defaultPreferences } from "../src/preferences";
 import { patchReviewState } from "../lib/panel-state";
+import { panelTabCalls, renderPanelTab } from "./panel-tabs.test-support";
 import { gitPatch } from "../lib/markdown-test-patch.test-support";
 import type { MarkdownShow } from "./DiffViewer";
 
@@ -521,13 +522,17 @@ test("lines that take no comment offer Ask agent alone, which asks about their s
   expect(bar.queryByRole("button", { name: "Comment" })).toBeNull();
   expect(bar.getByText("L1")).toBeTruthy();
   fireEvent.click(bar.getByRole("button", { name: "Ask agent" }));
-  await slot.findByText("rfc.md:1");
+  // BB's side panel opens on the Review agent tab, with the lines as the question's context.
+  expect(panelTabCalls(slot)).toEqual(["openTab:agent"]);
+  const tab = renderPanelTab(app, "agent", "pr-42", { rpc: rpc as any });
+  await tab.findByText("rfc.md:1");
   // The lines aren't in the diff, so the question quotes their source.
-  const box = await slot.findByRole("textbox", { name: "Ask the agent" });
+  const box = await tab.findByRole("textbox", { name: "Ask the agent" });
   fireEvent.change(box, { target: { value: "Why this?" } });
   fireEvent.keyDown(box, { key: "Enter" });
   fireEvent.keyDown(box, { key: "Enter" });
   await waitFor(() => expect(rpc.startConversation).toHaveBeenCalled());
   expect(rpc.startConversation.mock.calls[0][0].text).toBe("Why this?\n\nIn `docs/rfc.md` line 1:\n```\nIntro paragraph.\n```");
+  tab.lifecycle.unmount();
   slot.lifecycle.unmount();
 });

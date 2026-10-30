@@ -7,6 +7,8 @@ import { defaultKnobs } from "../lib/knobs";
 import { patchReviewState } from "../lib/panel-state";
 import { setNeedsYou } from "../lib/workspace-store";
 import { TITLE_BAR_WAIT_MS } from "../lib/title-bar";
+import { panelTabCalls, renderPanelTab } from "./panel-tabs.test-support";
+import { toast } from "sonner";
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() }, Toaster: () => null }));
 vi.mock("@pierre/diffs/react", () => ({ FileDiff: () => <div data-testid="filediff" /> }));
@@ -14,8 +16,8 @@ vi.mock("@pierre/diffs/react", () => ({ FileDiff: () => <div data-testid="filedi
 const restores: (() => void)[] = [];
 afterEach(() => { cleanup(); localStorage.clear(); sessionStorage.clear(); vi.clearAllMocks(); restores.splice(0).forEach((restore) => restore()); vi.useRealTimers(); });
 
-/** Every ResizeObserver reports this size, and media queries answer for a screen this size. */
-function fakeSize(width: number, height: number) {
+/** Every ResizeObserver reports this size, and media queries answer for a screen this size, or `screen`'s. */
+function fakeSize(width: number, height: number, screen: [number, number] = [width, height]) {
   const original = globalThis.ResizeObserver;
   globalThis.ResizeObserver = class {
     constructor(private notify: ResizeObserverCallback) {}
@@ -25,13 +27,13 @@ function fakeSize(width: number, height: number) {
   } as unknown as typeof ResizeObserver;
   const matchMedia = vi.spyOn(window, "matchMedia").mockImplementation((query: string) => {
     const max = query.match(/max-(width|height): (\d+)px/);
-    const matches = !!max && (max[1] === "width" ? width : height) <= Number(max[2]);
+    const matches = !!max && (max[1] === "width" ? screen[0] : screen[1]) <= Number(max[2]);
     return { matches, media: query, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, onchange: null, dispatchEvent: () => false } as MediaQueryList;
   });
   // The window is the screen: jsdom's is 0 × 0, a phone's.
   const root = document.documentElement;
-  Object.defineProperty(root, "clientWidth", { configurable: true, value: width });
-  Object.defineProperty(root, "clientHeight", { configurable: true, value: height });
+  Object.defineProperty(root, "clientWidth", { configurable: true, value: screen[0] });
+  Object.defineProperty(root, "clientHeight", { configurable: true, value: screen[1] });
   restores.push(() => { globalThis.ResizeObserver = original; matchMedia.mockRestore(); delete (root as { clientWidth?: number }).clientWidth; delete (root as { clientHeight?: number }).clientHeight; });
 }
 
@@ -70,12 +72,12 @@ function handlers(review: Record<string, unknown> = {}, rpc: Record<string, unkn
 }
 
 /** The review's page, and BB's title bar as the host renders it, apart from the page, with the panel's headerContent. */
-async function renderReview({ review, rpc, titleBar = true }: { review?: Record<string, unknown>; rpc?: Record<string, unknown>; titleBar?: boolean } = {}) {
+async function renderReview({ review, rpc, titleBar = true, panel }: { review?: Record<string, unknown>; rpc?: Record<string, unknown>; titleBar?: boolean; panel?: { openTab: () => boolean } } = {}) {
   patchReviewState("pr-42", { activeId: "c1" });
   const app = await loadPluginApp(() => import("../app"));
   const registration = app.navPanels[0]!;
   const bar = titleBar ? renderSlot({ component: registration.headerContent! }, { subPath: "pr-42" }, { rpc: handlers(review, rpc) as any }) : null;
-  const page = renderSlot(registration, { subPath: "pr-42" }, { rpc: handlers(review, rpc) as any });
+  const page = renderSlot(registration, { subPath: "pr-42" }, { rpc: handlers(review, rpc) as any, ...panel ? { experimental_panel: panel } : {} });
   await page.findByTestId("filediff");
   const band = () => within(page.getByRole("navigation", { name: "Breadcrumb" }).closest<HTMLElement>("[class*='@container/band']")!);
   return { page, bar, band };
@@ -126,6 +128,52 @@ test("the title bar's commands fit the pane: labeled from 1000px, shorter below,
   expect(bar!.container.innerHTML).toBe("");
 });
 
+test("beside BB's side panel on a desktop, a 560px review keeps its commands in BB's title bar; Ask agent is pressed while its tab shows, and closes it", async () => {
+  fakeSize(560, 952, [1440, 1000]);
+  const { bar, page } = await renderReview();
+  const commands = within(await bar!.findByRole("group", { name: "Review commands" }));
+  const ask = commands.getByRole("button", { name: "Ask agent" });
+  // Icons, leaving BB's crumbs their room.
+  expect(ask.textContent).toBe("");
+  // Not a phone's dock.
+  expect(page.queryByRole("button", { name: /^pr-42, Chapters:/ })).toBeNull();
+  expect(ask.getAttribute("aria-pressed")).toBe("false");
+  fireEvent.click(ask);
+  expect(panelTabCalls(page)).toEqual(["openTab:agent"]);
+  const app = await loadPluginApp(() => import("../app"));
+  const tab = renderPanelTab(app, "agent", "pr-42", { rpc: handlers() as any });
+  await waitFor(() => expect(ask.getAttribute("aria-pressed")).toBe("true"));
+  fireEvent.click(ask);
+  expect(panelTabCalls(bar!)).toEqual(["close"]);
+  tab.lifecycle.unmount();
+  await waitFor(() => expect(ask.getAttribute("aria-pressed")).toBe("false"));
+});
+
+test("Ask agent in full screen leaves it, as BB's side panel is outside it, though its tab showed before", async () => {
+  fakeSize(1400, 900);
+  fakeFullscreen();
+  const { bar, page, band } = await renderReview({ panel: { openTab: () => true } });
+  const app = await loadPluginApp(() => import("../app"));
+  const tab = renderPanelTab(app, "agent", "pr-42", { rpc: handlers() as any });
+  await waitFor(() => expect(bar!.getByRole("button", { name: "Ask agent" }).getAttribute("aria-pressed")).toBe("true"));
+  fireEvent.click(await bar!.findByRole("button", { name: "Full screen" }));
+  await waitFor(() => expect(document.fullscreenElement).toBeTruthy());
+  const ask = await band().findByRole("button", { name: "Ask agent" });
+  expect(ask.getAttribute("aria-pressed")).toBe("false");
+  fireEvent.click(ask);
+  await waitFor(() => expect(document.fullscreenElement).toBeNull());
+  expect(panelTabCalls(page)).toEqual(["openTab:agent"]);
+  expect(toast.error).not.toHaveBeenCalled();
+  tab.lifecycle.unmount();
+});
+
+test("where BB can't show its side panel, as on a client without it, Ask agent says so", async () => {
+  fakeSize(1400, 900);
+  const { bar } = await renderReview();
+  fireEvent.click(await bar!.findByRole("button", { name: "Ask agent" }));
+  expect(toast.error).toHaveBeenCalledWith("BB couldn’t open its side panel here. Update BB to see the review agent and the main thread beside the review.");
+});
+
 test("where BB's title bar takes the commands the band doesn't show them; where it doesn't, the band does, after a moment", async () => {
   fakeSize(1400, 900);
   // Time runs as it does, but the title bar's wait passes at once.
@@ -170,10 +218,10 @@ test("Comments counts what needs you, opens and closes the panel, and says so pr
   focusVisible.mockRestore();
   fireEvent.click(comments);
   expect(comments.getAttribute("aria-pressed")).toBe("true");
-  expect(page.getByRole("complementary", { name: "Comments and agent" })).toBeTruthy();
+  expect(page.getByRole("complementary", { name: "Comments and Finish review" })).toBeTruthy();
   fireEvent.click(comments);
   expect(comments.getAttribute("aria-pressed")).toBe("false");
-  expect(page.queryByRole("complementary", { name: "Comments and agent" })).toBeNull();
+  expect(page.queryByRole("complementary", { name: "Comments and Finish review" })).toBeNull();
   act(() => setNeedsYou("pr-42", 0));
 });
 
@@ -184,7 +232,7 @@ test("closing the panel a title-bar command opened gives the focus back to the c
   // A click presses, focuses the button, and lets go.
   const click = (button: HTMLElement) => { fireEvent.pointerDown(button); button.focus(); fireEvent.pointerUp(button); fireEvent.click(button); };
   click(comments);
-  click(within(page.getByRole("complementary", { name: "Comments and agent" })).getByRole("button", { name: "Close panel" }));
+  click(within(page.getByRole("complementary", { name: "Comments and Finish review" })).getByRole("button", { name: "Close panel" }));
   await waitFor(() => expect(document.activeElement).toBe(comments));
   expect(page.getByRole("navigation", { name: "Chapters" })).toBeTruthy();
   fireEvent.keyDown(comments, { key: "t" });

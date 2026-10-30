@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 // Which review you're in, at a glance (lib/review-identity.ts): BB's title bar and the window's title, the band's id
-// chip, the page bar, the hero's rename, the phone's dock, the agent's widget and BB's thread list.
+// chip, the page bar, the hero's rename, the phone's dock, and BB's thread list.
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render as draw, renderHook, waitFor, within } from "@testing-library/react";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
@@ -91,6 +91,19 @@ test("BB's title bar and the window's title lead with the open review's id, its 
     expect(page.experimental_pageTitle, subPath).toBeNull();
     page.lifecycle.unmount();
   }
+});
+
+test("beside BB's side panel on a desktop, a review narrower than a phone's has its title as one line, which BB cuts at its end", async () => {
+  pane(560);
+  const root = document.documentElement;
+  Object.defineProperty(root, "clientWidth", { configurable: true, value: 1440 });
+  Object.defineProperty(root, "clientHeight", { configurable: true, value: 1000 });
+  restores.push(() => { delete (root as { clientWidth?: number }).clientWidth; delete (root as { clientHeight?: number }).clientHeight; });
+  patchReviewState("pr-1", { activeId: "c1" });
+  const review = await render("pr-1", { "pr-1": pr });
+  await review.findAllByTestId("filediff");
+  await waitFor(() => expect(review.experimental_pageTitle).toEqual({ title: "api#4512 · Fix login race", windowTitle: "api#4512 · Fix login race" }));
+  review.lifecycle.unmount();
 });
 
 test("a review without a guide yet, found on GitHub or building, has its title too, and its bar's heading says it whole", async () => {

@@ -13,7 +13,8 @@
     "branding": {
       "icon": "./assets/icon.svg",
       "experimental_icons": {
-        "review": "./assets/icon.svg"
+        "review": "./assets/icon.svg",
+        "agent": "./assets/agent.svg"
       }
     },
     "server": "./server.ts",

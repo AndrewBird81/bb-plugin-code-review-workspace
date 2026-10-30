@@ -278,7 +278,7 @@ test("on a wide screen the band shows the review's id beside the chapter, then F
   // Not short: the chapters, the chapter's overview, and the saved open panel show.
   expect(slot.getByRole("navigation", { name: "Chapters" })).toBeTruthy();
   expect(slot.getByRole("button", { name: "Hide chapter overview" })).toBeTruthy();
-  expect(slot.getByRole("complementary", { name: "Comments and agent" })).toBeTruthy();
+  expect(slot.getByRole("complementary", { name: "Comments and Finish review" })).toBeTruthy();
   slot.lifecycle.unmount();
 });
 
@@ -289,7 +289,7 @@ test("a phone held sideways opens on code: the chapter overview, the chapters an
   // Its label says the chapters are hidden, so it isn't also a pressed toggle.
   expect(slot.getByRole("button", { name: "Show chapters" }).hasAttribute("aria-pressed")).toBe(false);
   expect(within(main.getByRole("region", { name: "Parsing" })).queryByText("Reads rows.")).toBeNull();
-  expect(slot.queryByRole("complementary", { name: "Comments and agent" })).toBeNull();
+  expect(slot.queryByRole("complementary", { name: "Comments and Finish review" })).toBeNull();
   fireEvent.click(slot.getByRole("button", { name: "Show chapters" }));
   expect(within(slot.getByRole("dialog", { name: "Chapters" })).getByRole("button", { name: "Hide chapters" })).toBeTruthy();
   fireEvent.keyDown(slot.getByRole("dialog", { name: "Chapters" }), { key: "Escape" });

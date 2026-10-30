@@ -1,5 +1,6 @@
-// The Main thread tab: the review's main thread, the thread that writes the code and gets your Sends, as BB's own chat
-// beside the diff, its permissions the thread's own; which thread that is, on which machine, and Change main thread.
+// The Main thread tab in BB's side panel (components/PanelTabs.tsx): the review's main thread, the thread that writes the
+// code and gets your Sends, as BB's own chat beside the diff, its permissions the thread's own; which thread that is, on
+// which machine, Change main thread, and Go to thread.
 import { useEffect, useState, type KeyboardEvent } from "react";
 import { experimental_useSidebarThreads, ThreadChat, useBbNavigate, useRpc } from "@get-bb/plugin-sdk/app";
 import { toast } from "sonner";
@@ -31,7 +32,7 @@ function moveFocus(event: KeyboardEvent<HTMLElement>) {
  * folder, in its project; not this plugin's agents, nor archived ones. Choosing one sends there from now on; Start a
  * fresh thread here starts one, which does.
  */
-function ChangeMainThread({ current, onChanged }: { current: string | null; onChanged: () => void }) {
+function ChangeMainThread({ current, onChanged, label }: { current: string | null; onChanged: () => void; label?: string }) {
   const { targetKey, review } = useWorkspace();
   const rpc = useRpc<typeof rpcContract>();
   const [open, setOpen] = useState(false);
@@ -56,7 +57,8 @@ function ChangeMainThread({ current, onChanged }: { current: string | null; onCh
   }
   return <Popover open={open} onOpenChange={setOpen}>
     <PopoverTrigger asChild>
-      <Button variant="ghost" size="sm" className={cn("h-7 shrink-0 px-2 text-xs text-muted-foreground", TOUCH_CONTROL)}>Change<span className="sr-only"> main thread</span></Button>
+      {label ? <Button variant="outline" size="sm" className={TOUCH_CONTROL}>{label}</Button>
+        : <Button variant="ghost" size="sm" className={cn("h-7 shrink-0 px-2 text-xs text-muted-foreground", TOUCH_CONTROL)}>Change<span className="sr-only"> main thread</span></Button>}
     </PopoverTrigger>
     <PopoverContent align="end" mobileTitle="Change main thread" className="w-72 p-1">
       <div role="menu" aria-label="Change main thread" className="flex flex-col">
@@ -84,7 +86,7 @@ function ChangeMainThread({ current, onChanged }: { current: string | null; onCh
   </Popover>;
 }
 
-/** Which thread it is, on which machine, and whether it's working now, so a Send waits for its turn; Change and Open. */
+/** Which thread it is, on which machine, and whether it's working now, so a Send waits for its turn; Change and Go to thread. */
 function ThreadLine({ thread, onChanged }: { thread: MainThreadLink; onChanged: () => void }) {
   const navigate = useBbNavigate();
   const listed = experimental_useSidebarThreads().threads.find((item) => item.id === thread.threadId);
@@ -97,7 +99,7 @@ function ThreadLine({ thread, onChanged }: { thread: MainThreadLink; onChanged: 
       {working && <span className="shrink-0">· Working: a Send waits for its turn</span>}
     </span>
     <ChangeMainThread current={thread.threadId} onChanged={onChanged} />
-    {thread.state !== "gone" && <Button variant="ghost" size="sm" className={cn("h-7 shrink-0 px-2 text-xs text-muted-foreground", TOUCH_CONTROL)} onClick={() => navigate.toThread(thread.threadId)}>Open<span className="sr-only"> in BB</span><Icon name="ArrowUpRight" className="size-3.5" aria-hidden /></Button>}
+    {thread.state !== "gone" && <Button variant="ghost" size="sm" className={cn("h-7 shrink-0 gap-1 px-2 text-xs text-muted-foreground", TOUCH_CONTROL)} onClick={() => navigate.toThread(thread.threadId)}>Go to thread<Icon name="ArrowUpRight" className="size-3.5" aria-hidden /></Button>}
   </div>;
 }
 
@@ -121,11 +123,11 @@ function ViewTabs({ targetKey, view, onView }: { targetKey: string; view: "chat"
 
 /**
  * The Main thread tab: its header names it and the review, `Main thread · api:snooze-checks`; a line says which thread
- * it is, on which machine, and whether it's working now, with Change and Open; then the thread's chat, which can't
- * widen its permissions, and stays as it is while another view shows. An archived thread shows its conversation without
- * a box to write in.
+ * it is, on which machine, and whether it's working now, with Change and Go to thread; then the thread's chat, which
+ * can't widen its permissions. An archived thread shows its conversation without a box to write in. `active`: the tab
+ * shows, so it reads the main thread and BB's thread list.
  */
-export function MainThreadPanel({ active, reviewId, closeLabel = "Close panel", onClose }: { active: boolean; reviewId?: string; closeLabel?: string; onClose: () => void }) {
+export function MainThreadPanel({ active, reviewId }: { active: boolean; reviewId?: string }) {
   const { targetKey, review } = useWorkspace();
   const { thread, reload } = useMainThread(targetKey, review, active);
   // On a PR whose main thread works in a folder, what it hasn't pushed yet, beside its chat; the compare menu opens it.
@@ -134,21 +136,21 @@ export function MainThreadPanel({ active, reviewId, closeLabel = "Close panel", 
   const [view, setView] = useState<"chat" | "not-pushed">("chat");
   useEffect(() => { if (take()) setView("not-pushed"); }, [take]);
   const showing = unpushed ? view : "chat";
-  const notice = (text: string) => <p role="status" className="m-3 rounded-lg border border-border bg-muted/25 p-3 text-sm text-muted-foreground">{text}</p>;
-  // Never shown, it isn't there; once shown, its chat stays as it is while another view shows.
-  if (!active && !thread) return null;
-  return <section aria-label="Main thread" hidden={!active} className={cn("flex min-h-0 flex-1 flex-col", !active && "hidden")}>
+  const notice = (text: string, change = false) => <div role="status" className="m-3 space-y-2 rounded-lg border border-border bg-muted/25 p-3 text-sm text-muted-foreground">
+    <p>{text}</p>
+    {change && active && <ChangeMainThread current={null} onChanged={reload} label="Choose a thread" />}
+  </div>;
+  return <section aria-label="Main thread" className="flex h-full min-h-0 flex-1 flex-col">
     <div className="flex h-11 shrink-0 items-center gap-2 border-b border-border pl-3 pr-1.5">
       <Icon name="Code" className="size-4 text-primary" aria-hidden />
       <h2 className="flex min-w-0 items-baseline gap-1.5 text-sm font-medium"><span className="shrink-0">Main thread</span>{reviewId && <><span aria-hidden className="text-subtle-foreground">·</span><span className="truncate font-mono text-[11px] font-normal text-muted-foreground">{reviewId}</span></>}</h2>
-      <Button variant="ghost" size="icon" className="ml-auto size-8 text-muted-foreground pointer-coarse:size-11" aria-label={closeLabel} onClick={onClose}><Icon name="X" aria-hidden /></Button>
     </div>
     {/* BB's thread list is read only while the tab shows. */}
     {thread && active && <ThreadLine thread={thread} onChanged={reload} />}
     {unpushed && <ViewTabs targetKey={targetKey} view={showing} onView={setView} />}
     {showing === "not-pushed" ? <div id={`${targetKey}-main-not-pushed`} role="tabpanel" aria-label="Not pushed yet" className="flex min-h-0 flex-1 flex-col"><NotPushed targetKey={targetKey} active={active} /></div>
       : thread === undefined ? <p role="status" className="p-3 text-sm text-muted-foreground">Loading the main thread…</p>
-      : thread === null ? notice("This review has no main thread yet. Run bb review in the thread working on the change, and your Sends go there.")
+      : thread === null ? notice("This review has no main thread yet. Choose the thread working on the change, or run bb review in it, and your Sends go there.", true)
       : thread.state === "gone" ? notice("The main thread was deleted. Your next Send starts a fresh thread, or choose another with Change.")
       : <>
         {thread.state === "archived" && <p role="status" className="shrink-0 border-b border-warning/20 bg-warning/10 px-3 py-2 text-xs text-warning-text">This thread is archived. Your next Send offers to unarchive it or start a fresh thread, or choose another with Change.</p>}

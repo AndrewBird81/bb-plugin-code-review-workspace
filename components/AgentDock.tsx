@@ -1,5 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type ComponentProps } from "react";
-import { createPortal } from "react-dom";
+import { memo, useCallback, useEffect, useRef, useState, type ComponentProps } from "react";
 import { ThreadChat, useComposers, useRealtime, useRpc, experimental_ProviderModelPicker as ProviderModelPicker } from "@get-bb/plugin-sdk/app";
 import { toast } from "sonner";
 import type { rpcContract } from "../src/rpc-contract";
@@ -10,9 +9,6 @@ import { carries, insertLines } from "../src/post-preview";
 import { composing } from "../lib/composing";
 import { linkImages } from "../lib/link-images";
 import { cn } from "../lib/utils";
-import { usePortalScopeProps } from "../lib/portal-scope";
-import { clampRect, defaultRect, type Rect } from "../lib/dock-geometry";
-import { agentDockKey } from "../lib/panel-state";
 import { Icon } from "./ui/icon";
 import { Button } from "./ui/button";
 import { Textarea } from "./ui/textarea";
@@ -24,56 +20,45 @@ import { Badge, SpeakerMark } from "./ui/badge";
 export interface DockInjection { context: AgentMessageContext; quote?: string; nonce: number; }
 export interface AgentDockProps {
   targetKey: string;
-  /** The review's id (lib/review-identity.ts), which its header names it by, docked or popped out over the code. */
+  /** The review's id (lib/review-identity.ts), which its header names it by. */
   reviewId?: string;
   /** The review's patch, for quoting selected lines. */
   patch: string;
   injection?: DockInjection;
-  /** Fullscreen root, so a popped-out widget remains in the visible subtree. */
-  container?: HTMLElement | null;
+  /** Its tab shows in BB's side panel: it reads the conversation, and focuses its box, only then. */
   active?: boolean;
-  /** It can pop out as a widget over the review; not on a phone, nor one held sideways. */
-  popOut?: boolean;
-  /** Its ✕'s name: "Close" in a phone's sheet. */
-  closeLabel?: string;
-  onDock?: () => void;
-  onCollapse?: () => void;
 }
-interface Persisted { mode: "panel" | "widget"; rect: Rect; }
 interface Conversation {
   threadId: string | null; legacy: AgentMessage[]; defaults: AgentChoice | null;
   /** The machine chosen in Review settings, when it isn't the bb server. */
   machine?: { name: string; connected: boolean } | null;
 }
+// The last ask each review's agent took, by its nonce: the tab can mount after the ask that opens it, and mount again
+// with BB's panel, and takes each ask once.
+const handledInjections = new Map<string, number>();
+
+/** A first message being written: what's typed, its context, and the quotes put in it. */
+interface FirstDraft { input: string; chip: AgentMessageContext | null; quoted: string[] }
+// Each review's first message as it's written, kept for this page's life: through the review switching, and BB closing
+// its panel, which BB 0.48 does by unmounting the tab (seen in its e2e; later BBs say they keep it mounted).
+const firstDrafts = new Map<string, FirstDraft>();
+
+/** For tests: forget every first message being written, and every ask taken. */
+export function forgetAgentDrafts() { firstDrafts.clear(); handledInjections.clear(); }
+
 // bb's picker resolves the first provider's default model from an empty seed.
 const UNSET_AGENT: AgentChoice = { providerId: "", model: "", reasoningLevel: "medium" };
-function bounds() { return { width: window.innerWidth, height: window.innerHeight }; }
-/** How far an arrow key moves or sizes the widget, or null for any other key. */
-function arrowStep(key: string): { dx: number; dy: number } | null {
-  const step = { ArrowLeft: [-20, 0], ArrowRight: [20, 0], ArrowUp: [0, -20], ArrowDown: [0, 20] }[key];
-  return step ? { dx: step[0], dy: step[1] } : null;
-}
-function loadPersisted(targetKey: string): Persisted | null {
-  try { return JSON.parse(localStorage.getItem(agentDockKey(targetKey)) ?? "null"); }
-  catch { return null; }
-}
-
-// This controller stays mounted when changing tabs or presentation. A review's
-// conversation is a hidden bb thread shown with ThreadChat; until it exists, a
+// The Review agent tab in BB's side panel (components/PanelTabs.tsx), mounted again for each review it shows, and by BB
+// 0.48 each time its panel opens. A review's conversation is a hidden bb thread shown with ThreadChat; until it exists, a
 // first-message composer chooses its agent.
-export const AgentDock = memo(function AgentDock({ targetKey, reviewId, patch, injection, container, active = true, popOut = true, closeLabel = "Close panel", onDock, onCollapse }: AgentDockProps) {
+export const AgentDock = memo(function AgentDock({ targetKey, reviewId, patch, injection, active = true }: AgentDockProps) {
   const rpc = useRpc<typeof rpcContract>();
   const composers = useComposers();
-  const scopeProps = usePortalScopeProps();
-  const persisted = useMemo(() => loadPersisted(targetKey), [targetKey]);
-  const [chosenMode, setMode] = useState<"panel" | "widget">(persisted?.mode === "widget" ? "widget" : "panel");
-  // Where it can't pop out, a widget chosen elsewhere shows in the panel, and is kept for there.
-  const mode = popOut ? chosenMode : "panel";
-  const [rect, setRect] = useState<Rect>(() => persisted?.rect && [persisted.rect.x, persisted.rect.y, persisted.rect.w, persisted.rect.h].every(Number.isFinite) ? clampRect(persisted.rect, bounds()) : defaultRect(bounds()));
   const [conversation, setConversation] = useState<Conversation | null>(null);
   const [agent, setAgent] = useState<AgentChoice>(UNSET_AGENT);
-  const [input, setInput] = useState("");
-  const [chip, setChip] = useState<AgentMessageContext | null>(null);
+  const [kept] = useState(() => firstDrafts.get(targetKey));
+  const [input, setInput] = useState(kept?.input ?? "");
+  const [chip, setChip] = useState<AgentMessageContext | null>(kept?.chip ?? null);
   const [busy, setBusy] = useState(false);
   const [loadError, setLoadError] = useState(false);
   const [confirmingReset, setConfirmingReset] = useState(false);
@@ -82,27 +67,20 @@ export const AgentDock = memo(function AgentDock({ targetKey, reviewId, patch, i
   const resetCancelRef = useRef<HTMLButtonElement>(null);
   const mounted = useRef(true);
   const locked = useRef(false);
-  const gestureCleanup = useRef<(() => void) | null>(null);
   const readRevision = useRef(0);
-  // An injection from before this mount was already handled.
-  const handledInjection = useRef(injection?.nonce ?? null);
   // Quotes put in the first message's box: a message still carrying one confirms no post (src/asking.ts).
-  const quoted = useRef<string[]>([]);
-  const visible = active || mode === "widget";
+  const quoted = useRef<string[]>(kept?.quoted ?? []);
+  useEffect(() => {
+    if (input || chip) firstDrafts.set(targetKey, { input, chip, quoted: quoted.current });
+    else firstDrafts.delete(targetKey);
+  }, [targetKey, input, chip]);
+  const visible = active;
   const threadId = conversation?.threadId ?? null;
   const hostId = conversation?.defaults?.hostId;
 
   useEffect(() => {
     mounted.current = true;
-    return () => { mounted.current = false; gestureCleanup.current?.(); };
-  }, []);
-  useEffect(() => {
-    try { localStorage.setItem(agentDockKey(targetKey), JSON.stringify({ mode: chosenMode, rect })); } catch { /* optional persistence */ }
-  }, [targetKey, chosenMode, rect]);
-  useEffect(() => {
-    const resize = () => setRect((previous) => clampRect(previous, bounds()));
-    window.addEventListener("resize", resize);
-    return () => window.removeEventListener("resize", resize);
+    return () => { mounted.current = false; };
   }, []);
   const load = useCallback(async () => {
     const revision = ++readRevision.current;
@@ -121,13 +99,13 @@ export const AgentDock = memo(function AgentDock({ targetKey, reviewId, patch, i
     if (!visible || threadId) return;
     const frame = requestAnimationFrame(() => composerRef.current?.focus());
     return () => cancelAnimationFrame(frame);
-  }, [visible, mode, threadId]);
+  }, [visible, threadId]);
   // Before the conversation exists, a selection becomes the first message's
   // context; afterwards it is quoted into bb's composer for the reviewer to edit.
   useEffect(() => {
-    if (!injection || handledInjection.current === injection.nonce || !conversation) return;
+    if (!injection || handledInjections.get(targetKey) === injection.nonce || !conversation) return;
     if (!threadId) {
-      handledInjection.current = injection.nonce;
+      handledInjections.set(targetKey, injection.nonce);
       const { quote } = injection;
       // A quote goes into the first message's box, unsent, after anything typed there.
       if (quote) {
@@ -139,8 +117,10 @@ export const AgentDock = memo(function AgentDock({ targetKey, reviewId, patch, i
     }
     const composer = composers.find((candidate) => candidate.scope.kind === "thread" && candidate.scope.threadId === threadId);
     if (!composer) return; // ThreadChat's composer has not registered yet.
-    handledInjection.current = injection.nonce;
+    handledInjections.set(targetKey, injection.nonce);
     const text = injection.quote ?? contextQuote(injection.context, patch);
+    // Nothing to quote, as with no file in view: Ask agent only opens the chat, its box focused.
+    if (!text) { requestAnimationFrame(() => composer.focus()); return; }
     // Noted first, so the message that carries it confirms no post (src/asking.ts); unnoted, it isn't put there.
     rpc.call("noteInserted", { targetKey, threadId, text }).then(() => {
       composer.insert(text, { at: "end", block: true });
@@ -176,22 +156,6 @@ export const AgentDock = memo(function AgentDock({ targetKey, reviewId, patch, i
     catch (error) { toast.error(error instanceof Error ? error.message : "Couldn’t start a new conversation"); }
     await load();
   }
-  function dock() { gestureCleanup.current?.(); setMode("panel"); onDock?.(); }
-  function startGesture(event: React.PointerEvent, action: "move" | "resize") {
-    event.preventDefault(); gestureCleanup.current?.();
-    const start = { x: event.clientX, y: event.clientY, rect };
-    const move = (event: PointerEvent) => {
-      const dx = event.clientX - start.x, dy = event.clientY - start.y;
-      setRect(clampRect(action === "move" ? { ...start.rect, x: start.rect.x + dx, y: start.rect.y + dy } : { ...start.rect, w: start.rect.w + dx, h: start.rect.h + dy }, bounds()));
-    };
-    const finish = () => {
-      window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", finish); window.removeEventListener("pointercancel", finish);
-      gestureCleanup.current = null;
-    };
-    gestureCleanup.current = finish;
-    window.addEventListener("pointermove", move); window.addEventListener("pointerup", finish); window.addEventListener("pointercancel", finish);
-  }
-
   const legacy = conversation?.legacy.length ? <div className="space-y-4 p-3">
     <p className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-subtle-foreground"><span className="h-px flex-1 bg-border" />Earlier conversation<span className="h-px flex-1 bg-border" /></p>
     {conversation.legacy.map((message) => message.role === "user"
@@ -232,22 +196,11 @@ export const AgentDock = memo(function AgentDock({ targetKey, reviewId, patch, i
     : threadId ? <ThreadChat threadId={threadId} variant="compact" className="min-h-0 flex-1" leadingContent={legacy} />
     : firstMessage;
 
-  const panel = <>
-    <div className={cn("flex h-11 shrink-0 items-center gap-2 border-b border-border pl-3 pr-1.5", mode === "widget" && "cursor-move bg-surface-raised")} onPointerDown={mode === "widget" ? (event) => startGesture(event, "move") : undefined}>
-      {mode === "widget"
-        // The header drags it; from the keyboard, its mark moves it with the arrow keys, as its corner resizes it.
-        ? <span role="button" tabIndex={0} aria-label="Move agent widget" aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown" title="Drag, or use the arrow keys, to move" onKeyDown={(event) => {
-            const step = arrowStep(event.key);
-            if (!step) return;
-            event.preventDefault(); setRect((rect) => clampRect({ ...rect, x: rect.x + step.dx, y: rect.y + step.dy }, bounds()));
-          }} className="flex rounded-sm focus-visible:outline focus-visible:outline-ring"><Icon name="Sparkles" className="size-4 text-(--ansi-13)" aria-hidden /></span>
-        : <Icon name="Sparkles" className="size-4 text-(--ansi-13)" aria-hidden />}
+  return <section aria-label="Review agent" className="flex h-full min-h-0 flex-1 flex-col">
+    <div className="flex h-11 shrink-0 items-center gap-2 border-b border-border pl-3 pr-1.5">
+      <Icon name="Sparkles" className="size-4 text-(--ansi-13)" aria-hidden />
       <h2 className="flex min-w-0 items-baseline gap-1.5 text-sm font-medium"><span className="shrink-0">Review agent</span>{reviewId && <><span aria-hidden className="text-subtle-foreground">·</span><span className="truncate font-mono text-[11px] font-normal text-muted-foreground">{reviewId}</span></>}</h2>
-      {(threadId || conversation?.legacy.length) ? <Button ref={resetRef} variant="ghost" size="icon" className="ml-auto size-7 pointer-coarse:size-11" aria-label="New conversation" onPointerDown={(event) => event.stopPropagation()} onClick={() => setConfirmingReset(true)}><Icon name="MessageSquarePlus" className="size-3.5" aria-hidden /></Button> : null}
-      {popOut && <Button variant="ghost" size="sm" className={cn("pointer-coarse:h-11", !(threadId || conversation?.legacy.length) && "ml-auto")} onPointerDown={(event) => event.stopPropagation()} onClick={mode === "widget" ? dock : () => setMode("widget")}>
-        <Icon name={mode === "widget" ? "Minimize2" : "Maximize2"} className="size-3.5" aria-hidden />{mode === "widget" ? "Dock" : "Pop out"}
-      </Button>}
-      {mode === "panel" && onCollapse && <Button variant="ghost" size="icon" className={cn("size-8 text-muted-foreground pointer-coarse:size-11", !popOut && !(threadId || conversation?.legacy.length) && "ml-auto")} aria-label={closeLabel} onClick={onCollapse}><Icon name="X" aria-hidden /></Button>}
+      {(threadId || conversation?.legacy.length) ? <Button ref={resetRef} variant="ghost" size="icon" className="ml-auto size-7 pointer-coarse:size-11" aria-label="New conversation" onClick={() => setConfirmingReset(true)}><Icon name="MessageSquarePlus" className="size-3.5" aria-hidden /></Button> : null}
     </div>
     {confirmingReset && <div role="alertdialog" aria-label="Start a new conversation" onKeyDown={(event) => {
       if (event.key !== "Escape") return;
@@ -258,26 +211,6 @@ export const AgentDock = memo(function AgentDock({ targetKey, reviewId, patch, i
       <Button ref={resetCancelRef} variant="ghost" size="sm" className={TOUCH_CONTROL} onClick={cancelReset}>Cancel</Button>
     </div>}
     {body}
-  </>;
-  // Below z-50, where bb's own popovers (such as ThreadChat's model picker) open.
-  const widget = mode === "widget" && createPortal(<div role="dialog" aria-label={reviewId ? `Review agent · ${reviewId}` : "Review agent"} {...scopeProps} className="fixed z-[49] flex flex-col overflow-hidden rounded-lg border border-border shadow-2xl" style={{ left: rect.x, top: rect.y, width: rect.w, height: rect.h, backgroundColor: "rgb(from var(--background) r g b / 1)" }}>
-    {panel}
-    <div role="separator" tabIndex={0} aria-label="Resize agent widget" aria-orientation="horizontal" onPointerDown={(event) => startGesture(event, "resize")} onKeyDown={(event) => {
-      const step = arrowStep(event.key);
-      if (!step) return;
-      event.preventDefault(); setRect((rect) => clampRect({ ...rect, w: rect.w + step.dx, h: rect.h + step.dy }, bounds()));
-    }} className="absolute bottom-0 right-0 size-3 cursor-nwse-resize border-b-2 border-r-2 border-muted-foreground focus-visible:outline focus-visible:outline-ring" />
-  </div>, container ?? document.body);
-  return <>
-    <section aria-label="Review agent" hidden={!active} className={cn("flex min-h-0 flex-1 flex-col", !active && "hidden")}>
-      {mode === "panel" ? panel : <><div className="flex h-11 shrink-0 items-center gap-2 border-b border-border pl-3 pr-1.5"><Icon name="Sparkles" className="size-4 text-(--ansi-13)" aria-hidden /><h2 className="flex-1 text-sm font-medium">Review agent</h2>{onCollapse && <Button variant="ghost" size="icon" className="size-8 text-muted-foreground pointer-coarse:size-11" aria-label={closeLabel} onClick={onCollapse}><Icon name="X" aria-hidden /></Button>}</div><div className="space-y-3 p-3 text-sm"><p className="text-muted-foreground">The agent is popped out.</p><Button variant="outline" size="sm" className={TOUCH_CONTROL} onClick={dock}>Dock</Button></div></>}
-    </section>
-    {widget}
-  </>;
+  </section>;
 });
 AgentDock.displayName = "AgentDock";
-
-/** Where the review `targetKey`'s agent was last put: popped out as a widget, or in the side panel. */
-export function agentDockMode(targetKey: string): Persisted["mode"] {
-  return loadPersisted(targetKey)?.mode === "widget" ? "widget" : "panel";
-}

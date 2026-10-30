@@ -180,6 +180,20 @@ test("modes switch at 600 wide and 500 tall, and only 16px past that once decide
   expect(workspaceLayout(612, 382, closed).mode).toBe("short");
 });
 
+test("on a desktop's or an iPad's screen, a review beside BB's side panel keeps the tablet layout down to 480 wide", () => {
+  // A 1440px window, BB's thread list and its side panel at its default width: the review is 560 wide.
+  expect(workspaceLayout(560, 952, closed, undefined, false, false)).toMatchObject({ mode: "tablet", navCanDock: false, panelCanDock: false });
+  expect(workspaceLayout(560, 952, { ...both, panelOverlay: true }, undefined, false, false)).toMatchObject({ mode: "tablet", panel: "overlay" });
+  expect(workspaceLayout(480, 952, closed, undefined, false, false).mode).toBe("tablet");
+  expect(workspaceLayout(479, 952, closed, undefined, false, false).mode).toBe("phone");
+  // With the same hysteresis.
+  const tablet = workspaceLayout(560, 952, closed, undefined, false, false);
+  expect(workspaceLayout(470, 952, closed, tablet, false, false).mode).toBe("tablet");
+  expect(workspaceLayout(463, 952, closed, tablet, false, false).mode).toBe("phone");
+  // A phone's screen keeps 600.
+  expect(workspaceLayout(560, 952, closed).mode).toBe("phone");
+});
+
 test("the panel docks narrower, down to 320, rather than squeeze the code under 560", () => {
   expect(panelDockWidth(960, 400)).toBe(400);
   expect(panelDockWidth(900, 400)).toBe(340);

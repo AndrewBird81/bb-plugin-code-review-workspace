@@ -27,7 +27,7 @@ async function load(rpc: Record<string, (input: any) => unknown> = {}, paletteCo
   // The test runtime collects app.commands.register's commands, though its type doesn't list them yet.
   const commands = (app as unknown as { commandPaletteActions: (PluginCommandRegistration & { target: string })[] }).commandPaletteActions;
   const command = (id: string) => commands.find((entry) => entry.id === id)!;
-  const mount = () => renderSlot(app.appOverlays.find((registration) => registration.id === "needs-review")!, {}, { rpc: {
+  const mount = (pluginId?: string) => renderSlot(app.appOverlays.find((registration) => registration.id === "needs-review")!, {}, { ...pluginId ? { pluginId } : {}, rpc: {
     listReviews: () => ({ reviews }),
     startReview: () => ({ ok: true, targetKey: "pr-7" }),
     getPreferences: () => ({ preferences: { ...defaultPreferences, threadListReviews: false, knobs: { ...defaultKnobs, paletteCommands } }, revision: 0 }),
@@ -36,39 +36,46 @@ async function load(rpc: Record<string, (input: any) => unknown> = {}, paletteCo
   return { commands, command, mount };
 }
 
-test("the three commands are in BB's palette with their ids and titles, and Next review that needs me has ⌘⇧U", async () => {
+test("the four commands are in BB's palette with their ids and titles: Next review that needs me has ⌘⇧U, Switch ⌘⇧.", async () => {
   const { commands } = await load();
   expect(commands.map(({ target, id, title, defaultShortcut }) => ({ target, id, title, defaultShortcut }))).toEqual([
     { target: "app", id: "next-review", title: "Code Review Workspace: Next review that needs me", defaultShortcut: { key: "u", mod: true, shift: true, meta: false, control: false, alt: false } },
     { target: "app", id: "review-from-clipboard", title: "Code Review Workspace: Review PR from clipboard", defaultShortcut: null },
     { target: "app", id: "all-reviews", title: "Code Review Workspace: All reviews", defaultShortcut: null },
+    { target: "app", id: "switch-review-thread", title: "Code Review Workspace: Switch between review and main thread", defaultShortcut: { key: ".", mod: true, shift: true, meta: false, control: false, alt: false } },
   ]);
 });
 
-test("Next review that needs me's default key is one neither BB nor a browser takes with mod and shift", async () => {
+test("the default keys are ones neither BB nor a browser takes with mod and shift", async () => {
   // BB 0.46.0's own mod+shift defaults (desktop, and 1–9 on the web off a Mac), and the keys Chrome, Safari, Firefox and
   // Electron's default menu bind with mod+shift, Force Reload's R among them: BB nulls a plugin default that collides
   // with its own, and a browser's or BB desktop's takes the key before the palette sees it.
   const bb = ["p", "o", "[", "]", "e", "x", "t", "enter", "c", "m", "n", ..."123456789"];
   const browsers = [..."abcdfghijklmnopqrstvwxyz"];
+  // Shifted, "/" is macOS's Help menu, "\\" Safari's tab overview and "`" the window before.
+  const punctuation = ["/", "\\", "`"];
   const { command } = await load();
-  const shortcut = command("next-review").defaultShortcut!;
-  expect(shortcut).toMatchObject({ mod: true, shift: true, alt: false });
-  expect([...bb, ...browsers]).not.toContain(shortcut.key.toLowerCase());
+  for (const id of ["next-review", "switch-review-thread"]) {
+    const shortcut = command(id).defaultShortcut!;
+    expect(shortcut).toMatchObject({ mod: true, shift: true, alt: false });
+    expect([...bb, ...browsers, ...punctuation]).not.toContain(shortcut.key.toLowerCase());
+  }
+  expect(command("next-review").defaultShortcut!.key).not.toBe(command("switch-review-thread").defaultShortcut!.key);
 });
 
 test("the commands are listed while the overlay that runs them is mounted, and not with their switch off", async () => {
   const on = await load();
   // No overlay, as on a host without app overlays: nothing would run them.
-  expect(on.commands.map((command) => command.isAvailable!(context))).toEqual([false, false, false]);
+  expect(on.commands.map((command) => command.isAvailable!(context))).toEqual([false, false, false, false]);
   const slot = on.mount();
-  expect(on.commands.map((command) => command.isAvailable!(context))).toEqual([true, true, true]);
+  // Switch, too, once there's a review or a main thread to switch to (below).
+  expect(on.commands.map((command) => command.isAvailable!(context))).toEqual([true, true, true, false]);
   slot.lifecycle.unmount();
   expect(on.command("next-review").isAvailable!(context)).toBe(false);
 
   const off = await load({}, false);
   const offSlot = off.mount();
-  await waitFor(() => expect(off.commands.map((command) => command.isAvailable!(context))).toEqual([false, false, false]));
+  await waitFor(() => expect(off.commands.map((command) => command.isAvailable!(context))).toEqual([false, false, false, false]));
   offSlot.lifecycle.unmount();
   // Back on, they're listed again once the overlay loads its settings.
   const again = (await load()).mount();
@@ -153,4 +160,48 @@ test("All reviews opens the review list", async () => {
   await command("all-reviews").run(context);
   expect(slot.inspection.navigateCalls).toEqual([{ method: "toPluginPanel", path: "review" }]);
   slot.lifecycle.unmount();
+});
+
+test("Switch between review and main thread goes from a thread's page to its review, and from a review's page to its main thread", async () => {
+  const { command, mount } = await load();
+  // Installed under another id, as a development copy is: its pages' addresses say so.
+  const overlay = mount("code-review-workspace-dev");
+  const switcher = command("switch-review-thread");
+  // A thread's page, once its tab has read which review it's linked to: the folder's review here.
+  const { useReviewTabVisible } = await import("./ThreadSurfaces");
+  const page = renderSlot({ component: () => { useReviewTabVisible({ threadId: "coder", environment: { id: "env1" } }); return null; } }, {}, { rpc: {
+    getPreferences: () => ({ preferences: defaultPreferences, revision: 0 }),
+    threadLinks: () => ({ reviewChangesLine: true, reviews: [{ targetKey: "local-1", createdAt: 1, main: null, threads: [], folder: { environmentId: "env1", branch: "feat/x", paused: false } }], agents: ["agent-thread"] }),
+  } as any });
+  const onThread = { ...context, threadId: "coder" };
+  await waitFor(() => expect(switcher.isAvailable!(onThread)).toBe(true));
+  await switcher.run(onThread);
+  expect(overlay.inspection.navigateCalls.at(-1)).toEqual({ method: "toPluginPanel", path: "review", options: { subPath: "local-1" } });
+  // Not on a thread with no review, nor on the plugin's own agents' threads.
+  expect(switcher.isAvailable!({ ...context, threadId: "other" })).toBe(false);
+  expect(switcher.isAvailable!({ ...context, threadId: "agent-thread" })).toBe(false);
+  page.lifecycle.unmount();
+
+  // A review's page, which publishes its workspace with its main thread.
+  const { publishWorkspace } = await import("../lib/workspace-store");
+  const { testWorkspace } = await import("./draft-tray.test-support");
+  history.pushState(null, "", "/plugins/code-review-workspace-dev/review/local-1");
+  expect(switcher.isAvailable!(context)).toBe(false);
+  const withdraw = publishWorkspace(testWorkspace("local-1", { mainThread: { threadId: "coder", title: "Build it", machine: null } }));
+  expect(switcher.isAvailable!(context)).toBe(true);
+  await switcher.run(context);
+  expect(overlay.inspection.navigateCalls.at(-1)).toEqual({ method: "toThread", threadId: "coder" });
+  withdraw();
+  // No main thread, or All reviews: nothing to switch to.
+  const none = publishWorkspace(testWorkspace("local-1"));
+  expect(switcher.isAvailable!(context)).toBe(false);
+  none();
+  history.pushState(null, "", "/plugins/code-review-workspace-dev/review");
+  expect(switcher.isAvailable!(context)).toBe(false);
+  // Another install's page isn't this one's.
+  const again = publishWorkspace(testWorkspace("local-1", { mainThread: { threadId: "coder", title: "Build it", machine: null } }));
+  history.pushState(null, "", "/plugins/code-review-workspace/review/local-1");
+  expect(switcher.isAvailable!(context)).toBe(false);
+  again();
+  overlay.lifecycle.unmount();
 });

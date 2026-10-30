@@ -23,7 +23,7 @@ function Reporter({ threadId }: { threadId: string }) {
   const navigate = useBbNavigate();
   const listed = experimental_useSidebarThreads?.()?.threads.some((thread) => thread.id === threadId);
   return <button type="button" className={cn("relative min-w-0 max-w-full text-primary hover:underline", TOUCH_TARGET)} onClick={() => navigate.toThread(threadId)}>
-    {listed ? <ThreadTitle threadId={threadId} /> : "a thread not in your list"} ↗
+    {listed ? <ThreadTitle threadId={threadId} /> : "a thread not in your list"}<span aria-hidden> ↗</span>
   </button>;
 }
 

@@ -73,7 +73,7 @@ async function renderWorkspace(review: Record<string, unknown> = {}) {
   return slot;
 }
 type Slot = Awaited<ReturnType<typeof renderWorkspace>>;
-const panel = (slot: Slot) => slot.queryByRole("complementary", { name: "Comments and agent" });
+const panel = (slot: Slot) => slot.queryByRole("complementary", { name: "Comments and Finish review" });
 const current = (slot: Slot) => within(slot.getByRole("navigation", { name: "Chapters" })).getAllByRole("button").find((button) => button.getAttribute("aria-current") === "step")?.textContent;
 
 test("Finish review has its own view in the side panel, shown while Finish is open, with the page's revision", async () => {

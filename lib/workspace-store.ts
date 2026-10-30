@@ -27,6 +27,16 @@ export function publishWorkspace(api: WorkspaceApi): () => void {
   };
 }
 
+/** The review's workspace, read once, as a command does: null while no page shows it with its guide loaded. */
+export function workspaceFor(targetKey: string): WorkspaceApi | null {
+  return workspaces.get(targetKey) ?? null;
+}
+
+/** Whether the review's page is a narrow pane beside BB's side panel (lib/workspace-layout.ts), read alone. */
+export function useNarrowPane(targetKey: string | null): boolean {
+  return useSyncExternalStore(subscribe, () => (targetKey === null ? false : workspaces.get(targetKey)?.layout.narrowPane ?? false));
+}
+
 /** The review's workspace while one shows it with its guide loaded; null otherwise, so no other review's controls show. */
 export function useWorkspaceFor(targetKey: string | null): WorkspaceApi | null {
   return useSyncExternalStore(subscribe, () => (targetKey === null ? null : workspaces.get(targetKey) ?? null));
@@ -139,4 +149,25 @@ export function panelPage(subPath: string): PanelPage {
   const [first = "", ...rest] = subPath.split("/");
   if (first === "settings") return { kind: "settings", returnTo: rest.join("/") };
   return first ? { kind: "review", targetKey: first } : { kind: "list" };
+}
+
+// Whether each review's tabs in BB's side panel show: they report it (experimental_useTabVisible), so the title bar
+// can say Ask agent is pressed while the Review agent tab shows.
+const shownTabs = new Map<string, number>();
+
+/** The review's `tab` shows in BB's side panel; the returned function says it stopped. */
+export function showTab(targetKey: string, tab: string): () => void {
+  const key = `${targetKey}\0${tab}`;
+  shownTabs.set(key, (shownTabs.get(key) ?? 0) + 1);
+  notify();
+  return () => {
+    const left = (shownTabs.get(key) ?? 1) - 1;
+    if (left > 0) shownTabs.set(key, left);
+    else shownTabs.delete(key);
+    notify();
+  };
+}
+
+export function useTabShown(targetKey: string | null, tab: string): boolean {
+  return useSyncExternalStore(subscribe, () => targetKey !== null && shownTabs.has(`${targetKey}\0${tab}`));
 }

@@ -1,6 +1,6 @@
 // What BB's thread pages show of the reviews (app.tsx): Review changes in the row above a thread's message box, beside
 // BB's own Changed files, and the Review tab beside a thread linked to a review: its id and name, its comments with where
-// each stands, the review agent's chat, and Open review.
+// each stands, the review agent's chat, and Review ↗.
 import { useCallback, useEffect, useId, useMemo, useState } from "react";
 import { experimental_Icon as HostIcon, experimental_usePluginId, ThreadChat, useBbNavigate, useRealtime, useRpc } from "@get-bb/plugin-sdk/app";
 import type { ExperimentalThreadContextSegmentInput, ExperimentalThreadContextSegmentProps, ExperimentalThreadTabProps } from "@get-bb/plugin-sdk/app";
@@ -12,7 +12,7 @@ import { useReviewLinks } from "../lib/review-links";
 import type { ReviewItem } from "../lib/review-state";
 import { patchReviewState } from "../lib/panel-state";
 import { SettingsProvider } from "../lib/settings";
-import { folderReview, threadReviewLink, useFolderStatus, useThreadLinks } from "../lib/thread-links";
+import { folderReview, noteThreadEnvironment, threadReviewLink, useFolderStatus, useThreadLinks } from "../lib/thread-links";
 import { cn } from "../lib/utils";
 import { CommentRow } from "./comments/CommentRow";
 import { ReviewTitle } from "./ReviewIdChip";
@@ -48,8 +48,8 @@ export function useReviewChangesVisible({ threadId, environment }: ExperimentalT
 
 const SEGMENT = "flex min-h-6 min-w-0 cursor-pointer items-center gap-1.5 overflow-hidden rounded px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-state-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring";
 
-/** The segment's button: the review's icon, or a spinner while it acts, and its words. */
-function SegmentButton({ label, name, title, busy, onClick }: { label: string; name?: string; title: string; busy: boolean; onClick: () => void }) {
+/** The segment's button: the review's icon, or a spinner while it acts, its words, and ↗ where it goes to the review. */
+function SegmentButton({ label, name, title, busy, goes = false, onClick }: { label: string; name?: string; title: string; busy: boolean; goes?: boolean; onClick: () => void }) {
   const pluginId = experimental_usePluginId();
   return (
     // Its words lead its name, for voice control too; the tooltip says what it does.
@@ -57,15 +57,19 @@ function SegmentButton({ label, name, title, busy, onClick }: { label: string; n
       {busy ? <Icon name="Loading" className="size-3.5 shrink-0 animate-spin motion-reduce:animate-none" aria-hidden />
         : <HostIcon name={`${pluginId}/review`} fallback="GitPullRequest" className="size-3.5 shrink-0" aria-hidden />}
       <span className="min-w-0 truncate">{label}</span>
+      {goes && <Icon name="ArrowUpRight" className="size-3.5 shrink-0" aria-hidden />}
     </button>
   );
 }
 
-/** The folder's review, by how many of its comments are open: "Review · 2 open", or "Review" with none. */
+/**
+ * The folder's review, by how many of its comments are open: "Review · 2 open ↗", or "Review ↗" with none. It goes to
+ * the review, as Main thread ↗ on the review's page comes back.
+ */
 function OpenReviewButton({ targetKey, busy, onClick }: { targetKey: string; busy: boolean; onClick: () => void }) {
   const open = useThreadReview(targetKey)?.open;
   return <SegmentButton label={open ? `Review · ${open} open` : "Review"} name={open === undefined ? undefined : open ? `Review, ${comments(open)} open` : "Review, no comments open"}
-    title="Open this folder’s review" busy={busy} onClick={onClick} />;
+    title="Go to this folder’s review" busy={busy} goes onClick={onClick} />;
 }
 
 /**
@@ -102,6 +106,8 @@ export function ReviewChangesSegment({ threadId, environment }: ExperimentalThre
 /** The Review tab shows beside a thread linked to a review: its main thread, a fixer it sent to, or a thread in its folder. */
 export function useReviewTabVisible({ threadId, environment }: ExperimentalThreadTabProps): boolean {
   const links = useThreadLinks();
+  // For Switch between review and main thread, which is told only the thread.
+  useEffect(() => noteThreadEnvironment(threadId, environment?.id ?? null), [threadId, environment?.id]);
   return !!links && !links.agents.includes(threadId) && !!threadReviewLink(links, threadId, environment?.id ?? null);
 }
 
@@ -121,7 +127,7 @@ export function ReviewTab({ threadId, environment }: ExperimentalThreadTabProps)
 const PART = "text-[11px] font-semibold uppercase tracking-wider text-subtle-foreground";
 
 /**
- * The review in a thread's tab: its id and name with Open review; its comments, each with where it stands (Open, Sent
+ * The review in a thread's tab: its id and name with Review ↗; its comments, each with where it stands (Open, Sent
  * to the main thread, Done, Resolved…), which open the review; and the review agent's chat, BB's own.
  */
 function ReviewPane({ targetKey }: { targetKey: string }) {
@@ -140,7 +146,7 @@ function ReviewPane({ targetKey }: { targetKey: string }) {
   useRealtime(`conversation:${targetKey}`, loadAgent);
   const items = useMemo(() => buildItems({ draft, threads: [], feedback: null, sections: [], patch: "", status }).filter((item) => item.kind === "draft"), [draft, status]);
   const open = () => navigate.toPluginPanel("review", { subPath: targetKey });
-  // The review opens with its agent's panel, as a docked panel opens where it was left; its first message chooses the agent.
+  // The review opens with its Review agent tab in BB's side panel; its first message chooses the agent.
   const ask = () => { patchReviewState(targetKey, { panel: "agent" }); open(); };
   // Two panes can show the same review.
   const commentsId = useId();
@@ -148,7 +154,7 @@ function ReviewPane({ targetKey }: { targetKey: string }) {
     <section aria-label="Review" className="flex h-full min-h-0 flex-col">
       <div className="flex shrink-0 items-start gap-2 border-b border-border py-2 pl-3 pr-1.5">
         <h2 className="flex min-w-0 flex-1 items-start gap-1.5 pt-1 text-sm font-medium">{read ? <ReviewTitle review={read.review} /> : "Review"}</h2>
-        <Button variant="ghost" size="sm" className={cn("h-7 shrink-0 px-2 text-xs text-muted-foreground", TOUCH_CONTROL)} onClick={open}>Open review<Icon name="ArrowUpRight" className="size-3.5" aria-hidden /></Button>
+        <Button variant="ghost" size="sm" aria-label="Go to review" className={cn("h-7 shrink-0 gap-1 px-2 text-xs text-muted-foreground", TOUCH_CONTROL)} onClick={open}>Review<Icon name="ArrowUpRight" className="size-3.5" aria-hidden /></Button>
       </div>
       <section aria-labelledby={commentsId} className="max-h-[45%] shrink-0 space-y-2 overflow-y-auto border-b border-border px-3 py-2.5">
         <h3 id={commentsId} className={PART}>Comments{!!read?.open && <span className="font-normal normal-case tracking-normal"> · {read.open} open</span>}</h3>

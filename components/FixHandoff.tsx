@@ -132,8 +132,8 @@ export function FixHandoff({ targetKey, comments, revision }: { targetKey: strin
   return <section aria-label={to ? "Send to the main thread" : "Fix in a new thread"} className="space-y-2">
     {/* A part of Finish, as Open a PR after it is. */}
     <h3 aria-hidden className="px-0.5 text-[11px] font-semibold uppercase tracking-wider text-subtle-foreground">{to ? "Main thread" : "Fix in a new thread"}</h3>
-    {told && <p role="status" className="min-w-0 text-xs text-muted-foreground">{told.note} · <button type="button" className={LINK} onClick={() => navigate.toThread(told.threadId)}>Open</button></p>}
-    {started && <p role="status" className="text-xs text-muted-foreground">Started a thread: <span className="text-foreground">{started.title}</span> · <button type="button" className={LINK} onClick={() => navigate.toThread(started.threadId)}>Open</button></p>}
+    {told && <p role="status" className="min-w-0 text-xs text-muted-foreground">{told.note} · <button type="button" className={LINK} onClick={() => navigate.toThread(told.threadId)}>Main thread<span aria-hidden> ↗</span></button></p>}
+    {started && <p role="status" className="text-xs text-muted-foreground">Started a thread: <span className="text-foreground">{started.title}</span> · <button type="button" className={LINK} onClick={() => navigate.toThread(started.threadId)}>Go to thread<span aria-hidden> ↗</span></button></p>}
     {error && <p role="alert" className="text-xs text-destructive-text">{error}</p>}
     {warned && <SendWarning warned={warned} busy={busy} anyway={warned.anyway} what={plural(chosen.length)} onChoose={warned.retry} onCancel={() => setWarned(null)} />}
     {picking ? <fieldset className="space-y-2">

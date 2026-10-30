@@ -1,5 +1,6 @@
 import { memo, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentProps, type MutableRefObject } from "react";
 import { useRpc, useRealtime, useRealtimeConnectionState, useBbNavigate } from "@get-bb/plugin-sdk/app";
+import { panelDeclined, useAppPanel } from "../lib/app-panel";
 import { Toaster, toast } from "sonner";
 import type { SelectedLineRange } from "@pierre/diffs";
 import type { rpcContract } from "../src/rpc-contract";
@@ -11,7 +12,7 @@ import { sendBaselineOf, sendOf } from "../lib/send-baseline";
 import { notRunReason } from "../lib/trust";
 import { cn } from "../lib/utils";
 import { experimental_useCodeTheme } from "@get-bb/plugin-sdk/app";
-import { getCommentsFolded, getGithubThreadsInCode, getHideWhitespace, getNavOpen, getNavView, getNavWidth, getPanelWidth, getReviewState, getWrapLines, patchReviewState, setCommentsFolded, setGithubThreadsInCode, setHideWhitespace, setNavOpen as saveNavOpen, setNavView, setNavWidth as saveNavWidth, setPanelWidth as savePanelWidth, setWrapLines, type NavView, type PanelView } from "../lib/panel-state";
+import { getCommentsFolded, getGithubThreadsInCode, getHideWhitespace, getNavOpen, getNavView, getNavWidth, getPanelWidth, getReviewState, getWrapLines, patchReviewState, setCommentsFolded, setGithubThreadsInCode, setHideWhitespace, setNavOpen as saveNavOpen, setNavView, setNavWidth as saveNavWidth, setPanelWidth as savePanelWidth, setWrapLines, type NavView, type PanelView, type SideView } from "../lib/panel-state";
 import { OVERVIEW, WorkspaceProvider, type WorkspaceApi } from "../lib/workspace-context";
 import { currentFileOf, publishReviewTitle, setCurrentFile as storeCurrentFile, useCurrentFile } from "../lib/workspace-store";
 import { reviewIdentity } from "../lib/review-identity";
@@ -34,8 +35,8 @@ import { DiffViewer, diffLines, type FileViewFlags } from "./DiffViewer";
 import { DraftProvider, useDraft, type CommentPrefill } from "./DraftProvider";
 import { TrackedReview } from "./TrackedReview";
 import { NotRunButton } from "./NotRunBanner";
-import { AgentDock, agentDockMode, type DockInjection } from "./AgentDock";
-import { MainThreadPanel } from "./MainThreadPanel";
+import type { DockInjection } from "./AgentDock";
+import { REVIEW_TABS } from "./PanelTabs";
 import { recipientOf, useMainThread } from "../lib/main-thread";
 import { ReviewSkeleton, ReviewError } from "./ReviewSkeleton";
 import { AccountBar } from "./AccountBar";
@@ -236,8 +237,8 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   const [navOverlay, setNavOverlay] = useState(carry?.navOverlay ?? false);
   const [navWidth, setNavWidth] = useState(getNavWidth);
   const [panelWidth, setPanelWidth] = useState(getPanelWidth);
-  // The panel's view, which opens again only where it can dock.
-  const [panelView, setPanelView] = useState<PanelView | null>(persisted.panel ?? null);
+  // The panel's view, which opens again only where it can dock. The agent and the main thread are BB's tabs instead.
+  const [panelView, setPanelView] = useState<SideView | null>(persisted.panel === "agent" || persisted.panel === "main" ? null : persisted.panel ?? null);
   const [panelOverlay, setPanelOverlay] = useState(carry?.panelOverlay ?? false);
   const [commentsTab, setCommentsTab] = useState<CommentsTab>("drafts");
   // Comments was to open as the review opened, but couldn't beside the code: the "need you" pill offers it instead.
@@ -351,14 +352,30 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     showNav();
     requestAnimationFrame(() => rootRef.current?.querySelector<HTMLInputElement>("[data-find-box]")?.focus());
   }, [showNav]);
+  // The review agent and the main thread are tabs in BB's own side panel (components/PanelTabs.tsx); held in a ref, as
+  // BB doesn't say its controller keeps its identity, which would publish the workspace again on every render.
+  const panelNow = useAppPanel();
+  const appPanel = useRef(panelNow);
+  appPanel.current = panelNow;
+  /** Show BB's tab, leaving full screen, which BB's panel is outside; or say BB couldn't. */
+  const openTab = useCallback((tab: "agent" | "main") => {
+    if (document.fullscreenElement) void document.exitFullscreen().catch(() => {});
+    setCovering(false);
+    if (!appPanel.current?.openTab({ tab: REVIEW_TABS[tab] })) panelDeclined();
+  }, []);
+  // Asked for as the review opens, as by Ask the review agent on a thread's Review tab: BB's tab opens with it, once
+  // the page has its guide (below).
+  const askedTab = useRef(persisted.panel === "agent" || persisted.panel === "main" ? persisted.panel : null);
   // One overlay at a time: BB's title bar, outside the dimmed workspace, can open the panel over the chapters.
   const openPanel = useCallback((view: PanelView) => {
+    if (view === "agent" || view === "main") { openTab(view); return; }
     setPanelView(view);
     setPanelOverlay(!layoutRef.current.panelCanDock);
     setNavOverlay(false);
-  }, []);
+  }, [openTab]);
   const closePanel = useCallback(() => { setPanelView(null); setPanelOverlay(false); }, []);
-  const togglePanel = useCallback((view: PanelView) => shownPanelRef.current === view ? closePanel() : openPanel(view), [openPanel, closePanel]);
+  // BB's tabs only open from here: their buttons close BB's panel themselves (components/TitleBarControls.tsx).
+  const togglePanel = useCallback((view: PanelView) => view !== "agent" && view !== "main" && shownPanelRef.current === view ? closePanel() : openPanel(view), [openPanel, closePanel]);
   const openComments = useCallback((tab: CommentsTab) => { setCommentsTab(tab); openPanel("comments"); }, [openPanel]);
   // The draft shows its box or chat: Comments, unless the draft is showing already, in Finish or Comments' Drafts.
   const openDraftView = useCallback((view: PanelView) => {
@@ -1127,11 +1144,11 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     else onSelectFile(next.chapter, next.file);
   }, [targetKey, sections, activeId, activeFiles, views, onSelectFile, notReached]);
   const chapterId = activeSection?.id as string | undefined;
-  // Popped out, the agent takes the question where it is, its box focused: the side panel would only say it's popped out.
+  // The question goes to BB's Review agent tab, through the workspace store, which opens with it.
   const ask = useCallback((context: AgentMessageContext, quote?: string) => {
     setInjection({ context, nonce: Date.now(), ...(quote ? { quote } : {}) });
-    if (layoutRef.current.mode !== "tablet" || agentDockMode(targetKey) !== "widget") openPanel("agent");
-  }, [openPanel, targetKey]);
+    openPanel("agent");
+  }, [openPanel]);
   const askAgent = useCallback((context?: AgentMessageContext, quote?: string) => ask(context ?? { file: currentFileOf(targetKey), chapterId }, quote), [ask, targetKey, chapterId]);
   const showFeedback = useMemo(() => isPr ? () => openComments("feedback") : undefined, [isPr, openComments]);
   // The diff remounts after the Overview; it shouldn't jump back to an old comment.
@@ -1412,6 +1429,8 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     return () => document.removeEventListener("keydown", onKeyDown);
   }, [targetKey]);
 
+  // Which review this is, for BB's title bar and the window's title, whatever the page shows.
+  const identity = useMemo(() => review ? reviewIdentity(review, guide?.title) : null, [review, guide?.title]);
   const api = useMemo((): WorkspaceApi | null => guide ? {
     targetKey, review: review ?? { targetKey }, guide, sections, activeId, go: selectChapter, layout,
     nav: { open: layout.nav === "docked" || layout.nav === "overlay", toggle: toggleNav, find: findInReview, view: navView, setView: changeNavView },
@@ -1422,11 +1441,18 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     reveal: showComment, showLocation, followUp, askAgent, openFinish: showDraftSummary,
     fullscreen: { available: canFullscreen, on: fullscreen, toggle: toggleFullscreen }, leave,
     snooze, newCommits, rebuild, reload: load, pinnable: preferences?.preferences.threadListReviews === true, showShortcuts,
-    shortcuts: shortcutsOn, mainThread,
-  } : null, [targetKey, review, guide, sections, activeId, selectChapter, layout, toggleNav, findInReview, navView, changeNavView, shownPanel, openPanel, togglePanel, closePanel, views, toggleViewed, markChapterViewed, nextUnviewed, foldAllFiles, baselineSha, compareFrom, pickCompare, flip, since, sinceOnly, sinceError, sinceWhat, diffLayout, toggleLayout, newFiles, changeNewFiles, markdownFiles, changeMarkdownFiles, unifiedOnly, wrapLines, changeWrap, hideWhitespace, changeHideWhitespace, showThreads, setShowThreads, commentsFolded, changeCommentsFolded, showComment, showLocation, followUp, askAgent, showDraftSummary, canFullscreen, fullscreen, toggleFullscreen, leave, snooze, newCommits, rebuild, load, preferences, showShortcuts, shortcutsOn, mainThread]);
+    shortcuts: shortcutsOn, mainThread, patch, injection, reviewId: identity?.id,
+  } : null, [targetKey, review, guide, sections, activeId, selectChapter, layout, toggleNav, findInReview, navView, changeNavView, shownPanel, openPanel, togglePanel, closePanel, views, toggleViewed, markChapterViewed, nextUnviewed, foldAllFiles, baselineSha, compareFrom, pickCompare, flip, since, sinceOnly, sinceError, sinceWhat, diffLayout, toggleLayout, newFiles, changeNewFiles, markdownFiles, changeMarkdownFiles, unifiedOnly, wrapLines, changeWrap, hideWhitespace, changeHideWhitespace, showThreads, setShowThreads, commentsFolded, changeCommentsFolded, showComment, showLocation, followUp, askAgent, showDraftSummary, canFullscreen, fullscreen, toggleFullscreen, leave, snooze, newCommits, rebuild, load, preferences, showShortcuts, shortcutsOn, mainThread, patch, injection, identity?.id]);
 
-  // Which review this is, for BB's title bar and the window's title, whatever the page shows.
-  const identity = useMemo(() => review ? reviewIdentity(review, guide?.title) : null, [review, guide?.title]);
+  // The tab asked for as the review opened, once its page has the guide, and, for Main thread, a main thread: BB lists
+  // the tab once it reads the published page, a frame later.
+  useEffect(() => {
+    const asked = askedTab.current;
+    if (!asked || !api) return;
+    askedTab.current = null;
+    if (asked === "main" && !api.mainThread) return;
+    requestAnimationFrame(() => { if (rootRef.current?.isConnected) appPanel.current?.openTab({ tab: REVIEW_TABS[asked] }); });
+  }, [api]);
   const { id, name, line } = identity ?? {};
   useEffect(() => id && name && line ? publishReviewTitle(targetKey, { id, name, line }) : undefined, [targetKey, id, name, line]);
   // A local review that became its PR's while it's open, as Open PR does: a notice says so, as its id changes
@@ -1500,6 +1526,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
         rootRef.current = el;
         setRootEl(el);
       }}
+      data-review-root={targetKey}
       className={cn("@container/review relative flex h-full min-h-0 min-w-0 flex-col bg-background pt-[var(--gr-safe-top,0px)] pr-[var(--gr-safe-right,0px)] pl-[var(--gr-safe-left,0px)]", sheet ? "pb-[var(--gr-kb,0px)]" : "pb-[max(var(--gr-safe-bottom,0px),var(--gr-kb,0px))]", covering && "fixed inset-0 m-0 h-auto w-auto overflow-hidden border-0 text-foreground")}
       style={{ backgroundColor: "rgb(from var(--background) r g b / 1)" }}
     >
@@ -1565,8 +1592,6 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
         <SidePanel targetKey={targetKey} placement={layout.panel} sheet={sheet} view={shownPanel} width={panelWidth} maxWidth={Math.min(PANEL_WIDTH.max, paneWidth - READER_MIN - (layout.nav === "docked" ? navWidth : 0))} onWidth={setPanelWidth} onWidthDone={savePanelWidth} onClose={closePanel} onBack={() => { openPanel("comments"); focusComments(targetKey); }}>
           <CommentsView shown={shownPanel === "comments" || shownPanel === "finish"} finish={shownPanel === "finish"} tab={commentsTab} onTab={setCommentsTab} revision={revision} onShowThread={showThread} />
           <FinishView shown={shownPanel === "finish"} revision={revision} />
-          <AgentDock targetKey={targetKey} reviewId={identity?.id} patch={patch} injection={injection} container={rootEl} active={shownPanel === "agent"} popOut={layout.mode === "tablet"} closeLabel={sheet ? "Close" : undefined} onDock={() => openPanel("agent")} onCollapse={closePanel} />
-          <MainThreadPanel active={shownPanel === "main"} reviewId={identity?.id} closeLabel={sheet ? "Close" : undefined} onClose={closePanel} />
         </SidePanel>
         {/* Over the code, a side dims the rest; a tap there closes it. */}
         {(layout.nav === "overlay" || layout.panel === "overlay") && <div aria-hidden className="absolute inset-0 z-30 bg-black/40 animate-in fade-in duration-200 motion-reduce:animate-none" onClick={() => { setNavOverlay(false); if (layout.panel === "overlay") closePanel(); }} />}

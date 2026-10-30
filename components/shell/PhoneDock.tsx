@@ -1,10 +1,12 @@
 import { useEffect, useLayoutEffect, useMemo, useState } from "react";
+import { useBbNavigate } from "@get-bb/plugin-sdk/app";
+import { useAppPanel } from "../../lib/app-panel";
 import { useDraftStatus } from "../../lib/draft-status";
 import { reviewIdentity, type ReviewIdentity } from "../../lib/review-identity";
 import { TEXT_FIELD } from "../../lib/review-shortcuts";
 import { cn } from "../../lib/utils";
 import { useWorkspace } from "../../lib/workspace-context";
-import { useNeedsYou } from "../../lib/workspace-store";
+import { useNeedsYou, useTabShown } from "../../lib/workspace-store";
 import { useFullscreenPortalContainer } from "../../lib/portal-scope";
 import { Button } from "../ui/button";
 import { Hint } from "../ui/hint";
@@ -16,9 +18,12 @@ import { sidePanelId } from "./SidePanel";
 import { OPAQUE } from "./side-parts";
 import { navigatorId } from "./TopBand";
 
-/** Whether the focus is in a box you type in, which brings up a phone's keyboard. */
-function typingIn(el: Element | null): boolean {
-  return el instanceof HTMLElement && (el.isContentEditable || !!el.closest(TEXT_FIELD));
+/**
+ * Whether the focus is in a box you type in, in the review (`root`), which brings up a phone's keyboard; not one in BB's
+ * side panel, as the review agent's, which covers the page anyway.
+ */
+function typingIn(el: Element | null, root: Element | null): boolean {
+  return el instanceof HTMLElement && (el.isContentEditable || !!el.closest(TEXT_FIELD)) && !!root?.contains(el);
 }
 
 /**
@@ -80,27 +85,33 @@ function DockId({ identity }: { identity: ReviewIdentity }) {
 }
 
 /**
- * A phone's controls, at the bottom: All reviews, the chapter you're on, Comments, the agent, the main thread (with
- * one), and Full screen. The chapter, Comments, the agent and the main thread are the tabs of the one sheet above it: the open one is pressed, and pressing it
- * again closes the sheet. It makes way while you type, for the keyboard, and for the lines you select (`hidden`).
+ * A phone's controls, at the bottom: All reviews, the chapter you're on, Comments, Ask agent, Main thread (with one),
+ * and Full screen. The chapter and Comments are the tabs of the one sheet above it: the open one is pressed, and pressing
+ * it again closes the sheet. Ask agent opens BB's side panel over the page; Main thread goes to the main thread. It
+ * makes way while you type in the review, for the keyboard, and for the lines you select (`hidden`).
  */
 export function PhoneDock({ hidden }: { hidden: boolean }) {
   const { targetKey, review, guide, sections, activeId, files, nav, panel, askAgent, fullscreen, leave, mainThread } = useWorkspace();
+  const navigate = useBbNavigate();
+  const appPanel = useAppPanel();
+  const agentShown = useTabShown(targetKey, "agent") && !fullscreen.on;
   // A phone has no band, and in full screen no title bar of BB's: the chapter's tab says which review this is.
   const identity = useMemo(() => reviewIdentity(review, guide.title), [review, guide.title]);
   const status = useDraftStatus(targetKey);
   const needsYou = useNeedsYou(targetKey);
   const container = useFullscreenPortalContainer();
-  const [typing, setTyping] = useState(() => typingIn(document.activeElement));
+  const [dock, setDock] = useState<HTMLDivElement | null>(null);
+  const [typing, setTyping] = useState(false);
   useEffect(() => {
-    const update = () => setTyping(typingIn(document.activeElement));
+    const update = () => setTyping(typingIn(document.activeElement, dock?.closest("[data-review-root]") ?? null));
+    update();
     document.addEventListener("focusin", update);
     document.addEventListener("focusout", update);
     return () => {
       document.removeEventListener("focusin", update);
       document.removeEventListener("focusout", update);
     };
-  }, []);
+  }, [dock]);
   const index = sections.findIndex((section) => section.id === activeId);
   const chapter = sections[index];
   const chapterFiles = chapter?.diffs.map((diff) => diff.file) ?? [];
@@ -109,7 +120,6 @@ export function PhoneDock({ hidden }: { hidden: boolean }) {
   const comments = panel.view === "comments" || panel.view === "finish";
   const unsent = status?.comments ?? 0;
   const away = hidden || typing;
-  const [dock, setDock] = useState<HTMLDivElement | null>(null);
   useToastsAbove(away ? null : dock);
   const tab = "h-11 min-w-11 shrink-0 px-0 text-muted-foreground";
   return (
@@ -154,11 +164,12 @@ export function PhoneDock({ hidden }: { hidden: boolean }) {
         {unsent > 0 && <span aria-hidden className="text-xs font-medium tabular-nums">{unsent}<span className="@max-[400px]/review:hidden"> to send</span></span>}
         {needsYou > 0 && <span aria-hidden className="absolute right-1.5 top-2 size-2 rounded-full bg-primary ring-2 ring-background" />}
       </Button>
-      <Button variant="ghost" aria-label="Ask agent" aria-pressed={panel.view === "agent"} aria-controls={sidePanelId(targetKey)} className={tab} onClick={() => panel.view === "agent" ? panel.close() : askAgent()}>
+      {/* The agent opens in BB's side panel, over the page on a phone, whose tabs include the main thread's. */}
+      <Button variant="ghost" aria-label="Ask agent" aria-pressed={agentShown} className={tab} onClick={() => agentShown ? appPanel?.close() : askAgent()}>
         <Icon name="Sparkles" className="text-(--ansi-13)" aria-hidden />
       </Button>
-      {mainThread && <Hint label={`Main thread${mainThread.title ? `: ${mainThread.title}` : ""}`} container={container}>
-        <Button variant="ghost" aria-label="Main thread" aria-pressed={panel.view === "main"} aria-controls={sidePanelId(targetKey)} className={tab} onClick={() => panel.view === "main" ? panel.close() : panel.open("main")}>
+      {mainThread && <Hint label={`Go to the main thread${mainThread.title ? `, ${mainThread.title}` : ""}`} container={container}>
+        <Button variant="ghost" aria-label="Go to main thread" className={tab} onClick={() => navigate.toThread(mainThread.threadId)}>
           <Icon name="Code" aria-hidden />
         </Button>
       </Hint>}

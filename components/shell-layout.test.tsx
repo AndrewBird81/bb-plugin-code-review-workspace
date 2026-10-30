@@ -4,6 +4,7 @@ import { act, cleanup, fireEvent, waitFor, within } from "@testing-library/react
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import { defaultPreferences } from "../src/preferences";
 import { getNavWidth, getPanelWidth, patchReviewState, setPanelWidth } from "../lib/panel-state";
+import { panelTabCalls } from "./panel-tabs.test-support";
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }));
 vi.mock("@pierre/diffs/react", () => ({ FileDiff: ({ fileDiff }: any) => <pre data-testid="filediff">{fileDiff.additionLines.join("\n")}</pre> }));
@@ -63,7 +64,7 @@ async function renderWorkspace({ opened = true, notes = "" }: { opened?: boolean
   return { slot, comments };
 }
 type Slot = Awaited<ReturnType<typeof renderWorkspace>>["slot"];
-const panel = (slot: Slot) => slot.queryByRole("complementary", { name: "Comments and agent" });
+const panel = (slot: Slot) => slot.queryByRole("complementary", { name: "Comments and Finish review" });
 const chapters = (slot: Slot) => slot.queryByRole("navigation", { name: "Chapters" });
 
 test("the panel docks where the code keeps 560px, and the chapters dock beside it with room for both", async () => {
@@ -313,7 +314,7 @@ test("the chapters hidden with the focus in them, as when the pane gets too narr
   slot.lifecycle.unmount();
 });
 
-test("an older version's saved state opens at its chapter and scroll position, with its open tool as the docked panel", async () => {
+test("an older version's saved state opens at its chapter and scroll position, with its open agent in BB's side panel", async () => {
   fakePane(1400);
   const errors = vi.spyOn(console, "error");
   localStorage.setItem("gr:panelstate", JSON.stringify({
@@ -327,7 +328,8 @@ test("an older version's saved state opens at its chapter and scroll position, w
   const { slot } = await renderWorkspace({ opened: false });
   await slot.findByText("bb");
   expect(scrolled).toContain(120);
-  expect(within(panel(slot)!).getByRole("region", { name: "Review agent" })).toBeTruthy();
+  expect(panelTabCalls(slot)).toEqual(["openTab:agent"]);
+  expect(panel(slot)).toBeNull();
   expect(slot.getByRole("separator", { name: "Resize chapters" }).getAttribute("aria-valuenow")).toBe("340");
   expect(errors).not.toHaveBeenCalled();
   slot.lifecycle.unmount();

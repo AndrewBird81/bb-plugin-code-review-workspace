@@ -233,11 +233,11 @@ test("with every knob off, the Overview, a chapter, Comments, Finish review, the
   expect(page.inspection.rpcCalls.some((call) => call.method === "getCodeOwners")).toBe(false);
   // No key does anything, and none is named.
   for (const key of ["j", "n", "c", "?"]) fireEvent.keyDown(document.body, { key });
-  expect(page.queryByRole("complementary", { name: "Comments and agent" })).toBeNull();
+  expect(page.queryByRole("complementary", { name: "Comments and Finish review" })).toBeNull();
   expect(page.queryByRole("dialog", { name: "Keyboard shortcuts" })).toBeNull();
   expect(Array.from(page.baseElement.querySelectorAll("kbd")).filter((key) => key.textContent === "/")).toHaveLength(0);
   fireEvent.click(commands.getByRole("button", { name: "Comments" }));
-  const panel = within(await page.findByRole("complementary", { name: "Comments and agent" }));
+  const panel = within(await page.findByRole("complementary", { name: "Comments and Finish review" }));
   await panel.findByText("Upper case reads as a constant.");
   fireEvent.click(await commands.findByRole("button", { name: /^Finish review:/ }));
   await page.findByRole("heading", { name: "Finish review" });
@@ -261,7 +261,7 @@ test("with every knob off, a comment on code the PR didn't change shows no Pre-e
   const { page, bar } = await renderReview(allKnobsOff, { getDraft });
   const commands = within(await bar.findByRole("group", { name: "Review commands" }));
   fireEvent.click(await commands.findByRole("button", { name: "Comments" }));
-  const panel = within(await page.findByRole("complementary", { name: "Comments and agent" }));
+  const panel = within(await page.findByRole("complementary", { name: "Comments and Finish review" }));
   fireEvent.click(await panel.findByRole("button", { name: "Agent draft · not submitted · src/a.ts:2 · Blocking" }));
   fireEvent.click(panel.getByRole("button", { name: /^Expand Draft comment on src\/a\.ts:2/ }));
   await panel.findByRole("button", { name: "Remove comment on src/a.ts:2" });
@@ -413,7 +413,7 @@ test("with every knob off, Finish review on a local review a thread started offe
   const { page, bar } = await renderReview(allKnobsOff, { getReviewBundle: localBundle({ sourceThreadId: "coder", sent }), getSourceThread });
   const commands = within(await bar.findByRole("group", { name: "Review commands" }));
   fireEvent.click(commands.getByRole("button", { name: "Comments" }));
-  const panel = within(await page.findByRole("complementary", { name: "Comments and agent" }));
+  const panel = within(await page.findByRole("complementary", { name: "Comments and Finish review" }));
   await panel.findByText("Upper case reads as a constant.");
   fireEvent.click(panel.getByRole("button", { name: /^Expand .*src\/a\.ts:2/ }));
   expect(panel.getByRole("article", { name: "Draft comment on src/a.ts:2" }).textContent).not.toContain("Sent to");
@@ -455,6 +455,6 @@ test("with Commands in BB's command palette off, the palette lists none of them"
   const context = { threadId: null, projectId: null, openPanel: () => false };
   const overlay = app.appOverlays.find((registration) => registration.id === "needs-review")!;
   const slot = renderSlot(overlay, {}, { rpc: settingsOffRpc(allKnobsOff) as any, sidebarThreads: { status: "ready", threads: [] } });
-  await waitFor(() => expect(commands.map((command) => command.isAvailable?.(context))).toEqual([false, false, false]));
+  await waitFor(() => expect(commands.map((command) => command.isAvailable?.(context))).toEqual([false, false, false, false]));
   slot.lifecycle.unmount();
 });

@@ -53,8 +53,16 @@ BB_E2E_URL=http://127.0.0.1:4331 npm test -- --project e2e
 `BB_E2E_URL` must point at a BB on this machine (`127.0.0.1`, `localhost`, or `[::1]`): the test writes reviews and settings to the BB it reaches.
 
 - The browser uses the running BB shell and built plugin UI. Code Review Workspace RPC requests are intercepted into the official SDK test host with real temporary SQLite. GitHub and agent calls are stubbed at their external boundaries, so no real PR review or agent thread is created.
-- The flow covers settings persistence, the Overview and Start reading, Comments from BB's title bar and its state across a reload, adding a comment by line and editing it in the code, keyboard tooltips, Finish review's summary, verdict, and private notes, Finish in a 390px phone's Comments sheet above the dock, full screen's verdict and Submit, reload, starting a review agent conversation with file context, Pop out and Dock keeping a half-typed message, All reviews' sections, and merge archival.
+- The flow covers settings persistence, the Overview and Start reading, Comments from BB's title bar and its state across a reload, adding a comment by line and editing it in the code, keyboard tooltips, Finish review's summary, verdict, and private notes, Finish in a 390px phone's Comments sheet above the dock, full screen's verdict and Submit, reload, starting a review agent conversation with file context in BB's side panel, its half-typed message kept as the panel closes and Comments opens beside it, All reviews' sections, and merge archival.
 - Without `BB_E2E_URL`, this test is skipped.
+
+A third, `e2e/native-panel.test.ts`, goes between a review and its main thread: Main thread ↗, Show beside review, the thread's Review tab and Ask the review agent, and the switch key. BB draws a thread's page and chat only for a real thread, so it needs a test BB with a machine of its own (`bb-host-daemon join` under the test BB's HOME), a project, and a thread in it, whose id `BB_E2E_THREAD` gives; no agent needs to run:
+
+```sh
+BB_E2E_URL=http://127.0.0.1:4331 BB_E2E_THREAD=thr_… npm test -- --project e2e
+```
+
+Without `BB_E2E_THREAD`, it is skipped. Both tests close BB's side panel first: BB keeps it open or closed on the server, across sessions.
 
 A second browser test checks Needs You notifications: a finished guide's popup, opening the review from it, the retained inbox row, and Dismiss. It needs a separate isolated test BB on port 4333 with Needs You installed, and saves a screenshot to `docs/verification/` (gitignored):
 

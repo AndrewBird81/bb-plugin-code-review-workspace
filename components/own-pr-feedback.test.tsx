@@ -8,6 +8,7 @@ import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import { toast } from "sonner";
 import { defaultPreferences } from "../src/preferences";
 import { patchReviewState } from "../lib/panel-state";
+import { panelTabCalls, renderPanelTab } from "./panel-tabs.test-support";
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() }, Toaster: () => null }));
 vi.mock("@pierre/diffs/react", () => ({ FileDiff: () => <div data-testid="filediff" /> }));
@@ -57,7 +58,7 @@ async function renderReview(review: Record<string, unknown>, rpc: Record<string,
   const calls = handlers(review, rpc);
   const page = renderSlot(app.navPanels[0]!, { subPath: review.targetKey as string }, { rpc: calls as any, sidebarThreads: { threads: [] } as any });
   await page.findByTestId("filediff");
-  return { page, rpc: calls };
+  return { app, page, rpc: calls };
 }
 type Page = Awaited<ReturnType<typeof renderReview>>["page"];
 async function openComments(page: Page) {
@@ -122,11 +123,14 @@ test("Send in Needs you takes everything on GitHub waiting for you, and a sent o
 test("Not pushed yet, from the compare menu, shows what the fixer's folder has that the PR's head doesn't, beside the diff", async () => {
   const getNotPushed = vi.fn(async () => ({ state: "available", patch: "diff --git a/src/a.ts b/src/a.ts\n--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1 +1,2 @@\n aa\n+retry()\n", base: SHA, branch: "bb/fixes-thr_x", machine: "MaxBook", threadId: "fresh", hidden: [{ path: ".env", reason: "secret" }], notice: null }));
   const fixer = { ...ownPr, mainThread: { threadId: "fresh", environmentId: "env_fix", origin: "fresh", since: 1, branch: "bb/fixes-thr_x" } };
-  const { page } = await renderReview(fixer, { getNotPushed, getSourceThread: () => ({ thread: { threadId: "fresh", title: "Fixes for web#12", state: "open", machine: "MaxBook" } }) });
+  const { app, page, rpc } = await renderReview(fixer, { getNotPushed, getSourceThread: () => ({ thread: { threadId: "fresh", title: "Fixes for web#12", state: "open", machine: "MaxBook" } }) });
   fireEvent.click(await page.findByRole("button", { name: /^Show changes: / }));
   const menu = within(await page.findByRole("menu", { name: "Show changes" }));
   fireEvent.click(await menu.findByRole("menuitem", { name: /^Not pushed yet/ }));
-  const tab = await page.findByRole("region", { name: "Main thread" });
+  // BB's side panel opens on the Main thread tab, which opens on Not pushed yet.
+  expect(panelTabCalls(page)).toEqual(["openTab:main"]);
+  const slot = renderPanelTab(app, "main", "pr-12", { rpc: rpc as any, sidebarThreads: { threads: [] } as any });
+  const tab = await slot.findByRole("region", { name: "Main thread" });
   await waitFor(() => expect(within(tab).getByRole("tab", { name: "Not pushed yet" }).getAttribute("aria-selected")).toBe("true"));
   expect(getNotPushed).toHaveBeenCalledWith({ targetKey: "pr-12" });
   const panel = within(within(tab).getByRole("tabpanel", { name: "Not pushed yet" }));
@@ -140,6 +144,7 @@ test("Not pushed yet, from the compare menu, shows what the fixer's folder has t
   // Back to the chat, by keyboard.
   fireEvent.keyDown(within(tab).getByRole("tab", { name: "Not pushed yet" }), { key: "ArrowLeft" });
   await waitFor(() => expect(within(tab).getByRole("tab", { name: "Chat" }).getAttribute("aria-selected")).toBe("true"));
+  slot.lifecycle.unmount();
   page.lifecycle.unmount();
 });
 

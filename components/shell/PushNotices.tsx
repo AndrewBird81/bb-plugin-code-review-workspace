@@ -7,6 +7,7 @@ import { pushFlagText } from "../../lib/push";
 import { cn } from "../../lib/utils";
 import { TOUCH_CONTROL } from "../touch";
 import { Button } from "../ui/button";
+import { Icon } from "../ui/icon";
 import type { Notice } from "./ReviewNotices";
 
 type Rpc = ReturnType<typeof useRpc<typeof rpcContract>>;
@@ -60,7 +61,7 @@ export function usePushNotices(targetKey: string, review: Pick<ReviewLifecycle, 
       setBusy(false);
     }
   };
-  const button = (label: string, onClick: () => void, warning: boolean) => <Button variant="outline" size="sm" className={cn("h-7", warning && "border-warning/40", TOUCH_CONTROL)} disabled={busy} onClick={onClick}>{label}</Button>;
+  const button = (label: ReactNode, onClick: () => void, warning: boolean) => <Button variant="outline" size="sm" className={cn("h-7", warning && "border-warning/40", TOUCH_CONTROL)} disabled={busy} onClick={onClick}>{label}</Button>;
   const gotIt = (warning: boolean) => button("Got it", () => void act(() => rpc.call("dismissPush", { targetKey }))(), warning);
   if (run.flag === "unrequested") {
     return [{ id: "push-flagged", tone: "info", icon: "GitCommit", role: "status", label: "New commits on GitHub", firstLine: true, text: <Marked text={text} />,
@@ -70,7 +71,7 @@ export function usePushNotices(targetKey: string, review: Pick<ReviewLifecycle, 
   return [{ id: "push-flagged", tone: "warning", icon: "AlertTriangle", role: "alert", label: "Push not on GitHub", firstLine: true, text: <Marked text={text} />,
     action: <span className="flex flex-wrap gap-2">
       {button("Push again", () => void act(() => rpc.call("push", { targetKey }))(), true)}
-      {button("Open main thread", () => navigate.toThread(run.threadId), true)}
+      {button(<>Main thread<Icon name="ArrowUpRight" className="size-3.5" aria-hidden /></>, () => navigate.toThread(run.threadId), true)}
       {gotIt(true)}
     </span> }];
 }

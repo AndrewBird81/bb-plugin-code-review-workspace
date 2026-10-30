@@ -5,6 +5,7 @@ import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import { defaultPreferences } from "../src/preferences";
 import { patchReviewState } from "../lib/panel-state";
 import { setNeedsYou } from "../lib/workspace-store";
+import { panelTabCalls } from "./panel-tabs.test-support";
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }));
 // Each diff's new lines, and a pick of line 1 as pierre reports it.
@@ -111,7 +112,7 @@ test("Esc, ✕ and a tap on the code above close the sheet, and the focus goes b
   tap(within(slot.getByRole("dialog", { name: "Chapters" })).getByRole("button", { name: "Close" }));
   expect(slot.queryByRole("dialog")).toBeNull();
   await waitFor(() => expect(document.activeElement).toBe(tab));
-  fireEvent.click(dock.getByRole("button", { name: "Ask agent" }));
+  fireEvent.click(dock.getByRole("button", { name: /^Comments/ }));
   fireEvent.click(slot.container.querySelector<HTMLElement>(".bg-black\\/40")!);
   expect(slot.queryByRole("dialog")).toBeNull();
   slot.lifecycle.unmount();
@@ -201,18 +202,17 @@ test("while the dock shows, BB's toasts at the page's bottom sit above it, and d
   expect(rule()).toBeNull();
 });
 
-test("the agent's sheet has no Pop out, and an agent popped out on a bigger screen shows in it", async () => {
-  localStorage.setItem("gr:agentdock:pr-42", JSON.stringify({ mode: "widget", rect: { x: 10, y: 10, w: 300, h: 400 } }));
+test("the dock's Ask agent opens BB's side panel on the Review agent tab, not a sheet; typing there leaves the dock in place", async () => {
   const { slot, dock } = await renderPhone();
+  const group = slot.getByRole("group", { name: "Review commands" });
   fireEvent.click(dock.getByRole("button", { name: "Ask agent" }));
-  const sheet = within(slot.getByRole("dialog", { name: "Review agent" }));
-  expect(await sheet.findByRole("textbox", { name: "Ask the agent" })).toBeTruthy();
-  expect(sheet.queryByRole("button", { name: "Pop out" })).toBeNull();
-  expect(sheet.queryByRole("button", { name: "Dock" })).toBeNull();
-  fireEvent.click(sheet.getByRole("button", { name: "Close" }));
+  expect(panelTabCalls(slot)).toEqual(["openTab:agent"]);
   expect(slot.queryByRole("dialog")).toBeNull();
-  // Kept for where it can pop out.
-  expect(JSON.parse(localStorage.getItem("gr:agentdock:pr-42")!).mode).toBe("widget");
+  // A box in BB's panel, outside the review: the dock makes way only for the review's own.
+  const outside = document.body.appendChild(document.createElement("textarea"));
+  act(() => outside.focus());
+  expect(group.hidden).toBe(false);
+  outside.remove();
   slot.lifecycle.unmount();
 });
 

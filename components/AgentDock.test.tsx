@@ -8,34 +8,35 @@ import { findPicker } from "./provider-picker.test-support";
 
 installTestPluginRuntime();
 afterEach(cleanup);
-beforeEach(() => localStorage.clear());
+beforeEach(async () => { localStorage.clear(); (await import("./AgentDock")).forgetAgentDrafts(); });
 
 const patch = ["diff --git a/x.ts b/x.ts", "--- a/x.ts", "+++ b/x.ts", "@@ -1,3 +1,4 @@", " a", "-b", "+b2", "+c", " d", ""].join("\n");
 const codex = { providerId: "codex", model: "gpt-6-astra", reasoningLevel: "low", serviceTier: "default" };
 const unstarted = () => ({ threadId: null, legacy: [], defaults: codex });
 
-/** Renders the dock with a way to send it selections, as the review workspace does. */
-async function renderDock(props: Record<string, unknown>, rpc: Record<string, any>, options: Record<string, unknown> = {}) {
+// Each ask is taken once per review, whichever dock takes it: every test's are new.
+let nonce = 0;
+
+/** Renders the dock with a way to send it selections, as the review workspace does; `asked`, one made before it mounts. */
+async function renderDock(props: Record<string, unknown>, rpc: Record<string, any>, options: Record<string, unknown> = {}, asked?: DockInjection) {
   const { AgentDock } = await import("./AgentDock");
   let setInjection!: (injection: DockInjection) => void;
   function Workspace(props: any) {
-    const [injection, set] = useState<DockInjection>();
+    const [injection, set] = useState<DockInjection | undefined>(asked);
     setInjection = set;
     return <AgentDock {...props} injection={injection} />;
   }
   const slot = renderSlot({ component: Workspace }, { targetKey: "pr-1", patch, ...props }, { rpc, ...options });
-  let nonce = 0;
   return { slot, inject: (context: DockInjection["context"], quote?: string) => act(() => setInjection({ context, nonce: ++nonce, ...(quote ? { quote } : {}) })) };
 }
 
-test("the assistant starts in the review panel, with an optional widget", async () => {
+test("the agent starts on its first message, under a heading, with no widget to pop out or ✕ of its own: BB's panel has one", async () => {
   await renderDock({}, { getConversation: unstarted });
   await screen.findByText("Ask about this change.");
-  expect(screen.getByRole("region", { name: "Review agent" })).toBeTruthy();
-  // Its header is a heading, as when it's popped out.
   expect(within(screen.getByRole("region", { name: "Review agent" })).getByRole("heading", { level: 2, name: "Review agent" })).toBeTruthy();
   expect(screen.queryByRole("dialog")).toBeNull();
-  expect(screen.getByRole("button", { name: "Pop out" })).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Pop out" })).toBeNull();
+  expect(screen.queryByRole("button", { name: /^Close/ })).toBeNull();
   expect(screen.queryByRole("button", { name: "New conversation" })).toBeNull();
 });
 
@@ -116,50 +117,47 @@ test("a quote put in the first message's box marks the message inserted while an
   }
 });
 
-test("the agent's header names its review by its id, docked or popped out over the code", async () => {
+test("the agent's header names its review by its id", async () => {
   await renderDock({ reviewId: "api#4512" }, { getConversation: unstarted });
   await screen.findByText("Ask about this change.");
   expect(within(screen.getByRole("region", { name: "Review agent" })).getByRole("heading", { level: 2 }).textContent).toBe("Review agent·api#4512");
-  fireEvent.click(screen.getByRole("button", { name: "Pop out" }));
-  const widget = await screen.findByRole("dialog", { name: "Review agent · api#4512" });
-  expect(within(widget).getByRole("heading", { level: 2 }).textContent).toBe("Review agent·api#4512");
 });
 
-test("the popped-out agent moves with the arrow keys from its mark, as it resizes from its corner", async () => {
-  await renderDock({}, { getConversation: unstarted });
+test("an ask made before the tab mounts, as the ask that opens BB's panel is, is taken as it opens, once", async () => {
+  const asked = { context: { file: "src/a.ts", chapterId: "c1" }, nonce: ++nonce };
+  const first = await renderDock({}, { getConversation: unstarted }, {}, asked);
+  expect(await screen.findByText("a.ts")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Clear selection context" }));
+  first.slot.lifecycle.unmount();
+  // BB mounting the tab again doesn't ask again.
+  await renderDock({}, { getConversation: unstarted }, {}, asked);
   await screen.findByText("Ask about this change.");
-  fireEvent.click(screen.getByRole("button", { name: "Pop out" }));
-  const widget = await screen.findByRole("dialog", { name: "Review agent" });
-  const place = () => [widget.style.left, widget.style.top, widget.style.width, widget.style.height];
-  const [left, top] = place().map((value) => parseFloat(value));
-  const move = within(widget).getByRole("button", { name: "Move agent widget" });
-  fireEvent.keyDown(move, { key: "ArrowLeft" });
-  fireEvent.keyDown(move, { key: "ArrowUp" });
-  expect(place()).toEqual([`${left - 20}px`, `${top - 20}px`, "384px", "460px"]);
-  fireEvent.keyDown(within(widget).getByRole("separator", { name: "Resize agent widget" }), { key: "ArrowRight" });
-  expect(place()).toEqual([`${left - 20}px`, `${top - 20}px`, "404px", "460px"]);
-  // Docked, there's nothing to move.
-  fireEvent.click(within(widget).getByRole("button", { name: "Dock" }));
-  expect(screen.queryByRole("button", { name: "Move agent widget" })).toBeNull();
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  expect(screen.queryByText("a.ts")).toBeNull();
 });
 
-test("a draft question and selection survive popping out and docking, including fullscreen", async () => {
-  const container = document.createElement("div"); document.body.appendChild(container);
-  const onDock = vi.fn();
-  const { slot, inject } = await renderDock({ container, onDock }, { getConversation: unstarted });
+test("a first message being written, and its context, survive the tab mounting again, as BB 0.48 mounts it each time its panel opens", async () => {
+  const first = await renderDock({ targetKey: "pr-kept" }, { getConversation: unstarted });
   await screen.findByText("Ask about this change.");
-  inject({ file: "src/a.ts", chapterId: "c1" });
-  fireEvent.change(screen.getByRole("textbox", { name: "Ask the agent" }), { target: { value: "Is this safe?" } });
-  fireEvent.click(screen.getByRole("button", { name: "Pop out" }));
-  const widget = await screen.findByRole("dialog", { name: "Review agent" });
-  expect(container.contains(widget)).toBe(true);
-  expect((screen.getByRole("textbox", { name: "Ask the agent" }) as HTMLTextAreaElement).value).toBe("Is this safe?");
-  fireEvent.click(within(widget).getByRole("button", { name: "Dock" }));
-  expect(screen.queryByRole("dialog")).toBeNull();
-  expect((screen.getByRole("textbox", { name: "Ask the agent" }) as HTMLTextAreaElement).value).toBe("Is this safe?");
-  expect(screen.getByText("a.ts")).toBeTruthy();
-  expect(onDock).toHaveBeenCalledOnce();
-  slot.lifecycle.unmount(); container.remove();
+  first.inject({ file: "src/kept.ts" });
+  fireEvent.change(screen.getByRole("textbox", { name: "Ask the agent" }), { target: { value: "Half a question" } });
+  first.slot.lifecycle.unmount();
+  await renderDock({ targetKey: "pr-kept" }, { getConversation: unstarted });
+  expect(((await screen.findByRole("textbox", { name: "Ask the agent" })) as HTMLTextAreaElement).value).toBe("Half a question");
+  expect(screen.getByText("kept.ts")).toBeTruthy();
+});
+
+test("Ask agent with nothing to quote, as with no file in view, focuses bb's composer and notes nothing, with no error", async () => {
+  const noteInserted = vi.fn(async () => ({ ok: true }));
+  const error = vi.spyOn((await import("sonner")).toast, "error");
+  const { slot, inject } = await renderDock({}, { getConversation: () => ({ threadId: "th-1", legacy: [], defaults: null }), noteInserted }, { composer: { scope: { kind: "thread", threadId: "th-1" } } });
+  await screen.findByTestId("bb-thread-chat");
+  inject({ chapterId: "c1" });
+  await waitFor(() => expect(slot.inspection.composer.focusCount).toBe(1));
+  expect(noteInserted).not.toHaveBeenCalled();
+  expect(slot.inspection.composer.text).toBe("");
+  expect(error).not.toHaveBeenCalled();
+  error.mockRestore();
 });
 
 test("an image in the agent's earlier answers shows as a link to it, and yours as you wrote it", async () => {

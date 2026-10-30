@@ -93,7 +93,7 @@ test("an open review publishes its workspace: it shows what the page shows, its 
   expect(slot.queryByRole("button", { name: "Show chapters" })).not.toBeNull();
   act(() => api().panel.open("comments"));
   expect(api().panel.view).toBe("comments");
-  expect(slot.getByRole("complementary", { name: "Comments and agent" }).hidden).toBe(false);
+  expect(slot.getByRole("complementary", { name: "Comments and Finish review" }).hidden).toBe(false);
   act(() => api().panel.close());
   expect(api().panel.view).toBeNull();
   slot.lifecycle.unmount();

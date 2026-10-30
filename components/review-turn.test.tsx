@@ -61,7 +61,7 @@ async function renderWorkspace(review: Record<string, unknown>, rpc: Record<stri
 }
 
 type Slot = Awaited<ReturnType<typeof renderWorkspace>>["slot"];
-const panel = (slot: Slot) => within(slot.getByRole("complementary", { name: "Comments and agent" }));
+const panel = (slot: Slot) => within(slot.getByRole("complementary", { name: "Comments and Finish review" }));
 /** Comments' chip: All, Needs you, Not submitted, or On GitHub. */
 const chip = (slot: Slot, name: string) => panel(slot).getByRole("radio", { name: new RegExp(`^${name}, \\d+$`) });
 const chosen = (slot: Slot, name: string) => waitFor(() => expect(chip(slot, name).getAttribute("aria-checked")).toBe("true"));
@@ -98,12 +98,12 @@ test("opened again in the same turn, a review goes back to where you were; back 
   let { slot } = await renderWorkspace(review);
   fireEvent.click(await slot.findByRole("button", { name: "Start reading: Parsing" }));
   await slot.findByTestId("filediff");
-  await slot.findByRole("complementary", { name: "Comments and agent" });
+  await slot.findByRole("complementary", { name: "Comments and Finish review" });
   fireEvent.click(panel(slot).getByRole("button", { name: "Close panel" }));
   slot.lifecycle.unmount();
   ({ slot } = await renderWorkspace(review));
   await slot.findByTestId("filediff");
-  expect(slot.queryByRole("complementary", { name: "Comments and agent" })).toBeNull();
+  expect(slot.queryByRole("complementary", { name: "Comments and Finish review" })).toBeNull();
   slot.lifecycle.unmount();
   ({ slot } = await renderWorkspace({ ...review, turn: turn({ reason: "question", label: "Question for you", signal: "reply:2" }) }));
   await slot.findByRole("region", { name: "Comments" });
@@ -127,7 +127,7 @@ test("a review you haven't given ignores the Feedback an older version left it o
   patchReviewState("pr-42", { view: "feedback" });
   const { slot } = await renderWorkspace({ turn: turn({ reason: "requested", label: "Review requested", signal: "requested:1" }) });
   await slot.findByRole("heading", { name: "Parse rows" });
-  expect(slot.queryByRole("complementary", { name: "Comments and agent" })).toBeNull();
+  expect(slot.queryByRole("complementary", { name: "Comments and Finish review" })).toBeNull();
   fireEvent.click(await slot.findByRole("button", { name: "Comments" }));
   fireEvent.click(chip(slot, "Needs you"));
   expect(chip(slot, "Needs you").getAttribute("aria-checked")).toBe("true");
@@ -159,7 +159,7 @@ test("a local review's Comments has only its draft", async () => {
 test("Follow up opens the comment box at the thread's line in the diff", async () => {
   const { slot } = await renderWorkspace({ submittedVerdict: "REQUEST_CHANGES", turn: turn({}) });
   await slot.findByRole("region", { name: "Submitted review", hidden: true });
-  await slot.findByRole("complementary", { name: "Comments and agent" });
+  await slot.findByRole("complementary", { name: "Comments and Finish review" });
   // Your thread waits on its author: it's on GitHub, not in Needs you.
   fireEvent.click(await panel(slot).findByRole("radio", { name: /^On GitHub,/ }));
   fireEvent.click(await panel(slot).findByRole("button", { name: "Expand GitHub thread on src/a.ts:2" }));
@@ -178,7 +178,7 @@ test("Use as draft opens the draft with the assistant's verdict and summary", as
   });
   await slot.findByRole("region", { name: "Submitted review", hidden: true });
   // Finish review, from Comments' Finish bar, open once the workspace has its size.
-  await slot.findByRole("complementary", { name: "Comments and agent" });
+  await slot.findByRole("complementary", { name: "Comments and Finish review" });
   fireEvent.click(await panel(slot).findByRole("button", { name: "Finish review" }));
   fireEvent.click(await slot.findByRole("button", { name: "Use as draft" }));
   await waitFor(() => expect(rpc.useSuggestedVerdict).toHaveBeenCalledWith({ targetKey: "pr-42", mode: "suggested", revision: "r1" }));
@@ -310,7 +310,7 @@ test("with Open on the Overview off, a review that came back to you reopens wher
   const preferences = { ...defaultPreferences, knobs: { ...defaultKnobs, returnToOverview: false } };
   const { slot, rpc } = await renderWorkspace({ submittedVerdict: "REQUEST_CHANGES", turn: turn({}) }, { getPreferences: () => ({ preferences, revision: 1 }) });
   await slot.findByTestId("filediff");
-  expect(slot.queryByRole("complementary", { name: "Comments and agent" })).toBeNull();
+  expect(slot.queryByRole("complementary", { name: "Comments and Finish review" })).toBeNull();
   expect(slot.queryByRole("heading", { name: "Parse rows" })).toBeNull();
   // Still seen, and still recorded, so turning it back on doesn't replay this return.
   expect(rpc.markSeen).toHaveBeenCalledWith({ targetKey: "pr-42" });

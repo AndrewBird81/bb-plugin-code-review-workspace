@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 // BB's thread pages: Review changes above a thread's message box, shown only for a folder with changes or a review
 // while Settings has it on, reading BB's git status of the folder and never its diff; and the Review tab, only beside a
-// thread linked to a review, with its id and name, its comments and where each stands, the agent's chat and Open review.
+// thread linked to a review, with its id and name, its comments and where each stands, the agent's chat and Review ↗.
 import { afterEach, expect, test, vi } from "vitest";
 import { act, cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
@@ -56,12 +56,14 @@ test("a host without the thread slots loads the plugin as before, with each slot
   })) }) as unknown as PluginAppDefinition;
   const all = await loadPluginApp(definition);
   expect(all.threadContextSegments.map((segment) => [segment.id, segment.group, segment.order])).toEqual([["review-changes", "3_git", 20]]);
-  expect(all.tabs.map((tab) => [tab.id, tab.context, tab.availability])).toEqual([["review", { kind: "thread" }, "fixed"]]);
+  // The review page's Review agent and Main thread, then a thread's Review tab.
+  const page = { kind: "nav-panel", panelId: "review" };
+  expect(all.tabs.map((tab) => [tab.id, tab.context, tab.availability])).toEqual([["agent", page, "fixed"], ["main", page, "fixed"], ["review", { kind: "thread" }, "fixed"]]);
   for (const slot of ["experimental_threadContextSegment", "experimental_tab"]) {
     const loaded = await loadPluginApp(without(slot));
     expect(loaded.navPanels.map((panel) => panel.id)).toEqual(["review"]);
     expect(loaded.threadContextSegments).toHaveLength(slot === "experimental_threadContextSegment" ? 0 : 1);
-    expect(loaded.tabs).toHaveLength(slot === "experimental_tab" ? 0 : 1);
+    expect(loaded.tabs).toHaveLength(slot === "experimental_tab" ? 0 : 3);
   }
   const neither = { __bbPluginApp: true, setup: (app: { slots: object }) => definition.setup(new Proxy(app, {
     get: (target, name) => name === "slots" ? new Proxy(target.slots, { get: (slots, member) => member === "experimental_tab" || member === "experimental_threadContextSegment" ? undefined : Reflect.get(slots, member) }) : Reflect.get(target, name),
@@ -139,7 +141,9 @@ test("Review changes starts the folder's review and opens it; with one, it reads
   const opening = vi.fn(() => ({ ok: true, targetKey: "br-env-open" }));
   const existing = renderSlot({ component: ReviewChangesSegment }, { ...props, threadId: "t-open", environment: { id: "env-open" } }, { rpc: handlers({ folders: { "env-open": { files: 0 } }, links: [folderReview("env-open")], rpc: { reviewThreadChanges: opening } }) });
   const open = await existing.findByRole("button", { name: "Review, 2 comments open" });
-  expect([open.textContent, open.title]).toEqual(["Review · 2 open", "Open this folder’s review"]);
+  expect([open.textContent, open.title]).toEqual(["Review · 2 open", "Go to this folder’s review"]);
+  // It goes to the review, as Main thread ↗ on the review's page comes back.
+  expect(open.querySelector("[data-icon=ArrowUpRight]")).toBeTruthy();
   fireEvent.click(open);
   await waitFor(() => expect(existing.navigateCalls).toEqual([{ method: "toPluginPanel", path: "review", options: { subPath: "br-env-open" } }]));
   expect(opening).toHaveBeenCalledWith({ threadId: "t-open" });
@@ -198,9 +202,9 @@ test("the Review tab names the review, lists its comments with where each stands
   expect(within(comments).getByRole("button", { name: /Resolved · src\/b\.ts:2/ })).toBeTruthy();
   const chat = within(slot.getByRole("region", { name: "Review agent" })).getByTestId("bb-thread-chat");
   expect([chat.dataset.threadId, chat.dataset.variant, chat.dataset.layout]).toEqual(["agent-1", "compact", "contained"]);
-  // A comment's row, and Open review, open the review.
+  // A comment's row, and Review ↗, open the review.
   fireEvent.click(within(comments).getByRole("button", { name: /Done · Logged it/ }));
-  fireEvent.click(within(pane).getByRole("button", { name: "Open review" }));
+  fireEvent.click(within(pane).getByRole("button", { name: "Go to review" }));
   expect(slot.navigateCalls).toEqual([
     { method: "toPluginPanel", path: "review", options: { subPath: "br-tab" } },
     { method: "toPluginPanel", path: "review", options: { subPath: "br-tab" } },

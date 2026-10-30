@@ -1,11 +1,14 @@
 // Per-review UI state persisted to localStorage so the Code Review Workspace panel
 // survives tab switches / remounts: the chapter or Overview, the scroll
 // position, the side panel, and the turn it last opened in; and the layout's
-// widths and toggles, in every review. The floating agent dock persists its own
-// geometry separately (see AgentDock), under agentDockKey.
+// widths and toggles, in every review. Before 1.9.0 the agent's floating widget
+// kept its own geometry under agentDockKey, which forgetting a review still clears.
 import { NAV_WIDTH, PANEL_WIDTH } from "./workspace-layout";
 
+/** What the review's commands open: Comments and Finish review in its own panel, the agent and the main thread as tabs in BB's. */
 export type PanelView = "comments" | "agent" | "finish" | "main";
+/** The views of the review's own panel. */
+export type SideView = Exclude<PanelView, "agent" | "main">;
 
 export interface ReviewUiState {
   /** The chapter showing, or the Overview's id. */
@@ -13,7 +16,7 @@ export interface ReviewUiState {
   /** Before 0.6.0, the view the review showed; read once to open its comments, then removed. */
   view?: "diff" | "feedback" | "threads";
   scrollTop?: number;
-  /** The side panel's view, open again where it can dock. */
+  /** The side panel's view, open again where it can dock; "agent" or "main", BB's tab to open as the review opens, once. */
   panel?: PanelView | null;
   /** The turn the review last opened in, so it opens on its Overview only when it comes back to you. */
   turnSignal?: string;
@@ -127,7 +130,7 @@ export function patchReviewState(targetKey: string, patch: Partial<ReviewUiState
   write(s);
 }
 
-/** Where AgentDock keeps the review's dock: how it shows, and where it was moved and sized to. */
+/** Where AgentDock kept the review's floating widget before 1.9.0: how it showed, and where it was moved and sized to. */
 export function agentDockKey(targetKey: string): string {
   return `gr:agentdock:${targetKey}`;
 }
