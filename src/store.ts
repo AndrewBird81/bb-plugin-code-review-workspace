@@ -180,6 +180,11 @@ export interface ReviewLifecycle {
   became?: { at: number; number: number; url: string; from: string; carried: number; local: number; outside: number } | null;
   /** A PR found on the local review's branch that it didn't become: opened before it and not in its folder, or GitHub didn't answer. */
   prPending?: { number: number; url: string; why: "older" | "error"; error?: string; at: number } | null;
+  /**
+   * The review became its PR's while its agent had a conversation: told once, with the next message the review sends it
+   * or before the next answer of its review tools, whichever comes first (src/agent.ts takePrNote). Null once told.
+   */
+  agentPrNote?: { number: number; url: string; from: string } | null;
 }
 
 /**

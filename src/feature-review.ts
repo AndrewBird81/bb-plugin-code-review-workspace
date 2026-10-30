@@ -16,6 +16,7 @@ import { identityIn, placeFacts, remoteRepo } from "./review-places";
 import { defaultName } from "../lib/review-name";
 import { localIdOf } from "../lib/review-identity";
 import { assistantReview } from "./draft-comments";
+import { retitleAssistant } from "./agent";
 import { formerWorkerReview } from "./former-workers";
 import { parsePrLink } from "../lib/pr-link";
 import type { EventListeners, RpcHandlers, ServeDeps } from "./server-modules";
@@ -422,6 +423,8 @@ export async function becomePr(deps: Deps, key: string, pr: { repo: string; numb
       // Yours, until the sync reads it, so Push carries on (lib/push.ts pushTarget).
       ownPr: true, prPending: null,
       became: { at: Date.now(), number: pr.number, url: read.url, from, carried: comments.length, local: 0, outside: comments.length - placed.length },
+      // Its agent, mid-conversation, is told once; never by a turn of its own (src/agent.ts takePrNote).
+      ...await tx.getAssistantThread(key) ? { agentPrNote: { number: pr.number, url: read.url, from } } : {},
       // What gh said of the PR, until the sync reads it (src/start-review.ts recordPrState).
       ...read.state === "OPEN" || read.state === "CLOSED" || read.state === "MERGED" ? { startedPrState: read.state } : {},
     });
@@ -431,6 +434,7 @@ export async function becomePr(deps: Deps, key: string, pr: { repo: string; numb
   if (done === "link") return link(targetKey({ kind: "pr", ...pr }));
   if (done === "converted") {
     await deps.sync?.one(key, true).catch(() => {});
+    await retitleAssistant(bb, store, key).catch(() => {});
     deps.changed(key);
   }
   return done;

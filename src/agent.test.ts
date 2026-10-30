@@ -1,4 +1,4 @@
-import { test, expect, vi } from "vitest";
+import { test, expect, onTestFinished, vi } from "vitest";
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
 import type { BbPluginApi, PluginAgentConfigurationContext } from "@get-bb/plugin-sdk";
 import { assistantInstructions, getConversation, messageAssistant, newConversation, refreshAssistants, startAutomaticReview, startConversation } from "./agent";
@@ -12,6 +12,8 @@ import { startPlugin } from "./plugin-store.test-support";
 import { testSql, testStore } from "./test-store.test-support";
 import { ASSISTANT_WRITE_TOOL_NAMES } from "./server-modules";
 import { MARK_PART } from "./agent-chat.test-support";
+import { becomePr } from "./feature-review";
+import { toolText } from "./fake-host.test-support";
 
 vi.mock("./gh", async (original) => {
   const actual = await original<typeof import("./gh")>();
@@ -445,6 +447,57 @@ test("a finished guide restarts the review's idle assistant so it reads the new 
   await generateGuide(bb, store, "pr-1", "p1");
   expect((await store.getReview("pr-1"))?.status).toBe("ready");
   await expect.poll(() => harness.inspection.sdk.callsTo("threads.stop").map(([args]) => (args as any).threadId)).toContain("assistant");
+});
+
+const folder = { environmentId: "env1", hostId: "host_max", machine: "MaxBook", path: "/Users/me/src/api", branch: "feat/qa", baseRef: "main", repo: "acme/api" };
+
+test("a PR's review that began as a folder's names the PR, its id before and its folder in the agent's instructions", () => {
+  const review = { targetKey: "br-1", kind: "pr", repo: "acme/api", number: 7, url: "https://github.com/acme/api/pull/7", status: "ready", createdAt: 1, feature: folder } as const;
+  const rule = "This review is acme/api PR #7 (https://github.com/acme/api/pull/7). It began as the local review api:feat/qa of feat/qa; its folder, ~/src/api on MaxBook, stays attached. read_review_patch shows the PR on GitHub.";
+  expect(assistantInstructions("br-1", null, defaultPreferences, undefined, review).split("\n")[1]).toBe(rule);
+  // A PR's review that was never local, and a local one, say nothing of it.
+  expect(assistantInstructions("br-1", null, defaultPreferences, undefined, { ...review, feature: undefined })).not.toContain("began as");
+  expect(assistantInstructions("br-1", null, defaultPreferences, undefined, { ...review, kind: "ref" })).not.toContain("began as");
+});
+
+test("a review that becomes its PR's tells its agent once, by the next message or its review tools, starts no turn, and retitles its thread", async () => {
+  const { bb, harness } = await host({ update: async () => ({}), send: async () => ({ delivery: "sent" }) });
+  const store = await startPlugin(bb);
+  const key = "br-1";
+  const patch = "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1 +1 @@\n-a\n+b\n";
+  await store.saveReview({ targetKey: key, kind: "ref", gitRef: "feat/qa", title: "Snooze checks", status: "ready", createdAt: 1, projectId: "p1" });
+  await store.setLifecycle(key, { feature: folder });
+  await store.savePatch(key, patch);
+  await store.setAssistantThread(key, "worker");
+  const pr = { number: 7, title: "Snooze flaky checks", author: { login: "me" }, baseRefName: "main", headRefName: "feat/qa", url: "https://github.com/acme/api/pull/7", headRefOid: "c0ffee", state: "OPEN" };
+  const gh = vi.fn(async (args: string[]) => ({ code: 0, stderr: "", stdout: args[1] === "diff" ? patch : JSON.stringify(pr) }));
+  // What the review reads of GitHub besides: nothing here.
+  const real = vi.mocked(runGh).getMockImplementation()!;
+  vi.mocked(runGh).mockImplementation(async () => ({ code: 1, stderr: "no GitHub here", stdout: "" }));
+  onTestFinished(() => { vi.mocked(runGh).mockImplementation(real); });
+  expect(await becomePr({ bb, store, gh: { runGh: gh, runGit: vi.fn() } as any, changed: vi.fn() }, key, { repo: "acme/api", number: 7 })).toBe("converted");
+  // Never a turn: no restart, nothing sent; its thread is named for the PR.
+  expect(harness.inspection.sdk.callsTo("threads.stop")).toEqual([]);
+  expect(harness.inspection.sdk.callsTo("threads.send")).toEqual([]);
+  expect(harness.inspection.sdk.callsTo("threads.update")).toEqual([[{ threadId: "worker", title: `Review agent: api#7 · Snooze flaky checks · ${key}` }]]);
+  // Its next session's instructions name the PR.
+  expect((await harness.behavior.resolveAgentConfiguration(reviewAgentContext({ targetKey: key }))).instructions).toContain("This review is acme/api PR #7");
+
+  const note = "Since your last turn this review, api:feat/qa, became PR #7: https://github.com/acme/api/pull/7. Treat it as that PR.";
+  const said = () => harness.inspection.sdk.callsTo("threads.send").map(([args]) => (args as any).input.find((part: any) => part.text?.startsWith("ctx")).text);
+  const patchRead = async () => toolText(await harness.behavior.callAgentTool("read_review_patch", { targetKey: key }, { threadId: "worker" }));
+  await messageAssistant(bb, store, key, "Why?", "ctx", { kind: "ask" });
+  await messageAssistant(bb, store, key, "And?", "ctx", { kind: "ask" });
+  expect(said()).toEqual([`ctx\n\n${note}`, "ctx"]);
+  expect(await patchRead()).toBe(patch);
+
+  // Or its review tools, when the reviewer types to it first.
+  await store.setLifecycle(key, { agentPrNote: { number: 7, url: pr.url, from: "api:feat/qa" } });
+  expect(await patchRead()).toBe(`${note}\n\n${patch}`);
+  expect(await patchRead()).toBe(patch);
+  await messageAssistant(bb, store, key, "Then?", "ctx", { kind: "ask" });
+  expect(said()).toEqual([`ctx\n\n${note}`, "ctx", "ctx"]);
+  expect((await store.getReview(key))?.agentPrNote).toBeNull();
 });
 
 test("messages sent at once start one conversation; the later one goes to it", async () => {

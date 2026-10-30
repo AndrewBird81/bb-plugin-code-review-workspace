@@ -361,7 +361,7 @@ function servePlugin(bb: BbPluginApi, { configured, store, interrupted }: Awaite
       const review = targetKey ? configured.review(targetKey) : null;
       return {
         tools: [...ASSISTANT_TOOL_NAMES, ...(configured.preferences().knobs.reviewAgentActs ? ASSISTANT_WRITE_TOOL_NAMES : [])], skills: [],
-        ...(review ? { instructions: assistantInstructions(review.targetKey, configured.guide(review.targetKey), configured.preferences(), mayRunChecks(review, configured.preferences()) ? review.number : undefined) } : {}),
+        ...(review ? { instructions: assistantInstructions(review.targetKey, configured.guide(review.targetKey), configured.preferences(), mayRunChecks(review, configured.preferences()) ? review.number : undefined, review) } : {}),
       };
     }
     return { tools: [], skills: [] };
