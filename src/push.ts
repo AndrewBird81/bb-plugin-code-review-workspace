@@ -20,6 +20,7 @@ import { inlineCode } from "./untrusted";
 import type { PushRun, ReviewLifecycle, ReviewMeta, SendEntry } from "./store";
 import { failed, type EventListeners, type RpcHandlers, type ServeDeps } from "./server-modules";
 import { ONLY_WITH_THESE_TOOLS } from "./review-agent-tools";
+import { becomeFound, readBranches } from "./pr-watch";
 
 type Run = typeof runGh;
 type Deps = Pick<ServeDeps, "bb" | "store" | "gh" | "changed">;
@@ -391,7 +392,7 @@ export async function reportCommit(deps: Deps, sha: string, mine: ReadonlySet<st
  * with Push, a flag you haven't dismissed staying as it is. A main thread that failed, or was archived or deleted
  * (`why`), while Push waited on its commit, stopped it. With Send to thread off, there's no Push, and nothing is read.
  */
-async function readAfter(deps: Deps, thread: { id: string; queued: boolean }, why?: NonNullable<PushRun["why"]>) {
+async function readAfter(deps: Deps & Pick<ServeDeps, "sync">, thread: { id: string; queued: boolean }, why?: NonNullable<PushRun["why"]>) {
   const { store, gh } = deps;
   if (!(await store.getPreferences()).preferences.knobs.sendToThread) return;
   const reviews = (await store.listReviews()).filter((review) => !review.archivedAt && !review.userArchivedAt
@@ -399,7 +400,9 @@ async function readAfter(deps: Deps, thread: { id: string; queued: boolean }, wh
   for (const review of reviews) {
     const place = pushPlace(review);
     if (typeof place === "string") continue;
-    const read = await githubHead(gh.runGh, place);
+    // A local review's read finds the branch's PR too, in the same request (src/pr-watch.ts).
+    const branch = place.pr ? null : (await readBranches(gh.runGh, [{ repo: place.repo, branch: place.head }]))[0]!;
+    const read = branch ?? await githubHead(gh.runGh, place);
     const github = "sha" in read ? { repo: place.repo, head: place.head, sha: read.sha } : null;
     await store.exclusive(async (tx) => {
       const stored = await tx.getReview(review.targetKey);
@@ -426,6 +429,8 @@ async function readAfter(deps: Deps, thread: { id: string; queued: boolean }, wh
       await tx.setLifecycle(review.targetKey, { ...write, ...accept && github ? accepted(github) : {}, ...next !== undefined ? { push: next } : {} });
       if (next !== undefined) deps.changed(review.targetKey);
     });
+    // Its PR, once there is one: the review becomes its review, the Push it shows going on.
+    if (branch) await becomeFound(deps, review.targetKey, branch);
   }
 }
 

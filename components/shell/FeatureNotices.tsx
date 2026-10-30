@@ -70,6 +70,13 @@ export function useFeatureNotices(targetKey: string, review: Reviewed | null, on
   useEffect(ask, [ask, localDiffChanges]);
   useRealtime(`review:${targetKey}`, ask);
   useRealtime(`folder:${targetKey}`, ask);
+  // While the page shows, its branch's PR is looked for every 30 seconds (src/pr-watch.ts): one opened on GitHub makes
+  // it the PR's review within the minute, which the review's signal reloads.
+  useEffect(() => {
+    if (!local) return;
+    const timer = setInterval(() => { if (document.visibilityState === "visible") rpc.call("checkPr", { targetKey }).catch(() => {}); }, 30_000);
+    return () => clearInterval(timer);
+  }, [rpc, targetKey, local]);
   const check = local && read?.targetKey === targetKey ? read.check : null;
   if (!check || !review?.feature) return [];
   const { feature } = review;

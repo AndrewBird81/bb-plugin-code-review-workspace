@@ -329,8 +329,7 @@ test("a PR opened before the review waits, unless the folder has its head; one G
   expect((await failing.store.getReview(key))?.prPending).toBeNull();
 });
 
-// Fails until src/pr-watch.ts reads the folder's threads (1.9.0 step 2).
-test.fails("a PR another thread in the folder opened makes the review the PR's once that thread goes idle", async () => {
+test("a PR another thread in the folder opened makes the review the PR's once that thread goes idle", async () => {
   const s = setup();
   vi.mocked(runGh).mockImplementation(s.deps.gh.runGh as any);
   s.harness.inspection.sdk.stub("threads.events.list", async () => [

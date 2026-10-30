@@ -488,6 +488,8 @@ export const rpcContract = defineRpcContract({
       branchReview: z.string().optional(),
     }),
   },
+  /** Look for a local review's PR on GitHub now, at most once every 25 seconds per review (src/pr-watch.ts): it becomes the PR's review when there is one. */
+  checkPr: { input: targetKey, output: z.object({ ok: z.boolean() }) },
   /** Got it: stop warning about these committed files that look like secrets, in this review. */
   dismissFlagged: {
     input: z.object({ targetKey: z.string(), files: z.array(z.string().min(1)).min(1).max(1000) }).strict(),

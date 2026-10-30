@@ -37,6 +37,7 @@ test("the plugin registers the same RPC methods, tools, CLI subcommands, listene
       "checkFixes",
       "checkForUpdates",
       "checkPluginUpdates",
+      "checkPr",
       "checkRepoAccess",
       "deleteFilterView",
       "deleteReview",
@@ -219,13 +220,14 @@ test("the plugin registers the same RPC methods, tools, CLI subcommands, listene
   expect(Object.fromEntries(Object.entries(registered.threadEventHandlers).filter(([, count]) => count > 0))).toMatchInlineSnapshot(`
     {
       "experimental_environment.removed": 2,
+      "experimental_thread.events": 1,
       "message.cancelled": 3,
       "message.dispatched": 3,
       "thread.active": 1,
       "thread.archived": 2,
       "thread.deleted": 3,
-      "thread.failed": 4,
-      "thread.idle": 4,
+      "thread.failed": 5,
+      "thread.idle": 5,
       "thread.unarchived": 1,
     }
   `);

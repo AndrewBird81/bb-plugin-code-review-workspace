@@ -220,3 +220,28 @@ test("after Update, a guide written before it says so, after Changed, with Rewri
   expect(await included.slot.findByText("The guide was written before you changed which files are shown.")).toBeTruthy();
   included.slot.lifecycle.unmount();
 });
+
+test("while the page shows a local review, its branch's PR is looked for every 30 seconds; not on a PR's review, nor while hidden", async () => {
+  vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+  try {
+    const checkPr = vi.fn(() => ({ ok: true }));
+    const { slot } = await renderWorkspace({ checkFeature: () => nothing, checkPr });
+    expect(checkPr).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(30_000);
+    expect(checkPr).toHaveBeenCalledWith({ targetKey: KEY });
+    const hidden = vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
+    vi.advanceTimersByTime(30_000);
+    expect(checkPr).toHaveBeenCalledTimes(1);
+    hidden.mockRestore();
+    slot.lifecycle.unmount();
+    cleanup();
+
+    const onPr = vi.fn(() => ({ ok: true }));
+    const pr = await renderWorkspace({ checkFeature: () => nothing, checkPr: onPr }, { ...local, kind: "pr", repo: "acme/api", number: 7 });
+    vi.advanceTimersByTime(60_000);
+    expect(onPr).not.toHaveBeenCalled();
+    pr.slot.lifecycle.unmount();
+  } finally {
+    vi.useRealTimers();
+  }
+});

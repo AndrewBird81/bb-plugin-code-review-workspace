@@ -55,8 +55,13 @@ async function setup({ branch = "feat/qa", workBranch, pr }: { branch?: string; 
     // Asked about GitHub's head, BB can't read the folder, as when its machine sleeps.
     unreadable: false,
   };
-  const github: { sha: string | null } = { sha: OLD };
+  // The branch's head on GitHub, and its open PRs, as the read of a local review's branch finds them (src/pr-watch.ts).
+  const github: { sha: string | null; prs: Array<{ number: number; url: string; createdAt: string }> } = { sha: OLD, prs: [] };
   runGh.mockImplementation(async (args: string[]) => {
+    if (args[0] === "api" && args[1] === "graphql" && args.some((a) => a.includes("b0: repository"))) {
+      const nodes = github.prs.map((pr) => ({ ...pr, baseRepository: { nameWithOwner: "acme/api" }, headRepository: { nameWithOwner: "acme/api" } }));
+      return ok(JSON.stringify({ data: { b0: { ref: github.sha ? { target: { oid: github.sha }, associatedPullRequests: { nodes } } : null, parent: null } } }));
+    }
     if (args[0] === "api" && args[1] === "graphql" && args.some((a) => a.includes("ref(qualifiedName"))) {
       return ok(JSON.stringify({ data: { repository: { ref: github.sha ? { target: { oid: github.sha } } : null } } }));
     }
@@ -149,6 +154,27 @@ test("Push asks the main thread to commit and report, not push; a reported commi
   github.sha = HEAD;
   await idle();
   expect(await run()).toMatchObject({ state: "pushed", sha: HEAD });
+});
+
+test("when the main thread stops, the read of the branch finds its PR in the same request: the review becomes the PR's, its Push pushed", async () => {
+  const { push, cli, idle, run, github, store, key } = await setup();
+  const answers = runGh.getMockImplementation()!;
+  runGh.mockImplementation(async (args: string[]) => {
+    if (args[0] === "pr" && args[1] === "view") return ok(JSON.stringify({ number: 7, title: "Snooze flaky checks", author: { login: "me" }, baseRefName: "main", headRefName: "feat/qa", url: "https://github.com/acme/api/pull/7", headRefOid: HEAD, state: "OPEN", createdAt: new Date().toISOString() }));
+    if (args[0] === "pr" && args[1] === "diff") return ok(PATCH);
+    return answers(args);
+  });
+  await push();
+  await cli("coder", "report", "--commit", HEAD);
+  // The thread pushed and opened a draft PR in the same turn.
+  github.sha = HEAD;
+  github.prs = [{ number: 7, url: "https://github.com/acme/api/pull/7", createdAt: new Date().toISOString() }];
+  const before = runGh.mock.calls.filter(([args]) => args[1] === "graphql").length;
+  await idle();
+  expect(await run()).toMatchObject({ state: "pushed", sha: HEAD });
+  expect(await store.getReview(key)).toMatchObject({ kind: "pr", number: 7, ownPr: true, became: { number: 7, from: "api:feat/qa" } });
+  // One read of GitHub, for the branch's head and its PR alike.
+  expect(runGh.mock.calls.filter(([args]) => args[1] === "graphql").length - before).toBe(1);
 });
 
 test("a folder with nothing to commit is checked at its head: a match tells the thread to push it; GitHub at it already has nothing to push", async () => {
