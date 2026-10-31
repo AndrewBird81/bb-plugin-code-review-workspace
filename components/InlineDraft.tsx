@@ -1,6 +1,6 @@
 import { createContext, memo, useContext, useState, type KeyboardEvent, type ReactNode, type Ref, type RefObject } from "react";
 import { Markdown } from "@get-bb/plugin-sdk/app";
-import { linesOf, postable, sameLocation, SEVERITIES, SEVERITY_LABEL, type CommentLocation, type Discussion, type DiscussionEntry, type DraftComment, type Severity } from "../src/draft";
+import { isLocal, linesOf, postable, sameLocation, SEVERITIES, SEVERITY_LABEL, type CommentLocation, type Discussion, type DiscussionEntry, type DraftComment, type Severity } from "../src/draft";
 import { draftItemId, draftState, draftStatus, privateItemId, sentCheck, STATE_LABEL, type CommentChecks } from "../lib/comments";
 import { composing } from "../lib/composing";
 import { linkImages } from "../lib/link-images";
@@ -141,7 +141,8 @@ export const InlineLocation = memo(function InlineLocation({ at }: { at: Comment
       const talk = discussion?.entries.filter((entry) => entry.kind === "message").length ?? 0;
       const status = draftStatus(comment, draftState(comment, draft.stale), facts);
       const check = sentCheck(comment, draft.checks);
-      return <div data-draft-at={locationKey(at)}><CommentPill frame={notSubmitted(edge)} icon={<DraftIcon edge={edge} mark={status.mark} />} who={null} words={status.label} badge={check && <CheckBadge check={check} />}
+      return <div data-draft-at={locationKey(at)}><CommentPill frame={notSubmitted(edge)} icon={<DraftIcon edge={edge} mark={status.mark} />} who={null} words={status.label}
+        badge={(isLocal(comment) || check) && <span className="flex items-center gap-1">{isLocal(comment) && <NotOnGithubBadge />}{check && <CheckBadge check={check} />}</span>}
         tag={comment.severity && SEVERITY_LABEL[comment.severity]} text={comment.body}
         more={talk ? `${talk} message${talk === 1 ? "" : "s"} with the agent` : null} name={`Draft comment on ${where}`} onShow={fold} /></div>;
     }
@@ -194,6 +195,7 @@ function CommentView({ comment, draft, onFold }: { comment: DraftComment; draft:
         {state === "older-diff" && comment.author === "agent" && <Badge tone="agent" size="sm" icon={<Icon name="Sparkles" aria-hidden />}>Agent</Badge>}
         {comment.startLine !== undefined && <span className="tabular-nums">Lines {linesOf(comment)}</span>}
         {comment.severity && <SeverityBadge severity={comment.severity} />}
+        {isLocal(comment) && <NotOnGithubBadge />}
         {preExisting && comment.introduced === false && <PreExistingBadge />}
         <FixCheckBadge comment={comment} checks={draft.checks} />
         {onFold && <span className="-mr-1.5 ml-auto"><FoldButton onFold={onFold} /></span>}

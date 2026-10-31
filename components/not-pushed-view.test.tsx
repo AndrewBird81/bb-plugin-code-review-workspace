@@ -90,7 +90,10 @@ test("a new line on Not pushed yet takes a LOCAL comment, which shows there", as
   fireEvent.change(await file.findByRole("textbox", { name: "Draft comment" }), { target: { value: "Retry once more." } });
   fireEvent.click(file.getByRole("button", { name: "Add to draft" }));
   await waitFor(() => expect(rpc.saveDraftComment).toHaveBeenCalledWith(expect.objectContaining({ comment: expect.objectContaining({ file: "src/a.ts", line: 1, side: "LOCAL", body: "Retry once more." }) })));
-  expect(within(await file.findByRole("article", { name: "Draft comment on src/a.ts:1" })).getByText("Retry once more.")).toBeTruthy();
+  const card = within(await file.findByRole("article", { name: "Draft comment on src/a.ts:1" }));
+  expect(card.getByText("Retry once more.")).toBeTruthy();
+  // Marked as the Comments list marks it.
+  expect(card.getByText("Not on GitHub yet")).toBeTruthy();
   page.lifecycle.unmount();
 });
 
