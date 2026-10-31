@@ -2,7 +2,7 @@
 
 ## 1.9.0 — Unreleased
 
-1.9.0 adds no migration: what it adds to a review is kept with the review's other lifecycle fields. Rolling back to 1.8.1 keeps every review and setting, and 1.8.1 keeps 1.9.0's fields and ignores them. A review merged into another shows in Archive as an archived PR review, empty but for a comment a thread tracks that couldn't move, which a Submit there would post, and its PR's link, `bb review <url>`, opens that one. A review with comments not on GitHub yet opens, but its draft doesn't load and Submit stops before anything posts, so none lands on a wrong line; back on 1.9.0, it loads again. 1.8.1's prune drops Not pushed yet's snapshot, and those comments keep their code.
+1.9.0 adds no migration: what it adds to a review is kept with the review's other lifecycle fields. Rolling back to 1.8.1 keeps every review and setting, and 1.8.1 keeps 1.9.0's fields and ignores them. A review merged into another shows in Archive as an archived PR review, empty but for a comment a thread tracks that couldn't move, and its PR's link, `bb review <url>`, opens that one. One that keeps such a comment is saved without its repo, its link kept, so 1.8.1 lists it as `#34`, and its Submit, the review agent's tools and the sync refuse it: that comment never posts. Back on 1.9.0, Archive names it by its link again. A review with comments not on GitHub yet opens, but its draft doesn't load and Submit stops before anything posts, so none lands on a wrong line; back on 1.9.0, it loads again. 1.8.1's prune drops Not pushed yet's snapshot, and those comments keep their code.
 
 ### Doing and reviewing, a click apart
 

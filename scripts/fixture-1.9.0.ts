@@ -2,8 +2,9 @@
  * The reverse of src/data-1.8.1.test.ts: a database 1.9.0 wrote, with every kind of data 1.9.0 adds, read with 1.8.1's
  * code, as a rollback to 1.8.1 would. A folder's review that became PR #31's, after following its branch's rename, with
  * comments on lines only in its folder (LOCAL), Not pushed yet's diff, its notice, and its agent's note; the PR's own
- * review merged into it, left archived and pointing at it; a folder's review offering to merge with its PR's review; and
- * one holding an older PR, its Push and open PR under way.
+ * review merged into it, left archived and pointing at it; a folder's review offering to merge with its PR's review;
+ * one holding an older PR, its Push and open PR under way; and a PR not yours whose own review, merged away, keeps a sent
+ * comment a thread tracks, so goes without its repo, which 1.8.1's Submit refuses.
  *
  * `npx vite-node scripts/fixture-1.9.0.ts write <out dir>`, from this checkout's root, writes data.db, a consistent
  * snapshot, and keys.json, what the reader checks it against. With CRW_TEST_PG_URL naming a throwaway Postgres
@@ -56,6 +57,8 @@ const AHEAD = [
 /** The reviews, and the comments on lines only in the folder, for the reader. */
 interface Keys {
   converted: string; tombstone: string; offering: string; offeredPr: string; pending: string;
+  /** Dana's PR #34's own review, merged into the folder's review that became the PR's, keeping a tracked comment it couldn't move. */
+  stranded: string; strandedInto: string;
   local: Array<CommentLocation & { body: string }>;
   /** The lifecycle keys 1.9.0 adds, by review. */
   added: Record<string, string[]>;
@@ -136,9 +139,28 @@ async function writeReviews(store: AsyncStore): Promise<Keys> {
     push: { state: "pushing", at: AT + 42, threadId: "thr_33", repo: "acme/web", head: "casey/metrics", thenOpenPr: true },
   });
 
+  // Dana's PR #34, not yours: its own review's comment a thread tracks, sent, where the folder's review that became the
+  // PR's has its own, stays on it as it's merged away, which goes without its repo, so 1.8.1 never posts it.
+  const stranded = targetKey({ kind: "pr", repo: "acme/web", number: 34 });
+  const strandedInto = featureKey("env_34", "casey/dana-fix");
+  for (const [k, body, id, createdAt] of [[stranded, "Theirs: handle the timeout.", "c34", AT + 50], [strandedInto, "Mine: retry the timeout.", "c35", AT + 51]] as const) {
+    await store.saveReview({
+      targetKey: k, kind: "pr", number: 34, repo: "acme/web", title: "Fix timeouts", author: "dana", base: "main", head: "dana/timeouts",
+      gitRef: "main...dana/timeouts", url: url(34), status: "ready", createdAt, projectId: "p1", headSha: HEAD,
+    });
+    await store.savePatch(k, PATCH);
+    await store.saveSnapshot(k, HEAD, PATCH);
+    await store.upsertDraftComment(k, { ...at("api.ts", 1), body });
+    await store.trackComments(k, [{ at: at("api.ts", 1), id, state: "sent", sendN: 1 }]);
+    await store.saveSnapshot(k, sendKey(1), PATCH);
+    await store.setLifecycle(k, { prState: "OPEN", ownPr: false, reviewer: "casey", latestHeadSha: HEAD, watchingSince: createdAt, sends: [{ n: 1, at: createdAt, threadId: `thr_${id}`, ids: [id] }] });
+  }
+  await store.setLifecycle(strandedInto, { feature: { ...machine, environmentId: "env_34", path: "/Users/casey/src/web-34", branch: "casey/dana-fix", remoteBranch: "dana/timeouts" } });
+  await store.exclusive((tx) => mergeIn(tx, stranded, strandedInto));
+
   const added: Keys["added"] = {};
   for (const review of await store.listReviews()) added[review.targetKey] = ADDED.filter((key) => (review as unknown as Record<string, unknown>)[key] != null);
-  return { converted, tombstone, offering, offeredPr, pending, local, added };
+  return { converted, tombstone, offering, offeredPr, pending, stranded, strandedInto, local, added };
 }
 
 if (mode === "write") {
@@ -168,7 +190,7 @@ if (mode === "write") {
 
 // read: 1.8.1's code.
 const keys = JSON.parse(readFileSync(join(out, "keys.json"), "utf8")) as Keys;
-const reviews = [keys.converted, keys.tombstone, keys.offering, keys.offeredPr, keys.pending];
+const reviews = [keys.converted, keys.tombstone, keys.offering, keys.offeredPr, keys.pending, keys.stranded, keys.strandedInto];
 const results: Array<{ backend: string; check: string; ok: boolean; detail?: unknown }> = [];
 const check = (backend: string, name: string, ok: boolean, detail?: unknown) => {
   results.push({ backend, check: name, ok, ...detail === undefined ? {} : { detail } });
@@ -209,6 +231,11 @@ async function storeChecks(backend: string, store: AsyncStore, sql: Sql) {
     && (await store.listReviews()).some((r) => r.targetKey === keys.tombstone && r.archivedAt), tombstone);
   const prKey = await prReviewKey(store, { repo: "acme/web", number: 31 });
   check(backend, `1.8.1's prReviewKey for PR #31 gives the review merged away (${prKey})`, prKey === keys.tombstone, { prKey });
+  const stranded = await store.getReview(keys.stranded);
+  const kept = (await store.getDraft(keys.stranded)).comments;
+  check(backend, "the review merged away keeping a tracked comment reads as an archived PR review with no repo, its link and number kept, and that comment",
+    stranded?.kind === "pr" && typeof stranded.archivedAt === "number" && !stranded.repo && stranded.number === 34 && stranded.url === "https://github.com/acme/web/pull/34"
+      && kept.length === 1 && kept[0]!.id === "c34", { stranded, kept });
 
   const payloads: Record<string, unknown> = {};
   for (const k of reviews) {
@@ -279,8 +306,20 @@ const copy = (made: ReturnType<typeof createFakePluginHost>) => {
   check("plugin", "every review's draft loads but the converted one's, which 1.8.1's contract refuses for its LOCAL comments",
     json(failed) === json([[keys.converted, { threw: "rpc output validation failed" }]]), Object.fromEntries(failed));
   const listed = await attempt("listReviews", null);
-  check("plugin", "listReviews lists every review, the one merged away archived",
-    reviews.every((k) => (listed.reviews as Array<Record<string, unknown>> | undefined)?.some((r) => r.targetKey === k && (k !== keys.tombstone || r.archivedAt))), listed);
+  check("plugin", "listReviews lists every review, the ones merged away archived",
+    reviews.every((k) => (listed.reviews as Array<Record<string, unknown>> | undefined)?.some((r) => r.targetKey === k && (k !== keys.tombstone && k !== keys.stranded || r.archivedAt))), listed);
+
+  // Submit on the review merged away that keeps a tracked comment, on Dana's PR, where 1.8.1 posts a sent comment: it
+  // refuses, with no repo, and nothing reaches gh.
+  const strandedDraft = (await bb.storage.database().prepare(`SELECT comments, body, verdict FROM drafts WHERE target_key=?`).get(keys.stranded)) as { comments: string; body: string; verdict: string };
+  const strandedComments = (JSON.parse(strandedDraft.comments) as Array<Record<string, unknown>>).map(({ file, line, side, body }) => ({ file, line, side, body }));
+  const before = ran("gh").length;
+  const strandedSubmit = await attempt("submitReview", {
+    targetKey: keys.stranded, revision: (opened[keys.stranded]!.revision as string | undefined) ?? undefined, account: "casey", body: strandedDraft.body, verdict: strandedDraft.verdict,
+    comments: strandedComments, posting: strandedComments.map(({ file, line, side }) => ({ file, line, side })), force: true,
+  });
+  check("plugin", "Submit on the review merged away keeping a tracked comment, on a PR not yours, is refused for its missing repo and posts nothing",
+    strandedSubmit.ok === false && /GitHub PR target/.test(String(strandedSubmit.error)) && ran("gh").length === before && readdirSync(standIns).every((f) => !f.startsWith("posts-")), strandedSubmit);
 
   // Submit on the converted review, as its page would send it: the draft's comments, the open ones posting. Then the
   // same past every warning, then with only the comments 1.8.1's contract takes. What gh got is what GitHub would get.

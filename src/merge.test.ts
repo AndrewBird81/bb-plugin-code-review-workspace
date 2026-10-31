@@ -4,6 +4,7 @@ import { startPlugin } from "./plugin-store.test-support";
 import { prReviewKey, reviewNamed, targetKey } from "./targets";
 import { toolText } from "./fake-host.test-support";
 import { statusWhy } from "../lib/status-line";
+import { reviewIdentity } from "../lib/review-identity";
 import { defaultKnobs } from "../lib/knobs";
 import { REVIEW_TABLES, storeOn, type ReviewLifecycle } from "./store";
 import { queueStore } from "./store-queue";
@@ -246,6 +247,10 @@ test("a comment a thread tracks that can't stay where it was, its place taken, g
   expect(draft.comments.map((c) => [c.line, c.body, c.id])).toEqual([[5, "Same", "c2"], [6, "Mine at four", "c5"], [4, "Why two?", "c1"], [1, "Lost", undefined]]);
   expect(draft.body).toBe("Mine\n\nTheirs\n\n- On `a.ts:4` (an earlier diff): Theirs at four");
   expect((await store.getDraft(P)).comments).toEqual([expect.objectContaining({ ...at(4), body: "Theirs at four", id: "c3", state: "sent", sendN: 3 })]);
+  // Without its repo, its link and key kept: 1.8.1, after a rollback, never posts it.
+  const away = (await store.getReview(P))!;
+  expect(away).toMatchObject({ targetKey: P, kind: "pr", number: 7, url: "https://github.com/acme/api/pull/7", mergedInto: S });
+  expect(away.repo).toBeUndefined();
   // Out with the thread: S's c5, P's c1, c2 and c3, and the thread Sends c9 and c8.
   expect((await store.getReview(S))?.fixes).toEqual({ sent: 6, reported: 0, inferred: 0, checked: 1, fixed: 1 });
 
@@ -345,6 +350,27 @@ test("merging twice, at once or later, merges once: nothing is copied again, wha
   // Nor into a review that was itself merged away.
   expect(await store.mergeReview("br-s", P)).toBeNull();
   expect((await store.getReview(S))?.mergedInto).toBeUndefined();
+});
+
+test("a review merged away that keeps a tracked comment, its repo cleared: Archive names it by its link, and its page, link and id lead to the one it went into", async () => {
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: { threads: { get: async () => ({ archivedAt: null, deletedAt: null, status: "idle" }), update: async () => ({}) } } as any });
+  const store = await startPlugin(bb);
+  const prKey = targetKey({ kind: "pr", repo: "acme/api", number: 7 });
+  for (const [k, createdAt] of [[prKey, 1], [S, 2]] as const) {
+    await store.saveReview({ targetKey: k, kind: "pr", repo: "acme/api", number: 7, url: "https://github.com/acme/api/pull/7", title: "Snooze checks", status: "ready", createdAt });
+    await store.savePatch(k, PATCH_S);
+    await store.upsertDraftComment(k, comment(4, `${k}'s`));
+    await store.trackComments(k, [{ at: at(4), id: `id-${k}`, state: "sent", sendN: 1 }]);
+  }
+  await mergeReviews({ bb, store, changed: vi.fn() }, prKey, S);
+  expect((await store.getReview(prKey))?.repo).toBeUndefined();
+  const { reviews } = await harness.behavior.callRpc("listReviews", null) as { reviews: any[] };
+  const row = reviews.find((review: any) => review.targetKey === prKey);
+  expect(row).toMatchObject({ mergedIntoId: "api#7", turn: { group: "archive", reason: "merged-into" } });
+  expect(reviewIdentity(row).id).toBe("api#7");
+  expect(await harness.behavior.callRpc("getReviewBundle", { targetKey: prKey })).toMatchObject({ review: null, mergedInto: { targetKey: S, id: "api#7" } });
+  for (const named of [prKey, "api#7", "https://github.com/acme/api/pull/7"]) expect((await reviewNamed(store, bb, named))?.targetKey, named).toBe(S);
+  expect(await prReviewKey(store, { repo: "acme/api", number: 7 })).toBe(S);
 });
 
 test("what's left of a merged review: its page opens the one it went into, Archive says so, its ids and link lead there, and its agent's tools say where the reviewer went", async () => {

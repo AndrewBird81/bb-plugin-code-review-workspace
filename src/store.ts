@@ -1070,6 +1070,9 @@ export function storeOn(sql: Sql): Store {
           await sql.run(`DELETE FROM ${table} WHERE target_key=?`, [from]);
         }
         await this.setLifecycle(from, { archivedAt: now, mergedInto: into, mergedAt: now, sends: [], threadSends: {}, mainThread: null, implementers: [], readyToApprove: null, pinnedAt: null, prOffer: null });
+        // One that keeps a tracked comment goes without its repo, its link and key kept: 1.8.1's Submit, agent tools and
+        // sync need one, so after a rollback none of them posts that comment (CHANGELOG, 1.9.0). Its id comes from its link.
+        if (stranded.length && source.repo) await sql.run(`UPDATE reviews SET repo=NULL WHERE target_key=?`, [from]);
         const moved: MergeNote = { comments: was.comments.length, summary: !!was.body.trim(), sends: source.sends?.length ?? 0 };
         if (draft.verdictChosen && was.verdictChosen && draft.verdict !== was.verdict) moved.verdict = was.verdict;
         return { moved, adopted };

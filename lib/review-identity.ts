@@ -2,6 +2,7 @@
 // where its code is, in one form for every page, title, alert and thread the plugin names it in. Pure, for the server
 // and the panel alike; the server derives `place` (src/review-places.ts), which nothing stores.
 import type { FeatureReview, ReviewMeta } from "../src/store";
+import { parsePrLink } from "./pr-link";
 import { reviewName } from "./review-name";
 
 /** Where a review's code is, as the server derives it for display. */
@@ -20,7 +21,7 @@ export interface ReviewPlace {
 }
 
 /** A review, and its guide's title where the server sent it: a local review's name until it has one. */
-export type Identifiable = Pick<ReviewMeta, "targetKey"> & Partial<Pick<ReviewMeta, "kind" | "repo" | "number" | "title" | "name" | "gitRef" | "author" | "ownPr" | "prState" | "cwd" | "signals">> & { place?: ReviewPlace | null; guideTitle?: string | null };
+export type Identifiable = Pick<ReviewMeta, "targetKey"> & Partial<Pick<ReviewMeta, "kind" | "repo" | "number" | "url" | "title" | "name" | "gitRef" | "author" | "ownPr" | "prState" | "cwd" | "signals">> & { place?: ReviewPlace | null; guideTitle?: string | null };
 
 export interface ReviewIdentity {
   /** api#4512, or api:feat/x for local work: short, and kept whole wherever the name is cut. */
@@ -62,7 +63,8 @@ const folderName = (path: string | undefined) => path?.split(/[\\/]/).filter(Boo
 /** A home folder as ~: /Users/ana/src/api is ~/src/api. */
 export const homeShort = (path: string) => path.replace(/^\/(?:Users|home)\/[^/]+(?=\/|$)/, "~");
 
-const fullRepo = (review: Identifiable) => (review.kind === "ref" ? review.place?.repo : review.repo) ?? null;
+/** A PR's review merged away keeping a tracked comment has no repo (store.mergeReview): its link names it. */
+const fullRepo = (review: Identifiable) => (review.kind === "ref" ? review.place?.repo : review.repo ?? (review.url ? parsePrLink(review.url)?.repo : undefined)) ?? null;
 
 /** The repository as the id says it: its name, or owner/name where another owner's repository has the name too. */
 function shownRepo(review: Identifiable): string | null {
