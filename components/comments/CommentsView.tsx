@@ -4,7 +4,7 @@ import { useBbNavigate, useRpc } from "@get-bb/plugin-sdk/app";
 import { toast } from "sonner";
 import type { rpcContract } from "../../src/rpc-contract";
 import { sameLocation, SEVERITIES, VERDICT_LABEL, type CommentLocation } from "../../src/draft";
-import { buildItems, checkTally, FILTER_LABEL, FIX_STATES, groups, isFixFilter, itemFix, needsYou, shownItems, toSend, type CommentFilter, type CommentGroup, type CommentItem, type CommentSources, type FixState, type ThreadItem } from "../../lib/comments";
+import { buildItems, checkTally, FILTER_LABEL, FIX_STATES, groups, isFixFilter, itemFix, needsYou, notOnGithub, shownItems, toSend, type CommentFilter, type CommentGroup, type CommentItem, type CommentSources, type FixState, type ThreadItem } from "../../lib/comments";
 import { clearOpenComments, forgetOpenComments, revealComment } from "../../lib/comments-fold";
 import { askReply, registerCommentKeys, registerCommentStepper, showCommentStep, useCommentStep } from "../../lib/comment-stops";
 import { holdReview } from "../../lib/review-holds";
@@ -115,6 +115,8 @@ export function CommentsView({ shown, finish, tab, onTab, onShowThread }: {
   const needing = counted[0].count;
   // Of the drafts All shows in Needs you, those there for an older diff; the rest wait on your click about their fix.
   const olderElsewhere = items.filter((item) => item.kind === "draft" && item.needs === "older-diff").length;
+  // Listed under Not submitted, but they go with Send: Not submitted's count is what Submit posts.
+  const local = items.filter(notOnGithub).length;
   // Once a comment was sent, chips for where fixes stand: those with any, and the one chosen.
   const fixCount = (state: FixState) => items.filter((item) => itemFix(item) === state).length;
   const tracked = items.some((item) => item.kind === "draft" ? item.comment.id || item.comment.state : itemFix(item));
@@ -242,6 +244,7 @@ export function CommentsView({ shown, finish, tab, onTab, onShowThread }: {
       <GroupHead id={`gr-group-${group.id}`} title={!isPr && group.id === "not-submitted" ? "Comments" : group.title} count={countedGroup.count} summary={[countedGroup.summary, group.id === "not-submitted" && hidden ? `${hidden} hidden` : null].filter(Boolean).join(" · ") || null} />
       {group.id === "needs-you" && ownPr && !closed && sendOn && <SendWaiting targetKey={targetKey} items={countedGroup.items} />}
       {rows.length > 0 && <ul className="space-y-1.5">{rows.map(row)}</ul>}
+      {group.id === "not-submitted" && local > 0 && <p className="px-1 text-xs text-muted-foreground">{local === 1 ? "1 isn’t on GitHub yet. It goes" : `${local} aren’t on GitHub yet. They go`} with Send, not Submit.</p>}
       {filter === "all" && group.id === "not-submitted" && countedGroup.elsewhere > 0 && (
         <p className="px-1 text-xs text-muted-foreground">+{countedGroup.elsewhere}{olderElsewhere === countedGroup.elsewhere ? " on an older diff," : ""} in Needs you</p>
       )}
