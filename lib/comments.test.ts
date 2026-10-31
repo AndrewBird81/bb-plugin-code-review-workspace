@@ -454,6 +454,24 @@ test("on your own PR, comments sent to fix, resolved or dismissed are apart from
   expect(toSend(own(false)).comments).toBe(4);
 });
 
+test("on your own PR, a comment not on GitHub yet that no Send took waits under Not submitted, counted there; once sent, it's under Sent to fix", () => {
+  const local: DraftComment = { file: "src/cache.ts", line: 16, side: "LOCAL", body: "Say which field is required." };
+  const sources = (comments: DraftComment[]): CommentSources => ({
+    draft: { draft: { ...draft, comments }, stale: [] }, threads: [], feedback: null, sections, patch,
+    status: { posts: true, own: true, sends: [{ n: 1, at: 1, threadId: "coder", ids: ["c1"] }] },
+  });
+  const items = buildItems(sources([typo, local, { ...local, line: 21, id: "c1", state: "sent", sendN: 1 }]));
+  expect(items.map((item) => [item.id, item.group])).toEqual([
+    ["draft:README.md:2:RIGHT", "not-submitted"], ["draft:src/cache.ts:16:LOCAL", "not-submitted"], ["draft:src/cache.ts:21:LOCAL", "fixes"],
+  ]);
+  expect(groups(items).map((group) => [group.id, group.count, group.summary])).toEqual([
+    ["needs-you", 0, null], ["not-submitted", 2, "1 nit"], ["fixes", 1, "1 sent"], ["on-github", 0, null], ["private", 0, null],
+  ]);
+  expect(shownItems(items, "not-submitted").map((item) => item.id)).toEqual(["draft:README.md:2:RIGHT", "draft:src/cache.ts:16:LOCAL"]);
+  // Submit posts only the one on GitHub's diff.
+  expect(toSend(sources([typo, local])).comments).toBe(1);
+});
+
 test("a resolved or dismissed comment's status line says so, with its icon", () => {
   const facts = { posts: false, own: true };
   expect(draftStatus({ ...expiry, id: "c1", state: "resolved" }, "draft", facts)).toEqual({ label: "Resolved", mark: "resolved" });

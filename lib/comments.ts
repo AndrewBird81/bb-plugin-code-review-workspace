@@ -5,7 +5,7 @@
 import type { ReviewLifecycle, SendEntry } from "../src/store";
 import type { PrConversationItem } from "../src/github/types";
 import type { Claim } from "../src/draft";
-import { isPreExisting, isSummary, linesOf, postable, sameLocation, SEVERITIES, severityCounts, type CommentLocation, type Discussion, type Draft, type DraftComment, type Severity, type Verdict } from "../src/draft";
+import { isLocal, isPreExisting, isSummary, linesOf, postable, sameLocation, SEVERITIES, severityCounts, type CommentLocation, type Discussion, type Draft, type DraftComment, type Severity, type Verdict } from "../src/draft";
 import { threadLabel } from "../src/github/threads";
 import { chapterAt } from "../src/hunks";
 import { splitPatchByFile } from "../src/patch";
@@ -373,8 +373,10 @@ export function buildItems(sources: CommentSources): CommentItem[] {
     const check = sentCheck(comment, sources.checks);
     const needs = state === "older-diff" && posts ? "older-diff" : comment.state !== "sent" ? null
       : check && (check.verdict === "not_addressed" || check.verdict === "partial") ? "check" : fix === "declined" ? "declined" : null;
+    // One not on GitHub yet goes with the next Send: it waits with what Submit posts until a Send takes it.
+    const waits = posts || isLocal(comment) && fix === "open";
     add({
-      kind: "draft", id: draftItemId(comment), state, label, ...mark ? { mark } : {}, fix, posts, check, ...needing(needs, posts ? "not-submitted" : "fixes"),
+      kind: "draft", id: draftItemId(comment), state, label, ...mark ? { mark } : {}, fix, posts, check, ...needing(needs, waits ? "not-submitted" : "fixes"),
       at: { file: comment.file, line: comment.line, side: comment.side, lines: linesOf(comment) }, chapterId: chapterOf(comment.file, comment.line, comment.side),
       who, latest: { who, body: comment.body, at: null }, nonBlocking: comment.severity === "nit",
       comment, discussion: discussions.find((discussion) => sameLocation(discussion, comment)) ?? null,
@@ -485,6 +487,9 @@ export function needsYou(items: readonly CommentItem[]): CommentItem[] {
   return items.filter((item) => item.needs).sort((a, b) => NEEDS.indexOf(a.needs!) - NEEDS.indexOf(b.needs!) || Number(a.nonBlocking) - Number(b.nonBlocking));
 }
 
+/** A draft comment Not submitted counts: one Submit posts, or one not on GitHub yet that no Send took. */
+const waiting = (item: CommentItem) => item.kind === "draft" && (item.posts || isLocal(item.comment) && item.fix === "open");
+
 export interface CommentGroup {
   id: GroupId;
   title: string;
@@ -504,7 +509,7 @@ export interface CommentGroup {
  * The list's groups in order, each in its own order, empty ones too so every chip has a count. Under All each item
  * shows once: Needs you, then drafts, then those sent to fix that won't post, then GitHub (yours first), then private
  * discussions. Not submitted's chip also shows the drafts on an older diff, which All shows under Needs you, so its
- * count is what Submit sends. Pass the
+ * count is what Submit sends, and the comments not on GitHub yet that the next Send takes. Pass the
  * items the list shows. `preExisting` (Settings' Keep pre-existing problems apart) adds Not submitted's "1 pre-existing".
  * On your own PR (`ownPr`), On GitHub has no "Yours: …handled": no one answers your feedback there.
  */
@@ -512,8 +517,8 @@ export function groups(items: readonly CommentItem[], preExisting = false, ownPr
   const home = (id: GroupId) => items.filter((item) => item.group === id);
   const group = (id: GroupId, shown: CommentItem[], summary: string | null): CommentGroup => ({ id, title: GROUP_TITLE[id], count: shown.length, summary, items: shown, elsewhere: 0, folded: null });
   const drafts = home("not-submitted");
-  // Every draft that posts, wherever All shows it.
-  const everyDraft = items.filter((item) => item.kind === "draft" && item.posts);
+  // Every draft that posts, or waits for a Send not on GitHub yet, wherever All shows it.
+  const everyDraft = items.filter(waiting);
   const fixes = home("fixes");
   const github = home("on-github");
   const yours = (item: CommentItem) => item.kind === "ask" || item.kind === "thread" && item.mine;
@@ -615,11 +620,11 @@ export function toSend({ draft, threads, feedback, replyDrafts, status = POSTS }
 
 /**
  * What the list shows for one chip, or for All, in its order: All each item once by group; Not submitted every draft
- * comment that posts, and a fix's chip every draft comment whose fix stands so, each in reading order; On GitHub's
+ * comment that posts, or waits for a Send not on GitHub yet, and a fix's chip every draft comment whose fix stands so, each in reading order; On GitHub's
  * folded threads only while they show.
  */
 export function shownItems(items: readonly CommentItem[], filter: CommentFilter = "all", showFolded = false): CommentItem[] {
-  if (filter === "not-submitted") return items.filter((item) => item.kind === "draft" && item.posts);
+  if (filter === "not-submitted") return items.filter(waiting);
   if (isFixFilter(filter)) return items.filter((item) => itemFix(item) === filter);
   return groups(items)
     .filter(({ id }) => filter === "all" || id === filter)
