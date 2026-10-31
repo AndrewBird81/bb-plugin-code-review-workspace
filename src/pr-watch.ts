@@ -98,9 +98,12 @@ export async function readBranches(run: Run, branches: Array<{ repo: string; bra
   });
 }
 
-/** A local review whose branch may get a PR: of a folder that's still there, in a GitHub repo, neither archived nor offering to merge with its PR's review; one kept apart from a PR's review too, for its branch's next PR. */
+/**
+ * A local review whose branch may get a PR: of a folder that's still there, in a GitHub repo, neither archived nor offering
+ * to merge with its PR's review; one kept apart from a PR's review too, whose offer stays, for its branch's next PR.
+ */
 const watched = (review: ReviewMeta | null): review is Watched => !!review && review.kind === "ref" && !!review.feature?.repo && !review.feature.folderGone
-  && !review.prOffer && !review.archivedAt && !review.userArchivedAt;
+  && (!review.prOffer || review.mergeDeclined === review.prOffer.key) && !review.archivedAt && !review.userArchivedAt;
 
 /** The names the review's branch may have on GitHub: its own, or its PR's head, and the name a thread pushed it as. */
 const branchesOf = ({ feature }: Watched) => [...new Set([feature.remoteBranch ?? feature.branch, ...feature.pushedAs ? [feature.pushedAs] : []])]

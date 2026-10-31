@@ -6,6 +6,7 @@ import { folderHost, type Folder } from "./env-diff.test-support";
 import { testStore } from "./test-store.test-support";
 import { featureKey } from "./targets";
 import { pushedName, register } from "./pr-watch";
+import { becomePr } from "./feature-review";
 import type { SyncHealth } from "./review-lifecycle";
 
 afterEach(() => { vi.useRealTimers(); });
@@ -271,7 +272,13 @@ test("T3: the poll reads every local review in one request every 2 minutes; a br
 
 test("T3: a review kept apart from one PR's review is still watched for the branch's next PR", async () => {
   const s = await setup();
-  await s.store.setLifecycle(KEY, { mergeDeclined: "pr:acme/api#6" });
+  // PR #6's own review has something of yours: the folder's offers to merge, and Keep both keeps the offer as it was.
+  const kept = "pr:acme/api#6";
+  await s.store.saveReview({ targetKey: kept, kind: "pr", repo: "acme/api", number: 6, url: "https://github.com/acme/api/pull/6", head: "feat/qa", status: "ready", createdAt: 1 });
+  await s.store.upsertDraftComment(kept, { file: "src/a.ts", line: 2, side: "RIGHT", body: "Theirs" });
+  expect(await becomePr(s.deps as any, KEY, { repo: "acme/api", number: 6 })).toBe("offered");
+  await s.store.setLifecycle(KEY, { mergeDeclined: kept });
+  expect(await s.store.getReview(KEY)).toMatchObject({ prOffer: { key: kept } });
   s.github.branches["acme/api:feat/qa"] = { sha: "c0ffee", prs: [{ number: 7 }] };
   await s.watch.poll();
   expect(await s.store.getReview(KEY)).toMatchObject({ kind: "pr", number: 7 });

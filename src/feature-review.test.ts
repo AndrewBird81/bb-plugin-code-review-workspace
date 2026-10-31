@@ -1037,12 +1037,17 @@ test("your PR found on GitHub whose review has nothing of yours is merged into t
 
 test("Keep both with one PR's review still finds the branch's next PR, as your PR on GitHub", async () => {
   const s = setup();
+  vi.mocked(runGh).mockImplementation(s.deps.gh.runGh as any);
+  await plugin(s.bb);
   await run(s, "main");
   await settled(s);
-  // PR #6, closed, has its own review, kept apart.
+  // PR #6, closed since, has its own review with something of yours: offered, and kept apart, its offer as it was.
   const kept = targetKey({ kind: "pr", repo: "acme/api", number: 6 });
   await s.store.saveReview({ targetKey: kept, kind: "pr", repo: "acme/api", number: 6, url: "https://github.com/acme/api/pull/6", head: "feat/qa", status: "ready", createdAt: 1 });
-  await s.store.setLifecycle(key, { mergeDeclined: kept });
+  await s.store.upsertDraftComment(kept, { file: "src/a.ts", line: 2, side: "RIGHT", body: "Theirs" });
+  expect(await becomePr(s.deps, key, { repo: "acme/api", number: 6 })).toBe("offered");
+  expect(await s.harness.behavior.callRpc("keepBothReviews", { targetKey: key })).toEqual({ ok: true });
+  expect(await s.store.getReview(key)).toMatchObject({ mergeDeclined: kept, prOffer: { key: kept } });
   await ownPrSync(s).all(true);
   expect(await s.store.getReview(key)).toMatchObject({ kind: "pr", number: 7 });
   expect(await prReviewKey(s.store, { repo: "acme/api", number: 7 })).toBe(key);
