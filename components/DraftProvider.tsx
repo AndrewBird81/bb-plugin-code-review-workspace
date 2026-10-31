@@ -6,7 +6,7 @@ import type { rpcContract } from "../src/rpc-contract";
 import type { ReviewItem } from "../lib/review-state";
 import type { CommentChecks } from "../lib/comments";
 import type { FixChange } from "./comments/FixTracking";
-import { commentsKey, isPreExisting, isSummary, linesOf, postable, rangeOf, sameLocation, SEVERITIES, severityCounts, SEVERITY_LABEL, summaryChanges, SUMMARY_AT, VERDICT_LABEL, type CommentLocation, type Discussion, type Draft, type DraftComment, type Severity, type Verdict } from "../src/draft";
+import { commentsKey, isPreExisting, isSummary, linesOf, postable, rangeOf, sameLocation, SEVERITIES, severityCounts, SEVERITY_LABEL, sideOrder, summaryChanges, SUMMARY_AT, VERDICT_LABEL, type CommentLocation, type Discussion, type Draft, type DraftComment, type Severity, type Verdict } from "../src/draft";
 import { diffPositions, orderRange, type FilePositions } from "../src/review-positions";
 import { splitPatchByFile } from "../src/patch";
 import { carries, insertLines } from "../src/post-preview";
@@ -668,7 +668,7 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
   // In the order the review reads: chapter by chapter, then file, line, and side.
   const sortedComments = useMemo(() => {
     const rank = (file: string) => { const index = files.indexOf(file); return index < 0 ? files.length : index; };
-    return [...draft.comments].sort((a, b) => rank(a.file) - rank(b.file) || a.file.localeCompare(b.file) || a.line - b.line || (a.side === b.side ? 0 : a.side === "LEFT" ? -1 : 1));
+    return [...draft.comments].sort((a, b) => rank(a.file) - rank(b.file) || a.file.localeCompare(b.file) || a.line - b.line || sideOrder(a.side) - sideOrder(b.side));
   }, [draft.comments, files]);
   // Submitting refuses comments drafted against an older diff, of those it posts.
   const staleComments = sortedComments.filter((comment) => postable(comment, own) && stale.some((at) => sameLocation(at, comment)));

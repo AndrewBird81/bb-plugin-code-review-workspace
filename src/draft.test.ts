@@ -1,5 +1,5 @@
 import { test, expect } from "vitest";
-import { commentsKey, sameComments, severityCounts, severityOf, toGithubReviewPayload, type Draft, type Severity } from "./draft";
+import { commentsKey, sameComments, severityCounts, severityOf, sideOrder, toGithubReviewPayload, type Draft, type Severity } from "./draft";
 
 const draft: Draft = {
   targetKey: "pr-1",
@@ -69,4 +69,10 @@ test("severity counts read as the draft shows them", () => {
   expect(severityCounts([at(), at()])).toBe("");
   expect(severityCounts([at("question"), at("question")])).toBe("2 questions");
   expect(severityCounts([at("nit"), at("nit")])).toBe("2 nits");
+});
+
+test("comments on one line sort LEFT, then RIGHT, then LOCAL, whichever is compared first", () => {
+  const sides = ["LOCAL", "RIGHT", "LEFT"] as const;
+  expect([...sides].sort((a, b) => sideOrder(a) - sideOrder(b))).toEqual(["LEFT", "RIGHT", "LOCAL"]);
+  expect([...sides].reverse().sort((a, b) => sideOrder(a) - sideOrder(b))).toEqual(["LEFT", "RIGHT", "LOCAL"]);
 });

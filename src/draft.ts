@@ -89,6 +89,9 @@ export const postable = (c: Pick<DraftComment, "state" | "side">, own: boolean) 
 /** A comment on a line only in the folder, not on GitHub yet: it goes with Send, never with Submit, until it's pushed. */
 export const isLocal = (c: Pick<DraftComment, "side">) => c.side === "LOCAL";
 
+/** Where a comment sorts among others on its line: LEFT, then RIGHT, then LOCAL. */
+export const sideOrder = (side: DraftComment["side"]) => side === "LEFT" ? 0 : side === "RIGHT" ? 1 : 2;
+
 /** The side of its diff a line is on: a LOCAL one's is the new side of Not pushed yet's diff, never the PR's. */
 export const diffSide = (side: DraftComment["side"]): "LEFT" | "RIGHT" => side === "LEFT" ? "LEFT" : "RIGHT";
 
