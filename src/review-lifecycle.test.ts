@@ -1607,24 +1607,24 @@ test("your PR of a folder's branch makes that folder's review the PR's, not anot
   expect(s.actions.becomePr).not.toHaveBeenCalled();
 });
 
-test("your draft PR, one from a fork into the repo it came from, and one whose head has another name each find their folder's review", async () => {
+test("your draft PR, one from a fork into the repo it came from, and one whose head has another name, or the name a thread pushed it as, each find their folder's review", async () => {
   const s = await setup();
   await s.sync.all();
-  const feature = (branch: string, repo: string, remoteBranch?: string) => ({ environmentId: "env1", hostId: "h1", machine: "MaxBook", path: "/src/web", branch, baseRef: "main", repo, ...remoteBranch ? { remoteBranch } : {} });
-  for (const [key, branch, repo, remoteBranch] of [["br-1", "feat/4", "acme/web"], ["br-2", "feat/5", "me/web"], ["br-3", "bb/nice-thr_a1", "acme/web", "feat/nice"]] as const) {
+  const feature = (branch: string, repo: string, remoteBranch?: string, pushedAs?: string) => ({ environmentId: "env1", hostId: "h1", machine: "MaxBook", path: "/src/web", branch, baseRef: "main", repo, ...remoteBranch ? { remoteBranch } : {}, ...pushedAs ? { pushedAs } : {} });
+  for (const [key, branch, repo, remoteBranch, pushedAs] of [["br-1", "feat/4", "acme/web"], ["br-2", "feat/5", "me/web"], ["br-3", "bb/nice-thr_a1", "acme/web", "feat/nice"], ["br-4", "bb/push-thr_b2", "acme/web", undefined, "feat/push"]] as const) {
     await s.store.saveReview({ targetKey: key, kind: "ref", status: "ready", createdAt: 1, projectId: "p1" });
-    await s.store.setLifecycle(key, { feature: feature(branch, repo, remoteBranch) });
+    await s.store.setLifecycle(key, { feature: feature(branch, repo, remoteBranch, pushedAs) });
   }
   vi.mocked(s.github.ownPrs).mockResolvedValue([
     ownPr(4, { isDraft: true, headRepo: "acme/web" }),
     // From the fork me/web, in acme/web; a PR from another fork with that branch isn't its.
     ownPr(9, { head: "feat/5", headRepo: "you/web" }), ownPr(5, { headRepo: "me/web" }),
-    ownPr(6, { head: "feat/nice", headRepo: "acme/web" }),
+    ownPr(6, { head: "feat/nice", headRepo: "acme/web" }), ownPr(8, { head: "feat/push", headRepo: "acme/web" }),
   ]);
   s.at(1);
   await s.sync.all(true);
   expect(vi.mocked(s.actions.becomePr).mock.calls).toEqual([
-    ["br-1", { repo: "acme/web", number: 4 }], ["br-2", { repo: "acme/web", number: 5 }], ["br-3", { repo: "acme/web", number: 6 }],
+    ["br-1", { repo: "acme/web", number: 4 }], ["br-2", { repo: "acme/web", number: 5 }], ["br-3", { repo: "acme/web", number: 6 }], ["br-4", { repo: "acme/web", number: 8 }],
   ]);
 });
 

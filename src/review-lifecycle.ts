@@ -658,7 +658,7 @@ export function createReviewSync(bb: BbPluginApi, store: AsyncStore, run: typeof
 
   /**
    * Your PRs, drafts too, whose head is an open review of a folder's, by its repo, a fork's for a PR from one, and its
-   * branch, or that branch's name on GitHub: that review becomes the PR's, merged with the PR's own review or offering to
+   * branch, or that branch's name on GitHub, or the name a thread pushed it as: that review becomes the PR's, merged with the PR's own review or offering to
    * (src/merge.ts), and one offering waits for your click. Returns the reviews that became PRs', and the PRs whose
    * folder's review couldn't yet, which wait for it rather than get a second review. A PR you took off the list stays off.
    */
@@ -668,7 +668,7 @@ export function createReviewSync(bb: BbPluginApi, store: AsyncStore, run: typeof
     if (!own.length || !actions) return { converted, waiting };
     const folders = (await store.listReviews()).filter((r) => r.kind === "ref" && r.feature?.repo && !r.prOffer && !r.mergeDeclined && !r.archivedAt && !r.userArchivedAt);
     for (const pr of own) {
-      const at = folders.findIndex(({ feature }) => feature!.repo!.toLowerCase() === (pr.headRepo ?? pr.repo) && (feature!.branch === pr.head || feature!.remoteBranch === pr.head));
+      const at = folders.findIndex(({ feature }) => feature!.repo!.toLowerCase() === (pr.headRepo ?? pr.repo) && (feature!.branch === pr.head || feature!.remoteBranch === pr.head || feature!.pushedAs === pr.head));
       if (at < 0 || await store.isDiscoveryIgnored(keyFor({ kind: "pr", number: pr.number, repo: pr.repo }))) continue;
       const [folder] = folders.splice(at, 1);
       const became = await actions.becomePr(folder.targetKey, { repo: pr.repo, number: pr.number }).catch((error) => {

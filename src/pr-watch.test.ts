@@ -5,7 +5,7 @@ import { afterEach, expect, test, vi } from "vitest";
 import { folderHost, type Folder } from "./env-diff.test-support";
 import { testStore } from "./test-store.test-support";
 import { featureKey } from "./targets";
-import { register } from "./pr-watch";
+import { pushedName, register } from "./pr-watch";
 import type { SyncHealth } from "./review-lifecycle";
 
 afterEach(() => { vi.useRealTimers(); });
@@ -123,6 +123,72 @@ test("T1: a thread on a branch whose upstream is another branch's, with that bra
   s.commands.other = ["git push origin HEAD:part1-wip", "gh pr create --fill"];
   await s.emit("thread.idle", { id: "other", environmentId: "env1" });
   expect(await s.store.getReview(KEY)).toMatchObject({ kind: "ref", prPending: { number: 7, why: "branch", head: "part1" }, feature: { pushedAs: "part1-wip" } });
+});
+
+test("T1: git -C <dir> push, /usr/bin/git push, jj git push and gh stack push or submit each read the branch at once and have the poll read it again", async () => {
+  const pushes = ["git -C ~/src/api push -u origin HEAD", "/usr/bin/git push", "jj git push --bookmark feat/qa", "gh stack push", "/bin/zsh -lc \"gh stack submit\""];
+  for (const command of pushes) {
+    const s = await setup();
+    // feat/qa isn't on GitHub: the poll waits 10 minutes, until a thread pushes.
+    await s.watch.poll();
+    s.github.branches["acme/api:feat/qa"] = { sha: "c0ffee", prs: [] };
+    s.at(10);
+    s.commands.coder = [command];
+    await s.emit("thread.idle", { id: "coder", environmentId: "env1" });
+    expect(s.reads()).toHaveLength(2);
+    s.github.branches["acme/api:feat/qa"] = { sha: "c0ffee", prs: [{ number: 7 }] };
+    s.at(120);
+    await s.watch.poll();
+    expect(s.reads()).toHaveLength(3);
+    expect(await s.kind()).toBe("pr");
+  }
+});
+
+test("T1: a push under another name with no upstream reads that name on GitHub, at once and in the poll, and its PR makes the review its own", async () => {
+  const s = await setup();
+  s.github.heads[7] = "feat/nice";
+  s.github.branches["acme/api:feat/nice"] = { sha: "c0ffee", prs: [] };
+  s.commands.coder = ["git push origin HEAD:feat/nice"];
+  await s.emit("thread.idle", { id: "coder", environmentId: "env1" });
+  expect(s.reads().map(branchesIn)).toEqual([["feat/nice", "feat/qa"]]);
+  expect(await s.kind()).toBe("ref");
+  s.github.branches["acme/api:feat/nice"] = { sha: "c0ffee", prs: [{ number: 7 }] };
+  s.at(120);
+  await s.watch.poll();
+  expect(s.reads().map(branchesIn)[1]).toEqual(["feat/nice", "feat/qa"]);
+  expect(await s.store.getReview(KEY)).toMatchObject({ kind: "pr", number: 7, head: "feat/nice", feature: { branch: "feat/qa", remoteBranch: "feat/nice" } });
+});
+
+test("T1: a thread's push reads nothing while GitHub limits reads or gh isn't signed in, nor within 5 seconds of its last read", async () => {
+  const s = await setup();
+  s.github.branches["acme/api:feat/qa"] = { sha: "c0ffee", prs: [] };
+  s.unhealthy({ kind: "rate-limit", at: 0, retryAt: Date.now() + 60_000 });
+  s.commands.coder = ["git push"];
+  await s.emit("thread.idle", { id: "coder", environmentId: "env1" });
+  s.unhealthy({ kind: "auth", at: 0 });
+  s.commands.coder.push("git push");
+  await s.emit("thread.idle", { id: "coder", environmentId: "env1" });
+  expect(s.reads()).toEqual([]);
+  s.unhealthy(null);
+  s.commands.coder.push("git push");
+  await s.emit("thread.idle", { id: "coder", environmentId: "env1" });
+  expect(s.reads()).toHaveLength(1);
+  s.at(3);
+  s.commands.coder.push("gh pr create --fill");
+  await s.emit("thread.idle", { id: "coder", environmentId: "env1" });
+  expect(s.reads()).toHaveLength(1);
+  s.at(6);
+  s.commands.coder.push("gh pr create --fill");
+  await s.emit("thread.idle", { id: "coder", environmentId: "env1" });
+  expect(s.reads()).toHaveLength(2);
+});
+
+test("pushedName: the name a push or a new PR gives the branch on GitHub, never a remote's URL or a deleted branch", () => {
+  expect(pushedName("/bin/zsh -lc \"git push -u origin HEAD:feat/nice\"")).toEqual({ from: null, as: "feat/nice" });
+  expect(pushedName("git -C ~/src/api push origin part2:refs/heads/feat/nice && gh pr create")).toEqual({ from: "part2", as: "feat/nice" });
+  expect(pushedName("gh pr create --head me:feat/nice --fill")).toEqual({ from: null, as: "feat/nice" });
+  expect(pushedName("git push https://github.com/acme/api HEAD:feat/x")).toEqual({ from: null, as: "feat/x" });
+  for (const none of ["git push git@github.com:acme/api.git", "git push origin :old", "git push -u origin HEAD", "gh stack push", "npm test"]) expect(pushedName(none)).toBeNull();
 });
 
 test("forks: a fork's branch finds its PR in the repo it was forked from, never another fork's PR from a branch of the same name", async () => {

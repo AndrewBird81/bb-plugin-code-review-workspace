@@ -23,6 +23,8 @@ const SECOND = 1000;
 const MINUTE = 60 * SECOND;
 /** The least time between two checks of a review, but for a thread's push or Push's own read. */
 const CHECK_GAP = 15 * SECOND;
+/** The least time between two checks of a review a thread's commands ask for. */
+const THREAD_GAP = 5 * SECOND;
 /** The least time between two checks a review's page asks for. */
 const PAGE_GAP = 25 * SECOND;
 const POLL_EVERY = 2 * MINUTE;
@@ -32,8 +34,11 @@ const UNPUSHED_EVERY = 10 * MINUTE;
 const UNWATCHED_GAP = 5 * SECOND;
 /** Reviews read in one request. */
 const BATCH = 20;
-/** A command that may have opened a PR, as PR Status looks for them. */
-const OPENS_PR = /(?:^|[\s;&|"'(])(git\s+push\b|gh\s+(pr\s+(create|new)\b|api\b.*\bpulls\b))/;
+/**
+ * A command that may have opened a PR, as PR Status looks for them, or pushed: git by any path, with options before
+ * push (`git -C <dir> push`), jj's `jj git push`, and gh-stack's `gh stack push` and `gh stack submit`.
+ */
+const OPENS_PR = /(?:^|[\s;&|"'(])((?:[^\s;&|"'(]*\/)?git(?:\s+-[Cc]\s+\S+|\s+-\S+)*\s+push\b|gh\s+(pr\s+(create|new)\b|stack\s+(push|submit)\b|api\b.*\bpulls\b))/;
 
 /**
  * The name a command that may have opened a PR gives the branch on GitHub, and the branch it pushes, null for the
@@ -47,6 +52,7 @@ export function pushedName(command: string): { from: string | null; as: string }
   const words = command.slice(match.index + match[0].length - match[1]!.length).split(/\s*(?:&&|\|\||[;|&)])\s*|["']\s*$/)[0]!
     .split(/\s+/).map((word) => word.replace(/^["']|["']$/g, ""));
   if (match[1]!.startsWith("gh")) {
+    if (!match[3]) return null;
     const at = words.findIndex((word) => word === "--head" || word === "-H" || word.startsWith("--head="));
     const head = at < 0 ? undefined : words[at]!.startsWith("--head=") ? words[at]!.slice("--head=".length) : words[at + 1];
     // A fork's owner:branch names its branch.
@@ -89,6 +95,18 @@ export async function readBranches(run: Run, branches: Array<{ repo: string; bra
 /** A local review whose branch may get a PR: of a folder that's still there, in a GitHub repo, not archived, offering to merge with its PR's review or kept apart from it. */
 const watched = (review: ReviewMeta | null): review is Watched => !!review && review.kind === "ref" && !!review.feature?.repo && !review.feature.folderGone
   && !review.prOffer && !review.mergeDeclined && !review.archivedAt && !review.userArchivedAt;
+
+/** The names the review's branch may have on GitHub: its own, or its PR's head, and the name a thread pushed it as. */
+const branchesOf = ({ feature }: Watched) => [...new Set([feature.remoteBranch ?? feature.branch, ...feature.pushedAs ? [feature.pushedAs] : []])]
+  .map((branch) => ({ repo: feature.repo, branch }));
+
+/** The reads of one review's names as one: on GitHub when any is, with their PRs, newest first; failed when every read did. */
+function joined(reads: BranchRead[]): BranchRead {
+  const found = reads.filter((read) => "sha" in read);
+  if (!found.length) return reads[0]!;
+  const prs = new Map(found.flatMap((read) => read.prs).map((pr) => [pr.url, pr]));
+  return { sha: found.find((read) => read.sha)?.sha ?? null, prs: [...prs.values()].sort((a, b) => b.createdAt - a.createdAt) };
+}
 
 /** The review becomes the newest PR `read` found, if any. Returns whether it found one. */
 export async function becomeFound(deps: Parameters<typeof becomePr>[0], key: string, read: BranchRead): Promise<boolean> {
@@ -138,22 +156,23 @@ export function register(deps: Deps) {
   };
 
   /**
-   * Look for the review's PR now, once at a time, and no sooner than 15 seconds after the last look unless a thread's
-   * command asks (`why` "thread"), when PR Status's PR for the folder counts too. The page's waits as the poll does.
+   * Look for the review's PR now, once at a time, and no sooner than 15 seconds after the last look, 5 when a thread's
+   * command asks (`why` "thread"), when PR Status's PR for the folder counts too. Neither reads while GitHub limits reads
+   * or gh is signed out, and the page's waits for a branch not on GitHub as the poll does.
    */
   function check(key: string, why: "thread" | "page"): Promise<void> {
     const now = Date.now();
     const inFlight = running.get(key);
     if (inFlight) return inFlight;
-    if (why !== "thread" && now - (checkedAt.get(key) ?? 0) < CHECK_GAP) return Promise.resolve();
-    if (why === "page" && (githubWaits(deps.sync.health(), now) || now - (unpushed.get(key) ?? -Infinity) < UNPUSHED_EVERY)) return Promise.resolve();
+    if (now - (checkedAt.get(key) ?? 0) < (why === "thread" ? THREAD_GAP : CHECK_GAP) || githubWaits(deps.sync.health(), now)) return Promise.resolve();
+    if (why === "page" && now - (unpushed.get(key) ?? -Infinity) < UNPUSHED_EVERY) return Promise.resolve();
     checkedAt.set(key, now);
     const work = (async () => {
       const review = await store.getReview(key);
       if (!watched(review)) return forget(key);
       const { feature } = review;
-      const [read] = await readBranches(gh.runGh, [{ repo: feature.repo, branch: feature.remoteBranch ?? feature.branch }]);
-      if (await settle(review, read!, now) || why !== "thread") return;
+      const read = joined(await readBranches(gh.runGh, branchesOf(review)));
+      if (await settle(review, read, now) || why !== "thread") return;
       const pr = await statusPr(deps, feature);
       if (pr) await becomePr(deps, key, pr);
     })().catch((error) => bb.log.warn(`Could not look for the PR of ${key}: ${String(error)}`)).finally(() => running.delete(key));
@@ -178,9 +197,11 @@ export function register(deps: Deps) {
       const batch = due.slice(i, i + BATCH);
       // Whether GitHub answered.
       const answered = (async () => {
-        const reads = await readBranches(gh.runGh, batch.map(({ feature }) => ({ repo: feature.repo, branch: feature.remoteBranch ?? feature.branch })));
+        const asked = batch.map(branchesOf);
+        const reads = await readBranches(gh.runGh, asked.flat());
         if (reads.every((read) => "error" in read)) return false;
-        for (const [at, review] of batch.entries()) await settle(review, reads[at]!, now);
+        let at = 0;
+        for (const [i, review] of batch.entries()) await settle(review, joined(reads.slice(at, at += asked[i]!.length)), now);
         return true;
       })().catch((error) => { bb.log.warn(`Could not look for local reviews' PRs: ${String(error)}`); return false; });
       const work = answered.then(() => {});
@@ -222,8 +243,8 @@ export function register(deps: Deps) {
   }
 
   /**
-   * Read a thread's new commands, when a review watches its folder: one that may have opened a PR checks that review at
-   * once, and a push polls its branch again. One read per thread at a time; never the plugin's own, hidden, threads. A
+   * Read a thread's new commands, when a review watches its folder: one that may have pushed or opened a PR checks that
+   * review at once, and has the poll read its branch again. One read per thread at a time; never the plugin's own, hidden, threads. A
    * thread that stopped (`stopped`) reads the reviews whatever the last read found, so a review started since is seen.
    */
   function scan(thread: { id: string; environmentId?: string | null; visibility?: string }, stopped = false): Promise<void> {
@@ -246,13 +267,9 @@ export function register(deps: Deps) {
         const item = row.type === "item/completed" ? row.data.item : null;
         return item?.type === "commandExecution" ? [item.command] : [];
       });
-      const found = commands.flatMap((command) => {
-        const match = OPENS_PR.exec(command);
-        return match ? [match[1]!] : [];
-      });
-      if (!found.length) return;
+      if (!commands.some((command) => OPENS_PR.test(command))) return;
       await savePushedAs(reviews, commands.flatMap((command) => pushedName(command) ?? []));
-      if (found.some((command) => command.startsWith("git"))) for (const review of reviews) unpushed.delete(review.targetKey);
+      for (const review of reviews) unpushed.delete(review.targetKey);
       await Promise.all(reviews.map((review) => check(review.targetKey, "thread")));
     }).catch((error) => bb.log.warn(`Could not read the commands of thread ${thread.id}: ${String(error)}`));
     scanning.set(thread.id, next);
