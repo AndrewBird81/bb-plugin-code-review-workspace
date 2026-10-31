@@ -183,7 +183,8 @@ export function FixHandoff({ targetKey, comments, revision }: { targetKey: strin
       <Button variant="outline" size="sm" className={`max-w-full ${TOUCH_CONTROL}`} onClick={() => choose("approve")}><Icon name="Send" className="size-4" aria-hidden />Send approval to main thread</Button>
       <p className="text-xs text-muted-foreground">Tells it “Approved”, with your message and the summary if you add them{waits}. Nothing goes to GitHub.</p>
     </div> : open.length > 0 && (to ? <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-      <Button variant="outline" size="sm" className={`max-w-full ${TOUCH_CONTROL}`} onClick={() => choose("send")}><Icon name="Send" className="size-4" aria-hidden />Send {open.length} to main thread</Button>
+      {/* With no Submit, on a local review, Send is the step before any other: before Push. */}
+      <Button variant={isLocal ? "default" : "outline"} size="sm" className={`max-w-full ${TOUCH_CONTROL}`} onClick={() => choose("send")}><Icon name="Send" className="size-4" aria-hidden />Send {open.length} to main thread</Button>
       <span className="text-xs text-muted-foreground">or <button type="button" className={LINK} onClick={() => choose("fix")}>Fix in a new thread</button></span>
     </div> : <Button variant="outline" size="sm" className={TOUCH_CONTROL} onClick={() => choose("fix")}><Icon name="Code" className="size-4" aria-hidden />Fix in a new thread</Button>)}
     {/* Which thread that is, and where: the review and its main thread can share a name. */}

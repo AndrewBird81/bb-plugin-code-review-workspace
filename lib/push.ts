@@ -86,6 +86,9 @@ export const pushAnywayOffered = (run: PushRun | null | undefined): run is PushR
 /** What Push says when GitHub has commits the folder doesn't: a push without force would be refused. */
 export const behindText = (head: string) => `GitHub has commits on ${code(head)} that this folder doesn’t. Pull first, or Push anyway to try.`;
 
+/** The review agent's PR draft while it waits in the Post form in its chat (ReviewMeta.prDraft); null once it closed or timed out. */
+export const prDraftWaiting = (review: Pick<ReviewMeta, "prDraft">, now = Date.now()) => review.prDraft && review.prDraft.until > now ? review.prDraft : null;
+
 /** What Push says when GitHub has the commit already. */
 export const nothingToPush = (head: string, commit: string) => `Nothing to push. GitHub already has ${sha(commit)} on ${code(head)}.`;
 

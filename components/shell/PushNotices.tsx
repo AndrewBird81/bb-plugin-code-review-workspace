@@ -1,9 +1,9 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useBbNavigate, useRpc } from "@get-bb/plugin-sdk/app";
 import { toast } from "sonner";
 import type { rpcContract } from "../../src/rpc-contract";
 import type { ReviewLifecycle } from "../../src/store";
-import { pushFlagText } from "../../lib/push";
+import { prDraftWaiting, pushFlagText } from "../../lib/push";
 import { cn } from "../../lib/utils";
 import { TOUCH_CONTROL } from "../touch";
 import { Button } from "../ui/button";
@@ -30,6 +30,24 @@ export function Marked({ text }: { text: string }): ReactNode {
 export async function updateThenClear(rpc: Rpc, targetKey: string): Promise<{ ok: boolean; error?: string }> {
   const updated = await rpc.call("updateFeature", { targetKey });
   return updated.ok ? rpc.call("dismissPush", { targetKey }) : updated;
+}
+
+/** The PR drafts said ready, by review and when each was shown, so each is said once while the page stays open. */
+const draftsSaid = new Set<string>();
+
+/**
+ * "The PR draft is ready.", once per draft, while the review agent's Post form waits in its chat (ReviewMeta.prDraft):
+ * a toast with Post PR…, which opens the agent's tab (`onPost`), unless Finish review shows (`finishShown`), which says it.
+ */
+export function usePrDraftToast(targetKey: string, review: Pick<ReviewLifecycle, "prDraft"> | null, finishShown: boolean, onPost: () => void) {
+  const post = useRef(onPost);
+  post.current = onPost;
+  const at = review && prDraftWaiting(review)?.at;
+  useEffect(() => {
+    if (!at || draftsSaid.has(`${targetKey}:${at}`)) return;
+    draftsSaid.add(`${targetKey}:${at}`);
+    if (!finishShown) toast.info("The PR draft is ready.", { action: { label: "Post PR…", onClick: () => post.current() } });
+  }, [targetKey, at, finishShown]);
 }
 
 /**

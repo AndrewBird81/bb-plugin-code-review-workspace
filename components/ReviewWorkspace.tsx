@@ -62,7 +62,7 @@ import { returnFocus } from "./shell/side-parts";
 import { REWRITE_GUIDE, ReviewNotices, useNewCommits, type Notice } from "./shell/ReviewNotices";
 import { useBranchKeptNotices, useFeatureNotices } from "./shell/FeatureNotices";
 import { useFixNotices } from "./shell/FixNotices";
-import { usePushNotices } from "./shell/PushNotices";
+import { usePrDraftToast, usePushNotices } from "./shell/PushNotices";
 import { SelectionBar } from "./shell/SelectionBar";
 import { SidePanel, sidePanelId } from "./shell/SidePanel";
 import { TopBand, navigatorId } from "./shell/TopBand";
@@ -1461,6 +1461,8 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   const fixNotices = useFixNotices(targetKey, review, load);
   // A Push that GitHub doesn't show, or one no one asked for.
   const pushNotices = usePushNotices(targetKey, review, load);
+  // The review agent's PR draft, ready to post: Finish review says so, and a toast where it doesn't show.
+  usePrDraftToast(targetKey, review, shownPanel === "finish", () => openPanel("agent"));
   const mainThread = useMemo(() => mainThreadId ? { threadId: mainThreadId, title: mainLink?.title ?? null, machine: mainLink?.machine ?? null } : null, [mainThreadId, mainLink]);
   const commentKeys = useKnob("commentKeys");
   const unattendedAgents = useKnob("unattendedAgents");
