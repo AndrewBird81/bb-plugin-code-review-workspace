@@ -62,10 +62,11 @@ function MoreThreads({ threads, onOpen }: { threads: FeatureCheck["alsoActive"];
  * review followed its renamed branch, with Got it; its machine is offline;
  * it changed, with Update; its guide is older than what Update last showed, with Rewrite guide; committed files that look like secrets, with Got it; its PR's (PrNotices.tsx),
  * which a PR's review has too; files it keeps out, each secret named on its own button; and the other threads editing
- * it. A PR's review whose folder is still there says what in it isn't on GitHub yet, with Review them (`onNotPushed`).
+ * it. A PR's review whose folder is still there says what in it isn't on GitHub yet, with Review them (`onNotPushed`), but
+ * on Not pushed yet's page, where `onNotPushed` is null.
  * Asked on open, and again when the review or its folder changes. `onChanged` reloads the review.
  */
-export function useFeatureNotices(targetKey: string, review: (Reviewed & PrReviewed) | null, onChanged: () => void, onNotPushed: () => void): Notice[] {
+export function useFeatureNotices(targetKey: string, review: (Reviewed & PrReviewed) | null, onChanged: () => void, onNotPushed: (() => void) | null): Notice[] {
   const rpc = useRpc<typeof rpcContract>();
   const navigate = useBbNavigate();
   const localDiffChanges = useKnob("localDiffChanges");
@@ -166,7 +167,7 @@ export function useFeatureNotices(targetKey: string, review: (Reviewed & PrRevie
     const n = check.aheadFiles ?? 1;
     add({ id: "folder-ahead", tone: "info", icon: "FileDiff", label: "Not pushed yet",
       text: `${files(n)} in the folder ${n === 1 ? "isn’t" : "aren’t"} on GitHub yet${localComments ? `, with ${localComments} of your comments` : ""}.`,
-      action: button("not-pushed", "Review them", onNotPushed) });
+      ...onNotPushed ? { action: button("not-pushed", "Review them", onNotPushed) } : {} });
   }
   if (check.state === "changed" && localDiffChanges) {
     add({ id: "folder-changed", tone: "info", icon: "FileDiff", label: "Folder changed",

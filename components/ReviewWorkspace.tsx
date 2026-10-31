@@ -773,7 +773,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     void checkAccess();
   });
   // A local review's folder: changed, on another branch, offline or gone, and who else works there; a PR's, what's not pushed yet.
-  const featureNotices = useFeatureNotices(targetKey, review, load, () => setActiveId(NOT_PUSHED_PAGE));
+  const featureNotices = useFeatureNotices(targetKey, review, load, activeId === NOT_PUSHED_PAGE ? null : () => setActiveId(NOT_PUSHED_PAGE));
   // A fixer's branch, once BB removed its folder.
   const branchKept = useBranchKeptNotices(targetKey, review, load);
 

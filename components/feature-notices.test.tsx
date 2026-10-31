@@ -249,7 +249,7 @@ test("after Update, a guide written before it says so, after Changed, with Rewri
   }
 });
 
-test("a PR's review whose folder has files not on GitHub yet says how many, with Review them; paused, it offers only a New review", async () => {
+test("a PR's review whose folder has files not on GitHub yet says how many, with Review them, but not on Not pushed yet's page; paused, it offers only a New review", async () => {
   const pr = { ...local, kind: "pr", repo: "acme/api", number: 7, headSha: "c0ffee", ownPr: true };
   const { slot } = await renderWorkspace({ checkFeature: () => ({ ...nothing, state: "ahead", aheadFiles: 3 }) }, pr);
   const text = "3 files in the folder aren’t on GitHub yet.";
@@ -268,6 +268,8 @@ test("a PR's review whose folder has files not on GitHub yet says how many, with
   fireEvent.click(within(notice(withComments.slot, said)).getByRole("button", { name: "Review them" }));
   expect(within(await withComments.slot.findByRole("region", { name: "Not pushed yet" })).getByText("Nothing waiting.")).toBeTruthy();
   expect(getNotPushed).toHaveBeenCalledWith({ targetKey: KEY });
+  // There already, it says so without the button.
+  expect(within(notice(withComments.slot, said)).queryByRole("button", { name: "Review them" })).toBeNull();
   withComments.slot.lifecycle.unmount();
   cleanup();
   const paused = await renderWorkspace({ checkFeature: () => ({ ...nothing, state: "paused", branch: "bb/fix-docs-thr_cd34" }) }, pr);
