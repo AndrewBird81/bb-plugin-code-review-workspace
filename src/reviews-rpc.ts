@@ -20,7 +20,7 @@ import { pluginThreadsTitled } from "./thread-review";
 import { recordFormerWorker } from "./former-workers";
 import { parseChecks } from "./threads";
 import { localDiffChanged, rerunReview, updateReview } from "./rereview";
-import { heldForBranch, updateFeature as updateFolder } from "./feature-review";
+import { heldForBranch, ownBranch, updateFeature as updateFolder } from "./feature-review";
 import { feedbackProgress, type TurnOptions } from "../lib/turn";
 import { findStacks } from "../lib/stacks";
 import { defaultName } from "../lib/review-name";
@@ -110,8 +110,8 @@ export function register(deps: ServeDeps) {
         const review = owned && await decorate(owned, turnOptions((await tx.getPreferences()).preferences), stacks, reviewPlaces(facts, all), await guideTitles(tx, [owned]));
         // Reads of a local review's earlier diff don't count toward its rebuilt one, which the client can't tell apart.
         if (review?.agentReads && review.agentReads.head !== await agentReadsHead(tx, targetKey)) review.agentReads = null;
-        // A folder's review of a branch that isn't the PR's, as one Make it PR #n's review linked: by its branch.
-        const elsewhere = (folder: ReviewMeta) => folder.feature && owned?.head && folder.feature.branch !== owned.head ? { branch: folder.feature.branch } : {};
+        // A folder's review of a branch that isn't the PR's, by any of its names, as one Make it PR #n's review linked: by its branch.
+        const elsewhere = (folder: ReviewMeta) => folder.feature && owned?.head && !ownBranch(folder.feature, owned.head) ? { branch: folder.feature.branch } : {};
         // The PR's own review names the folder's review offering to merge with it (src/merge.ts), and its comments; not
         // one you kept apart from it, nor one of another branch that Make it PR #n's review hasn't made its own.
         const offering = owned && all.find((other) => other.kind === "ref" && !other.archivedAt && other.mergeDeclined !== targetKey && (other.prOffer?.key ?? other.feature?.prReview) === targetKey && !heldForBranch(other, owned));

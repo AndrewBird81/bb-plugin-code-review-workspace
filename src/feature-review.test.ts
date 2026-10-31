@@ -1142,6 +1142,26 @@ test("Make it PR #7's review of a PR from another branch: the review's next chec
   }
 });
 
+test("the PR's page doesn't name the local review's branch when it's the PR's under another name, on GitHub or as a thread pushed it", async () => {
+  for (const name of ["remoteBranch", "pushedAs"] as const) {
+    const s = setup();
+    vi.mocked(runGh).mockImplementation(s.deps.gh.runGh as any);
+    await plugin(s.bb);
+    await run(s, "main");
+    await settled(s);
+    const prKey = targetKey({ kind: "pr", repo: "acme/api", number: 7 });
+    await s.store.saveReview({ targetKey: prKey, kind: "pr", repo: "acme/api", number: 7, url: "https://github.com/acme/api/pull/7", head: "feat/nice", status: "ready", createdAt: 1 });
+    await s.store.setLifecycle(key, { feature: { ...(await s.store.getReview(key))!.feature!, [name]: "feat/nice" },
+      prOffer: { key: prKey, number: 7, url: "https://github.com/acme/api/pull/7", moves: { comments: 1, summary: false, sends: 0 } } });
+    const bundle = async (of: string) => (await s.harness.behavior.callRpc("getReviewBundle", { targetKey: of }) as any).review;
+    expect((await bundle(prKey)).localReview).toMatchObject({ targetKey: key });
+    expect((await bundle(prKey)).localReview).not.toHaveProperty("branch");
+    expect(await s.harness.behavior.callRpc("keepBothReviews", { targetKey: key })).toEqual({ ok: true });
+    expect((await bundle(prKey)).keptApart).toMatchObject({ targetKey: key });
+    expect((await bundle(prKey)).keptApart).not.toHaveProperty("branch");
+  }
+});
+
 test("a 1.8.0 link to another branch's PR's review, kept apart, merges only after Make it PR #7's review; one of this branch's still merges", async () => {
   // part2 carries a 1.8.0 link to part1's PR #7, whose review has something of yours.
   const s = setup();
