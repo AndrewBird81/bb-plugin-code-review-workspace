@@ -74,11 +74,12 @@ export function usePrNotices(targetKey: string, review: PrReviewed | null, onCha
     return description ? <Hint label={description} container={container}>{shown}</Hint> : shown;
   };
   const merge = (label: string, description: string) => button("merge", label, () => void act("merge", () => rpc.call("mergeReviews", { targetKey }), "Couldn’t merge the two reviews."), { description });
-  // A link that goes somewhere is named for where it goes, with ↗; Go to … is its hint.
-  const away = (label: string, hint: string, onClick: () => void) => <Hint label={hint} container={container}>
-    <Button variant="outline" size="sm" className={BUTTON} disabled={!!busy} aria-label={label} onClick={onClick}>{label} ↗</Button>
+  // A link that goes somewhere is named for where it goes, with ↗; Go to … is its hint. A name that's an id (`code`)
+  // is in monospace, as the notice's sentence says it.
+  const away = (label: string, hint: string, onClick: () => void, code = false) => <Hint label={hint} container={container}>
+    <Button variant="outline" size="sm" className={BUTTON} disabled={!!busy} aria-label={label} onClick={onClick}>{code ? <Code>{label}</Code> : label} ↗</Button>
   </Hint>;
-  const open = (key: string, name: string) => away(name, `Go to ${name}`, () => navigate.toPluginPanel("review", { subPath: key }));
+  const open = (key: string, name: string, code = false) => away(name, `Go to ${name}`, () => navigate.toPluginPanel("review", { subPath: key }), code);
 
   const notices: Notice[] = [];
   const { became, prOffer, prPending, localReview } = review;
@@ -118,7 +119,7 @@ export function usePrNotices(targetKey: string, review: PrReviewed | null, onCha
         {localReview.intoPr
           ? merge("Merge the two", "Its comments, summary, notes, Sends and viewed files move here. It goes to Archive.")
           : merge("Merge the two", "This review’s comments, summary, notes, Sends and viewed files move into it. This one goes to Archive.")}
-        {open(localReview.targetKey, localReview.id)}
+        {open(localReview.targetKey, localReview.id, true)}
       </span> });
   }
   if (prPending?.why === "older" && !prPending.declined) {

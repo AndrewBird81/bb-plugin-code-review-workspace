@@ -117,6 +117,8 @@ test("the PR's own review names its branch's local review, with Merge the two, o
   expect(offer.textContent).toContain("This PR’s branch has a local review, api:snooze-checks, with 6 comments.");
   const open = within(offer).getByRole("button", { name: "api:snooze-checks" });
   expect(open.textContent).toBe("api:snooze-checks ↗");
+  // In monospace, as the sentence names it.
+  expect(within(open).getByText("api:snooze-checks").className).toContain("font-mono");
   fireEvent.click(open);
   expect(slot.inspection.navigateCalls).toContainEqual({ method: "toPluginPanel", path: "review", options: { subPath: "br-2" } });
   fireEvent.click(within(offer).getByRole("button", { name: "Merge the two" }));
