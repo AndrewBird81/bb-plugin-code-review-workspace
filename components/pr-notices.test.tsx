@@ -148,6 +148,9 @@ test("under 440px wide, the merge offer's PR #4512’s review ↗ reads PR’s r
   const link = within(notice("PR #4512 has its own review")).getByRole("button", { name: "PR #4512’s review" });
   expect(link.textContent).toBe("PR #4512’s review ↗");
   expect(link.querySelector("[class~='@max-[440px]/review:hidden']")?.textContent).toBe(" #4512");
+  // Its words one span, so the button's gap doesn't open around " #4512".
+  expect(link.children.length).toBe(1);
+  expect(link.firstElementChild!.textContent).toBe("PR #4512’s review ↗");
   slot.lifecycle.unmount();
 });
 

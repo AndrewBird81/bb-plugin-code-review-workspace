@@ -166,7 +166,11 @@ test("under 440px wide, a pill's second line keeps its severity whole and cuts o
   expect(badge.className).not.toMatch(/hidden/);
   expect(badge.classList.contains("shrink-0")).toBe(true);
   expect(badge.querySelector("[class~='@max-[440px]/review:hidden']")?.textContent).toBe(" yet");
-  const narrow = Array.from(second!.querySelectorAll("[class~='@max-[440px]/review:inline'], [class~='@max-[440px]/review:inline-flex']"));
+  // Its words one span, so the badge's gap doesn't open before " yet".
+  const chip = badge.firstElementChild!;
+  expect(chip.children.length).toBe(2);
+  expect(chip.lastElementChild!.textContent).toBe("Not on GitHub yet");
+  const narrow = Array.from(second!.querySelectorAll("[class~='@max-[600px]/review:inline'], [class~='@max-[600px]/review:inline-flex']"));
   expect(narrow.map((part) => part.textContent)).toEqual(["Should fix · "]);
   for (const part of narrow) {
     expect(part.classList.contains("shrink-0"), part.textContent!).toBe(true);

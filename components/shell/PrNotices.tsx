@@ -92,9 +92,10 @@ export function usePrNotices(targetKey: string, review: PrReviewed | null, onCha
   // The same on both reviews: the notice's sentence says which stays.
   const merge = button("merge", "Merge into one review", () => void act("merge", () => rpc.call("mergeReviews", { targetKey }), "Couldn’t merge the two reviews."));
   const keepBoth = button("keep", "Keep both", () => void act("keep", () => rpc.call("keepBothReviews", { targetKey }), "Couldn’t save that."), { quiet: true });
-  // A link that goes somewhere is named for where it goes, with ↗; Go to … is its hint.
+  // A link that goes somewhere is named for where it goes, with ↗; Go to … is its hint. Its words are one span, so the
+  // button's gap never opens inside them, between a part a width hides and the rest.
   const away = (label: string, hint: string, onClick: () => void, shown: ReactNode = label) => <Hint label={hint} container={container}>
-    <Button variant="outline" size="sm" className={BUTTON} disabled={!!busy} aria-label={label} onClick={onClick}>{shown} ↗</Button>
+    <Button variant="outline" size="sm" className={BUTTON} disabled={!!busy} aria-label={label} onClick={onClick}><span>{shown} ↗</span></Button>
   </Hint>;
   const open = (key: string, name: string, hint = `Go to ${name}`, shown?: ReactNode) => away(name, hint, () => navigate.toPluginPanel("review", { subPath: key }), shown);
 

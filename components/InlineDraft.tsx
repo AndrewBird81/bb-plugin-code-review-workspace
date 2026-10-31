@@ -226,9 +226,12 @@ export function PreExistingBadge() {
   return <Badge size="sm" icon={<Icon name="History" aria-hidden />} title="In code this PR didn’t change">Pre-existing</Badge>;
 }
 
-/** A LOCAL comment, on a line only in the folder (src/draft.ts isLocal). `brief`: "Not on GitHub" under 440px wide, beside a folded comment's state. */
+/**
+ * A LOCAL comment, on a line only in the folder (src/draft.ts isLocal). `brief`: "Not on GitHub" under 440px wide, beside
+ * a folded comment's state; its words one span, so the badge's gap doesn't open before " yet".
+ */
 export function NotOnGithubBadge({ brief = false }: { brief?: boolean }) {
-  return <Badge size="sm" icon={<Icon name="FileDiff" aria-hidden />} title="On a line only in the folder. It goes with Send, and can’t post until it’s pushed.">Not on GitHub{brief ? <span className="@max-[440px]/review:hidden"> yet</span> : " yet"}</Badge>;
+  return <Badge size="sm" icon={<Icon name="FileDiff" aria-hidden />} title="On a line only in the folder. It goes with Send, and can’t post until it’s pushed.">{brief ? <span>Not on GitHub<span className="@max-[440px]/review:hidden"> yet</span></span> : "Not on GitHub yet"}</Badge>;
 }
 
 /** The comment box's choice of severity. */
