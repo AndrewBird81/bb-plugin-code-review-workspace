@@ -159,6 +159,9 @@ test("T3: the poll waits while GitHub limits reads or gh isn't signed in, and 10
   s.github.branches["acme/api:feat/qa"] = { sha: "c0ffee", prs: [] };
   s.unhealthy({ kind: "rate-limit", at: 0, retryAt: Date.now() + 60_000 });
   await s.watch.poll();
+  // A limit GitHub gave no time for is a limit too.
+  s.unhealthy({ kind: "rate-limit", at: 0 });
+  await s.watch.poll();
   s.unhealthy({ kind: "auth", at: 0 });
   await s.watch.poll();
   expect(s.reads()).toEqual([]);
@@ -197,4 +200,47 @@ test("T4: the page's check reads GitHub at most once every 25 seconds per review
   await check();
   expect(s.reads()).toHaveLength(3);
   expect(await s.kind()).toBe("pr");
+});
+
+test("T4: the page's check waits, as the poll does, while GitHub limits reads or gh isn't signed in, and 10 minutes after finding the branch not on GitHub", async () => {
+  const s = await setup();
+  const check = () => s.watch.handlers.checkPr({ targetKey: KEY });
+  const errors = [{ kind: "rate-limit", at: 0, retryAt: Date.now() + 5 * 60_000 }, { kind: "rate-limit", at: 0 }, { kind: "auth", at: 0 }] as const;
+  for (const [i, error] of errors.entries()) {
+    s.at(i * 30);
+    s.unhealthy(error);
+    await check();
+  }
+  expect(s.reads()).toEqual([]);
+  s.unhealthy(null);
+  // feat/qa isn't on GitHub.
+  s.at(90);
+  await check();
+  expect(s.reads()).toHaveLength(1);
+  s.at(5 * 60);
+  await check();
+  expect(s.reads()).toHaveLength(1);
+  s.at(12 * 60);
+  await check();
+  expect(s.reads()).toHaveLength(2);
+});
+
+test("a thread's events in a folder no review watches read the reviews once in a while, not at each event; a thread's place is dropped once its folder's review isn't watched", async () => {
+  const s = await setup();
+  const listed = vi.spyOn(s.store, "listReviews");
+  for (let i = 0; i < 5; i++) await s.emit("experimental_thread.events", { id: "elsewhere", environmentId: "env9" });
+  expect(listed).toHaveBeenCalledTimes(1);
+  s.at(10);
+  await s.emit("experimental_thread.events", { id: "elsewhere", environmentId: "env9" });
+  expect(listed).toHaveBeenCalledTimes(2);
+  // Read from where it stopped while the review watches its folder; from its latest commands once it watches it again.
+  s.commands.coder = ["npm test"];
+  await s.emit("thread.idle", { id: "coder", environmentId: "env1" });
+  await s.store.setLifecycle(KEY, { archivedAt: 1 });
+  s.at(20);
+  await s.emit("thread.idle", { id: "coder", environmentId: "env1" });
+  await s.store.setLifecycle(KEY, { archivedAt: null });
+  s.at(30);
+  await s.emit("thread.idle", { id: "coder", environmentId: "env1" });
+  expect(s.list.mock.calls.map(([args]) => (args as { order?: string }).order)).toEqual(["desc", "desc"]);
 });

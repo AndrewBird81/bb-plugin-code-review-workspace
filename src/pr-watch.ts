@@ -7,6 +7,7 @@ import { becomePr, folderBranchOf } from "./feature-review";
 import { featureBase } from "./env-diff";
 import { parsePrLink } from "../lib/pr-link";
 import type { FeatureReview, ReviewMeta } from "./store";
+import { githubWaits } from "./review-lifecycle";
 import type { EventListeners, RpcHandlers, ServeDeps } from "./server-modules";
 
 type Run = typeof runGh;
@@ -27,6 +28,8 @@ const PAGE_GAP = 25 * SECOND;
 const POLL_EVERY = 2 * MINUTE;
 /** How often a branch that isn't on GitHub is polled, until a thread pushes; and how long the poll waits after GitHub fails. */
 const UNPUSHED_EVERY = 10 * MINUTE;
+/** How long a thread's events in a folder no review watched read no reviews. */
+const UNWATCHED_GAP = 5 * SECOND;
 /** Reviews read in one request. */
 const BATCH = 20;
 /** A command that may have opened a PR, as PR Status looks for them. */
@@ -99,6 +102,10 @@ export function register(deps: Deps) {
   /** The last event of each thread read, and each thread's read in flight. */
   const cursors = new Map<string, number>();
   const scanning = new Map<string, Promise<void>>();
+  /** The folders watched reviews were in, and when the reviews were read for them. */
+  let watchedFolders: { at: number; ids: Set<string> } = { at: 0, ids: new Set() };
+  /** What's kept of a review the watch no longer watches (it became its PR's, or went to Archive, or was deleted) goes. */
+  const forget = (key: string) => { for (const map of [checkedAt, pageAt, unpushed]) map.delete(key); };
 
   /** What a read of the review's branch found: whether it's on GitHub, which the poll goes by, and its PR, which the review becomes. */
   const settle = async (review: Watched, read: BranchRead, now: number) => {
@@ -109,17 +116,18 @@ export function register(deps: Deps) {
 
   /**
    * Look for the review's PR now, once at a time, and no sooner than 15 seconds after the last look unless a thread's
-   * command asks (`why` "thread"), when PR Status's PR for the folder counts too.
+   * command asks (`why` "thread"), when PR Status's PR for the folder counts too. The page's waits as the poll does.
    */
   function check(key: string, why: "thread" | "page"): Promise<void> {
     const now = Date.now();
     const inFlight = running.get(key);
     if (inFlight) return inFlight;
     if (why !== "thread" && now - (checkedAt.get(key) ?? 0) < CHECK_GAP) return Promise.resolve();
+    if (why === "page" && (githubWaits(deps.sync.health(), now) || now - (unpushed.get(key) ?? -Infinity) < UNPUSHED_EVERY)) return Promise.resolve();
     checkedAt.set(key, now);
     const work = (async () => {
       const review = await store.getReview(key);
-      if (!watched(review)) return;
+      if (!watched(review)) return forget(key);
       const { feature } = review;
       const [read] = await readBranches(gh.runGh, [{ repo: feature.repo, branch: feature.remoteBranch ?? feature.branch }]);
       if (await settle(review, read!, now) || why !== "thread") return;
@@ -136,10 +144,12 @@ export function register(deps: Deps) {
    */
   async function poll(): Promise<void> {
     const now = Date.now();
-    const error = deps.sync.health().error;
-    if (now - polledAt < POLL_EVERY || now < pollAfter || error?.kind === "auth" || error?.kind === "gh-missing" || error?.kind === "rate-limit" && (error.retryAt ?? 0) > now) return;
+    if (now - polledAt < POLL_EVERY || now < pollAfter || githubWaits(deps.sync.health(), now)) return;
     polledAt = now;
-    const due = (await store.listReviews()).filter(watched).filter((review) => !running.has(review.targetKey)
+    const all = (await store.listReviews()).filter(watched);
+    const keys = new Set(all.map((review) => review.targetKey));
+    for (const map of [checkedAt, pageAt, unpushed]) for (const key of map.keys()) if (!keys.has(key) && !running.has(key)) forget(key);
+    const due = all.filter((review) => !running.has(review.targetKey)
       && now - (checkedAt.get(review.targetKey) ?? 0) >= CHECK_GAP && now - (unpushed.get(review.targetKey) ?? -Infinity) >= UNPUSHED_EVERY);
     for (let i = 0; i < due.length; i += BATCH) {
       const batch = due.slice(i, i + BATCH);
@@ -171,8 +181,13 @@ export function register(deps: Deps) {
   function scan(thread: { id: string; environmentId?: string | null; visibility?: string }): Promise<void> {
     if (thread.visibility === "hidden" || !thread.environmentId) return Promise.resolve();
     const next = (scanning.get(thread.id) ?? Promise.resolve()).then(async () => {
-      const reviews = (await store.listReviews()).filter(watched).filter((review) => review.feature.environmentId === thread.environmentId);
-      if (!reviews.length) return;
+      const now = Date.now();
+      if (now - watchedFolders.at < UNWATCHED_GAP && !watchedFolders.ids.has(thread.environmentId!)) return void cursors.delete(thread.id);
+      const all = (await store.listReviews()).filter(watched);
+      watchedFolders = { at: now, ids: new Set(all.map((review) => review.feature.environmentId)) };
+      const reviews = all.filter((review) => review.feature.environmentId === thread.environmentId);
+      // A folder no review watches: its thread's next read starts at its latest commands, as a first one does.
+      if (!reviews.length) return void cursors.delete(thread.id);
       const after = cursors.get(thread.id);
       // The first read of a thread takes its latest commands.
       const rows = await bb.sdk.threads.events?.list({ threadId: thread.id, types: ["item/completed"], limit: "100", ...after === undefined ? { order: "desc" } : { afterSeq: String(after), order: "asc" } });
