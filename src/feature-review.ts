@@ -448,11 +448,12 @@ export async function becomePr(deps: Deps, key: string, pr: { repo: string; numb
       return null;
     }
   };
-  // Kept apart from the PR's review: nothing to ask, as Make it PR #n's review would do nothing.
-  if (notOwn(other?.head)) return now.mergeDeclined === prKey ? "skipped" : pending({ number: pr.number, url, why: "branch", head: other!.head!, at: Date.now() });
+  // Kept apart from the PR's review, or its merge offered, as Make it PR #n's review does: nothing to ask again.
+  const asked = now.mergeDeclined === prKey || now.prOffer?.key === prKey;
+  if (notOwn(other?.head)) return asked ? "skipped" : pending({ number: pr.number, url, why: "branch", head: other!.head!, at: Date.now() });
   // The PR's review not read yet has no head: GitHub says the PR's branch before a merge is offered or made; one kept
-  // apart is neither.
-  if (other && !other.head && !clicked && now.kind === "ref" && now.mergeDeclined !== prKey) {
+  // apart or offered is neither.
+  if (other && !other.head && !clicked && now.kind === "ref" && !asked) {
     if (errorWaits()) return "skipped";
     const found = await readPr();
     if (!found) return "skipped";

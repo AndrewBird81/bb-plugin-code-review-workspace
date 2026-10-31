@@ -1068,6 +1068,29 @@ test("Make it PR #7's review of a PR from another branch, then Keep both: the re
   expect(s.deps.changed).not.toHaveBeenCalled();
 });
 
+test("Make it PR #7's review of a PR from another branch: the review's next check keeps the merge offered and doesn't ask again", async () => {
+  // part2 tracks part1, whose PR #7 has its own review with something of yours: read, and not read yet.
+  for (const head of ["part1", undefined]) {
+    const s = setup();
+    vi.mocked(runGh).mockImplementation(s.deps.gh.runGh as any);
+    await plugin(s.bb);
+    await run(s, "main");
+    await settled(s);
+    s.view.headRefName = "part1";
+    const prKey = targetKey({ kind: "pr", repo: "acme/api", number: 7 });
+    await s.store.saveReview({ targetKey: prKey, kind: "pr", repo: "acme/api", number: 7, url: "https://github.com/acme/api/pull/7", ...head ? { head } : {}, status: "tracked", createdAt: 1 });
+    await s.store.upsertDraftComment(prKey, { file: "src/a.ts", line: 2, side: "RIGHT", body: "Theirs" });
+    expect(await becomePr(s.deps, key, { repo: "acme/api", number: 7 })).toBe("skipped");
+    expect((await s.store.getReview(key))?.prPending).toMatchObject({ why: "branch", head: "part1" });
+    expect(await s.harness.behavior.callRpc("takePendingPr", { targetKey: key })).toEqual({ ok: true });
+    s.deps.changed.mockClear();
+    // Not read again: its offer stands as it was.
+    expect(await becomePr(s.deps, key, { repo: "acme/api", number: 7 })).toBe(head ? "skipped" : "offered");
+    expect(await s.store.getReview(key)).toMatchObject({ kind: "ref", prOffer: { key: prKey }, prPending: null });
+    expect(s.deps.changed).not.toHaveBeenCalled();
+  }
+});
+
 test("a 1.8.0 link to another branch's PR's review, kept apart, merges only after Make it PR #7's review; one of this branch's still merges", async () => {
   // part2 carries a 1.8.0 link to part1's PR #7, whose review has something of yours.
   const s = setup();
