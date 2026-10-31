@@ -20,7 +20,7 @@ import { pluginThreadsTitled } from "./thread-review";
 import { recordFormerWorker } from "./former-workers";
 import { parseChecks } from "./threads";
 import { localDiffChanged, rerunReview, updateReview } from "./rereview";
-import { updateFeature as updateFolder } from "./feature-review";
+import { heldForBranch, updateFeature as updateFolder } from "./feature-review";
 import { feedbackProgress, type TurnOptions } from "../lib/turn";
 import { findStacks } from "../lib/stacks";
 import { defaultName } from "../lib/review-name";
@@ -111,17 +111,17 @@ export function register(deps: ServeDeps) {
         // Reads of a local review's earlier diff don't count toward its rebuilt one, which the client can't tell apart.
         if (review?.agentReads && review.agentReads.head !== await agentReadsHead(tx, targetKey)) review.agentReads = null;
         // The PR's own review names the folder's review offering to merge with it (src/merge.ts), and its comments; not
-        // one you kept apart from it.
-        const offering = all.find((other) => other.kind === "ref" && !other.archivedAt && other.mergeDeclined !== targetKey && (other.prOffer?.key ?? other.feature?.prReview) === targetKey);
+        // one you kept apart from it, nor one of another branch that Make it PR #n's review hasn't made its own.
+        const offering = owned && all.find((other) => other.kind === "ref" && !other.archivedAt && other.mergeDeclined !== targetKey && (other.prOffer?.key ?? other.feature?.prReview) === targetKey && !heldForBranch(other, owned));
         if (review && offering) {
           review.localReview = { targetKey: offering.targetKey, id: identityIn(facts, all, offering).id, comments: (await tx.getDraft(offering.targetKey)).comments.length, ...offering.prOffer?.intoPr ? { intoPr: true } : {} };
         }
         // Kept apart with Keep both: either page names the other, for Review actions' Merge into one review, while
-        // neither is archived. `intoPr`: the PR's review began as another folder's, and stays.
+        // neither is archived nor of another branch, as above. `intoPr`: the PR's review began as another folder's, and stays.
         const offers = (folder: ReviewMeta) => folder.kind === "ref" ? folder.prOffer?.key ?? folder.feature?.prReview : undefined;
         const kept = !owned || owned.archivedAt ? undefined : owned.kind === "ref"
-          ? owned.mergeDeclined && offers(owned) === owned.mergeDeclined ? all.find((other) => other.targetKey === owned.mergeDeclined && !other.archivedAt) : undefined
-          : all.find((other) => !other.archivedAt && other.mergeDeclined === targetKey && offers(other) === targetKey);
+          ? owned.mergeDeclined && offers(owned) === owned.mergeDeclined ? all.find((other) => other.targetKey === owned.mergeDeclined && !other.archivedAt && !heldForBranch(owned, other)) : undefined
+          : all.find((other) => !other.archivedAt && other.mergeDeclined === targetKey && offers(other) === targetKey && !heldForBranch(other, owned));
         const pr = kept && (owned!.kind === "ref" ? kept : owned!);
         if (review && kept && pr?.number) {
           review.keptApart = { targetKey: kept.targetKey, id: identityIn(facts, all, kept).id, number: pr.number, ...pr.feature ? { intoPr: true } : {} };

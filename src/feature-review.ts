@@ -787,6 +787,15 @@ export async function readForGuide(bb: BbPluginApi, review: ReviewMeta): Promise
   };
 }
 
+/**
+ * Whether the folder's review merges with `pr`'s review only after Make it PR #n's review: the PR is from another
+ * branch, by the head its review last read, and no click offered the merge, as a 1.8.0 link to it didn't.
+ */
+export function heldForBranch(folder: ReviewMeta, pr: ReviewMeta): boolean {
+  const feature = folder.feature;
+  return !!feature && folder.prOffer?.key !== pr.targetKey && !!pr.head && ![feature.branch, feature.remoteBranch, feature.pushedAs].includes(pr.head);
+}
+
 /** The folder's review offering to merge with its PR's own review, from either's page: `targetKey`, or the one offering to merge with it. */
 function offeringFolder(reviews: ReviewMeta[], targetKey: string): (ReviewMeta & { feature: FeatureReview }) | null {
   const offering = (review: ReviewMeta) => review.kind === "ref" && !review.archivedAt && !!(review.prOffer || review.feature?.prReview);
@@ -869,6 +878,7 @@ export function register(deps: ServeDeps) {
       const folder = offeringFolder(await store.listReviews(), targetKey);
       const other = folder && await store.getReview(folder.prOffer?.key ?? folder.feature.prReview!);
       if (!folder || !other?.repo || !other.number) return { ok: false, error: "This review has no other review of its PR to merge with. Reload it." };
+      if (heldForBranch(folder, other)) return { ok: false, error: `PR #${other.number} is from \`${other.head}\`, not this branch. Make it PR #${other.number}’s review first.` };
       const pr = { repo: other.repo, number: other.number };
       try {
         if (await becomePr(deps, folder.targetKey, pr, "merge") !== "merged") {
