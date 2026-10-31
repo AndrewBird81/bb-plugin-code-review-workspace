@@ -116,6 +116,15 @@ test("T1: a thread that pushed under another name, then failed, makes the review
   expect(await s.store.getReview(KEY)).toMatchObject({ kind: "pr", number: 7, head: "feat/nice", feature: { branch: "feat/qa", remoteBranch: "feat/nice" } });
 });
 
+test("T1: a thread on a branch whose upstream is another branch's, with that branch's PR, leaves the review waiting for your click", async () => {
+  // `git switch -c feat/qa origin/part1`: PR Status names part1's PR until feat/qa's first push -u.
+  const s = await setup({ folder: { prBase: "main", pr: { number: 7, url: "https://github.com/acme/api/pull/7", headRefName: "part1", state: "open" } } });
+  s.github.heads[7] = "part1";
+  s.commands.other = ["git push origin HEAD:part1-wip", "gh pr create --fill"];
+  await s.emit("thread.idle", { id: "other", environmentId: "env1" });
+  expect(await s.store.getReview(KEY)).toMatchObject({ kind: "ref", prPending: { number: 7, why: "branch", head: "part1" }, feature: { pushedAs: "part1-wip" } });
+});
+
 test("forks: a fork's branch finds its PR in the repo it was forked from, never another fork's PR from a branch of the same name", async () => {
   const s = await setup({ repo: "me/api" });
   s.github.branches["me/api:feat/qa"] = { sha: "c0ffee", prs: [], parent: [{ number: 9, head: "you/api", createdAt: "2026-10-30T12:09:00Z" }, { number: 7, head: "me/api" }] };

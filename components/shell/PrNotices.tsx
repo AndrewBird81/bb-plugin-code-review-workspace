@@ -137,9 +137,10 @@ export function usePrNotices(targetKey: string, review: PrReviewed | null, onCha
         {keepBoth}
       </span> });
   }
-  if (prPending?.why === "older" && !prPending.declined) {
+  if ((prPending?.why === "older" || prPending?.why === "branch") && !prPending.declined) {
     notices.push({ id: "pr-pending", tone: "info", icon: "GitPullRequest", firstLine: true,
-      text: `This branch has PR #${prPending.number}, opened before this review.`,
+      text: prPending.why === "branch" && prPending.head ? <>PR #{prPending.number} is from <Code>{prPending.head}</Code>, not this branch.</>
+        : `This branch has PR #${prPending.number}, opened before this review.`,
       action: <span className="flex flex-wrap gap-1">
         {button("take", `Make it PR #${prPending.number}’s review`, () => void act("take", () => rpc.call("takePendingPr", { targetKey }), "Couldn’t make it the PR’s review."))}
         {button("decline", "Not this one", () => void act("decline", () => rpc.call("dismissPendingPr", { targetKey }), "Couldn’t save that."))}

@@ -35,6 +35,29 @@ const BATCH = 20;
 /** A command that may have opened a PR, as PR Status looks for them. */
 const OPENS_PR = /(?:^|[\s;&|"'(])(git\s+push\b|gh\s+(pr\s+(create|new)\b|api\b.*\bpulls\b))/;
 
+/**
+ * The name a command that may have opened a PR gives the branch on GitHub, and the branch it pushes, null for the
+ * folder's own (HEAD): `git push origin HEAD:feat/nice`, `gh pr create --head feat/nice`. Null when it names none, as
+ * `git push -u origin HEAD` doesn't, or deletes one (`:feat/nice`).
+ */
+export function pushedName(command: string): { from: string | null; as: string } | null {
+  const match = OPENS_PR.exec(command);
+  if (!match) return null;
+  // Its own words: up to the next command, or the end of a shell's -c "…".
+  const words = command.slice(match.index + match[0].length - match[1]!.length).split(/\s*(?:&&|\|\||[;|&)])\s*|["']\s*$/)[0]!
+    .split(/\s+/).map((word) => word.replace(/^["']|["']$/g, ""));
+  if (match[1]!.startsWith("gh")) {
+    const at = words.findIndex((word) => word === "--head" || word === "-H" || word.startsWith("--head="));
+    const head = at < 0 ? undefined : words[at]!.startsWith("--head=") ? words[at]!.slice("--head=".length) : words[at + 1];
+    // A fork's owner:branch names its branch.
+    return head ? { from: null, as: head.replace(/^[^:]*:/, "") } : null;
+  }
+  // Its last <src>:<dst>, never a remote's URL (https://…, git@github.com:…).
+  const spec = words.slice(words.indexOf("push") + 1).map((word) => /^\+?(@|[^:\s@-][^:\s@]*|):(?:refs\/heads\/)?([^/\s]\S*)$/.exec(word)).filter(Boolean).at(-1);
+  if (!spec?.[1] || !spec[2]) return null;
+  return { from: spec[1] === "HEAD" || spec[1] === "@" ? null : spec[1].replace(/^refs\/heads\//, ""), as: spec[2] };
+}
+
 const PR_NODES = "nodes{ number url createdAt baseRepository{ nameWithOwner } headRepository{ nameWithOwner } }";
 
 /**
@@ -175,6 +198,30 @@ export function register(deps: Deps) {
   }
 
   /**
+   * The name the folder's reviews' branches were last pushed under (FeatureReview.pushedAs), from `names` (pushedName),
+   * oldest first: each on the review of the branch it pushed, the folder's own unless it names another. One pushed as
+   * its own name again has none.
+   */
+  async function savePushedAs(reviews: Watched[], names: Array<NonNullable<ReturnType<typeof pushedName>>>): Promise<void> {
+    if (!names.length) return;
+    const env = names.some((name) => name.from === null) ? await bb.sdk.environments.get({ environmentId: reviews[0]!.feature.environmentId }).catch(() => null) : null;
+    for (const review of reviews) {
+      const branch = folderBranchOf(review.feature);
+      const name = names.filter((one) => (one.from ?? (env?.status === "ready" ? env.branchName : undefined)) === branch).at(-1);
+      if (!name) continue;
+      const saved = await store.exclusive(async (tx) => {
+        const now = await tx.getReview(review.targetKey);
+        if (!watched(now)) return false;
+        const pushedAs = name.as === now.feature.branch ? undefined : name.as;
+        if (pushedAs === now.feature.pushedAs) return false;
+        await tx.setLifecycle(review.targetKey, { feature: { ...now.feature, pushedAs } });
+        return true;
+      });
+      if (saved) deps.changed(review.targetKey);
+    }
+  }
+
+  /**
    * Read a thread's new commands, when a review watches its folder: one that may have opened a PR checks that review at
    * once, and a push polls its branch again. One read per thread at a time; never the plugin's own, hidden, threads. A
    * thread that stopped (`stopped`) reads the reviews whatever the last read found, so a review started since is seen.
@@ -194,12 +241,17 @@ export function register(deps: Deps) {
       const rows = await bb.sdk.threads.events?.list({ threadId: thread.id, types: ["item/completed"], limit: "100", ...after === undefined ? { order: "desc" } : { afterSeq: String(after), order: "asc" } });
       if (!rows?.length) return;
       cursors.set(thread.id, Math.max(after ?? 0, ...rows.map((row) => row.seq)));
-      const found = rows.flatMap((row) => {
+      // Oldest first.
+      const commands = [...rows].sort((a, b) => a.seq - b.seq).flatMap((row) => {
         const item = row.type === "item/completed" ? row.data.item : null;
-        const match = item?.type === "commandExecution" ? OPENS_PR.exec(item.command) : null;
+        return item?.type === "commandExecution" ? [item.command] : [];
+      });
+      const found = commands.flatMap((command) => {
+        const match = OPENS_PR.exec(command);
         return match ? [match[1]!] : [];
       });
       if (!found.length) return;
+      await savePushedAs(reviews, commands.flatMap((command) => pushedName(command) ?? []));
       if (found.some((command) => command.startsWith("git"))) for (const review of reviews) unpushed.delete(review.targetKey);
       await Promise.all(reviews.map((review) => check(review.targetKey, "thread")));
     }).catch((error) => bb.log.warn(`Could not read the commands of thread ${thread.id}: ${String(error)}`));

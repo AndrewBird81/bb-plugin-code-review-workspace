@@ -183,10 +183,11 @@ export interface ReviewLifecycle {
    */
   became?: { at: number; number: number; url: string; from: string; carried: number; local: number; outside: number; needsYou?: number; merged?: MergeNote } | null;
   /**
-   * A PR found on the local review's branch that it didn't become: opened before it and not in its folder, or GitHub
-   * didn't answer. `declined`: you said it isn't this review's PR.
+   * A PR found on the local review's branch that it didn't become: opened before it and not in its folder, from a branch
+   * `head` that isn't the review's by name (FeatureReview.pushedAs), or GitHub didn't answer. `declined`: you said it
+   * isn't this review's PR.
    */
-  prPending?: { number: number; url: string; why: "older" | "error"; error?: string; at: number; declined?: true } | null;
+  prPending?: { number: number; url: string; why: "older" | "branch" | "error"; head?: string; error?: string; at: number; declined?: true } | null;
   /**
    * The PR its branch has has a review of its own, `key`, with what of yours would move (src/merge.ts): the two merge on
    * your click. `intoPr`: that review began as another folder's, and this one goes into it.
@@ -289,6 +290,12 @@ export interface FeatureReview {
   prReview?: string;
   /** The branch's name on GitHub, its PR's head, when it isn't `branch`: pushed as HEAD:feat/nice, or renamed. */
   remoteBranch?: string;
+  /**
+   * A local review's branch as a thread in its folder last pushed it under another name (src/pr-watch.ts): `git push
+   * origin HEAD:feat/nice`, `gh pr create --head feat/nice`. A PR from it becomes the review's on its own, as one from
+   * `branch` does; one from any other branch waits for your click (src/feature-review.ts becomePr).
+   */
+  pushedAs?: string;
   /** The folder's head commit as last read on `branch`: a branch it's on now that has it may be `branch` renamed. */
   headSha?: string;
   /** How many files changed in the folder since the review read it, as last checked; null for none or not checked. */

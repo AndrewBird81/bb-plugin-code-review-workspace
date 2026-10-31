@@ -415,6 +415,23 @@ export async function becomePr(deps: Deps, key: string, pr: { repo: string; numb
     await tx.setLifecycle(key, { prOffer: offer, feature: { ...review.feature, prReview: undefined } });
     return "saved" as const;
   };
+  /** Kept as found and not become, once per PR and why, so a check that finds it again changes nothing. */
+  const pending = async (state: NonNullable<ReviewLifecycle["prPending"]>) => {
+    const saved = await store.exclusive(async (tx) => {
+      const review = featureOf(await tx.getReview(key));
+      if (!review || review.kind !== "ref" || review.prPending?.url === state.url && review.prPending.why === state.why) return false;
+      await tx.setLifecycle(key, { prPending: state });
+      return true;
+    });
+    if (saved) deps.changed(key);
+    return "skipped" as const;
+  };
+  // PR Status names a folder's PR by its branch's upstream, which a branch made from another's, as a stacked one is,
+  // shares until its first push: a PR from a branch that isn't this review's by name waits for your click, merged with
+  // nothing before it.
+  const notOwn = (head: string | undefined) => !clicked && now.kind === "ref" && !!head && head !== now.feature.branch && head !== now.feature.pushedAs;
+  if (now.prPending?.why === "branch" && now.prPending.url.toLowerCase() === url.toLowerCase() && notOwn(now.prPending.head)) return "skipped";
+  if (notOwn(other?.head)) return pending({ number: pr.number, url, why: "branch", head: other!.head!, at: Date.now() });
   if (other) {
     // Two folders on one branch: the PR's review that began as the other folder's stays, and this one goes into it.
     const intoPr = !!other.feature;
@@ -427,17 +444,6 @@ export async function becomePr(deps: Deps, key: string, pr: { repo: string; numb
   // One GitHub didn't answer for is read again a minute later, and not while GitHub limits reads or gh is signed out.
   if (!clicked && now.prPending?.why === "error" && now.prPending.url.toLowerCase() === url.toLowerCase()
     && (Date.now() - now.prPending.at < ERROR_RETRY || !!deps.sync && githubWaits(deps.sync.health(), Date.now()))) return "skipped";
-  /** Kept as found and not become, once per PR and why, so a check that finds it again changes nothing. */
-  const pending = async (state: NonNullable<ReviewLifecycle["prPending"]>) => {
-    const saved = await store.exclusive(async (tx) => {
-      const review = featureOf(await tx.getReview(key));
-      if (!review || review.kind !== "ref" || review.prPending?.url === state.url && review.prPending.why === state.why) return false;
-      await tx.setLifecycle(key, { prPending: state });
-      return true;
-    });
-    if (saved) deps.changed(key);
-    return "skipped" as const;
-  };
   let snapshot: PrSnapshot;
   try {
     snapshot = await readPrSnapshot(gh.runGh, pr.number, pr.repo);
@@ -445,6 +451,7 @@ export async function becomePr(deps: Deps, key: string, pr: { repo: string; numb
     return pending({ number: pr.number, url, why: "error", error: error instanceof Error ? error.message : String(error), at: Date.now() });
   }
   if (snapshot.pr.state !== undefined && snapshot.pr.state !== "OPEN") return "skipped";
+  if (notOwn(snapshot.pr.headRefName)) return pending({ number: pr.number, url: snapshot.pr.url, why: "branch", head: snapshot.pr.headRefName, at: Date.now() });
   // A branch used again may have an open PR from before the review: it's this work's only when the folder has its head.
   const opened = Date.parse(snapshot.pr.createdAt ?? "");
   if (!clicked && opened < now.createdAt && !await folderHas(bb, now.feature.environmentId, snapshot.pr.headRefOid)) {
@@ -656,7 +663,7 @@ async function followBranch(deps: Deps, key: string, branch: string, said: boole
     if (!review || review.kind !== "ref" || review.feature.workBranch || reviewOfFolder(await tx.listReviews(), review.feature.environmentId, branch)) return false;
     await tx.saveReview({ ...review, gitRef: branch });
     await tx.setLifecycle(key, {
-      feature: { ...review.feature, branch, pausedOn: null }, formerBranches: [...review.formerBranches ?? [], review.feature.branch],
+      feature: { ...review.feature, branch, pausedOn: null, pushedAs: undefined }, formerBranches: [...review.formerBranches ?? [], review.feature.branch],
       ...said ? { followed: { from: review.feature.branch, branch, at: Date.now() } } : {},
     });
     return true;
@@ -870,8 +877,8 @@ export function register(deps: ServeDeps) {
       const pending = (await store.getReview(targetKey))?.prPending;
       const link = pending ? parsePrLink(pending.url) : null;
       if (!pending || !link) return { ok: false, error: "This review isn’t waiting on a PR. Reload it." };
-      // Opened before it: your click says it's this review's. GitHub didn't answer: asked again.
-      const became = await becomePr(deps, targetKey, { repo: link.repo, number: link.number }, pending.why === "older" ? "pr" : undefined).catch(() => "skipped" as const);
+      // Opened before it, or from another branch: your click says it's this review's. GitHub didn't answer: asked again.
+      const became = await becomePr(deps, targetKey, { repo: link.repo, number: link.number }, pending.why === "error" ? undefined : "pr").catch(() => "skipped" as const);
       if (became === "converted" || became === "merged" || became === "offered") return { ok: true };
       return { ok: false, error: (await store.getReview(targetKey))?.prPending?.error ?? `Couldn’t make it PR #${link.number}’s review. Try again.` };
     },

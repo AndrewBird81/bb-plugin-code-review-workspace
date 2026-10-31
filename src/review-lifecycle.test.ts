@@ -1684,6 +1684,9 @@ test("a 1.8.0 folder's review linked to your PR's review merges with it on disco
     await s.store.setLifecycle(key, { feature: feature(n, linked) });
   }
   vi.mocked(s.github.ownPrs).mockResolvedValue([ownPr(4), ownPr(1)]);
+  // Each PR's head is its folder's branch.
+  await s.store.saveReview({ ...(await s.store.getReview("pr-1"))!, head: "feat/1" });
+  vi.mocked(s.github.facts).mockImplementation(async (refs: PrRef[]) => new Map(refs.map((ref) => [ref.targetKey, facts(ref, { headRefName: `feat/${ref.number}` })])));
   s.at(1);
   await s.sync.all(true);
   expect(await s.store.getReview("br-4")).toMatchObject({ kind: "pr", number: 4 });

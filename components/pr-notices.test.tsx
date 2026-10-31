@@ -188,6 +188,14 @@ test("a PR opened before the review waits: Make it PR #12's review, or Not this 
   declined.slot.lifecycle.unmount();
   cleanup();
 
+  // From another branch, as a stacked branch's upstream: the same choice, naming that branch.
+  const branch = await renderWorkspace({ ...local, prPending: { ...older, why: "branch", head: "part1" } }, { takePendingPr });
+  await waitFor(() => expect(notice("PR #12 is from part1, not this branch.")).toBeTruthy());
+  fireEvent.click(within(notice("PR #12 is from part1, not this branch.")).getByRole("button", { name: "Make it PR #12’s review" }));
+  await waitFor(() => expect(takePendingPr).toHaveBeenCalledTimes(2));
+  branch.slot.lifecycle.unmount();
+  cleanup();
+
   const failing = vi.fn(() => ({ ok: false, error: "HTTP 502: Bad gateway" }));
   const error = await renderWorkspace({ ...local, prPending: { ...older, why: "error", error: "HTTP 502: Bad gateway" } }, { takePendingPr: failing });
   const alert = await error.slot.findByRole("alert");

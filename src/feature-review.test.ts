@@ -456,17 +456,46 @@ test("a draft PR on its branch makes the review the PR's, as an open one does", 
   expect(await s.store.getReview(key)).toMatchObject({ kind: "pr", number: 7, head: "feat/qa" });
 });
 
-// PR Status finds the folder's PR by its branch's upstream: one pushed as HEAD:feat/nice, or from a renamed branch, is the folder's.
-test("a PR whose head has another name than the folder's branch makes the review its own, and keeps that name", async () => {
+// PR Status finds the folder's PR by its branch's upstream: one a thread pushed as HEAD:feat/nice is the folder's.
+test("a PR whose head is the name a thread pushed the branch under makes the review its own, and keeps that name", async () => {
   const s = setup();
   await run(s, "main");
   await settled(s);
   s.view.headRefName = "feat/nice";
+  await s.store.setLifecycle(key, { feature: { ...(await s.store.getReview(key))!.feature!, pushedAs: "feat/nice" } });
   Object.assign(s.folder, { prBase: "main", pr: { number: 7, url: "https://github.com/acme/api/pull/7", headRefName: "feat/nice", state: "open" } });
   await checkFeature(s.deps, key);
   const review = (await s.store.getReview(key))!;
   expect(review).toMatchObject({ kind: "pr", number: 7, head: "feat/nice" });
   expect(review.feature).toMatchObject({ branch: "feat/qa", remoteBranch: "feat/nice" });
+});
+
+// `git switch -c feat/qa origin/part1` tracks part1 until its first push -u: PR Status names part1's PR for the folder.
+test("a PR from another branch, as a stacked branch's upstream, waits for Make it PR #7's review: never converted or merged on its own", async () => {
+  const s = setup();
+  vi.mocked(runGh).mockImplementation(s.deps.gh.runGh as any);
+  await plugin(s.bb);
+  await run(s, "main");
+  await settled(s);
+  s.view.headRefName = "part1";
+  // part1's PR has a review, of part1's folder, with nothing of yours.
+  const prKey = targetKey({ kind: "pr", repo: "acme/api", number: 7 });
+  await s.store.saveReview({ targetKey: prKey, kind: "pr", repo: "acme/api", number: 7, url: "https://github.com/acme/api/pull/7", head: "part1", status: "ready", createdAt: 1 });
+  Object.assign(s.folder, { prBase: "main", pr: { number: 7, url: "https://github.com/acme/api/pull/7", headRefName: "part1", state: "open" } });
+  await checkFeature(s.deps, key);
+  expect(await s.store.getReview(key)).toMatchObject({ kind: "ref", prPending: { number: 7, why: "branch", head: "part1" } });
+  expect((await s.store.getReview(prKey))?.mergedInto).toBeUndefined();
+  // Without the PR's review, read from GitHub: the same, and found again it isn't read again.
+  await s.store.deleteReview(prKey);
+  await s.store.setLifecycle(key, { prPending: null });
+  await checkFeature(s.deps, key);
+  expect(await s.store.getReview(key)).toMatchObject({ kind: "ref", prPending: { number: 7, why: "branch", head: "part1" } });
+  const reads = s.ghCalls.length;
+  expect(await becomePr(s.deps, key, { repo: "acme/api", number: 7 })).toBe("skipped");
+  expect(s.ghCalls).toHaveLength(reads);
+  // Your click says it's this review's.
+  expect(await s.harness.behavior.callRpc("takePendingPr", { targetKey: key })).toEqual({ ok: true });
+  expect(await s.store.getReview(key)).toMatchObject({ kind: "pr", number: 7, head: "part1", prPending: null });
 });
 
 test("a PR's review with its folder says how many files there aren't on GitHub yet, read against the PR's head with no GitHub call; paused and offline as a local review", async () => {
