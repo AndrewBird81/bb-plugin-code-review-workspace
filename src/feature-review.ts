@@ -494,6 +494,8 @@ async function convertIn(db: Store, review: ReviewMeta & { feature: FeatureRevie
   // Named as it was, for the notice that says what it became.
   const from = localIdOf(review);
   const previous = await db.patch(key);
+  // The files the review showed, as it read them: what Push checks a commit against, never the folder as it is now.
+  const shown = await db.getSnapshotFiles(key, diffFilesHead(await db.patchHash(key)));
   const next = ensureGitHeaders(snapshot.patch);
   await db.savePatch(key, next);
   // Your name for it stays; the main thread's title gives way to the PR's.
@@ -506,10 +508,14 @@ async function convertIn(db: Store, review: ReviewMeta & { feature: FeatureRevie
   const { comments } = await db.getDraft(key);
   const placed = await reanchorDraft(db, key, previous, next);
   const lost = comments.filter((comment) => !placed.some(({ at }) => sameLocation(at, comment)) && comment.side === "RIGHT" && !comment.startSide);
-  if (ahead) {
-    await db.saveSnapshot(key, NOT_PUSHED, ahead.patch);
-    await db.saveSnapshotFiles(key, NOT_PUSHED, { revisions: ahead.revisions, hidden: ahead.hidden });
-  }
+  // Seen in Not pushed yet: what the folder has that the PR doesn't, at the revisions the review showed, so a file
+  // changed since, or never shown, differs. Without them, nothing is: Push asks you to open Not pushed yet first.
+  const seen = ahead && shown ? {
+    revisions: Object.fromEntries(Object.keys(ahead.revisions).flatMap((path) => path in shown.revisions ? [[path, shown.revisions[path]!]] : [])),
+    hidden: shown.hidden.filter((file) => file.path in ahead.revisions),
+  } : null;
+  if (ahead) await db.saveSnapshot(key, NOT_PUSHED, ahead.patch);
+  if (seen) await db.saveSnapshotFiles(key, NOT_PUSHED, seen);
   const local = ahead ? await placeOn(db, key, lost, previous, ahead.patch, "LOCAL") : [];
   await db.rebaseDraftComments(key, [...placed, ...local]);
   await db.setLifecycle(key, {
@@ -521,8 +527,8 @@ async function convertIn(db: Store, review: ReviewMeta & { feature: FeatureRevie
     },
     // Yours, until the sync reads it, so Push carries on (lib/push.ts pushTarget).
     ownPr: true, prPending: null, prOffer: null,
-    // What the folder had that the PR doesn't, as Not pushed yet would show it: a Push waiting on its commit checks it there.
-    ...ahead ? { notPushedSeen: { environmentId: review.feature.environmentId, base: read.headRefOid, at: Date.now() } } : {},
+    // What the review showed of what the folder has that the PR doesn't: a Push waiting on its commit checks it there.
+    ...seen ? { notPushedSeen: { environmentId: review.feature.environmentId, base: read.headRefOid, at: Date.now() } } : {},
     became: { at: Date.now(), number: pr.number, url: read.url, from, carried: comments.length, local: local.length, outside: comments.length - placed.length - local.length },
     // Its agent, mid-conversation, is told once; never by a turn of its own (src/agent.ts takePrNote).
     ...await db.getAssistantThread(key) ? { agentPrNote: { number: pr.number, url: read.url, from } } : {},

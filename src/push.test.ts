@@ -209,6 +209,45 @@ test("a review that becomes its PR's while Push waits on the commit checks it ag
   expect(await run()).toMatchObject({ state: "pushing", sha: HEAD });
 });
 
+test("a review that becomes its PR's after its folder changed checks the commit against what the review showed, not the folder then, and warns of the change", async () => {
+  const { push, cli, run, store, key, folder, bb } = await setup();
+  const answers = runGh.getMockImplementation()!;
+  runGh.mockImplementation(async (args: string[]) => {
+    if (args[0] === "pr" && args[1] === "view") return ok(JSON.stringify({ number: 7, title: "Snooze flaky checks", author: { login: "me" }, baseRefName: "main", headRefName: "feat/qa", url: "https://github.com/acme/api/pull/7", headRefOid: OLD, state: "OPEN", createdAt: new Date().toISOString() }));
+    if (args[0] === "pr" && args[1] === "diff") return ok(PATCH);
+    if (args.some((a) => a.includes("pullRequest(number"))) return ok(JSON.stringify({ data: { repository: { pullRequest: { headRefOid: OLD } } } }));
+    return answers(args);
+  });
+  await push();
+  // A thread edits a.ts after the review read it, before the review becomes the PR's.
+  const edited = "100644:aaa:100644:ccc";
+  folder.shown = { "src/a.ts": edited };
+  folder.committed = { "src/a.ts": edited };
+  expect(await becomePr({ bb, store, gh: { runGh, runGit }, changed: vi.fn() }, key, { repo: "acme/api", number: 7 })).toBe("converted");
+  expect(await store.getSnapshotFiles(key, "not-pushed")).toEqual({ revisions: { "src/a.ts": REVIEWED["src/a.ts"] }, hidden: [] });
+  folder.base = OLD;
+  await cli("coder", "report", "--commit", HEAD);
+  expect(await run()).toMatchObject({ state: "mismatch", sha: HEAD, files: ["src/a.ts"], warning: "1 file changed since you reviewed." });
+});
+
+test("a review with no record of the files it showed becomes its PR's with nothing in Not pushed yet seen, so Push asks you to open it", async () => {
+  const { push, cli, run, store, key, bb } = await setup();
+  const answers = runGh.getMockImplementation()!;
+  runGh.mockImplementation(async (args: string[]) => {
+    if (args[0] === "pr" && args[1] === "view") return ok(JSON.stringify({ number: 7, title: "Snooze flaky checks", author: { login: "me" }, baseRefName: "main", headRefName: "feat/qa", url: "https://github.com/acme/api/pull/7", headRefOid: OLD, state: "OPEN", createdAt: new Date().toISOString() }));
+    if (args[0] === "pr" && args[1] === "diff") return ok(PATCH);
+    if (args.some((a) => a.includes("pullRequest(number"))) return ok(JSON.stringify({ data: { repository: { pullRequest: { headRefOid: OLD } } } }));
+    return answers(args);
+  });
+  await push();
+  // A diff whose files the review never kept, as a review from before they were.
+  await store.savePatch(key, PATCH.replace("+b", "+b2"));
+  expect(await becomePr({ bb, store, gh: { runGh, runGit }, changed: vi.fn() }, key, { repo: "acme/api", number: 7 })).toBe("converted");
+  expect((await store.getReview(key))?.notPushedSeen).toBeUndefined();
+  await cli("coder", "report", "--commit", HEAD);
+  expect(await run()).toMatchObject({ state: "mismatch", warning: expect.stringContaining("you haven’t opened Not pushed yet for this folder") });
+});
+
 test("a PR's review with its folder pushes from the folder's own origin to its branch on GitHub, a fork's too", () => {
   const folder = { environmentId: "env1", hostId: "host_max", machine: "MaxBook", path: "/Users/me/src/api", branch: "feat/qa", remoteBranch: "feat/nice", baseRef: "main", repo: "me/api" };
   const converted = { kind: "pr" as const, repo: "acme/api", number: 7, head: "feat/nice", ownPr: true, headFork: "me", feature: folder, mainThread: { threadId: "coder", environmentId: "env1", origin: "adopted" as const, since: 1 } };
