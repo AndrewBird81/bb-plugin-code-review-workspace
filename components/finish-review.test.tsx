@@ -829,7 +829,7 @@ test("a local review that becomes its PR's while open says so in the notice it s
   review = { ...converted, became: { at: 1, number: 7, url: "https://github.com/acme/web/pull/7", from: "web:feat/qa", carried: 2, local: 0, outside: 0 } };
   await slot.emitRealtime("review:pr-42", {});
   const notice = await slot.findByRole("status", { name: "Now a PR" });
-  expect(notice.textContent).toContain("Now PR #7 · 2 comments carried over. It was web:feat/qa.");
+  expect(notice.textContent).toContain("Now PR #7’s review, web#7, with 2 comments carried over. It was web:feat/qa, which still opens it.");
   fireEvent.click(within(notice).getByRole("button", { name: "Got it" }));
   await waitFor(() => expect(dismissBecame).toHaveBeenCalledWith({ targetKey: "pr-42" }));
   slot.lifecycle.unmount();

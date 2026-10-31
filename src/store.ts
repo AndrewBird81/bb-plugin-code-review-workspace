@@ -178,9 +178,10 @@ export interface ReviewLifecycle {
   remoteHead?: { repo: string; head: string; sha: string | null; at: number } | null;
   /**
    * The local review became its branch's PR's (src/feature-review.ts becomePr): which, its id before (`from`), and how
-   * many comments came with it, not on GitHub yet (`local`), and outside the PR's diff. Null once you said Got it.
+   * many comments came with it, not on GitHub yet (`local`), and outside the PR's diff, kept on its older diff, of them
+   * open, so in Needs you (`needsYou`). Null once you said Got it.
    */
-  became?: { at: number; number: number; url: string; from: string; carried: number; local: number; outside: number; merged?: MergeNote } | null;
+  became?: { at: number; number: number; url: string; from: string; carried: number; local: number; outside: number; needsYou?: number; merged?: MergeNote } | null;
   /**
    * A PR found on the local review's branch that it didn't become: opened before it and not in its folder, or GitHub
    * didn't answer. `declined`: you said it isn't this review's PR.

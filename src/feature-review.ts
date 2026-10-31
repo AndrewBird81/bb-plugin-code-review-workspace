@@ -522,6 +522,8 @@ async function convertIn(db: Store, review: ReviewMeta & { feature: FeatureRevie
   if (ahead) await db.saveSnapshot(key, NOT_PUSHED, ahead.patch);
   if (seen) await db.saveSnapshotFiles(key, NOT_PUSHED, seen);
   const local = ahead ? await placeOn(db, key, lost, previous, ahead.patch, "LOCAL") : [];
+  // Those on neither keep their lines, on the PR's review's older diff: an open one waits in Needs you.
+  const outside = comments.filter((comment) => ![...placed, ...local].some(({ at }) => sameLocation(at, comment)));
   await db.rebaseDraftComments(key, [...placed, ...local]);
   await db.setLifecycle(key, {
     // Pushed under another name: its branch on GitHub. A 1.8.0 link to the PR's review is gone with the merge. A guide
@@ -536,7 +538,8 @@ async function convertIn(db: Store, review: ReviewMeta & { feature: FeatureRevie
     ...review.push?.thenOpenPr ? { push: withoutOpenPr(review.push) } : {},
     // What the review showed of what the folder has that the PR doesn't: a Push waiting on its commit checks it there.
     ...seen ? { notPushedSeen: { environmentId: review.feature.environmentId, base: read.headRefOid, at: Date.now() } } : {},
-    became: { at: Date.now(), number: pr.number, url: read.url, from, carried: comments.length, local: local.length, outside: comments.length - placed.length - local.length },
+    became: { at: Date.now(), number: pr.number, url: read.url, from, carried: comments.length, local: local.length, outside: comments.length - placed.length - local.length,
+      needsYou: outside.filter((comment) => !comment.state || comment.state === "open").length },
     // Its agent, mid-conversation, is told once; never by a turn of its own (src/agent.ts takePrNote).
     ...await db.getAssistantThread(key) ? { agentPrNote: { number: pr.number, url: read.url, from } } : {},
     // What gh said of the PR, until the sync reads it (src/start-review.ts recordPrState).

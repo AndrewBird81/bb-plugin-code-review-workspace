@@ -406,6 +406,20 @@ test("once its branch has a PR, the same review becomes the PR's at its head, ke
   expect(s.spawns).toHaveLength(1);
 });
 
+test("comments on lines neither the PR's diff nor the folder's ahead of it has stay on the older diff: open ones wait in Needs you, sent ones with their Sends", async () => {
+  const s = setup({ files: [{ path: "src/a.ts", body: BODY }, { path: "src/b.ts" }] });
+  await run(s, "main");
+  await settled(s);
+  // A range the folder's diff alone has, and one you sent.
+  await s.store.upsertDraftComment(key, { file: "src/b.ts", line: 1, side: "RIGHT", startLine: 1, startSide: "RIGHT", body: "Open range", author: "reviewer" } as any);
+  await s.store.upsertDraftComment(key, { file: "src/a.ts", line: 99, side: "RIGHT", body: "Sent one", author: "reviewer" } as any);
+  await s.store.trackComments(key, [{ at: { file: "src/a.ts", line: 99, side: "RIGHT" }, id: "c9", state: "sent", sendN: 1 }]);
+  Object.assign(s.folder, { prBase: "main", pr: { number: 7, url: "https://github.com/acme/api/pull/7", headRefName: "feat/qa" } });
+  await checkFeature(s.deps, key);
+  expect(await s.store.getReview(key)).toMatchObject({ kind: "pr", became: { carried: 2, local: 0, outside: 2, needsYou: 1 } });
+  expect((await s.store.staleDraftComments(key)).map((c) => c.body).sort()).toEqual(["Open range", "Sent one"]);
+});
+
 test("a PR whose diff differs from the local changes says the guide was written for them; one with the same diff doesn't", async () => {
   const s = setup();
   await run(s, "main");

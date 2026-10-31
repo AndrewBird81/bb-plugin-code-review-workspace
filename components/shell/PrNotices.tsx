@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { UrlLink, useBbNavigate, useRpc } from "@get-bb/plugin-sdk/app";
 import { toast } from "sonner";
 import type { rpcContract } from "../../src/rpc-contract";
 import type { MergeNote, ReviewLifecycle } from "../../src/store";
 import type { Verdict } from "../../src/draft";
 import { useFullscreenPortalContainer } from "../../lib/portal-scope";
+import { reviewIdentity, type Identifiable } from "../../lib/review-identity";
 import { cn } from "../../lib/utils";
 import { TOUCH_CONTROL } from "../touch";
 import { Button, buttonVariants } from "../ui/button";
@@ -12,7 +13,7 @@ import { Hint } from "../ui/hint";
 import type { Notice } from "./ReviewNotices";
 
 /** The review, as its PR's notices read it: the PR it became, the review of the PR it offers to merge with, a PR it holds; or, on a PR's own review, the folder's review offering to merge with it. */
-export interface PrReviewed {
+export interface PrReviewed extends Omit<Identifiable, "targetKey" | "kind"> {
   kind?: "pr" | "ref";
   archivedAt?: number | null;
   became?: ReviewLifecycle["became"];
@@ -33,26 +34,36 @@ const CHOICE: Record<Verdict, string> = { APPROVE: "Approve", REQUEST_CHANGES: "
 /** What a merge moves, or moved: "3 comments, the summary and 1 Send". */
 const moved = (note: MergeNote, summary: string) => listed([...note.comments ? [plural(note.comments, "comment")] : [], ...note.summary ? [summary] : [], ...note.sends ? [plural(note.sends, "Send")] : []]);
 
-/** Now PR #4512: what came along, only what there was, and the id it had. */
-export function becameText(became: NonNullable<ReviewLifecycle["became"]>): string {
+/**
+ * Now PR #4512's review, `api#4512` (`id`): what came along, only what there was; where the comments the PR's diff
+ * doesn't have are, those open in Needs you (`needsYou`, its link); the id it had, which still opens it; and after a
+ * merge, with `mergedWith`, what moved here.
+ */
+export function becameText(became: NonNullable<ReviewLifecycle["became"]>, id: string, mergedWith: string, needsYou: (label: string) => ReactNode = (label) => label): ReactNode {
   const merged = became.merged && moved(became.merged, "the summary");
-  return [
-    `Now PR #${became.number}${became.carried ? ` · ${plural(became.carried, "comment")} carried over${became.local ? `, ${became.local} not on GitHub yet` : ""}` : ""}.`,
-    ...became.outside ? [`${became.outside} ${became.outside === 1 ? "is" : "are"} outside the PR’s diff.`] : [],
-    ...became.merged ? [`Merged with its other review${merged ? `: ${merged} moved here` : ""}.`] : [],
-    ...became.merged?.verdict ? [`Its other verdict, ${CHOICE[became.merged.verdict]}, wasn’t kept.`] : [],
-  ].join(" ");
+  const { outside } = became;
+  // Of those, the open ones, on the older diff, need you; the rest were sent.
+  const open = Math.min(became.needsYou ?? outside, outside);
+  const lines = outside === 1 ? "is on a line the PR doesn’t have" : `are on lines the PR doesn’t have`;
+  return <>
+    Now PR #{became.number}’s review, <Code>{id}</Code>{became.carried ? `, with ${plural(became.carried, "comment")} carried over${became.local ? `, ${became.local} not on GitHub yet` : ""}` : ""}.
+    {outside > 0 && <> {outside} {lines}{open === outside ? <>, under {needsYou("Needs you")}.</> : open ? <>: {open} under {needsYou("Needs you")}, the rest with your Sends.</> : ", with your Sends."}</>}
+    {" "}It was <Code>{became.from}</Code>, which still opens it.
+    {became.merged && ` Merged with ${mergedWith}${merged ? `: ${merged} moved here` : ""}.`}
+    {became.merged?.verdict && ` Its verdict, ${CHOICE[became.merged.verdict]}, wasn’t kept.`}
+  </>;
 }
 
 /**
  * A review's notices about its PR (src/feature-review.ts becomePr, src/merge.ts), from what the review stores: it became
- * PR #n, with PR #n ↗ to GitHub, Got it, and after a merge Its agent chat ↗, the other review's; the PR has a review
- * of its own, with Merge into one review, PR #n’s review ↗ and Keep both; on the PR's own review, its branch's local review, with Merge into one review, Local
+ * PR #n, with PR #n ↗ to GitHub, after a merge Earlier agent chat ↗, the other review's, beside this one, and Got it,
+ * its Needs you opening Comments there (`onNeedsYou`); the PR has a review of its own, with Merge into one review, PR
+ * #n’s review ↗ and Keep both; on the PR's own review, its branch's local review, with Merge into one review, Local
  * review ↗ and Keep both; and a PR it holds, opened before the review, with Make it its review and Not this one, or
  * GitHub didn't answer, with Try again. `onChanged` reloads the review, which opens the one it went into once it's
  * merged away.
  */
-export function usePrNotices(targetKey: string, review: PrReviewed | null, onChanged: () => void): Notice[] {
+export function usePrNotices(targetKey: string, review: PrReviewed | null, onChanged: () => void, onNeedsYou: () => void): Notice[] {
   const rpc = useRpc<typeof rpcContract>();
   const navigate = useBbNavigate();
   const container = useFullscreenPortalContainer();
@@ -90,16 +101,19 @@ export function usePrNotices(targetKey: string, review: PrReviewed | null, onCha
       action: button("take", "Try again", () => void act("take", () => rpc.call("takePendingPr", { targetKey }), "Couldn’t read the PR."), { warning: true }) });
   }
   if (became) {
-    // The agent chat of the review merged in, kept apart when this review had its own.
-    const agent = became.merged ? [...review.mergedFrom ?? []].reverse().find((from) => from.agentThreadId)?.agentThreadId : null;
+    // The agent chat of the review merged in, kept apart when this review had its own; and what that review was.
+    const from = became.merged ? review.mergedFrom?.at(-1) : undefined;
+    const agent = became.merged ? [...review.mergedFrom ?? []].reverse().find((merged) => merged.agentThreadId)?.agentThreadId : null;
+    const mergedWith = from?.key.startsWith("br-") ? `another folder’s review, ${from.id}` : "the PR’s own review";
+    const needsYou = (label: string) => <button type="button" className="rounded-sm font-medium underline decoration-border underline-offset-4 hover:decoration-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" onClick={onNeedsYou}>{label}</button>;
     notices.push({ id: "became-pr", tone: "info", icon: "GitPullRequest", label: "Now a PR", firstLine: true,
-      text: <>{becameText(became)} It was <Code>{became.from}</Code>.</>,
+      text: becameText(became, reviewIdentity({ ...review, targetKey }).id, mergedWith, needsYou),
       action: <span className="flex flex-wrap gap-1">
         <Hint label={`Go to PR #${became.number} on GitHub`} container={container}>
           <UrlLink href={became.url} aria-label={`PR #${became.number}`} className={cn(buttonVariants({ variant: "outline", size: "sm" }), BUTTON, "text-foreground")}>PR #{became.number} ↗</UrlLink>
         </Hint>
+        {agent && away("Earlier agent chat", "Go to the merged review’s agent chat, beside this review", () => navigate.toThread(agent, { split: true }))}
         {button("became", "Got it", () => void act("became", () => rpc.call("dismissBecame", { targetKey }), "Couldn’t save that."))}
-        {agent && away("Its agent chat", "Go to the other review’s agent chat", () => navigate.toThread(agent))}
       </span> });
   }
   // Which stays, said in the sentence: the folder's review, unless the PR's began as another folder's (`intoPr`).

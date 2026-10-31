@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test, vi } from "vitest";
-import { act, cleanup, fireEvent, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, waitFor, within } from "@testing-library/react";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import { toast } from "sonner";
 import { defaultPreferences } from "../src/preferences";
@@ -50,25 +50,37 @@ async function renderWorkspace(review: Record<string, unknown>, rpc: Record<stri
 }
 const notice = (text: string) => document.querySelector<HTMLElement>(`[aria-label="${text}"]`) ?? Array.from(document.querySelectorAll<HTMLElement>("[aria-live=polite] > [role]")).find((row) => row.textContent?.includes(text))!;
 
-test("Now PR #n says only what came along, and after a merge what moved and the verdict it didn't keep", () => {
-  expect(becameText({ ...became, carried: 0, local: 0, outside: 0 })).toBe("Now PR #4512.");
-  expect(becameText({ ...became, carried: 1, local: 0, outside: 0 })).toBe("Now PR #4512 · 1 comment carried over.");
-  expect(becameText({ ...became, merged: { comments: 3, summary: true, sends: 1 } }))
-    .toBe("Now PR #4512 · 6 comments carried over, 2 not on GitHub yet. 1 is outside the PR’s diff. Merged with its other review: 3 comments, the summary and 1 Send moved here.");
-  expect(becameText({ ...became, carried: 0, local: 0, outside: 2, merged: { comments: 0, summary: false, sends: 0, verdict: "REQUEST_CHANGES" } }))
-    .toBe("Now PR #4512. 2 are outside the PR’s diff. Merged with its other review. Its other verdict, Request changes, wasn’t kept.");
+test("Now PR #n's review names its id, says only what came along, where the comments the PR's diff doesn't have are, the id it had, and after a merge what moved and the verdict it didn't keep", () => {
+  const text = (...args: Parameters<typeof becameText>) => {
+    const shown = render(<p>{becameText(...args)}</p>);
+    const said = shown.container.textContent;
+    shown.unmount();
+    return said;
+  };
+  const PR = "the PR’s own review";
+  expect(text({ ...became, carried: 0, local: 0, outside: 0 }, "api#4512", PR)).toBe("Now PR #4512’s review, api#4512. It was api:snooze-checks, which still opens it.");
+  expect(text({ ...became, carried: 1, local: 0, outside: 0 }, "api#4512", PR)).toBe("Now PR #4512’s review, api#4512, with 1 comment carried over. It was api:snooze-checks, which still opens it.");
+  expect(text({ ...became, needsYou: 1, merged: { comments: 3, summary: true, sends: 1 } }, "api#4512", PR))
+    .toBe("Now PR #4512’s review, api#4512, with 6 comments carried over, 2 not on GitHub yet. 1 is on a line the PR doesn’t have, under Needs you. It was api:snooze-checks, which still opens it. Merged with the PR’s own review: 3 comments, the summary and 1 Send moved here.");
+  expect(text({ ...became, carried: 3, local: 0, outside: 3, needsYou: 1 }, "api#4512", PR))
+    .toBe("Now PR #4512’s review, api#4512, with 3 comments carried over. 3 are on lines the PR doesn’t have: 1 under Needs you, the rest with your Sends. It was api:snooze-checks, which still opens it.");
+  expect(text({ ...became, carried: 2, local: 0, outside: 2, needsYou: 0, merged: { comments: 0, summary: false, sends: 0, verdict: "REQUEST_CHANGES" } }, "api#4512", "another folder’s review, api:snooze-checks"))
+    .toBe("Now PR #4512’s review, api#4512, with 2 comments carried over. 2 are on lines the PR doesn’t have, with your Sends. It was api:snooze-checks, which still opens it. Merged with another folder’s review, api:snooze-checks. Its verdict, Request changes, wasn’t kept.");
 });
 
-test("a review that became its PR's says so from what it stored: PR #4512 ↗, Got it, and after a merge, the other review's agent chat ↗", async () => {
+test("a review that became its PR's says so from what it stored: PR #4512 ↗, after a merge Earlier agent chat ↗ beside it, and Got it last; Needs you opens Comments there", async () => {
   const dismissBecame = vi.fn(() => ({ ok: true }));
-  const { slot } = await renderWorkspace({ ...converted, became: { ...became, merged: { comments: 3, summary: true, sends: 1 } }, mergedFrom: [{ key: "pr-x", at: 2, id: "api#4512", agentThreadId: "agent-p" }] }, { dismissBecame });
+  const { slot } = await renderWorkspace({ ...converted, became: { ...became, needsYou: 1, merged: { comments: 3, summary: true, sends: 1 } }, mergedFrom: [{ key: "pr-x", at: 2, id: "api#4512", agentThreadId: "agent-p" }] }, { dismissBecame });
   const now = await slot.findByRole("status", { name: "Now a PR" });
-  expect(now.textContent).toContain("Now PR #4512 · 6 comments carried over, 2 not on GitHub yet. 1 is outside the PR’s diff. Merged with its other review: 3 comments, the summary and 1 Send moved here. It was api:snooze-checks.");
+  expect(now.textContent).toContain("Now PR #4512’s review, api#4512, with 6 comments carried over, 2 not on GitHub yet. 1 is on a line the PR doesn’t have, under Needs you. It was api:snooze-checks, which still opens it. Merged with the PR’s own review: 3 comments, the summary and 1 Send moved here.");
   const github = within(now).getByRole("link", { name: "PR #4512" });
   expect(github.textContent).toBe("PR #4512 ↗");
   expect(github.getAttribute("href")).toBe(URL);
-  fireEvent.click(within(now).getByRole("button", { name: "Its agent chat" }));
-  expect(slot.inspection.navigateCalls).toContainEqual({ method: "toThread", threadId: "agent-p" });
+  expect(Array.from(now.querySelectorAll("a, button"), (element) => element.textContent)).toEqual(["Needs you", "PR #4512 ↗", "Earlier agent chat ↗", "Got it"]);
+  fireEvent.click(within(now).getByRole("button", { name: "Earlier agent chat" }));
+  expect(slot.inspection.navigateCalls).toContainEqual({ method: "toThread", threadId: "agent-p", options: { split: true } });
+  fireEvent.click(within(now).getByRole("button", { name: "Needs you" }));
+  await waitFor(() => expect(slot.getByRole("radio", { name: /^Needs you/ }).getAttribute("aria-checked")).toBe("true"));
   fireEvent.click(within(now).getByRole("button", { name: "Got it" }));
   await waitFor(() => expect(dismissBecame).toHaveBeenCalledWith({ targetKey: KEY }));
   slot.lifecycle.unmount();
@@ -89,8 +101,8 @@ test("seen as it happens, the change is said once, by the stored notice", async 
 test("a converted review with no merge offers no agent chat", async () => {
   const { slot } = await renderWorkspace({ ...converted, became: { ...became, carried: 0, local: 0, outside: 0 } });
   const now = await slot.findByRole("status", { name: "Now a PR" });
-  expect(now.textContent).toContain("Now PR #4512. It was api:snooze-checks.");
-  expect(within(now).queryByRole("button", { name: "Its agent chat" })).toBeNull();
+  expect(now.textContent).toContain("Now PR #4512’s review, api#4512. It was api:snooze-checks, which still opens it.");
+  expect(within(now).queryByRole("button", { name: "Earlier agent chat" })).toBeNull();
   slot.lifecycle.unmount();
 });
 

@@ -63,15 +63,15 @@ function MoreThreads({ threads, onOpen }: { threads: FeatureCheck["alsoActive"];
  * it changed, with Update; its guide is older than what Update last showed, with Rewrite guide; committed files that look like secrets, with Got it; its PR's (PrNotices.tsx),
  * which a PR's review has too; files it keeps out, each secret named on its own button; and the other threads editing
  * it. A PR's review whose folder is still there says what in it isn't on GitHub yet, with Review them (`onNotPushed`), but
- * on Not pushed yet's page, where `onNotPushed` is null.
+ * on Not pushed yet's page, where `onNotPushed` is null. `onNeedsYou` opens Comments at Needs you.
  * Asked on open, and again when the review or its folder changes. `onChanged` reloads the review.
  */
-export function useFeatureNotices(targetKey: string, review: (Reviewed & PrReviewed) | null, onChanged: () => void, onNotPushed: (() => void) | null): Notice[] {
+export function useFeatureNotices(targetKey: string, review: (Reviewed & PrReviewed) | null, onChanged: () => void, onNotPushed: (() => void) | null, onNeedsYou: () => void): Notice[] {
   const rpc = useRpc<typeof rpcContract>();
   const navigate = useBbNavigate();
   const localDiffChanges = useKnob("localDiffChanges");
   const container = useFullscreenPortalContainer();
-  const prNotices = usePrNotices(targetKey, review, onChanged);
+  const prNotices = usePrNotices(targetKey, review, onChanged, onNeedsYou);
   // Your open comments on lines only in the folder, as Comments lists them.
   const localComments = useComments(targetKey, "items").filter((item) => item.kind === "draft" && item.comment.side === "LOCAL" && (!item.comment.state || item.comment.state === "open")).length;
   const local = !!review?.feature && review.kind === "ref";
