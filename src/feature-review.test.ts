@@ -1022,6 +1022,32 @@ test("after Keep both, either review's page still names the other, for Review ac
   expect((await bundle(key)).keptApart).toBeUndefined();
 });
 
+test("two folders' reviews linked to one PR: Keep both and Merge into one review for the one the PR's page names act on it", async () => {
+  const s = setup();
+  vi.mocked(runGh).mockImplementation(s.deps.gh.runGh as any);
+  await plugin(s.bb);
+  await run(s, "main");
+  await settled(s);
+  const prKey = targetKey({ kind: "pr", repo: "acme/api", number: 7 });
+  await s.store.saveReview({ targetKey: prKey, kind: "pr", repo: "acme/api", number: 7, url: "https://github.com/acme/api/pull/7", head: "feat/qa", status: "ready", createdAt: 1 });
+  await s.store.upsertDraftComment(prKey, { file: "src/a.ts", line: 2, side: "RIGHT", body: "Theirs" });
+  expect(await becomePr(s.deps, key, { repo: "acme/api", number: 7 })).toBe("offered");
+  // A newer folder's review of part2, listed first, with a 1.8.0 link to PR #7's review.
+  const stacked = featureKey("env2", "part2");
+  await s.store.saveReview({ targetKey: stacked, kind: "ref", gitRef: "part2", status: "ready", createdAt: Date.now() + 1 });
+  await s.store.setLifecycle(stacked, { feature: { environmentId: "env2", hostId: "host_max", machine: "MaxBook", path: "/Users/me/src/api2", branch: "part2", baseRef: "main", repo: "acme/api", prReview: prKey } });
+  const named = (await s.harness.behavior.callRpc("getReviewBundle", { targetKey: prKey }) as any).review.localReview;
+  expect(named).toMatchObject({ targetKey: key });
+  expect(await s.harness.behavior.callRpc("keepBothReviews", { targetKey: named.targetKey })).toEqual({ ok: true });
+  expect(await s.store.getReview(key)).toMatchObject({ mergeDeclined: prKey });
+  expect(await s.store.getReview(stacked)).not.toHaveProperty("mergeDeclined");
+  const kept = (await s.harness.behavior.callRpc("getReviewBundle", { targetKey: prKey }) as any).review.keptApart;
+  expect(kept).toMatchObject({ targetKey: key });
+  expect(await s.harness.behavior.callRpc("mergeReviews", { targetKey: kept.targetKey })).toEqual({ ok: true, targetKey: key });
+  expect(await s.store.getReview(prKey)).toMatchObject({ mergedInto: key });
+  expect(await s.store.getReview(stacked)).toMatchObject({ kind: "ref", feature: { prReview: prKey } });
+});
+
 test("Make it PR #7's review that finds the PR's own review offers the merge in its place, and Keep both leaves no Make it PR #7's review behind", async () => {
   const s = setup();
   vi.mocked(runGh).mockImplementation(s.deps.gh.runGh as any);

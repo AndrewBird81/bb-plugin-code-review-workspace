@@ -167,10 +167,11 @@ test("the PR's own review names its branch's local review and which stays, with 
   await waitFor(() => { act(() => { open.blur(); open.focus(); }); expect(slot.getByRole("tooltip").textContent).toContain("Go to api:snooze-checks"); });
   fireEvent.click(open);
   expect(slot.inspection.navigateCalls).toContainEqual({ method: "toPluginPanel", path: "review", options: { subPath: "br-2" } });
+  // Each for the local review it names, of the PR's two or more.
   fireEvent.click(within(offer).getByRole("button", { name: "Merge into one review" }));
-  await waitFor(() => expect(mergeReviews).toHaveBeenCalledWith({ targetKey: KEY }));
+  await waitFor(() => expect(mergeReviews).toHaveBeenCalledWith({ targetKey: "br-2" }));
   fireEvent.click(within(offer).getByRole("button", { name: "Keep both" }));
-  await waitFor(() => expect(keepBothReviews).toHaveBeenCalledWith({ targetKey: KEY }));
+  await waitFor(() => expect(keepBothReviews).toHaveBeenCalledWith({ targetKey: "br-2" }));
   slot.lifecycle.unmount();
   cleanup();
 

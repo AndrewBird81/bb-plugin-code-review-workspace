@@ -170,7 +170,8 @@ export function ReviewMenu({ api, className }: { api: WorkspaceApi; className?: 
     }
   };
   const dismissed: ReviewMenuItem[] = api.review.archivedAt ? [] : [
-    ...keptApart ? [{ label: "Merge into one review", icon: "GitMerge", detail: keptApartLine(keptApart, !local), onSelect: call(() => rpc.call("mergeReviews", { targetKey: api.targetKey }), "Couldn’t merge the two reviews.") } satisfies ReviewMenuItem] : [],
+    // On a PR's review, for the folder's review it names, of the PR's two or more.
+    ...keptApart ? [{ label: "Merge into one review", icon: "GitMerge", detail: keptApartLine(keptApart, !local), onSelect: call(() => rpc.call("mergeReviews", { targetKey: local ? api.targetKey : keptApart.targetKey }), "Couldn’t merge the two reviews.") } satisfies ReviewMenuItem] : [],
     // Why it was held, as its notice said.
     ...local && prPending?.declined && prPending.why !== "error" ? [{ label: `Make it PR #${prPending.number}’s review`, icon: "GitPullRequest",
       detail: prPending.why === "branch" && prPending.head ? `PR #${prPending.number} is from \`${prPending.head}\`, not this branch.` : `This branch has PR #${prPending.number}, opened before this review.`, onSelect: call(() => rpc.call("takePendingPr", { targetKey: api.targetKey }), "Couldn’t make it the PR’s review.") } satisfies ReviewMenuItem] : [],

@@ -365,8 +365,9 @@ test("after Keep both, Review actions offers Merge into one review on either rev
     expect(merge.getAttribute("aria-description")).toBe(line);
     // A branch in monospace, as the notice shows it.
     if (review.keptApart.branch) expect(merge.querySelector(".font-mono")?.textContent).toBe(review.keptApart.branch);
+    // On the PR's review, for the local review it names, of the PR's two or more.
     fireEvent.click(merge);
-    await waitFor(() => expect(mergeReviews).toHaveBeenLastCalledWith({ targetKey: "pr-42" }));
+    await waitFor(() => expect(mergeReviews).toHaveBeenLastCalledWith({ targetKey: review.kind === "ref" ? "pr-42" : review.keptApart.targetKey }));
     page.lifecycle.unmount(); bar!.lifecycle.unmount();
   }
   const { bar } = await renderReview({ review: { ...cases[0]!.review, archivedAt: 1 } });

@@ -89,9 +89,10 @@ export function usePrNotices(targetKey: string, review: PrReviewed | null, onCha
   };
   const button = (id: string, label: string, onClick: () => void, { warning, quiet }: { warning?: boolean; quiet?: boolean } = {}) =>
     <Button variant={quiet ? "ghost" : "outline"} size="sm" className={cn(BUTTON, warning && "border-warning/40")} disabled={!!busy} onClick={onClick}>{busy === id ? `${label}…` : label}</Button>;
-  // The same on both reviews: the notice's sentence says which stays.
-  const merge = button("merge", "Merge into one review", () => void act("merge", () => rpc.call("mergeReviews", { targetKey }), "Couldn’t merge the two reviews."));
-  const keepBoth = button("keep", "Keep both", () => void act("keep", () => rpc.call("keepBothReviews", { targetKey }), "Couldn’t save that."), { quiet: true });
+  // The same on both reviews: the notice's sentence says which stays. For the folder's review it names (`folder`), of
+  // a PR's two or more.
+  const merge = (folder: string) => button("merge", "Merge into one review", () => void act("merge", () => rpc.call("mergeReviews", { targetKey: folder }), "Couldn’t merge the two reviews."));
+  const keepBoth = (folder: string) => button("keep", "Keep both", () => void act("keep", () => rpc.call("keepBothReviews", { targetKey: folder }), "Couldn’t save that."), { quiet: true });
   // A link that goes somewhere is named for where it goes, with ↗; Go to … is its hint. Its words are one span, so the
   // button's gap never opens inside them, between a part a width hides and the rest.
   const away = (label: string, hint: string, onClick: () => void, shown: ReactNode = label) => <Hint label={hint} container={container}>
@@ -127,10 +128,10 @@ export function usePrNotices(targetKey: string, review: PrReviewed | null, onCha
     notices.push({ id: "pr-offer", tone: "info", icon: "GitPullRequest", firstLine: true,
       text: `PR #${prOffer.number} has its own review${moves ? `, with ${moves}` : ""}. ${stays(prOffer.intoPr, false)}`,
       action: <span className="flex flex-wrap gap-1">
-        {merge}
+        {merge(targetKey)}
         {/* PR’s review ↗ under 440px wide, as the sentence names the PR, so Keep both stays on the buttons' row. */}
         {open(prOffer.key, `PR #${prOffer.number}’s review`, undefined, <>PR<span className="@max-[440px]/review:hidden"> #{prOffer.number}</span>’s review</>)}
-        {keepBoth}
+        {keepBoth(targetKey)}
       </span> });
   }
   if (localReview && !review.archivedAt) {
@@ -139,9 +140,9 @@ export function usePrNotices(targetKey: string, review: PrReviewed | null, onCha
         ? <>A local review of <Code>{localReview.branch}</Code>{localReview.comments ? ` with ${plural(localReview.comments, "comment")}` : ""} is linked to this PR. {stays(localReview.intoPr, true)}</>
         : `This PR’s branch has a local review${localReview.comments ? ` with ${plural(localReview.comments, "comment")}` : ""}. ${stays(localReview.intoPr, true)}`,
       action: <span className="flex flex-wrap gap-1">
-        {merge}
+        {merge(localReview.targetKey)}
         {open(localReview.targetKey, "Local review", `Go to ${localReview.id}`)}
-        {keepBoth}
+        {keepBoth(localReview.targetKey)}
       </span> });
   }
   if ((prPending?.why === "older" || prPending?.why === "branch") && !prPending.declined) {
