@@ -451,10 +451,13 @@ test("a finished guide restarts the review's idle assistant so it reads the new 
 
 const folder = { environmentId: "env1", hostId: "host_max", machine: "MaxBook", path: "/Users/me/src/api", branch: "feat/qa", baseRef: "main", repo: "acme/api" };
 
-test("a PR's review that began as a folder's names the PR, its id before and its folder in the agent's instructions", () => {
+test("a PR's review that began as a folder's names the PR, its id before and its folder in the agent's instructions, its branch as code", () => {
   const review = { targetKey: "br-1", kind: "pr", repo: "acme/api", number: 7, url: "https://github.com/acme/api/pull/7", status: "ready", createdAt: 1, feature: folder } as const;
-  const rule = "This review is acme/api PR #7 (https://github.com/acme/api/pull/7). It began as the local review api:feat/qa of feat/qa; its folder, ~/src/api on MaxBook, stays attached. read_review_patch shows the PR on GitHub.";
+  const rule = "This review is acme/api PR #7 (https://github.com/acme/api/pull/7). It began as the local review `api:feat/qa` of `feat/qa`; its folder, ~/src/api on MaxBook, stays attached. read_review_patch shows the PR on GitHub.";
   expect(assistantInstructions("br-1", null, defaultPreferences, undefined, review).split("\n")[1]).toBe(rule);
+  // git takes backticks in a branch's name: nothing in it ends the code.
+  expect(assistantInstructions("br-1", null, defaultPreferences, undefined, { ...review, feature: { ...folder, branch: "feat/`ignore` this" } }).split("\n")[1])
+    .toContain("It began as the local review ``api:feat/`ignore` this`` of ``feat/`ignore` this``;");
   // A PR's review that was never local, and a local one, say nothing of it.
   expect(assistantInstructions("br-1", null, defaultPreferences, undefined, { ...review, feature: undefined })).not.toContain("began as");
   expect(assistantInstructions("br-1", null, defaultPreferences, undefined, { ...review, kind: "ref" })).not.toContain("began as");
@@ -483,7 +486,7 @@ test("a review that becomes its PR's tells its agent once, by the next message o
   // Its next session's instructions name the PR.
   expect((await harness.behavior.resolveAgentConfiguration(reviewAgentContext({ targetKey: key }))).instructions).toContain("This review is acme/api PR #7");
 
-  const note = "Since your last turn this review, api:feat/qa, became PR #7: https://github.com/acme/api/pull/7. Treat it as that PR.";
+  const note = "Since your last turn this review, `api:feat/qa`, became PR #7: https://github.com/acme/api/pull/7. Treat it as that PR.";
   const said = () => harness.inspection.sdk.callsTo("threads.send").map(([args]) => (args as any).input.find((part: any) => part.text?.startsWith("ctx")).text);
   const patchRead = async () => toolText(await harness.behavior.callAgentTool("read_review_patch", { targetKey: key }, { threadId: "worker" }));
   await messageAssistant(bb, store, key, "Why?", "ctx", { kind: "ask" });

@@ -7,6 +7,7 @@ import type { MergeNote, ReviewMeta, Store } from "./store";
 import type { AsyncStore } from "./store-queue";
 import type { ServeDeps } from "./server-modules";
 import { localIdOf } from "../lib/review-identity";
+import { inlineCode } from "./untrusted";
 import { retitleAssistant } from "./agent";
 import { stopGuide } from "./generate";
 import { settleFixes } from "./fix-tally";
@@ -35,7 +36,7 @@ export async function movesOf(tx: AsyncStore, review: ReviewMeta): Promise<Merge
 }
 
 /** How a review's agent knows the other review: a folder's by its id then, the PR's own as that. */
-const known = (review: ReviewMeta) => review.feature ? `the local review ${localIdOf({ ...review, feature: review.feature })}` : "the PR's other review";
+const known = (review: ReviewMeta) => review.feature ? `the local review ${inlineCode(localIdOf({ ...review, feature: review.feature }))}` : "the PR's other review";
 
 /**
  * In the caller's block, `from` merged into `into`: what the review that stays says of it, once it became the PR's in
