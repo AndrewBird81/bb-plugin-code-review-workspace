@@ -480,6 +480,10 @@ export async function becomePr(deps: Deps, key: string, pr: { repo: string; numb
     if (cleared) deps.changed(key);
     return snapshot.pr.state === "MERGED" ? "pr-merged" : "pr-closed";
   }
+  // Your Merge, with a PR from another branch whose review no Make it PR #n's review offered: it waits for that click.
+  if (clicked === "merge" && now.prOffer?.key !== prKey && !ownBranch(now.feature, snapshot.pr.headRefName)) {
+    return pending({ number: pr.number, url: snapshot.pr.url, why: "branch", head: snapshot.pr.headRefName, at: Date.now() });
+  }
   if (notOwn(snapshot.pr.headRefName)) return pending({ number: pr.number, url: snapshot.pr.url, why: "branch", head: snapshot.pr.headRefName, at: Date.now() });
   // A branch used again may have an open PR from before the review: it's this work's only when the folder has its head.
   const opened = Date.parse(snapshot.pr.createdAt ?? "");
@@ -798,14 +802,25 @@ export async function readForGuide(bb: BbPluginApi, review: ReviewMeta): Promise
   };
 }
 
+/** Whether `head` is the folder's branch, by its name, on GitHub, or as a thread pushed it. */
+export const ownBranch = (feature: FeatureReview, head: string) => [feature.branch, feature.remoteBranch, feature.pushedAs].includes(head);
+
+/** The branch `pr` is from, by the head its review last read; not read yet, the one the folder's review waits on. */
+const prBranch = (folder: ReviewMeta, pr: ReviewMeta) => pr.head
+  ?? (folder.prPending?.why === "branch" && folder.prPending.url.toLowerCase() === pr.url?.toLowerCase() ? folder.prPending.head : undefined);
+
 /**
  * Whether the folder's review merges with `pr`'s review only after Make it PR #n's review: the PR is from another
- * branch, by the head its review last read, and no click offered the merge, as a 1.8.0 link to it didn't.
+ * branch, and no click offered the merge, as a 1.8.0 link to it didn't.
  */
 export function heldForBranch(folder: ReviewMeta, pr: ReviewMeta): boolean {
   const feature = folder.feature;
-  return !!feature && folder.prOffer?.key !== pr.targetKey && !!pr.head && ![feature.branch, feature.remoteBranch, feature.pushedAs].includes(pr.head);
+  const head = prBranch(folder, pr);
+  return !!feature && folder.prOffer?.key !== pr.targetKey && !!head && !ownBranch(feature, head);
 }
+
+/** What a merge with a PR from another branch says. */
+const notThisBranch = (number: number, head: string) => `PR #${number} is from \`${head}\`, not this branch. Make it PR #${number}’s review first.`;
 
 /** What a click on PR #n closed or merged since says. */
 const prGone = (number: number, became: "pr-closed" | "pr-merged") => `PR #${number} is ${became === "pr-merged" ? "merged" : "closed"}.`;
@@ -892,13 +907,14 @@ export function register(deps: ServeDeps) {
       const folder = offeringFolder(await store.listReviews(), targetKey);
       const other = folder && await store.getReview(folder.prOffer?.key ?? folder.feature.prReview!);
       if (!folder || !other?.repo || !other.number) return { ok: false, error: "This review has no other review of its PR to merge with. Reload it." };
-      if (heldForBranch(folder, other)) return { ok: false, error: `PR #${other.number} is from \`${other.head}\`, not this branch. Make it PR #${other.number}’s review first.` };
+      if (heldForBranch(folder, other)) return { ok: false, error: notThisBranch(other.number, prBranch(folder, other)!) };
       const pr = { repo: other.repo, number: other.number };
       try {
         const became = await becomePr(deps, folder.targetKey, pr, "merge");
         if (became === "pr-closed" || became === "pr-merged") return { ok: false, error: prGone(pr.number, became) };
         if (became !== "merged") {
-          return { ok: false, error: (await store.getReview(folder.targetKey))?.prPending?.error ?? "Couldn’t merge the two reviews. Try again." };
+          const waiting = (await store.getReview(folder.targetKey))?.prPending;
+          return { ok: false, error: waiting?.why === "branch" && waiting.head ? notThisBranch(pr.number, waiting.head) : waiting?.error ?? "Couldn’t merge the two reviews. Try again." };
         }
       } catch (error) {
         return { ok: false, error: `Couldn’t merge the two reviews: ${error instanceof Error ? error.message : String(error)}` };

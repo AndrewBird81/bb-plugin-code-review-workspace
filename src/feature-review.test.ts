@@ -1124,6 +1124,38 @@ test("a 1.8.0 link to another branch's PR's review, kept apart, merges only afte
   expect(await s.store.getReview(prKey)).toMatchObject({ mergedInto: key });
 });
 
+test("a 1.8.0 link to another branch's PR's review not read yet merges only after Make it PR #7's review, from either page", async () => {
+  // part2 carries a 1.8.0 link to part1's PR #7, whose review discovery found, with something of yours and no head.
+  const s = setup();
+  vi.mocked(runGh).mockImplementation(s.deps.gh.runGh as any);
+  await plugin(s.bb);
+  await run(s, "main");
+  await settled(s);
+  s.view.headRefName = "part1";
+  const prKey = targetKey({ kind: "pr", repo: "acme/api", number: 7 });
+  await s.store.saveReview({ targetKey: prKey, kind: "pr", repo: "acme/api", number: 7, url: "https://github.com/acme/api/pull/7", status: "tracked", createdAt: 1 });
+  await s.store.upsertDraftComment(prKey, { file: "src/a.ts", line: 2, side: "RIGHT", body: "Theirs" });
+  await s.store.setLifecycle(key, { feature: { ...(await s.store.getReview(key))!.feature!, prReview: prKey } });
+  await checkFeature(s.deps, key);
+  expect((await s.store.getReview(key))?.prPending).toMatchObject({ why: "branch", head: "part1" });
+  expect((await s.store.getReview(prKey))?.head).toBeUndefined();
+  // The PR's page offers no merge, and neither page merges.
+  expect((await s.harness.behavior.callRpc("getReviewBundle", { targetKey: prKey }) as any).review.localReview).toBeUndefined();
+  const refused = { ok: false, error: "PR #7 is from `part1`, not this branch. Make it PR #7’s review first." };
+  expect(await s.harness.behavior.callRpc("mergeReviews", { targetKey: prKey })).toEqual(refused);
+  expect(await s.harness.behavior.callRpc("mergeReviews", { targetKey: key })).toEqual(refused);
+  // Nothing waiting on it, as a review from before this saved it: GitHub's head refuses the click, which then waits.
+  await s.store.setLifecycle(key, { prPending: null });
+  expect(await s.harness.behavior.callRpc("mergeReviews", { targetKey: key })).toEqual(refused);
+  expect(await s.store.getReview(key)).toMatchObject({ kind: "ref", prPending: { why: "branch", head: "part1" } });
+  expect(await s.store.getReview(prKey)).not.toHaveProperty("mergedInto");
+  // Make it PR #7's review offers the merge, which then goes.
+  expect(await s.harness.behavior.callRpc("takePendingPr", { targetKey: key })).toEqual({ ok: true });
+  expect(await s.store.getReview(key)).toMatchObject({ kind: "ref", prOffer: { key: prKey }, prPending: null });
+  expect(await s.harness.behavior.callRpc("mergeReviews", { targetKey: key })).toEqual({ ok: true, targetKey: key });
+  expect(await s.store.getReview(prKey)).toMatchObject({ mergedInto: key });
+});
+
 /** The sync, with your PR acme/api#7 of feat/qa found by its own search, converting through becomePr as the server does. */
 function ownPrSync(s: ReturnType<typeof setup>) {
   const pr = { repo: "acme/api", number: 7, title: "Snooze flaky checks for a day", url: "https://github.com/acme/api/pull/7", author: "me", updatedAt: 1, isDraft: false, requested: false, reviewed: false, own: true as const, head: "feat/qa" };
