@@ -38,7 +38,7 @@ function host(branch: string) {
   const store = queueStore(createStore(made.bb));
   const view = (n: number) => ({ number: n, title: `Retry downloads ${n}`, author: { login: "casey" }, baseRefName: "main", headRefName: `casey/downloads-${n}`, url: `https://github.com/acme/web/pull/${n}`, headRefOid: "c3d4e5f60718293a4b5c6d7e8f90123456789abc", state: "OPEN" });
   const runGh = vi.fn(async (args: string[]) => ({ code: 0, stderr: "", stdout: args[1] === "diff" ? PATCH : JSON.stringify(view(Number(args[2]))) }));
-  const deps = { bb: made.bb, store, gh: { runGh, runGit: vi.fn() } as any, changed: vi.fn(), sync: { one: vi.fn(async () => {}) } };
+  const deps = { bb: made.bb, store, gh: { runGh, runGit: vi.fn() } as any, changed: vi.fn(), sync: { one: vi.fn(async () => {}), health: () => ({ lastReadAt: null, error: null }) } };
   return { ...made, store, deps };
 }
 

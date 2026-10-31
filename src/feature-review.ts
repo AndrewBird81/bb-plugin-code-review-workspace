@@ -24,11 +24,15 @@ import { formerWorkerReview } from "./former-workers";
 import { parsePrLink } from "../lib/pr-link";
 import { NOT_PUSHED } from "../lib/push";
 import { isLocal, sameLocation } from "./draft";
+import { githubWaits } from "./review-lifecycle";
 import type { EventListeners, RpcHandlers, ServeDeps } from "./server-modules";
 
 type Thread = Awaited<ReturnType<BbPluginApi["sdk"]["threads"]["get"]>>;
 type Environment = Awaited<ReturnType<BbPluginApi["sdk"]["environments"]["get"]>>;
-interface Deps { bb: BbPluginApi; store: AsyncStore; gh: ServeDeps["gh"]; changed(targetKey: string): void; sync?: Pick<ServeDeps["sync"], "one"> }
+interface Deps { bb: BbPluginApi; store: AsyncStore; gh: ServeDeps["gh"]; changed(targetKey: string): void; sync?: Pick<ServeDeps["sync"], "one" | "health"> }
+
+/** How long a PR GitHub didn't answer for waits before a check reads it again. */
+const ERROR_RETRY = 60_000;
 
 const live = (thread: Pick<Thread, "archivedAt" | "deletedAt">) => !thread.archivedAt && !thread.deletedAt;
 const threadTitle = (thread: Pick<Thread, "title" | "titleFallback">) => thread.title ?? thread.titleFallback ?? null;
@@ -418,6 +422,9 @@ export async function becomePr(deps: Deps, key: string, pr: { repo: string; numb
     if (intoPr || now.kind === "pr") return await mergeReviews(deps, intoPr ? key : prKey, intoPr ? prKey : key) ? "merged" : "skipped";
   }
   if (now.kind !== "ref" || !clicked && now.prPending?.why === "older" && now.prPending.url.toLowerCase() === url.toLowerCase()) return "skipped";
+  // One GitHub didn't answer for is read again a minute later, and not while GitHub limits reads or gh is signed out.
+  if (!clicked && now.prPending?.why === "error" && now.prPending.url.toLowerCase() === url.toLowerCase()
+    && (Date.now() - now.prPending.at < ERROR_RETRY || !!deps.sync && githubWaits(deps.sync.health(), Date.now()))) return "skipped";
   /** Kept as found and not become, once per PR and why, so a check that finds it again changes nothing. */
   const pending = async (state: NonNullable<ReviewLifecycle["prPending"]>) => {
     const saved = await store.exclusive(async (tx) => {

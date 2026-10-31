@@ -50,6 +50,12 @@ export interface SyncHealth {
   error: { kind: "auth" | "rate-limit" | "partial" | "teams" | "gh-missing" | "other"; at: number; count?: number; retryAt?: number } | null;
 }
 
+/** Whether reads of GitHub wait now: gh isn't signed in or can't start, or GitHub limits reads, until `retryAt` if it said. */
+export function githubWaits(health: SyncHealth, now: number): boolean {
+  const error = health.error;
+  return error?.kind === "auth" || error?.kind === "gh-missing" || error?.kind === "rate-limit" && (error.retryAt ?? Infinity) > now;
+}
+
 /** What the plugin does when a review's turn changes. Each returns whether work started. */
 export interface TurnActions {
   /** A re-review came back to you: regenerate an out-of-date guide, then check your feedback. */

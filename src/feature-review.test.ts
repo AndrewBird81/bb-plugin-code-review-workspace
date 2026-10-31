@@ -18,7 +18,7 @@ import { readFileAt } from "./verification";
 import { symlinkTarget } from "../lib/folder-files";
 import plugin from "../server";
 import { toolFailed, toolText } from "./fake-host.test-support";
-import { createReviewSync, type GithubReads, type TurnActions } from "./review-lifecycle";
+import { createReviewSync, type GithubReads, type SyncHealth, type TurnActions } from "./review-lifecycle";
 import { runGh } from "./gh";
 
 afterEach(() => { vi.useRealTimers(); });
@@ -66,8 +66,10 @@ function setup(folder: Folder = { files: [{ path: "src/a.ts", body: BODY }] }, t
     return { code: 1, stderr: "unexpected gh call", stdout: "" };
   });
   const changed = vi.fn();
-  const deps = { bb: host.bb, store, gh: { runGh, runGit: vi.fn() }, changed, sync: { one: vi.fn(async () => {}) } };
-  return { ...host, store, spawns, deps, all, ghCalls, folder, failing, view };
+  /** How reading GitHub goes, as the sync says. */
+  const health: SyncHealth = { lastReadAt: null, error: null };
+  const deps = { bb: host.bb, store, gh: { runGh, runGit: vi.fn() }, changed, sync: { one: vi.fn(async () => {}), health: () => health } };
+  return { ...host, store, spawns, deps, all, ghCalls, folder, failing, view, health };
 }
 const key = featureKey("env1", "feat/qa");
 const run = (s: ReturnType<typeof setup>, threadId: string | undefined, argv: string[] = [], cwd = "/Users/me/src/api", ownReview?: string) =>
@@ -534,7 +536,7 @@ test("a PR opened while the guide is being written makes the review the PR's at 
   expect(await s.store.patch(key)).toBe(PR_DIFF);
 });
 
-test("a PR opened before the review waits, unless the folder has its head; one GitHub didn't answer for waits for the next check", async () => {
+test("a PR opened before the review waits, unless the folder has its head; one GitHub didn't answer for waits a minute for a check, and while GitHub limits reads or gh is signed out", async () => {
   const s = setup();
   let behind = 2;
   s.folder.answers = { workspaceStatus: (input) => ({ outcome: "available", workspace: { mergeBase: input.mergeBaseBranch === "c0ffee" ? { aheadCount: 1, behindCount: behind, commits: [] } : null } }) };
@@ -562,6 +564,19 @@ test("a PR opened before the review waits, unless the folder has its head; one G
   expect(await becomePr(failing.deps, key, { repo: "acme/api", number: 7 })).toBe("skipped");
   expect(await failing.store.getReview(key)).toMatchObject({ kind: "ref", prPending: { number: 7, why: "error", error: "HTTP 502: Bad gateway" } });
   failing.deps.gh.runGh.mockImplementation(answers);
+  // Within the minute, a check doesn't read GitHub again.
+  const tried = failing.ghCalls.length;
+  expect(await becomePr(failing.deps, key, { repo: "acme/api", number: 7 })).toBe("skipped");
+  expect(failing.ghCalls).toHaveLength(tried);
+  const pending = (await failing.store.getReview(key))!.prPending!;
+  await failing.store.setLifecycle(key, { prPending: { ...pending, at: pending.at - 61_000 } });
+  // Nor while GitHub limits reads, with a time to try again or without one, or gh is signed out.
+  for (const error of [{ kind: "rate-limit", at: 1, retryAt: Date.now() + 60_000 }, { kind: "rate-limit", at: 1 }, { kind: "auth", at: 1 }] as const) {
+    failing.health.error = error;
+    expect(await becomePr(failing.deps, key, { repo: "acme/api", number: 7 })).toBe("skipped");
+    expect(failing.ghCalls).toHaveLength(tried);
+  }
+  failing.health.error = null;
   expect(await becomePr(failing.deps, key, { repo: "acme/api", number: 7 })).toBe("converted");
   expect((await failing.store.getReview(key))?.prPending).toBeNull();
 });
