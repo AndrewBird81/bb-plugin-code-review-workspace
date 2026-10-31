@@ -419,8 +419,13 @@ test("a Send to a fixer at the PR's head leaves out a comment not on GitHub yet,
   expect(local.id).toBeUndefined();
   expect(local.state).toBeUndefined();
   const sends = p.calls("threads.send").length;
-  expect(await p.rpc("sendNow", { targetKey: "pr-1", comment: LOCAL })).toEqual({ ok: false, error: "Not sent: it isn’t on GitHub yet, so it goes to the folder’s main thread, not a thread at the PR’s head." });
+  expect(await p.rpc("sendNow", { targetKey: "pr-1", comment: LOCAL })).toEqual({ ok: false, error: "Not sent: it isn’t on GitHub yet. Change Main thread to a thread in its folder to send it." });
   expect(p.calls("threads.send")).toHaveLength(sends);
+  // With a thread on GitHub, that goes, without it.
+  expect(await p.rpc("sendToSourceThread", { targetKey: "pr-1", comments: [LOCAL], threads: [THREAD.id] })).toMatchObject({ ok: true, threadId: "fixer2", keptLocal: 1 });
+  const items: string = p.calls("threads.send").at(-1).input[0].text;
+  expect(items).not.toContain("Export it from the index.");
+  expect(p.calls("threads.send")).toHaveLength(sends + 1);
 });
 
 test("a fixer whose branch BB says only as the Send reads it is told that branch", async () => {

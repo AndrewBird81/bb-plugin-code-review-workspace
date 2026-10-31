@@ -145,7 +145,7 @@ test("a fixer's Send that left out a comment not on GitHub yet counts what went 
   fireEvent.click(await slot.findByRole("button", { name: "Send 2 to main thread" }));
   fireEvent.click(within(slot.getByRole("group", { name: "Comments to send" })).getByRole("button", { name: "Send" }));
   expect((await within(slot.getByRole("region", { name: "Send to the main thread" })).findByRole("status")).textContent)
-    .toBe("Sent 1 comment to Fixes for web#12. 1 isn’t on GitHub yet: it goes to the folder’s main thread. · Watch · Main thread ↗");
+    .toBe("Sent 1 comment to Fixes for web#12. 1 isn’t on GitHub yet: change Main thread to a thread in its folder to send it. · Watch · Main thread ↗");
   slot.lifecycle.unmount();
 });
 

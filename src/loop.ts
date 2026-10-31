@@ -364,7 +364,7 @@ export async function send(deps: Deps, targetKey: string, picked: readonly Comme
   const unbriefed = toFixer && main!.origin === "forked" && !(now.sends ?? []).some((entry) => entry.threadId === main!.threadId);
   const briefed = unbriefed ? await fixerPlace(bb, store, now) : null;
   const laterFixer = toFixer && !briefed;
-  // A fixer works at the PR's head, which hasn't the lines of a comment not on GitHub yet: that one stays for the folder's main thread.
+  // A fixer works at the PR's head, which hasn't the lines of a comment not on GitHub yet: that one stays, for a main thread in its folder.
   const atHead = !!fixer || toFixer;
   // To a thread in the PR's own folder: stay on its branch, if the folder is on it.
   const stayOn = "to" in routed && !toFixer && main && main.environmentId === now.feature?.environmentId ? await folderBranchLine(bb, now) : null;
@@ -386,10 +386,10 @@ export async function send(deps: Deps, targetKey: string, picked: readonly Comme
       const now = (await tx.getReview(targetKey)) ?? review;
       const items = await githubItems(tx, now, github);
       if (keptLocal && !comments.length && !items.length) {
-        throw new Error(`Not sent: ${keptLocal === 1 ? "it isn’t" : "they aren’t"} on GitHub yet, so ${keptLocal === 1 ? "it goes" : "they go"} to the folder’s main thread, not a thread at the PR’s head.`);
+        throw new Error(`Not sent: ${keptLocal === 1 ? "it isn’t on GitHub yet. Change Main thread to a thread in its folder to send it." : "they aren’t on GitHub yet. Change Main thread to a thread in their folder to send them."}`);
       }
       // A GitHub item the review no longer has, as one gone from GitHub's window, is left out; the Send says how many.
-      if (!comments.length && !items.length || picked.length && !comments.length) return null;
+      if (!comments.length && !items.length || picked.length && !chosen.length) return null;
       // Only your Reopen sends a comment you resolved or dismissed again.
       const settled = comments.find((comment) => comment.state === "resolved" || comment.state === "dismissed");
       if (settled) throw new Error(`The comment on ${settled.file}:${settled.line} is ${settled.state}. Reopen it to send it again.`);
