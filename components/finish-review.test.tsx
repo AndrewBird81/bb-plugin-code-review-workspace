@@ -1086,11 +1086,18 @@ test("once the review agent's PR draft waits in its Post form, Finish says it's 
   expect(toast.info).toHaveBeenCalledWith("The PR draft is ready.", { action: { label: "Post PR…", onClick: expect.any(Function) } });
   const ready = within(part()).getByText("The PR draft is ready.").closest("[role=status]") as HTMLElement;
   expect(within(part()).getAllByRole("status")[0]!.textContent).toMatch(/^Pushed abc1234 to feat\/qa/);
+  // Push only for something new to push, as after a draft that couldn't be asked for.
+  expect(within(part()).getAllByRole("button").map((b) => b.textContent)).toEqual(["Post PR…"]);
   fireEvent.click(within(ready).getByRole("button", { name: "Post PR…" }));
   await waitFor(() => expect(panelTabCalls(slot)).toEqual(["openTab:agent"]));
   (vi.mocked(toast.info).mock.calls[0]![1] as unknown as { action: { onClick: () => void } }).action.onClick();
   await waitFor(() => expect(panelTabCalls(slot)).toEqual(["openTab:agent", "openTab:agent"]));
   slot.lifecycle.unmount();
+  cleanup();
+
+  const newer = await renderPush(pushed, { ...plan({ onGithub: true, toPush: true }), ...sent }, { ...folderReview, prDraft });
+  await waitFor(() => expect(within(newer.part()).getAllByRole("button").map((b) => b.textContent)).toEqual(["Post PR…", "Push"]));
+  newer.slot.lifecycle.unmount();
   cleanup();
 
   // A draft that timed out isn't ready.

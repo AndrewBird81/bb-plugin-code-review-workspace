@@ -256,11 +256,11 @@ function Push({ plan }: { plan: PushPlan | null | undefined }) {
         <Button variant="outline" size="sm" className={cn("gap-1.5 text-foreground", TOUCH_CONTROL, BUSY)} aria-disabled={!!busy || undefined} onClick={() => void retry()}>{spinner(busy === "retry", "ArrowReloadHorizontal")}Try again</Button>
       </div>}
       {unsent > 0 && <p className="flex gap-1.5 text-xs text-warning-text"><Icon name="AlertTriangle" className="mt-0.5 size-3.5 shrink-0" aria-hidden />{unsent === 1 ? "1 comment isn’t sent yet. Send it first" : `${unsent} comments aren’t sent yet. Send them first`}, or push anyway.</p>}
-      {/* After a draft that couldn't be asked for, Push shows only for something new. */}
+      {/* With a draft ready, or after one that couldn't be asked for, Push shows only for something new. */}
       {both ? <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
         {pushButton("Push and open PR", true)}
         <span className="text-xs text-muted-foreground">or <button type="button" className={LINK} aria-disabled={!!busy || undefined} onClick={() => void push()}>Push only</button></span>
-      </div> : (!draftFailed || plan?.toPush) && pushButton("Push")}
+      </div> : (!draftFailed && !draft || plan?.toPush) && pushButton("Push")}
     </>}
     {said?.error && <p role="alert" className="flex gap-1.5 text-xs text-destructive-text"><Icon name="AlertCircle" className="mt-0.5 size-3.5 shrink-0" aria-hidden />{said.text}</p>}
     {said && !said.error && <p role="status" className="flex gap-1.5 text-xs text-muted-foreground"><Icon name="Info" className="mt-0.5 size-3.5 shrink-0" aria-hidden /><span><Marked text={said.text} /></span></p>}
