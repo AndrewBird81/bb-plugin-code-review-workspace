@@ -448,6 +448,21 @@ export async function becomePr(deps: Deps, key: string, pr: { repo: string; numb
       return null;
     }
   };
+  /** To your click, a PR closed or merged since: what waited on it goes, and, to Merge, its offer. Null while it's open. */
+  async function closedSince(found: PrSnapshot): Promise<"pr-closed" | "pr-merged" | null> {
+    if (found.pr.state === undefined || found.pr.state === "OPEN") return null;
+    const cleared = await store.exclusive(async (tx) => {
+      const review = await tx.getReview(key);
+      const waited = review?.prPending?.url.toLowerCase() === url.toLowerCase();
+      // Your Merge: its offer goes too, as it can't merge now.
+      const offered = clicked === "merge" && review?.prOffer?.key === prKey;
+      if (!waited && !offered) return false;
+      await tx.setLifecycle(key, { ...waited ? { prPending: null } : {}, ...offered ? { prOffer: null } : {} });
+      return true;
+    });
+    if (cleared) deps.changed(key);
+    return found.pr.state === "MERGED" ? "pr-merged" : "pr-closed";
+  }
   // Kept apart from the PR's review, or its merge offered, as Make it PR #n's review does: nothing to ask again.
   const asked = now.mergeDeclined === prKey || now.prOffer?.key === prKey;
   if (notOwn(other?.head)) return asked ? "skipped" : pending({ number: pr.number, url, why: "branch", head: other!.head!, at: Date.now() });
@@ -458,6 +473,13 @@ export async function becomePr(deps: Deps, key: string, pr: { repo: string; numb
     const found = await readPr();
     if (!found) return "skipped";
     if (notOwn(found.pr.headRefName)) return pending({ number: pr.number, url: found.pr.url, why: "branch", head: found.pr.headRefName, at: Date.now() });
+  }
+  // Make it PR #n's review on a PR closed or merged since says so, where it would offer a merge it can't make.
+  if (clicked === "pr" && other) {
+    const found = await readPr();
+    if (!found) return "skipped";
+    const gone = await closedSince(found);
+    if (gone) return gone;
   }
   if (other) {
     // Two folders on one branch: the PR's review that began as the other folder's stays, and this one goes into it.
@@ -470,25 +492,12 @@ export async function becomePr(deps: Deps, key: string, pr: { repo: string; numb
   if (now.kind !== "ref" || !clicked && waiting?.why === "older" || errorWaits()) return "skipped";
   const snapshot = await readPr();
   if (!snapshot) return "skipped";
-  if (snapshot.pr.state !== undefined && snapshot.pr.state !== "OPEN") {
-    if (!clicked) return "skipped";
-    const cleared = await store.exclusive(async (tx) => {
-      const review = await tx.getReview(key);
-      const waited = review?.prPending?.url.toLowerCase() === url.toLowerCase();
-      // Your Merge: its offer goes too, as it can't merge now.
-      const offered = clicked === "merge" && review?.prOffer?.key === prKey;
-      if (!waited && !offered) return false;
-      await tx.setLifecycle(key, { ...waited ? { prPending: null } : {}, ...offered ? { prOffer: null } : {} });
-      return true;
-    });
-    if (cleared) deps.changed(key);
-    return snapshot.pr.state === "MERGED" ? "pr-merged" : "pr-closed";
-  }
+  if (snapshot.pr.state !== undefined && snapshot.pr.state !== "OPEN") return clicked ? (await closedSince(snapshot))! : "skipped";
   // Your Merge, with a PR from another branch whose review no Make it PR #n's review offered: it waits for that click.
   if (clicked === "merge" && now.prOffer?.key !== prKey && !ownBranch(now.feature, snapshot.pr.headRefName)) {
     return pending({ number: pr.number, url: snapshot.pr.url, why: "branch", head: snapshot.pr.headRefName, at: Date.now() });
   }
-  if (notOwn(snapshot.pr.headRefName)) return pending({ number: pr.number, url: snapshot.pr.url, why: "branch", head: snapshot.pr.headRefName, at: Date.now() });
+  if (notOwn(snapshot.pr.headRefName)) return asked ? "skipped" : pending({ number: pr.number, url: snapshot.pr.url, why: "branch", head: snapshot.pr.headRefName, at: Date.now() });
   // A branch used again may have an open PR from before the review: it's this work's only when the folder has its head.
   const opened = Date.parse(snapshot.pr.createdAt ?? "");
   if (!clicked && opened < now.createdAt && !await folderHas(bb, now.feature.environmentId, snapshot.pr.headRefOid)) {

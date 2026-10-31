@@ -950,6 +950,25 @@ test("Make it PR #7's review of a PR closed or merged since Not this one says so
   }
 });
 
+test("Make it PR #7's review of a PR from another branch closed or merged since says so, where the PR's review has something of yours, and offers no merge", async () => {
+  for (const [state, said] of [["CLOSED", "closed"], ["MERGED", "merged"]]) {
+    const s = setup();
+    vi.mocked(runGh).mockImplementation(s.deps.gh.runGh as any);
+    await plugin(s.bb);
+    await run(s, "main");
+    await settled(s);
+    s.view.headRefName = "part1";
+    const prKey = targetKey({ kind: "pr", repo: "acme/api", number: 7 });
+    await s.store.saveReview({ targetKey: prKey, kind: "pr", repo: "acme/api", number: 7, url: "https://github.com/acme/api/pull/7", head: "part1", status: "ready", createdAt: 1 });
+    await s.store.upsertDraftComment(prKey, { file: "src/a.ts", line: 2, side: "RIGHT", body: "Theirs" });
+    expect(await becomePr(s.deps, key, { repo: "acme/api", number: 7 })).toBe("skipped");
+    s.view.state = state;
+    expect(await s.harness.behavior.callRpc("takePendingPr", { targetKey: key })).toEqual({ ok: false, error: `PR #7 is ${said}.` });
+    expect(await s.store.getReview(key)).toMatchObject({ kind: "ref", prPending: null });
+    expect((await s.store.getReview(key))?.prOffer ?? null).toBeNull();
+  }
+});
+
 test("Merge into one review with a PR closed or merged since says so, and its offer goes, from the notice and from Review actions after Keep both", async () => {
   for (const [state, said, kept] of [["CLOSED", "closed", false], ["MERGED", "merged", true]] as const) {
     const s = setup();
@@ -1139,6 +1158,10 @@ test("Make it PR #7's review of a PR from another branch: the review's next chec
     expect(await becomePr(s.deps, key, { repo: "acme/api", number: 7 })).toBe(head ? "skipped" : "offered");
     expect(await s.store.getReview(key)).toMatchObject({ kind: "ref", prOffer: { key: prKey }, prPending: null });
     expect(s.deps.changed).not.toHaveBeenCalled();
+    // Nothing of yours on the PR's review any more, as when its pin is taken off from the list: still not asked again.
+    await s.store.deleteDraftComment(prKey, { file: "src/a.ts", line: 2, side: "RIGHT" });
+    expect(await becomePr(s.deps, key, { repo: "acme/api", number: 7 })).toBe("skipped");
+    expect(await s.store.getReview(key)).toMatchObject({ kind: "ref", prOffer: { key: prKey }, prPending: null });
   }
 });
 
