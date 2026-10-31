@@ -26,7 +26,7 @@ const BUSY = new Set(["starting", "active", "stopping"]);
 /** A thread's title as BB's thread list shows it, or as it was read, where the list doesn't have it. */
 export function ThreadName({ threadId, title, wrap = false }: { threadId: string; title: string | null; wrap?: boolean }) {
   const listed = experimental_useSidebarThreads().threads.some((thread) => thread.id === threadId);
-  return <span className={cn("inline-block min-w-0 max-w-full align-bottom font-medium text-foreground", wrap ? "line-clamp-2 break-words" : "truncate")}>{listed ? <ThreadTitle threadId={threadId} /> : title ?? "the main thread"}</span>;
+  return <span className={cn("inline-block min-w-0 max-w-full align-bottom font-medium text-foreground", wrap ? "line-clamp-2 break-words" : "truncate")}>{listed ? <ThreadTitle threadId={threadId} /> : title ?? "Main thread"}</span>;
 }
 
 /**

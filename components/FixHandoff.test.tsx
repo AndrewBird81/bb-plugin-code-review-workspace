@@ -73,6 +73,13 @@ test("someone else's PR with no main thread doesn't offer it, and with no commen
 const local = { review: { targetKey: "k", kind: "ref", gitRef: "HEAD", sourceThreadId: "coder" }, isLocal: true };
 const open = (over: Record<string, unknown> = {}) => () => ({ thread: { threadId: "coder", title: "Retry uploads", state: "open", machine: "MaxBook", ...over } });
 
+test("a main thread with no title BB's list or the review knows is called Main thread", async () => {
+  const slot = await renderTray({ getSourceThread: open({ title: null }) }, local);
+  const region = within(await slot.findByRole("region", { name: "Send to the main thread" }));
+  expect(region.getByRole("button", { name: "Change main thread" }).closest("p")!.textContent).toBe("Main thread · MaxBook · Change main thread");
+  slot.lifecycle.unmount();
+});
+
 test("a review with a main thread leads with Send N to it, by its title and machine, and a Send that queues says the thread is busy", async () => {
   const getSourceThread = vi.fn(open());
   const sendToSourceThread = vi.fn(async () => ({ ok: true, delivery: "queued", title: "Retry uploads", threadId: "coder", sendN: 3 }));
