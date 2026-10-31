@@ -11,8 +11,13 @@ import { useKnob } from "./settings";
 export interface ReviewLinks {
   /** What a draft comment's status line says of its review (lib/comment-status.ts): with Send to thread off, no Sends. */
   status: StatusFacts;
-  /** A local review's checkout and the BB server's host, where its files open; null for a PR, a diff that doesn't end at the checkout, or with Open in editor off. */
-  editor: { hostId: string; root: string } | null;
+  /**
+   * Where the review's files open: a local review's checkout and the BB server's host; a folder's review's folder, on
+   * its machine, a PR's that came from it too, while it's there on its branch. Null for another PR, a diff that doesn't
+   * end at the checkout, or with Open in editor off. `unpushed`: on a PR, the files the folder has changed since the
+   * PR's head, whose lines aren't the PR's; null until read, when none's are.
+   */
+  editor: { hostId: string; root: string; unpushed?: readonly string[] | null } | null;
 }
 
 export const ReviewLinksContext = createContext<ReviewLinks>({ status: POSTS, editor: null });
@@ -27,13 +32,29 @@ export function diffEndsAtCheckout(gitRef: string | undefined): boolean {
   return !range || range[1] === "" || range[1] === "HEAD";
 }
 
-/** The review's links, as its switches allow. A local review's checkout is on the BB server, so its files open there. */
+/**
+ * The review's links, as its switches allow. A local review's checkout is on the BB server, so its files open there; a
+ * folder's review's open in its folder, on its machine.
+ */
 export function useReviewLinks(review: ReviewItem | null): ReviewLinks {
   const rpc = useRpc<typeof rpcContract>();
   const sendToThread = useKnob("sendToThread");
   const openInEditor = useKnob("openInEditor");
-  const root = openInEditor && review?.kind === "ref" && diffEndsAtCheckout(review.gitRef) ? review.cwd ?? null : null;
+  const feature = openInEditor && review?.feature && !review.feature.folderGone && !review.feature.pausedOn ? review.feature : null;
+  const root = openInEditor && review?.kind === "ref" && !review.feature && diffEndsAtCheckout(review.gitRef) ? review.cwd ?? null : null;
   const [hostId, setHostId] = useState<string | null>(null);
+  // On a PR, what its folder has that GitHub doesn't, as its notices read it (src/feature-review.ts checkFeature).
+  const folderPr = review?.kind === "pr" && feature ? review.targetKey : null;
+  const prHead = review?.headSha;
+  const [unpushed, setUnpushed] = useState<{ targetKey: string; paths: string[] | null } | null>(null);
+  useEffect(() => {
+    if (!folderPr) return;
+    let current = true;
+    rpc.call("checkFeature", { targetKey: folderPr }).then((check) => {
+      if (current) setUnpushed({ targetKey: folderPr, paths: check.state === "current" ? [] : check.state === "ahead" ? check.aheadPaths ?? null : null });
+    }, () => {});
+    return () => { current = false; };
+  }, [rpc, folderPr, prHead]);
   useEffect(() => {
     if (!root) return;
     let current = true;
@@ -47,14 +68,26 @@ export function useReviewLinks(review: ReviewItem | null): ReviewLinks {
   const posts = review?.kind === "pr";
   const own = review?.kind === "ref" || review?.ownPr === true || !!review?.feature;
   const status = useMemo(() => ({ posts, own, sends, sent, threadSends }), [posts, own, sends, sent, threadSends]);
-  return useMemo(() => ({ status, editor: root && hostId ? { hostId, root } : null }), [status, root, hostId]);
+  const featureHost = feature?.hostId;
+  const featureRoot = feature?.path;
+  const unpushedPaths = folderPr && unpushed?.targetKey === folderPr ? unpushed.paths : null;
+  return useMemo(() => ({
+    status,
+    editor: featureHost && featureRoot ? { hostId: featureHost, root: featureRoot, ...folderPr ? { unpushed: unpushedPaths } : {} } : root && hostId ? { hostId, root } : null,
+  }), [status, featureHost, featureRoot, folderPr, unpushedPaths, root, hostId]);
 }
 
 /** What a draft comment's status line says of its review: as the workspace provides it, or as before 1.8.0. */
 export const useStatusFacts = () => useContext(ReviewLinksContext).status;
 
-/** A local review's file on the BB server, for Open in editor; null where it can't open. */
-export function useEditorFile(file: string): { kind: "host"; hostId: string; path: string } | null {
+/**
+ * A review's file in its checkout or folder, for Open in editor, and whether its lines are the diff's there (`lines`):
+ * on a PR, only in a file the folder hasn't changed since the PR's head. Null where it can't open.
+ */
+export function useEditorFile(file: string): { target: { kind: "host"; hostId: string; path: string }; lines: boolean } | null {
   const { editor } = useContext(ReviewLinksContext);
-  return editor && { kind: "host", hostId: editor.hostId, path: `${editor.root.replace(/\/+$/, "")}/${file}` };
+  return editor && {
+    target: { kind: "host", hostId: editor.hostId, path: `${editor.root.replace(/\/+$/, "")}/${file}` },
+    lines: editor.unpushed === undefined || !!editor.unpushed && !editor.unpushed.includes(file),
+  };
 }

@@ -5,6 +5,7 @@ import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import { defaultPreferences } from "../src/preferences";
 import { getReviewState, patchReviewState } from "../lib/panel-state";
 import { defaultKnobs, type Knobs } from "../lib/knobs";
+import { panelTabCalls, renderPanelTab } from "./panel-tabs.test-support";
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }));
 vi.mock("@pierre/diffs/react", () => ({
@@ -147,7 +148,7 @@ async function renderChapter(knobs: Knobs = defaultKnobs, message = "Lower-case 
   const startConversation = vi.fn(() => ({ threadId: "t1" }));
   patchReviewState("pr-42", { activeId: "c1" });
   const app = await loadPluginApp(() => import("../app"));
-  const slot = renderSlot(app.navPanels[0]!, { subPath: "pr-42" }, { rpc: {
+  const rpc = {
     setReviewPresence: () => ({ ok: true }),
     getReviewBundle: () => ({ review: { targetKey: "pr-42", kind: "pr", status: "ready", createdAt: 1, title: "Parse rows", headSha: "new" }, guide: structuredClone(guide), patch, revision: "r1" }),
     getChecks: () => ({ bucket: "fail", checks: [] }),
@@ -161,9 +162,10 @@ async function renderChapter(knobs: Knobs = defaultKnobs, message = "Lower-case 
     markSeen: () => ({ ok: true }),
     getCheckFailures: () => ({ failures: [{ file: "src/a.ts", line: 2, check: "lint", title, message, url: "https://github.com/acme/web/runs/1" }] }),
     saveDraftComment, startConversation, askAgent,
-  } as any });
+  } as any;
+  const slot = renderSlot(app.navPanels[0]!, { subPath: "pr-42" }, { rpc });
   const failure = await slot.findByRole("note", { name: "CI failure on src/a.ts:2" });
-  return { slot, failure: within(failure), saveDraftComment, startConversation, askAgent };
+  return { app, rpc, slot, failure: within(failure), saveDraftComment, startConversation, askAgent };
 }
 
 test("a failure's Comment opens the comment box at its line, Blocking, with the failure quoted", async () => {
@@ -233,11 +235,15 @@ test("a failure's Comment quotes an image in its message as a link, so your comm
 }, 15_000);
 
 test("a failure's Ask agent puts it into the agent's box, fenced as CI output, unsent", async () => {
-  const { slot, failure, startConversation } = await renderChapter();
+  const { app, rpc, slot, failure, startConversation } = await renderChapter();
   fireEvent.click(failure.getByRole("button", { name: "Ask agent about the lint failure at src/a.ts:2" }));
-  const agent = within(await slot.findByRole("region", { name: "Review agent" }));
+  // It opens BB's side panel on the Review agent tab, which takes the ask.
+  expect(panelTabCalls(slot)).toEqual(["openTab:agent"]);
+  const tab = renderPanelTab(app, "agent", "pr-42", { rpc });
+  const agent = within(await tab.findByRole("region", { name: "Review agent" }));
   await waitFor(() => expect((agent.getByRole("textbox", { name: "Ask the agent" }) as HTMLTextAreaElement).value).toBe("In `src/a.ts` line 2, a check fails:\n```text\n<untrusted source=\"CI annotation\">\nlint · no-shout\nLower-case it.\nSee the style guide.\n</untrusted>\n```"));
   expect(startConversation).not.toHaveBeenCalled();
+  tab.lifecycle.unmount();
   slot.lifecycle.unmount();
 }, 15_000);
 

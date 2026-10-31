@@ -37,7 +37,7 @@ test("bb review approve says, a line each, what it lined up and what it couldn't
     "web#2 (pr-2): it's the reviewer's own PR, and GitHub allows only a Comment review on it.",
     "web#3 (pr-3): the PR is merged, so there's nothing to approve.",
     "repo:x (ref-1): a local review has nothing to approve on GitHub.",
-    "pr-404: no saved review. Pass the PR's URL or the review's key.",
+    "pr-404: no saved review. Pass its id, the PR's URL or the review's key.",
   ].join("\n") });
   expect((await store.getReview("pr-1"))?.readyToApprove).toMatchObject({ action: "approve", verdict: "APPROVE", body: "", headSha: "sha1", from: "thr_orchestrator" });
   expect(await cli("approve")).toMatchObject({ exitCode: 2, stderr: expect.stringContaining("usage: bb review approve") });
@@ -57,7 +57,7 @@ test("bb review ask relays the message to the review's agent, marked as from the
     MARK_PART,
   ]);
   expect(await cli("ask", "pr-1")).toMatchObject({ exitCode: 2, stderr: expect.stringContaining("usage: bb review ask") });
-  expect(await cli("ask", "pr-9", "hi")).toMatchObject({ exitCode: 1, stderr: "No saved review for pr-9. Pass the PR's URL or the review's key." });
+  expect(await cli("ask", "pr-9", "hi")).toMatchObject({ exitCode: 1, stderr: "No saved review for pr-9. Pass its id, the PR's URL or the review's key." });
 });
 
 test("from a thread a review's agent started, or one whose start bb can't say, nothing is lined up or relayed", async () => {

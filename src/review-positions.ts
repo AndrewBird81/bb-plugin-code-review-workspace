@@ -1,5 +1,5 @@
 import { patchRows, splitPatchByFile } from "./patch";
-import type { DraftComment } from "./draft";
+import { diffSide, isLocal, type DraftComment } from "./draft";
 
 export interface FilePositions {
   /** New-file lines a RIGHT-side comment may target (added + context), by number, with their text. */
@@ -41,14 +41,14 @@ export function invalidComments(patch: string | Map<string, FilePositions>, comm
   return comments.filter((c) => {
     const p = pos.get(c.file);
     if (!p) return true; // file isn't in the diff at all
-    const shown = (side: "LEFT" | "RIGHT", line: number) => (side === "RIGHT" ? p.right : p.left).has(line);
+    const shown = (side: DraftComment["side"], line: number) => (diffSide(side) === "RIGHT" ? p.right : p.left).has(line);
     if (!shown(c.side, c.line)) return true;
     if (c.startLine === undefined) return false;
     return typeof patch === "string" ? rangeProblem(patch, c) !== null : !shown(c.startSide ?? c.side, c.startLine);
   });
 }
 
-type End = { line: number; side: "LEFT" | "RIGHT" };
+type End = Pick<DraftComment, "line" | "side">;
 export type Place = { hunk: number; row: number };
 
 /** Where each line a comment may target sits in a file's diff: its hunk, and its row; a context line is on both sides. */
@@ -71,8 +71,8 @@ export function places(patch: string, file: string): Map<string, Place> {
 export function rangeProblem(patch: string, c: Pick<DraftComment, "file" | "line" | "side" | "startLine" | "startSide">): string | null {
   if (c.startLine === undefined) return null;
   const map = places(patch, c.file);
-  const start = map.get(`${c.startSide ?? c.side}:${c.startLine}`);
-  const end = map.get(`${c.side}:${c.line}`);
+  const start = map.get(`${diffSide(c.startSide ?? c.side)}:${c.startLine}`);
+  const end = map.get(`${diffSide(c.side)}:${c.line}`);
   if (!start) return `${c.file}:${c.startLine} isn’t in the current diff.`;
   if (!end) return `${c.file}:${c.line} isn’t in the current diff.`;
   if (start.hunk !== end.hunk) return `Lines ${c.startLine} and ${c.line} of ${c.file} are in different hunks of the diff. GitHub takes a range within one hunk.`;
@@ -84,7 +84,8 @@ export function rangeProblem(patch: string, c: Pick<DraftComment, "file" | "line
 /** A selection's two ends, first line first, as the diff shows them; ends it doesn't show keep their order. */
 export function orderRange(patch: string, file: string, a: End, b: End): [End, End] {
   const map = places(patch, file);
-  const [pa, pb] = [map.get(`${a.side}:${a.line}`), map.get(`${b.side}:${b.line}`)];
+  // A LOCAL line is Not pushed yet's, not this diff's: its lines are in order by number.
+  const [pa, pb] = isLocal(a) || isLocal(b) ? [] : [map.get(`${a.side}:${a.line}`), map.get(`${b.side}:${b.line}`)];
   const after = pa && pb ? pa.row > pb.row : a.side === b.side && a.line > b.line;
   return after ? [b, a] : [a, b];
 }

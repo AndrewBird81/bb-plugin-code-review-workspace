@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 // BB's thread pages: Review changes above a thread's message box, shown only for a folder with changes or a review
 // while Settings has it on, reading BB's git status of the folder and never its diff; and the Review tab, only beside a
-// thread linked to a review, with its id and name, its comments and where each stands, the agent's chat and Open review.
+// thread linked to a review, with its id and name, its comments and where each stands, the agent's chat and Review ↗.
 import { afterEach, expect, test, vi } from "vitest";
 import { act, cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
@@ -9,7 +9,6 @@ import type { PluginAppDefinition } from "@get-bb/plugin-sdk/app";
 import { toast } from "sonner";
 import appModule from "../app";
 import { defaultPreferences } from "../src/preferences";
-import { getReviewState } from "../lib/panel-state";
 import { ReviewChangesSegment, ReviewTab, useReviewChangesVisible, useReviewTabVisible } from "./ThreadSurfaces";
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() }, Toaster: () => null }));
@@ -56,17 +55,37 @@ test("a host without the thread slots loads the plugin as before, with each slot
   })) }) as unknown as PluginAppDefinition;
   const all = await loadPluginApp(definition);
   expect(all.threadContextSegments.map((segment) => [segment.id, segment.group, segment.order])).toEqual([["review-changes", "3_git", 20]]);
-  expect(all.tabs.map((tab) => [tab.id, tab.context, tab.availability])).toEqual([["review", { kind: "thread" }, "fixed"]]);
+  // The review page's Review agent and Main thread, then a thread's Review tab.
+  const page = { kind: "nav-panel", panelId: "review" };
+  expect(all.tabs.map((tab) => [tab.id, tab.context, tab.availability])).toEqual([["agent", page, "fixed"], ["main", page, "fixed"], ["review", { kind: "thread" }, "fixed"]]);
   for (const slot of ["experimental_threadContextSegment", "experimental_tab"]) {
     const loaded = await loadPluginApp(without(slot));
     expect(loaded.navPanels.map((panel) => panel.id)).toEqual(["review"]);
     expect(loaded.threadContextSegments).toHaveLength(slot === "experimental_threadContextSegment" ? 0 : 1);
-    expect(loaded.tabs).toHaveLength(slot === "experimental_tab" ? 0 : 1);
+    expect(loaded.tabs).toHaveLength(slot === "experimental_tab" ? 0 : 3);
   }
   const neither = { __bbPluginApp: true, setup: (app: { slots: object }) => definition.setup(new Proxy(app, {
     get: (target, name) => name === "slots" ? new Proxy(target.slots, { get: (slots, member) => member === "experimental_tab" || member === "experimental_threadContextSegment" ? undefined : Reflect.get(slots, member) }) : Reflect.get(target, name),
   })) } as unknown as PluginAppDefinition;
   expect((await loadPluginApp(neither)).navPanels).toHaveLength(1);
+});
+
+test("a host that refuses a navigation page's tabs, as a client from before them may, still loads the plugin, with the thread's Review tab", async () => {
+  const definition = appModule as unknown as PluginAppDefinition & { setup(app: unknown): void };
+  const refusing = { __bbPluginApp: true, setup: (app: { slots: Record<string, unknown> }) => definition.setup(new Proxy(app, {
+    get: (target, name) => name !== "slots" ? Reflect.get(target, name) : new Proxy(target.slots, { get: (slots, member) => member !== "experimental_tab" ? Reflect.get(slots, member)
+      : (registration: { context: { kind: string } }) => {
+        if (registration.context.kind === "nav-panel") throw new Error("Unknown tab context: nav-panel");
+        return (Reflect.get(slots, member) as (input: unknown) => void)(registration);
+      } }),
+  })) } as unknown as PluginAppDefinition;
+  const loaded = await loadPluginApp(refusing);
+  expect(loaded.navPanels.map((panel) => panel.id)).toEqual(["review"]);
+  expect(loaded.tabs.map((tab) => tab.id)).toEqual(["review"]);
+  // The review then opens the agent's and the main thread's chats as threads (components/no-panel-hooks.test.tsx).
+  const { useAppPanel } = await import("../lib/app-panel");
+  const probe = renderSlot({ component: () => <p>{useAppPanel() === null ? "no panel" : "panel"}</p> }, {}, {});
+  expect(probe.container.textContent).toBe("no panel");
 });
 
 test("Review changes shows only for a folder with changes or a review, while Settings has it on", async () => {
@@ -86,10 +105,13 @@ test("Review changes shows only for a folder with changes or a review, while Set
   // A folder with changes.
   expect((await probe("t-changes", { id: "env-changes" }, { folders: { "env-changes": { files: 2 } } })).getByText(/segment:shown/)).toBeTruthy();
   cleanup();
-  // A clean folder with a review at its branch; not one at another branch.
+  // A clean folder with a review at its branch; at another branch too, as the thread's Review tab shows it: one way back.
   expect((await probe("t-review", { id: "env-review" }, { folders: { "env-review": { files: 0 } }, links: [folderReview("env-review")] })).getByText(/segment:shown/)).toBeTruthy();
   cleanup();
-  expect((await probe("t-review2", { id: "env-review2" }, { folders: { "env-review2": { files: 0, branch: "main" } }, links: [folderReview("env-review2")] })).getByText(/segment:hidden/)).toBeTruthy();
+  expect((await probe("t-review2", { id: "env-review2" }, { folders: { "env-review2": { files: 0, branch: "main" } }, links: [folderReview("env-review2")] })).getByText("segment:shown tab:shown")).toBeTruthy();
+  cleanup();
+  // A main thread with no folder, as a PR's fixer in a worktree BB removed: its review, as its tab has it.
+  expect((await probe("t-main", null, { links: [{ targetKey: "pr-main", createdAt: 1, main: "t-main", threads: ["t-main"], folder: null }] })).getByText("segment:shown tab:shown")).toBeTruthy();
   cleanup();
   // Git can't say (not a git folder, or its plugin off): a review the folder was last seen on its branch for still shows.
   expect((await probe("t-nogit", { id: "env-nogit" }, { folders: { "env-nogit": "not_applicable" }, links: [folderReview("env-nogit")] })).getByText(/segment:shown/)).toBeTruthy();
@@ -118,7 +140,7 @@ test("across many threads, Review changes reads BB's git status of each folder a
   expect(slot.rpcCalls.filter((call) => call.method === "threadLinks").length).toBeLessThanOrEqual(2);
 });
 
-test("Review changes starts the folder's review and opens it; with one, it reads Review · 2 open and does the same, opening it as it is", async () => {
+test("Review changes starts the folder's review and opens it; with one, it reads Review · 2 open ↗ and goes straight to it", async () => {
   const reviewThreadChanges = vi.fn(() => ({ ok: true, targetKey: "br-new" }));
   const props = { threadId: "t-start", projectId: "p1", environment: { id: "env-start" }, segments: [], isExpanded: false, onToggle: () => {} };
   const start = renderSlot({ component: ReviewChangesSegment }, props, { rpc: handlers({ folders: { "env-start": { files: 2 } }, rpc: { reviewThreadChanges } }) });
@@ -135,24 +157,38 @@ test("Review changes starts the folder's review and opens it; with one, it reads
   expect(failing.navigateCalls).toEqual([]);
   cleanup();
 
-  // With a review, it asks the server too, as bb review does there: a live thread takes over from an archived main thread.
-  const opening = vi.fn(() => ({ ok: true, targetKey: "br-env-open" }));
+  // With a review, it goes to it, the one the thread's Review tab shows, asking the server nothing.
+  const opening = vi.fn(() => ({ ok: true, targetKey: "br-elsewhere" }));
   const existing = renderSlot({ component: ReviewChangesSegment }, { ...props, threadId: "t-open", environment: { id: "env-open" } }, { rpc: handlers({ folders: { "env-open": { files: 0 } }, links: [folderReview("env-open")], rpc: { reviewThreadChanges: opening } }) });
   const open = await existing.findByRole("button", { name: "Review, 2 comments open" });
-  expect([open.textContent, open.title]).toEqual(["Review · 2 open", "Open this folder’s review"]);
+  expect([open.textContent, open.title]).toEqual(["Review · 2 open", "Go to this review"]);
+  // It goes to the review, as Main thread ↗ on the review's page comes back.
+  expect(open.querySelector("[data-icon=ArrowUpRight]")).toBeTruthy();
   fireEvent.click(open);
   await waitFor(() => expect(existing.navigateCalls).toEqual([{ method: "toPluginPanel", path: "review", options: { subPath: "br-env-open" } }]));
-  expect(opening).toHaveBeenCalledWith({ threadId: "t-open" });
+  expect(opening).not.toHaveBeenCalled();
   cleanup();
 
-  // Nothing open reads "Review"; and when the server can't open it as bb review would, as with its machine offline, it
-  // still opens as it is.
+  // Nothing open reads "Review"; with its machine offline, it goes there all the same.
   const offline = renderSlot({ component: ReviewChangesSegment }, { ...props, threadId: "t-off", environment: { id: "env-offline" } }, { rpc: handlers({ open: 0, folders: { "env-offline": { files: 0 } }, links: [folderReview("env-offline")], rpc: { reviewThreadChanges: () => ({ ok: false, error: "This thread’s folder isn’t ready yet." }) } }) });
   const plain = await offline.findByRole("button", { name: "Review, no comments open" });
   expect(plain.textContent).toBe("Review");
   fireEvent.click(plain);
   await waitFor(() => expect(offline.navigateCalls).toEqual([{ method: "toPluginPanel", path: "review", options: { subPath: "br-env-offline" } }]));
   expect(toast.error).toHaveBeenCalledTimes(1);
+});
+
+test("the line above the message box and the Review tab go to the same review, the one the thread is the main thread of", async () => {
+  // The thread leads one review, and its folder, at its branch, has another.
+  const links: Link[] = [{ targetKey: "br-led", createdAt: 1, main: "lead", threads: ["lead"], folder: null }, folderReview("env-both")];
+  const props = { threadId: "lead", projectId: "p1", environment: { id: "env-both" }, segments: [], isExpanded: false, onToggle: () => {} };
+  const segment = renderSlot({ component: ReviewChangesSegment }, props, { rpc: handlers({ folders: { "env-both": { files: 1 } }, links }) });
+  fireEvent.click(await segment.findByRole("button", { name: /^Review, / }));
+  expect(segment.navigateCalls).toEqual([{ method: "toPluginPanel", path: "review", options: { subPath: "br-led" } }]);
+  cleanup();
+  const tab = renderSlot({ component: ReviewTab }, { threadId: "lead", environment: { id: "env-both" } }, { rpc: handlers({ links, rpc: { getDraft: () => draft, getConversation: () => ({ threadId: "agent-1", legacy: [], defaults: null, machine: null }) } }) });
+  fireEvent.click(await tab.findByRole("button", { name: "Go to review" }));
+  expect(tab.navigateCalls).toEqual([{ method: "toPluginPanel", path: "review", options: { subPath: "br-led" } }]);
 });
 
 test("the Review tab shows only beside a thread linked to a review: its main thread, a fixer it sent to, a thread in its folder", async () => {
@@ -198,27 +234,45 @@ test("the Review tab names the review, lists its comments with where each stands
   expect(within(comments).getByRole("button", { name: /Resolved · src\/b\.ts:2/ })).toBeTruthy();
   const chat = within(slot.getByRole("region", { name: "Review agent" })).getByTestId("bb-thread-chat");
   expect([chat.dataset.threadId, chat.dataset.variant, chat.dataset.layout]).toEqual(["agent-1", "compact", "contained"]);
-  // A comment's row, and Open review, open the review.
+  // A comment's row, and Review ↗, open the review.
   fireEvent.click(within(comments).getByRole("button", { name: /Done · Logged it/ }));
-  fireEvent.click(within(pane).getByRole("button", { name: "Open review" }));
+  fireEvent.click(within(pane).getByRole("button", { name: "Go to review" }));
   expect(slot.navigateCalls).toEqual([
     { method: "toPluginPanel", path: "review", options: { subPath: "br-tab" } },
     { method: "toPluginPanel", path: "review", options: { subPath: "br-tab" } },
   ]);
 });
 
-test("before the review agent has started, the tab offers to ask it, in the review, starting none here; with no comments yet, says how to add one", async () => {
-  localStorage.clear();
+test("before the review agent has started, its first message starts it in the tab, on the agent you choose, and you stay on the thread", async () => {
+  const startConversation = vi.fn(() => ({ threadId: "agent-new" }));
   const slot = renderSlot({ component: ReviewTab }, { threadId: "lead", environment: { id: "env-tab" } }, { rpc: handlers({ links: tabLinks, rpc: {
-    getDraft: () => ({ draft: { ...draft.draft, comments: [] }, stale: [] }), getConversation: () => ({ threadId: null, legacy: [], defaults: null, machine: null }),
+    getDraft: () => ({ draft: { ...draft.draft, comments: [] }, stale: [] }),
+    getConversation: () => ({ threadId: null, legacy: [], defaults: { providerId: "codex", model: "gpt-6", reasoningLevel: "medium" }, machine: null }),
+    startConversation,
   } }) });
-  expect(await slot.findByText("No questions yet.")).toBeTruthy();
   expect(await slot.findByText("No comments yet. Open the review to read the code and comment.")).toBeTruthy();
-  expect(slot.queryByTestId("bb-thread-chat")).toBeNull();
-  fireEvent.click(slot.getByRole("button", { name: "Ask the review agent" }));
-  expect(slot.navigateCalls).toEqual([{ method: "toPluginPanel", path: "review", options: { subPath: "br-tab" } }]);
-  expect(getReviewState("br-tab").panel).toBe("agent");
-  expect(slot.rpcCalls.map((call) => call.method).filter((method) => /startConversation|askAgent|newConversation/.test(method))).toEqual([]);
+  const agent = within(slot.getByRole("region", { name: "Review agent" }));
+  expect(await agent.findByText("No questions yet. Ask about this change; your conversation stays with this review.")).toBeTruthy();
+  fireEvent.change(agent.getByRole("textbox", { name: "Ask the agent" }), { target: { value: "Is the snooze safe?" } });
+  fireEvent.click(agent.getByRole("button", { name: "Send" }));
+  await waitFor(() => expect(startConversation).toHaveBeenCalledWith(expect.objectContaining({ targetKey: "br-tab", text: "Is the snooze safe?", typed: "Is the snooze safe?" })));
+  expect(await agent.findByTestId("bb-thread-chat")).toBeTruthy();
+  expect(slot.navigateCalls).toEqual([]);
+});
+
+test("on a thread's page the agent's first message takes no focus from the thread's own box; a chat deleted while it shows says so", async () => {
+  let threadId: string | null = "agent-1";
+  const slot = renderSlot({ component: ReviewTab }, { threadId: "lead", environment: { id: "env-tab" } }, { rpc: handlers({ links: tabLinks, rpc: {
+    getDraft: () => draft, getConversation: () => ({ threadId, legacy: [], defaults: { providerId: "codex", model: "gpt-6", reasoningLevel: "medium" }, machine: null }),
+  } }) });
+  await slot.findByTestId("bb-thread-chat");
+  threadId = null;
+  await slot.emitRealtime("conversation:br-tab", { deleted: "agent-1" });
+  const agent = within(slot.getByRole("region", { name: "Review agent" }));
+  expect(await agent.findByText("This review’s agent chat was deleted.")).toBeTruthy();
+  const box = await agent.findByRole("textbox", { name: "Ask the agent" });
+  await new Promise((resolve) => requestAnimationFrame(resolve));
+  expect(document.activeElement).not.toBe(box);
 });
 
 test("when the review agent's chat can't be read, the tab says so, with Try again", async () => {

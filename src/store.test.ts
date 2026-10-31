@@ -1,6 +1,6 @@
 import { test, expect, vi } from "vitest";
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
-import { createStore, reanchorDraft, storeOn } from "./store";
+import { createStore, placeOn, reanchorDraft, storeOn } from "./store";
 import type { Sql } from "./db/sql";
 import { renamedPaths } from "./patch";
 import { askAt, setAsk } from "./asks";
@@ -143,6 +143,34 @@ test("draft comments upsert and delete", async () => {
   d = (await s.deleteDraftComment("pr-1", { file: "a.ts", line: 1, side: "RIGHT" }))!;
   expect(d.comments.map((c) => c.body)).toEqual(["reworded"]);
   expect(await s.deleteDraftComment("pr-1", { file: "a.ts", line: 1, side: "RIGHT" })).toBeNull();
+});
+
+test("a LOCAL comment is on Not pushed yet's diff: its code from there, never stale or moved with the review's diff, and pushed it becomes a RIGHT comment with its id, state, Send and report", async () => {
+  const s = store();
+  const head = (body: string) => `diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n${body}`;
+  await s.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, status: "ready", createdAt: 1 });
+  await s.savePatch("pr-1", head("@@ -1,2 +1,2 @@\n one\n-two\n+TWO\n"));
+  await s.saveSnapshot("pr-1", "not-pushed", head("@@ -1,2 +1,3 @@\n one\n TWO\n+three\n"));
+  await s.upsertDraftComment("pr-1", { file: "a.ts", line: 3, side: "LOCAL", body: "Not pushed" });
+  await s.upsertDraftComment("pr-1", { file: "a.ts", line: 2, side: "RIGHT", body: "On GitHub" });
+  const local = { file: "a.ts", line: 3, side: "LOCAL" } as const;
+  expect(await s.draftCommentCode("pr-1", local)).toBe("three");
+  expect(await s.staleDraftComments("pr-1")).toEqual([]);
+  await s.trackComments("pr-1", [{ at: local, id: "c1", state: "sent", sendN: 1, claim: { outcome: "done", threadId: "t", at: 1 } }]);
+  const pushed = head("@@ -1,2 +1,3 @@\n one\n-two\n+TWO\n+three\n");
+  const moved = await reanchorDraft(s, "pr-1", await s.patch("pr-1"), pushed);
+  expect(moved).toEqual([{ at: expect.objectContaining({ side: "RIGHT" }), line: 2 }]);
+  await s.savePatch("pr-1", pushed);
+  const { comments } = await s.getDraft("pr-1");
+  const placed = await placeOn(s, "pr-1", comments.filter((c) => c.side === "LOCAL"), (await s.getSnapshot("pr-1", "not-pushed"))!, pushed, "RIGHT");
+  expect(placed).toEqual([{ at: expect.objectContaining(local), line: 3, side: "RIGHT" }]);
+  await s.rebaseDraftComments("pr-1", [...moved, ...placed]);
+  expect((await s.getDraft("pr-1")).comments).toEqual([
+    { file: "a.ts", line: 3, side: "RIGHT", body: "Not pushed", id: "c1", state: "sent", sendN: 1, claim: { outcome: "done", threadId: "t", at: 1 } },
+    { file: "a.ts", line: 2, side: "RIGHT", body: "On GitHub" },
+  ]);
+  expect(await s.draftCommentCode("pr-1", { file: "a.ts", line: 3, side: "RIGHT" })).toBe("three");
+  expect(await s.staleDraftComments("pr-1")).toEqual([]);
 });
 
 test("the summary keeps who wrote it and the verdicts around it, and a change clears the fields it leaves undefined", async () => {

@@ -8,6 +8,7 @@ import { defaultPreferences } from "../src/preferences";
 import { defaultKnobs } from "../lib/knobs";
 import { commentsKey } from "../src/draft";
 import { patchReviewState } from "../lib/panel-state";
+import { panelTabCalls } from "./panel-tabs.test-support";
 import type { FeedbackView } from "../lib/feedback";
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }));
@@ -72,10 +73,11 @@ async function renderWorkspace({ review = {}, rpc = {} }: { review?: Record<stri
     Object.assign(sent, { submittedVerdict: input.verdict, submittedAt: Date.now() });
     return result;
   }) as unknown as typeof handlers.submitReview;
-  const slot = renderSlot(app.navPanels[0]!, { subPath: "pr-42" }, { rpc: handlers as any });
+  // BB's panel takes the tabs the page opens.
+  const slot = renderSlot(app.navPanels[0]!, { subPath: "pr-42" }, { rpc: handlers as any, experimental_panel: { openTab: () => true } });
   await slot.findByRole("main", { name: /^Review\b/ });
   await slot.findByTestId("filediff");
-  return { slot, rpc: handlers };
+  return { app, slot, rpc: handlers };
 }
 type Slot = Awaited<ReturnType<typeof renderWorkspace>>["slot"];
 /** Finish review, with s. */
@@ -506,6 +508,14 @@ test("a local review hands its comments to a new thread instead of Submit", asyn
   slot.lifecycle.unmount();
 });
 
+test("a folder's review in a GitHub repo says nothing goes to GitHub yet, and that it becomes the PR's once it has one", async () => {
+  const { slot } = await renderWorkspace({ review: folderReview, rpc: { checkFeature: () => ({ state: "current", alsoActive: [], hidden: [], flagged: [] }) } });
+  const view = await finish(slot);
+  expect(view.getByText("Nothing goes to GitHub yet. Once it has a PR, this review becomes the PR’s.")).toBeTruthy();
+  expect(view.queryByText(/stay in this BB installation/)).toBeNull();
+  slot.lifecycle.unmount();
+});
+
 test("a local review's private notes stay in BB under the one heading, with the rest that stays", async () => {
   const { slot } = await renderWorkspace({ review: { kind: "ref", gitRef: "main...x" }, rpc: { getReviewerNotes: () => ({ body: "Check the TTL.", revision: 1 }) } });
   const view = await finish(slot);
@@ -538,6 +548,21 @@ test("on your own PR, Finish counts only the comments that post: one sent to fix
   expect((rpc.submitReview as any).mock.calls[0][0].comments).toHaveLength(2);
   expect(await view.findByText("1 comment")).toBeTruthy();
   slot.lifecycle.unmount();
+});
+
+test("comments not on GitHub yet are said in Finish to go with Send, not Submit, and aren't counted as posting or sent to fix", async () => {
+  const local = (line: number) => ({ file: "src/a.ts", line, side: "LOCAL", body: "Only in the folder." });
+  for (const [draft, said] of [
+    [[...comments, local(3), local(4)], "2 comments aren’t on GitHub yet. They go with Send, not Submit."],
+    [[comments[0], local(3)], "1 comment isn’t on GitHub yet. It goes with Send, not Submit."],
+  ] as const) {
+    const { slot } = await renderWorkspace({ review: { ownPr: true, feature: folderReview.feature }, rpc: { getDraft: vi.fn(() => ({ draft: draftOf({ comments: structuredClone(draft) }), stale: [] })) } });
+    const view = await finish(slot);
+    expect(view.getByText(said)).toBeTruthy();
+    expect(view.queryByText(/sent to fix won’t post/)).toBeNull();
+    slot.lifecycle.unmount();
+    cleanup();
+  }
 });
 
 test("a closed PR keeps its unsubmitted draft to read, with nothing to submit", async () => {
@@ -748,7 +773,8 @@ test("a local review of a branch in a GitHub repo offers Open PR, which asks the
   expect(view.getByText(/shows you its title and description before it opens/).textContent).toBe("The review agent drafts a PR from feat/qa in acme/web, and shows you its title and description before it opens.");
   fireEvent.click(view.getByRole("button", { name: "Open PR" }));
   await waitFor(() => expect(openPr).toHaveBeenCalledWith({ targetKey: "pr-42" }));
-  expect(await slot.findByRole("region", { name: "Review agent" })).toBeTruthy();
+  // Its chat, in BB's side panel.
+  await waitFor(() => expect(panelTabCalls(slot)).toEqual(["openTab:agent"]));
   slot.lifecycle.unmount();
 });
 
@@ -798,18 +824,22 @@ test("no Open PR on a ref's review, a folder with no GitHub repo, or with the re
   }
 });
 
-test("a local review that becomes its PR's while open says so in a notice, as its id changes", async () => {
+test("a local review that becomes its PR's while open says so in the notice it stores, as its id changes, not one of the page's own", async () => {
   let review: Record<string, unknown> = folderReview;
-  const { slot } = await renderWorkspace({ rpc: { getReviewBundle: () => ({ review: { targetKey: "pr-42", status: "ready", createdAt: 1, title: "Parse rows", ...review }, guide: structuredClone(guide), patch, revision: "r1" }) } });
-  const text = "This review is now web#7, the PR’s. It was web:feat/qa; your comments came with it.";
-  expect(slot.queryByText(text)).toBeNull();
-  review = { kind: "pr", repo: "acme/web", number: 7, url: "https://github.com/acme/web/pull/7", headSha: "c0ffee", feature: folderReview.feature };
+  const dismissBecame = vi.fn(() => ({ ok: true }));
+  const { slot } = await renderWorkspace({ rpc: { dismissBecame, getReviewBundle: () => ({ review: { targetKey: "pr-42", status: "ready", createdAt: 1, title: "Parse rows", ...review }, guide: structuredClone(guide), patch, revision: "r1" }) } });
+  const converted = { kind: "pr", repo: "acme/web", number: 7, url: "https://github.com/acme/web/pull/7", headSha: "c0ffee", feature: folderReview.feature };
+  review = converted;
   await slot.emitRealtime("review:pr-42", {});
-  // A notice in the page's flow, covering nothing, until Got it.
-  const notice = (await slot.findByText(text)).closest("[role=status]")!;
-  expect(notice).toBeTruthy();
-  fireEvent.click(within(notice as HTMLElement).getByRole("button", { name: "Got it" }));
-  await waitFor(() => expect(slot.queryByText(text)).toBeNull());
+  await slot.findByText("web#7");
+  expect(slot.queryByText(/This review is now/)).toBeNull();
+  // Its stored notice, until Got it, which the server clears.
+  review = { ...converted, became: { at: 1, number: 7, url: "https://github.com/acme/web/pull/7", from: "web:feat/qa", carried: 2, local: 0, outside: 0 } };
+  await slot.emitRealtime("review:pr-42", {});
+  const notice = await slot.findByRole("status", { name: "Now a PR" });
+  expect(notice.textContent).toContain("Now PR #7’s review, web#7, with 2 comments carried over. It was web:feat/qa, which still opens it.");
+  fireEvent.click(within(notice).getByRole("button", { name: "Got it" }));
+  await waitFor(() => expect(dismissBecame).toHaveBeenCalledWith({ targetKey: "pr-42" }));
   slot.lifecycle.unmount();
 });
 
@@ -822,9 +852,9 @@ async function renderPush(push: Record<string, unknown> | null, rpc: Record<stri
     updateFeature: vi.fn(() => ({ ok: true })),
     ...rpc,
   };
-  const { slot } = await renderWorkspace({ rpc: { ...calls, getReviewBundle: () => ({ review: { targetKey: "pr-42", status: "ready", createdAt: 1, title: "Parse rows", ...review, push: state.push }, guide: structuredClone(guide), patch, revision: "r1" }) } });
+  const { app, slot, rpc: handlers } = await renderWorkspace({ rpc: { ...calls, getReviewBundle: () => ({ review: { targetKey: "pr-42", status: "ready", createdAt: 1, title: "Parse rows", ...review, push: state.push }, guide: structuredClone(guide), patch, revision: "r1" }) } });
   const view = await finish(slot);
-  return { slot, view, state, calls, part: () => view.getByRole("heading", { name: "Push" }).closest("section")! as HTMLElement };
+  return { app, handlers, slot, view, state, calls, part: () => view.getByRole("heading", { name: "Push" }).closest("section")! as HTMLElement };
 }
 const HEAD = "abc1234def5678abc1234def5678abc1234def56";
 
@@ -890,9 +920,9 @@ test("pushed says so; GitHub not at the commit, or a push no one asked for, is f
   // A status in Finish: the strip's notice is the alert, so it's said once.
   expect(within(differs.part()).getByRole("status").textContent).toContain(text);
   expect(within(differs.part()).queryByRole("alert")).toBeNull();
-  for (const name of ["Push again", "Open main thread", "Got it"]) expect(within(differs.part()).getByRole("button", { name })).toBeTruthy();
+  for (const name of ["Push again", "Main thread", "Got it"]) expect(within(differs.part()).getByRole("button", { name })).toBeTruthy();
   const warned = differs.slot.getByRole("alert", { name: "Push not on GitHub" });
-  for (const name of ["Push again", "Open main thread", "Got it"]) expect(within(warned).getByRole("button", { name })).toBeTruthy();
+  for (const name of ["Push again", "Main thread", "Got it"]) expect(within(warned).getByRole("button", { name })).toBeTruthy();
   differs.slot.lifecycle.unmount();
   cleanup();
 
@@ -960,10 +990,164 @@ test("a commit the check couldn't place offers no Push anyway; GitHub ahead of t
   behind.slot.lifecycle.unmount();
 });
 
+const COMPARE = "https://github.com/acme/web/compare/main...feat/qa?expand=1";
+const plan = (over: Record<string, unknown> = {}) => ({ pushPlan: vi.fn(() => ({ openable: true, onGithub: false, pr: false, compare: COMPARE, ...over })) });
+
+/** A draft with no comments left to send. */
+const sent = { getDraft: () => ({ draft: draftOf({ comments: [] }), stale: [] }) };
+
+test("a local review's branch with no PR offers Push and open PR, with Push only; the separate Open PR stays only for a branch on GitHub; a PR has Push", async () => {
+  const { slot, view, calls, part } = await renderPush(null, { ...plan(), ...sent });
+  await within(part()).findByRole("button", { name: "Push and open PR" });
+  // The line above it says what Push and open PR does with the PR: the agent drafts it, and you post it.
+  expect(within(part()).getByText(/the review checks it/).textContent).toBe("The main thread commits what you reviewed, the review checks it, then it’s pushed to feat/qa, and the review agent drafts the PR for you to post. Never forced.");
+  const buttons = within(part()).getAllByRole("button");
+  expect(buttons.map((b) => b.textContent)).toEqual(["Push and open PR", "Push only"]);
+  // The primary button, and a quiet link beside it, underlined as Finish's links are.
+  expect(buttons[0]!.className).not.toContain("border");
+  expect(buttons[1]!.className.split(" ")).toContain("underline");
+  expect(view.queryByRole("heading", { name: "Open a PR" })).toBeNull();
+  fireEvent.click(buttons[0]!);
+  await waitFor(() => expect(calls.push).toHaveBeenCalledWith({ targetKey: "pr-42", thenOpenPr: true }));
+  fireEvent.click(within(part()).getByRole("button", { name: "Push only" }));
+  await waitFor(() => expect(calls.push).toHaveBeenLastCalledWith({ targetKey: "pr-42" }));
+  slot.lifecycle.unmount();
+  cleanup();
+
+  const pushedBefore = await renderPush(null, plan({ onGithub: true }));
+  expect(await within(pushedBefore.part()).findByRole("button", { name: "Push and open PR" })).toBeTruthy();
+  expect(pushedBefore.view.getByRole("heading", { name: "Open a PR" })).toBeTruthy();
+  pushedBefore.slot.lifecycle.unmount();
+  cleanup();
+
+  const prPlan = plan({ onGithub: true, pr: true });
+  const withPr = await renderPush(null, prPlan);
+  await waitFor(() => expect(prPlan.pushPlan).toHaveBeenCalled());
+  expect(within(withPr.part()).getAllByRole("button").map((b) => b.textContent)).toEqual(["Push"]);
+  expect(withPr.view.queryByRole("heading", { name: "Open a PR" })).toBeNull();
+  withPr.slot.lifecycle.unmount();
+});
+
+test("Push and open PR says the review agent drafts the PR once it's pushed, then that it's drafting it, with its chat", async () => {
+  const pushing = await renderPush({ state: "pushing", thenOpenPr: true, at: now, threadId: "coder", repo: "acme/web", head: "feat/qa", sha: HEAD }, plan());
+  expect(within(pushing.part()).getByRole("status").textContent).toBe("Pushing abc1234 to feat/qa. Then the review agent drafts the PR.");
+  pushing.slot.lifecycle.unmount();
+  cleanup();
+
+  const { slot, part } = await renderPush({ state: "pushed", thenOpenPr: "asked", at: now, threadId: "coder", repo: "acme/web", head: "feat/qa", sha: HEAD }, plan({ onGithub: true }));
+  const said = within(part()).getByRole("status");
+  // Watch shows its chat beside the review, as Watch after a Send shows the main thread's.
+  expect(said.textContent).toBe("Pushed abc1234. The review agent is drafting the PR; post it from its chat. · Watch");
+  // Asked already: a Push of what comes next is just Push.
+  await waitFor(() => expect(within(part()).getAllByRole("button").map((b) => b.textContent)).toEqual(["Watch", "Push"]));
+  fireEvent.click(within(said).getByRole("button", { name: "Watch" }));
+  await waitFor(() => expect(panelTabCalls(slot)).toEqual(["openTab:agent"]));
+  slot.lifecycle.unmount();
+});
+
+test("Push and open PR that couldn't ask the review agent once pushed says why, with Try again in the alert, and Push only while the folder has something new to push", async () => {
+  const failed = { state: "pushed", thenOpenPr: "failed", openPrError: "MaxBook is offline.", at: now, threadId: "coder", repo: "acme/web", head: "feat/qa", sha: HEAD };
+  const openPr = vi.fn(() => ({ ok: true }));
+  const nothingNew = plan({ onGithub: true, toPush: false });
+  const { slot, part } = await renderPush(failed, { ...nothingNew, openPr, ...sent });
+  await waitFor(() => expect(nothingNew.pushPlan).toHaveBeenCalled());
+  const alert = within(part()).getByRole("alert");
+  expect(alert.textContent).toBe("Couldn’t ask the review agent to draft the PR: MaxBook is offline.Try again");
+  // Not Push and open PR again, nor Push with nothing to push.
+  await waitFor(() => expect(within(part()).getAllByRole("button").map((b) => b.textContent)).toEqual(["Try again"]));
+  fireEvent.click(within(alert).getByRole("button", { name: "Try again" }));
+  await waitFor(() => expect(openPr).toHaveBeenCalledWith({ targetKey: "pr-42" }));
+  slot.lifecycle.unmount();
+  cleanup();
+
+  const somethingNew = plan({ onGithub: true, toPush: true });
+  const changed = await renderPush(failed, { ...somethingNew, ...sent });
+  await waitFor(() => expect(within(changed.part()).getAllByRole("button").map((b) => b.textContent)).toEqual(["Try again", "Push"]));
+  changed.slot.lifecycle.unmount();
+});
+
+test("Finish with comments not sent yet leaves the filled button to Send: Push and open PR is an outline, and says to send them first, or push anyway", async () => {
+  const { slot, part, calls } = await renderPush(null, plan());
+  const both = await within(part()).findByRole("button", { name: "Push and open PR" });
+  expect(both.className).toContain("border");
+  expect(within(part()).getByText(/sent yet/).textContent).toBe("2 comments aren’t sent yet. Send them first, or push anyway.");
+  // A warning, never a block.
+  fireEvent.click(both);
+  await waitFor(() => expect(calls.push).toHaveBeenCalledWith({ targetKey: "pr-42", thenOpenPr: true }));
+  slot.lifecycle.unmount();
+});
+
+test("once the review agent's PR draft waits in its Post form, Finish says it's ready, with Post PR… opening the agent's tab; where Finish doesn't show, a toast says it once", async () => {
+  const prDraft = { at: now, until: now + 30 * 60_000 };
+  const pushed = { state: "pushed", thenOpenPr: "asked", at: now, threadId: "coder", repo: "acme/web", head: "feat/qa", sha: HEAD };
+  const { slot, part } = await renderPush(pushed, { ...plan({ onGithub: true }), ...sent }, { ...folderReview, prDraft });
+  // The page said it before Finish showed: once, with the same action.
+  expect(toast.info).toHaveBeenCalledTimes(1);
+  expect(toast.info).toHaveBeenCalledWith("The PR draft is ready.", { action: { label: "Post PR…", onClick: expect.any(Function) } });
+  const ready = within(part()).getByText("The PR draft is ready.").closest("[role=status]") as HTMLElement;
+  expect(within(part()).getAllByRole("status")[0]!.textContent).toMatch(/^Pushed abc1234 to feat\/qa/);
+  // Push only for something new to push, as after a draft that couldn't be asked for.
+  expect(within(part()).getAllByRole("button").map((b) => b.textContent)).toEqual(["Post PR…"]);
+  fireEvent.click(within(ready).getByRole("button", { name: "Post PR…" }));
+  await waitFor(() => expect(panelTabCalls(slot)).toEqual(["openTab:agent"]));
+  (vi.mocked(toast.info).mock.calls[0]![1] as unknown as { action: { onClick: () => void } }).action.onClick();
+  await waitFor(() => expect(panelTabCalls(slot)).toEqual(["openTab:agent", "openTab:agent"]));
+  slot.lifecycle.unmount();
+  cleanup();
+
+  const newer = await renderPush(pushed, { ...plan({ onGithub: true, toPush: true }), ...sent }, { ...folderReview, prDraft });
+  await waitFor(() => expect(within(newer.part()).getAllByRole("button").map((b) => b.textContent)).toEqual(["Post PR…", "Push"]));
+  newer.slot.lifecycle.unmount();
+  cleanup();
+
+  // A draft that timed out isn't ready.
+  const late = await renderPush(pushed, { ...plan({ onGithub: true }), ...sent }, { ...folderReview, prDraft: { at: now - 31 * 60_000, until: now - 60_000 } });
+  expect(within(late.part()).queryByText("The PR draft is ready.")).toBeNull();
+  expect(toast.info).toHaveBeenCalledTimes(1);
+  late.slot.lifecycle.unmount();
+});
+
+test("The PR draft is ready goes once its Post form times out, with nothing else changing", async () => {
+  const pushed = { state: "pushed", thenOpenPr: "asked", at: now, threadId: "coder", repo: "acme/web", head: "feat/qa", sha: HEAD };
+  const { slot, part } = await renderPush(pushed, { ...plan({ onGithub: true }), ...sent }, { ...folderReview, prDraft: { at: Date.now(), until: Date.now() + 2000 } });
+  expect(await within(part()).findByText("The PR draft is ready.")).toBeTruthy();
+  await waitFor(() => expect(within(part()).queryByText("The PR draft is ready.")).toBeNull(), { timeout: 5000 });
+  slot.lifecycle.unmount();
+});
+
+test("Push and open PR that couldn't ask the review agent says so only while the branch has no PR, where Open PR is", async () => {
+  const failed = { state: "pushed", thenOpenPr: "failed", openPrError: "MaxBook is offline.", at: now, threadId: "coder", repo: "acme/web", head: "feat/qa", sha: HEAD };
+  const opened = await renderPush(failed, plan({ onGithub: true, pr: true }));
+  await waitFor(() => expect(within(opened.part()).getByRole("status").textContent).toContain("Pushed abc1234"));
+  expect(within(opened.part()).queryByRole("alert")).toBeNull();
+  opened.slot.lifecycle.unmount();
+  const became = await renderPush(failed, plan({ onGithub: true }), { ...folderReview, kind: "pr", repo: "acme/web", number: 7, head: "feat/qa", ownPr: true, headFork: null, mainThread: { threadId: "coder", environmentId: "env1", origin: "adopted", since: 1 } });
+  await waitFor(() => expect(within(became.part()).getByRole("status").textContent).toContain("Pushed abc1234"));
+  expect(within(became.part()).queryByRole("alert")).toBeNull();
+  became.slot.lifecycle.unmount();
+});
+
+test("with the review agent drafting only, Push is just Push, and once pushed links to GitHub to open the PR", async () => {
+  const draftOnly = { getPreferences: () => ({ preferences: { ...defaultPreferences, knobs: { ...defaultKnobs, reviewAgentActs: false } }, revision: 0 }) };
+  const readyPlan = plan();
+  const ready = await renderPush(null, { ...readyPlan, ...draftOnly });
+  await waitFor(() => expect(readyPlan.pushPlan).toHaveBeenCalled());
+  expect(within(ready.part()).getAllByRole("button").map((b) => b.textContent)).toEqual(["Push"]);
+  ready.slot.lifecycle.unmount();
+  cleanup();
+
+  const { slot, part } = await renderPush({ state: "pushed", at: now, threadId: "coder", repo: "acme/web", head: "feat/qa", sha: HEAD }, { ...plan({ onGithub: true }), ...draftOnly });
+  const link = await within(part()).findByRole("link", { name: "New PR on GitHub" });
+  expect(link.getAttribute("href")).toBe(COMPARE);
+  expect(link.getAttribute("title")).toBe("Go to GitHub to open a PR");
+  expect(within(part()).getByRole("status").textContent).toMatch(/^Pushed abc1234 to feat\/qa · .* · New PR on GitHub ↗$/);
+  slot.lifecycle.unmount();
+});
+
 /** Your PR, acme/web#42 from feat/qa, with a fixer at work in its own folder. */
 const fixerReview = { kind: "pr", repo: "acme/web", number: 42, head: "feat/qa", ownPr: true, mainThread: { threadId: "fixer", environmentId: "env_fix", origin: "fresh", since: 1, branch: "bb/fixes-thr_fix", fixer: { sha: "9e9e9e9", at: 1 } } };
 
-test("on your PR with a fixer, Push says the fixer commits what Not pushed yet shows, and Update first opens Not pushed yet", async () => {
+test("on your PR with a fixer, Push says the fixer commits what Not pushed yet shows, and Update first opens Not pushed yet's page", async () => {
   const ready = await renderPush(null, {}, fixerReview);
   expect(within(ready.part()).getByText(/the review checks it/).textContent).toBe("The fixer commits what you reviewed in Not pushed yet, the review checks it, then it’s pushed to feat/qa. Never forced.");
   ready.slot.lifecycle.unmount();
@@ -976,7 +1160,10 @@ test("on your PR with a fixer, Push says the fixer commits what Not pushed yet s
   fireEvent.click(within(part()).getByRole("button", { name: "Update first" }));
   await waitFor(() => expect(calls.dismissPush).toHaveBeenCalledWith({ targetKey: "pr-42" }));
   expect(calls.updateFeature).not.toHaveBeenCalled();
-  expect(await slot.findByRole("tabpanel", { name: "Not pushed yet" })).toBeTruthy();
+  // The review shows its Not pushed yet page; BB's side panel stays as it was.
+  expect(within(await slot.findByRole("region", { name: "Not pushed yet" })).getByText("Nothing waiting.")).toBeTruthy();
+  expect(getNotPushed).toHaveBeenCalledWith({ targetKey: "pr-42" });
+  expect(panelTabCalls(slot)).toEqual([]);
   slot.lifecycle.unmount();
 });
 

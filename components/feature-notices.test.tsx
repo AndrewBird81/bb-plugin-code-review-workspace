@@ -72,23 +72,40 @@ test("with Say when the code changed off, a changed folder says nothing", async 
   slot.lifecycle.unmount();
 });
 
-test("a folder on another branch pauses the review: Start a review of that branch, or Open its review once it has one", async () => {
+test("a folder on another branch pauses the review, in the info tone: New review for it, filled, or a quiet Follow it instead, or its review ↗ once it has one", async () => {
   const reviewFolderBranch = vi.fn(() => ({ ok: true, targetKey: "br-2" }));
-  const { slot } = await renderWorkspace({ checkFeature: () => ({ ...nothing, state: "paused", branch: "bb/fix-docs-thr_cd34" }), reviewFolderBranch });
+  const followFolderBranch = vi.fn(() => ({ ok: true }));
+  const { slot } = await renderWorkspace({ checkFeature: () => ({ ...nothing, state: "paused", branch: "bb/fix-docs-thr_cd34" }), reviewFolderBranch, followFolderBranch });
   const paused = await slot.findByRole("status", { name: "Review paused" });
-  expect(paused.textContent).toContain("Folder is on fix-docs. This review waits for snooze-checks.");
+  expect(paused.textContent).toContain("Folder moved to fix-docs, a new branch. This review stays with snooze-checks.");
+  expect(paused.className).toContain("bg-primary/5");
   // A branch's name never breaks across lines.
   expect(within(paused).getByText("fix-docs").className).toContain("whitespace-nowrap");
-  fireEvent.click(within(paused).getByRole("button", { name: "Start a review of fix-docs" }));
+  expect(within(paused).getAllByRole("button").map((button) => button.textContent)).toEqual(["New review for it", "Follow it instead"]);
+  expect(within(paused).getByRole("button", { name: "New review for it" }).className).toContain("bg-primary");
+  expect(within(paused).getByRole("button", { name: "Follow it instead" }).className).not.toContain("border");
+  fireEvent.click(within(paused).getByRole("button", { name: "Follow it instead" }));
+  await waitFor(() => expect(followFolderBranch).toHaveBeenCalledWith({ targetKey: KEY }));
+  fireEvent.click(within(paused).getByRole("button", { name: "New review for it" }));
   await waitFor(() => expect(reviewFolderBranch).toHaveBeenCalledWith({ targetKey: KEY }));
   slot.lifecycle.unmount();
   cleanup();
 
   const opening = vi.fn();
   const existing = await renderWorkspace({ checkFeature: () => ({ ...nothing, state: "paused", branch: "bb/fix-docs-thr_cd34", branchReview: "br-2" }), reviewFolderBranch: opening });
-  fireEvent.click(within(await existing.slot.findByRole("status", { name: "Review paused" })).getByRole("button", { name: "Open fix-docs review" }));
+  fireEvent.click(within(await existing.slot.findByRole("status", { name: "Review paused" })).getByRole("button", { name: "fix-docs review" }));
   expect(opening).not.toHaveBeenCalled();
   existing.slot.lifecycle.unmount();
+});
+
+test("a review that followed its renamed branch says so, and the id it had, which still opens it, with Got it", async () => {
+  const dismissFollowed = vi.fn(() => ({ ok: true }));
+  const { slot } = await renderWorkspace({ checkFeature: () => nothing, dismissFollowed }, { ...local, followed: { from: "feat/qa", branch: "feat/nice", at: 1 } });
+  const followed = await slot.findByRole("status", { name: "Branch renamed" });
+  expect(followed.textContent).toContain("Now following feat/nice. It was api:feat/qa, which still opens it.");
+  fireEvent.click(within(followed).getByRole("button", { name: "Got it" }));
+  await waitFor(() => expect(dismissFollowed).toHaveBeenCalledWith({ targetKey: KEY }));
+  slot.lifecycle.unmount();
 });
 
 test("an offline machine is said calmly, with Check again", async () => {
@@ -126,15 +143,15 @@ test("Changed leads the rest; Got it quiets a committed secret; each secret is s
     hidden: [{ path: ".env.local", reason: "secret" }, { path: "certs/dev.pem", reason: "secret" }, { path: "logo.png", reason: "binary" }, { path: "dump.sql", reason: "large" }],
     flagged: ["config/.env.production"],
     alsoActive: [{ threadId: "thr_docs", title: "Fix the docs" }],
-    prReview: "pr-abc-7",
   };
-  const { slot } = await renderWorkspace({ checkFeature: () => check, includeHidden, dismissFlagged });
+  const offer = { key: "pr-abc-7", number: 7, url: "https://github.com/acme/api/pull/7", moves: { comments: 1, summary: false, sends: 0 } };
+  const { slot } = await renderWorkspace({ checkFeature: () => check, includeHidden, dismissFlagged }, { ...local, prOffer: offer });
   // The banner needed on every visit leads, the rest under +N.
   await slot.findByText("2 files changed since your last update.");
   expect(slot.queryByText("config/.env.production looks like a secret and is committed. Check it belongs in the repo.")).toBeNull();
   fireEvent.click(slot.getByRole("button", { name: "6 more notices" }));
   const order = Array.from(document.querySelectorAll<HTMLElement>("[aria-live=polite] > [role]")).map((row) => row.getAttribute("aria-label") ?? row.textContent!.slice(0, 20));
-  expect(order).toEqual(["Folder changed", "config/.env.producti", "This branch’s PR has", "File not shown", "File not shown", "Files not shown", "Also editing this folder"]);
+  expect(order).toEqual(["Folder changed", "config/.env.producti", "PR #7 has its own re", "File not shown", "File not shown", "Files not shown", "Also editing this folder"]);
   fireEvent.click(within(notice(slot, "config/.env.production looks like a secret and is committed. Check it belongs in the repo.")).getByRole("button", { name: "Got it" }));
   await waitFor(() => expect(dismissFlagged).toHaveBeenCalledWith({ targetKey: KEY, files: ["config/.env.production"] }));
   fireEvent.click(within(notice(slot, ".env.local looks like a secret, so it isn’t shown or sent to agents.")).getByRole("button", { name: "Send .env.local to agents" }));
@@ -147,10 +164,9 @@ test("Changed leads the rest; Got it quiets a committed secret; each secret is s
   const rest = notice(slot, "2 files aren’t shown: logo.png and dump.sql.");
   fireEvent.click(within(rest).getByRole("button", { name: "Include logo.png" }));
   await waitFor(() => expect(includeHidden).toHaveBeenLastCalledWith({ targetKey: KEY, files: ["logo.png"], included: true }));
-  expect(within(notice(slot, "This branch’s PR has a review of its own.")).getByRole("button", { name: "Open PR review" })).toBeTruthy();
   const active = slot.getByRole("status", { name: "Also editing this folder" });
-  expect(active.textContent).toBe("Fix the docs is also editing this folder; its changes are in this review.Open");
-  expect(within(active).getByRole("button", { name: "Open Fix the docs" })).toBeTruthy();
+  expect(active.textContent).toBe("Fix the docs is also editing this folder; its changes are in this review.Fix the docs ↗");
+  expect(within(active).getByRole("button", { name: "Fix the docs" })).toBeTruthy();
   slot.lifecycle.unmount();
 });
 
@@ -159,16 +175,16 @@ test("other threads editing the folder: the first named, the rest listed from �
   const { slot } = await renderWorkspace({ checkFeature: () => check });
   const active = await slot.findByRole("status", { name: "Also editing this folder" });
   // Beside the others, Open names the one it opens.
-  expect(active.textContent).toBe("Fix the docs and 2 more are also editing this folder; their changes are in this review.Open Fix the docs");
+  expect(active.textContent).toBe("Fix the docs and 2 more are also editing this folder; their changes are in this review.Fix the docs ↗");
   fireEvent.click(within(active).getByRole("button", { name: "2 more" }));
   const list = await within(document.body).findByRole("list", { name: "Also editing this folder" });
   expect(within(list).getAllByRole("button").map((button) => button.textContent)).toEqual(["Bump deps", "Fix CI"]);
   slot.lifecycle.unmount();
 });
 
-test("a review that isn't of a folder, or became its PR's, asks nothing about one", async () => {
+test("a review that isn't of a folder, or became its PR's and lost its folder, asks nothing about one", async () => {
   const checkFeature = vi.fn(() => nothing);
-  const pr = await renderWorkspace({ checkFeature }, { ...local, kind: "pr", repo: "acme/api", number: 7, headSha: "c0ffee" });
+  const pr = await renderWorkspace({ checkFeature }, { ...local, kind: "pr", repo: "acme/api", number: 7, headSha: "c0ffee", feature: { ...feature, folderGone: true } });
   await new Promise((resolve) => setTimeout(resolve, 50));
   pr.slot.lifecycle.unmount();
   cleanup();
@@ -219,4 +235,77 @@ test("after Update, a guide written before it says so, after Changed, with Rewri
   const included = await renderWorkspace({ checkFeature: () => nothing }, { ...local, feature: { ...feature, guideOlderThanDiff: "include" } });
   expect(await included.slot.findByText("The guide was written before you changed which files are shown.")).toBeTruthy();
   included.slot.lifecycle.unmount();
+  cleanup();
+
+  // A PR's review its folder updated to the PR's new head says so too.
+  const pr = await renderWorkspace({ checkFeature: () => nothing }, { ...review, kind: "pr", repo: "acme/api", number: 7, headSha: "c0ffee", ownPr: true });
+  expect(await pr.slot.findByText(text)).toBeTruthy();
+  pr.slot.lifecycle.unmount();
+  cleanup();
+
+  // Updated on its own as your Push landed, which you didn't click; or its PR's diff wasn't the local changes'.
+  for (const [flag, said] of [["push", "The guide was written before the PR’s latest commits."], ["pr", "The guide was written for the local changes, before the PR."]] as const) {
+    const flagged = await renderWorkspace({ checkFeature: () => nothing, rewriteGuide }, { ...review, kind: "pr", repo: "acme/api", number: 7, headSha: "c0ffee", ownPr: true, feature: { ...feature, guideOlderThanDiff: flag } });
+    await flagged.slot.findByText(said);
+    expect(within(notice(flagged.slot, said)).getByRole("button", { name: "Rewrite guide" })).toBeTruthy();
+    flagged.slot.lifecycle.unmount();
+    cleanup();
+  }
+});
+
+test("a PR's review whose folder has files not on GitHub yet says how many, on which machine, as the navigator does, with Review them, but not on Not pushed yet's page; paused, it offers only a New review", async () => {
+  const pr = { ...local, kind: "pr", repo: "acme/api", number: 7, headSha: "c0ffee", ownPr: true };
+  const { slot } = await renderWorkspace({ checkFeature: () => ({ ...nothing, state: "ahead", aheadFiles: 3 }) }, pr);
+  const text = "3 files on MaxBook aren’t on GitHub yet.";
+  await slot.findByText(text);
+  // The navigator's row says how many, as the notice does.
+  expect(slot.getByRole("button", { name: "Not pushed yet · 3 files" })).toBeTruthy();
+  expect(notice(slot, text).querySelector("svg")?.getAttribute("data-icon")).toBe("FileDiff");
+  expect(within(notice(slot, text)).getByRole("button", { name: "Review them" })).toBeTruthy();
+  slot.lifecycle.unmount();
+  cleanup();
+  // With your comments on lines only in the folder, it says how many; Review them opens Not pushed yet's page.
+  const comments = [{ file: "src/a.ts", line: 1, side: "LOCAL", body: "One." }, { file: "src/a.ts", line: 2, side: "LOCAL", body: "Two." }, { file: "src/a.ts", line: 1, side: "RIGHT", body: "On GitHub." }];
+  const getNotPushed = vi.fn(async () => ({ state: "none", message: "Nothing waiting." }));
+  const withComments = await renderWorkspace({ checkFeature: () => ({ ...nothing, state: "ahead", aheadFiles: 3 }), getNotPushed,
+    getDraft: () => ({ draft: { targetKey: KEY, verdict: "COMMENT", body: "", comments }, stale: [] }) }, pr);
+  const said = "3 files on MaxBook aren’t on GitHub yet, with 2 of your comments.";
+  await withComments.slot.findByText(said);
+  fireEvent.click(within(notice(withComments.slot, said)).getByRole("button", { name: "Review them" }));
+  expect(within(await withComments.slot.findByRole("region", { name: "Not pushed yet" })).getByText("Nothing waiting.")).toBeTruthy();
+  expect(getNotPushed).toHaveBeenCalledWith({ targetKey: KEY });
+  // There already, it says so without the button.
+  expect(within(notice(withComments.slot, said)).queryByRole("button", { name: "Review them" })).toBeNull();
+  withComments.slot.lifecycle.unmount();
+  cleanup();
+  const paused = await renderWorkspace({ checkFeature: () => ({ ...nothing, state: "paused", branch: "bb/fix-docs-thr_cd34" }) }, pr);
+  const shown = await paused.slot.findByRole("status", { name: "Review paused" });
+  expect(within(shown).getByRole("button", { name: "New review for it" })).toBeTruthy();
+  expect(within(shown).queryByRole("button", { name: "Follow it instead" })).toBeNull();
+  paused.slot.lifecycle.unmount();
+});
+
+test("while the page shows a local review, its branch's PR is looked for every 30 seconds; not on a PR's review, nor while hidden", async () => {
+  vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+  try {
+    const checkPr = vi.fn(() => ({ ok: true }));
+    const { slot } = await renderWorkspace({ checkFeature: () => nothing, checkPr });
+    expect(checkPr).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(30_000);
+    expect(checkPr).toHaveBeenCalledWith({ targetKey: KEY });
+    const hidden = vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
+    vi.advanceTimersByTime(30_000);
+    expect(checkPr).toHaveBeenCalledTimes(1);
+    hidden.mockRestore();
+    slot.lifecycle.unmount();
+    cleanup();
+
+    const onPr = vi.fn(() => ({ ok: true }));
+    const pr = await renderWorkspace({ checkFeature: () => nothing, checkPr: onPr }, { ...local, kind: "pr", repo: "acme/api", number: 7 });
+    vi.advanceTimersByTime(60_000);
+    expect(onPr).not.toHaveBeenCalled();
+    pr.slot.lifecycle.unmount();
+  } finally {
+    vi.useRealTimers();
+  }
 });

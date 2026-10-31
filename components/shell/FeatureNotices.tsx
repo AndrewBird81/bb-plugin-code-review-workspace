@@ -5,7 +5,7 @@ import type { rpcContract } from "../../src/rpc-contract";
 import type { FeatureCheck } from "../../src/feature-review";
 import type { FeatureReview, MainThread } from "../../src/store";
 import { flaggedFileNotice, hiddenFileNotice } from "../../lib/folder-files";
-import { branchLabel, homeShort } from "../../lib/review-identity";
+import { branchLabel, homeShort, localIdOf } from "../../lib/review-identity";
 import { useKnob } from "../../lib/settings";
 import { cn } from "../../lib/utils";
 import { TOUCH_CONTROL } from "../touch";
@@ -15,9 +15,12 @@ import { Icon } from "../ui/icon";
 import { useFullscreenPortalContainer } from "../../lib/portal-scope";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover";
 import { REWRITE_GUIDE, type Notice } from "./ReviewNotices";
+import { usePrNotices, type PrReviewed } from "./PrNotices";
+import { useComments } from "../comments/store";
+import { setNotPushedFiles } from "../../lib/workspace-store";
 
 /** The review, as far as its folder's notices read it. */
-interface Reviewed { kind?: "pr" | "ref"; status?: string; feature?: FeatureReview | null; mainThread?: Pick<MainThread, "environmentId"> | null; archivedAt?: number | null; userArchivedAt?: number | null }
+interface Reviewed { kind?: "pr" | "ref"; status?: string; feature?: FeatureReview | null; mainThread?: Pick<MainThread, "environmentId"> | null; archivedAt?: number | null; userArchivedAt?: number | null; followed?: { branch: string; from: string } | null }
 
 const BUTTON = cn("h-7", TOUCH_CONTROL);
 // A branch's name never breaks across lines.
@@ -28,6 +31,13 @@ const Wrappable = ({ text }: { text: string }) => <>{text.split(/(?<=\w[/-])/).m
 const listed = (names: string[], shown = 2) => names.length > shown ? `${names.slice(0, shown).join(", ")} and ${names.length - shown} more`
   : names.length > 1 ? `${names.slice(0, -1).join(", ")} and ${names.at(-1)}` : names[0] ?? "";
 const files = (n: number) => `${n} file${n === 1 ? "" : "s"}`;
+/** Why the guide is older than the diff (FeatureReview's guideOlderThanDiff), as its notice says it. */
+const GUIDE_OLDER: Record<NonNullable<FeatureReview["guideOlderThanDiff"]>, string> = {
+  update: "The guide was written before your last Update.",
+  include: "The guide was written before you changed which files are shown.",
+  push: "The guide was written before the PR’s latest commits.",
+  pr: "The guide was written for the local changes, before the PR.",
+};
 const fileName = (path: string) => path.slice(path.lastIndexOf("/") + 1);
 
 /** "and 2 more", which opens a list of those threads, each going to its thread. */
@@ -49,29 +59,46 @@ function MoreThreads({ threads, onOpen }: { threads: FeatureCheck["alsoActive"];
 
 /**
  * A local review's notices about its folder (src/feature-review.ts checkFeature), the most pressing first: BB removed
- * it; it's on another branch, which pauses the review, with Open or Start that branch's review; its machine is offline;
- * it changed, with Update; its guide is older than what Update last showed, with Rewrite guide; committed files that look like secrets, with Got it; the review its PR had already; files it
- * keeps out, each secret named on its own button; and the other threads editing it. Asked on open, and again when the
- * review or its folder changes. `onChanged` reloads the review.
+ * it; it's on another branch, which pauses the review, with New review for it or Follow it instead, or a link to its
+ * review; the review followed its renamed branch, and the id it had, with Got it; its machine is offline;
+ * it changed, with Update; its guide is older than what Update last showed, with Rewrite guide; committed files that look like secrets, with Got it; its PR's (PrNotices.tsx),
+ * which a PR's review has too; files it keeps out, each secret named on its own button; and the other threads editing
+ * it. A PR's review whose folder is still there says what in it isn't on GitHub yet, with Review them (`onNotPushed`), but
+ * on Not pushed yet's page, where `onNotPushed` is null. `onNeedsYou` opens Comments at Needs you.
+ * Asked on open, and again when the review or its folder changes. `onChanged` reloads the review.
  */
-export function useFeatureNotices(targetKey: string, review: Reviewed | null, onChanged: () => void): Notice[] {
+export function useFeatureNotices(targetKey: string, review: (Reviewed & PrReviewed) | null, onChanged: () => void, onNotPushed: (() => void) | null, onNeedsYou: () => void): Notice[] {
   const rpc = useRpc<typeof rpcContract>();
   const navigate = useBbNavigate();
   const localDiffChanges = useKnob("localDiffChanges");
   const container = useFullscreenPortalContainer();
+  const prNotices = usePrNotices(targetKey, review, onChanged, onNeedsYou);
+  // Your open comments on lines only in the folder, as Comments lists them.
+  const localComments = useComments(targetKey, "items").filter((item) => item.kind === "draft" && item.comment.side === "LOCAL" && (!item.comment.state || item.comment.state === "open")).length;
   const local = !!review?.feature && review.kind === "ref";
+  const attached = local || !!review?.feature && review.kind === "pr" && !review.feature.folderGone;
   const [read, setRead] = useState<{ targetKey: string; check: FeatureCheck } | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const ask = useCallback(() => {
-    if (!local) return;
+    if (!attached) return;
     // Without an answer there's nothing to say.
     rpc.call("checkFeature", { targetKey }).then((check) => setRead({ targetKey, check }), () => {});
-  }, [rpc, targetKey, local]);
+  }, [rpc, targetKey, attached]);
   useEffect(ask, [ask, localDiffChanges]);
   useRealtime(`review:${targetKey}`, ask);
   useRealtime(`folder:${targetKey}`, ask);
-  const check = local && read?.targetKey === targetKey ? read.check : null;
-  if (!check || !review?.feature) return [];
+  // While the page shows, its branch's PR is looked for every 30 seconds (src/pr-watch.ts): one opened on GitHub makes
+  // it the PR's review within the minute, which the review's signal reloads.
+  useEffect(() => {
+    if (!local) return;
+    const timer = setInterval(() => { if (document.visibilityState === "visible") rpc.call("checkPr", { targetKey }).catch(() => {}); }, 30_000);
+    return () => clearInterval(timer);
+  }, [rpc, targetKey, local]);
+  const check = attached && read?.targetKey === targetKey ? read.check : null;
+  // A PR's review's folder: the navigator's Not pushed yet row counts what it has, until that page reads it.
+  const notPushed = review?.kind !== "pr" ? null : check?.state === "ahead" ? check.aheadFiles ?? 0 : check?.state === "current" ? 0 : null;
+  useEffect(() => { if (notPushed !== null) setNotPushedFiles(targetKey, notPushed); }, [targetKey, notPushed]);
+  if (!check || !review?.feature) return prNotices;
   const { feature } = review;
 
   /** Run one notice's action; what went wrong shows as a toast, and the review reloads after one that worked. */
@@ -91,9 +118,10 @@ export function useFeatureNotices(targetKey: string, review: Reviewed | null, on
   // On a warning's tint, the button's border takes the tint's colour, so it shows in the dark.
   // `whole`: a label that must never be cut, as a file's name is; `hint`, the hover text; `description`, what it does
   // beyond its label, which is its hint too and its description for screen readers.
-  // `agent`: it starts an agent, so it wears the agent's sparkle.
-  const button = (id: string, label: string, onClick: () => void, { aria, warning, whole, hint, description, agent }: { aria?: string; warning?: boolean; whole?: boolean; hint?: string; description?: string; agent?: boolean } = {}) => {
-    const shown = <Button variant="outline" size="sm" className={cn(BUTTON, !whole && "max-w-64", warning && "border-warning/40")} disabled={!!busy} aria-label={aria} aria-description={description} onClick={onClick}>{agent && <Icon name="Sparkles" className="text-(--ansi-13)" aria-hidden />}<span title={hint} className={cn(!whole && "truncate")}>{busy === id ? `${label}…` : label}</span></Button>;
+  // `agent`: it starts an agent, so it wears the agent's sparkle. `variant`: filled for the one recommended, ghost for a
+  // quiet other choice.
+  const button = (id: string, label: string, onClick: () => void, { aria, warning, whole, hint, description, agent, variant = "outline" }: { aria?: string; warning?: boolean; whole?: boolean; hint?: string; description?: string; agent?: boolean; variant?: "default" | "outline" | "ghost" } = {}) => {
+    const shown = <Button variant={variant} size="sm" className={cn(BUTTON, !whole && "max-w-64", warning && "border-warning/40")} disabled={!!busy} aria-label={aria} aria-description={description} onClick={onClick}>{agent && <Icon name="Sparkles" className="text-(--ansi-13)" aria-hidden />}<span title={hint} className={cn(!whole && "truncate")}>{busy === id ? `${label}…` : label}</span></Button>;
     return description ? <Hint label={description} container={container}>{shown}</Hint> : shown;
   };
   const checkAgain = button("check", "Check again", () => { setBusy("check"); rpc.call("checkFeature", { targetKey }).then((next) => setRead({ targetKey, check: next }), () => {}).finally(() => setBusy(null)); });
@@ -101,7 +129,7 @@ export function useFeatureNotices(targetKey: string, review: Reviewed | null, on
   // Each with one action, its icon and the action on the text's first line however it wraps.
   const notices: Notice[] = [];
   const add = (notice: Notice) => notices.push({ firstLine: true, ...notice });
-  if (check.state === "gone") {
+  if (check.state === "gone" && local) {
     const archived = !!review.archivedAt || !!review.userArchivedAt;
     // Its main thread worked there: the next Send starts a fresh thread from the branch (src/loop.ts).
     const fresh = !archived && (!review.mainThread || review.mainThread.environmentId === feature.environmentId);
@@ -113,22 +141,42 @@ export function useFeatureNotices(targetKey: string, review: Reviewed | null, on
     const other = check.branch ?? "HEAD";
     const short = branchLabel(other);
     const existing = check.branchReview;
-    add({ id: "folder-paused", tone: "warning", icon: "GitBranch", label: "Review paused",
-      text: <>Folder is on <Code>{short}</Code>. This review waits for <Code>{branchLabel(feature.branch)}</Code>.</>,
-      // A detached HEAD has no branch to review.
+    // A branch made from this one, as a stacked branch is, since a renamed one is followed: a review of its own is
+    // the recommended choice.
+    const start = button("branch", "New review for it", () => void act("branch", async () => {
+      const started = await rpc.call("reviewFolderBranch", { targetKey });
+      if (started.ok && started.targetKey) navigate.toPluginPanel("review", { subPath: started.targetKey });
+      return started;
+    }, "Couldn’t start that branch’s review."), { variant: "default" });
+    const stays = <Code>{branchLabel(feature.branch)}</Code>;
+    add({ id: "folder-paused", tone: "info", icon: "GitBranch", label: "Review paused",
+      text: check.branch && !existing ? <>Folder moved to <Code>{short}</Code>, a new branch. This review stays with {stays}.</>
+        : <>Folder is on <Code>{short}</Code>. This review waits for {stays}.</>,
+      // A detached HEAD has no branch to review. A fresh thread's worktree's branch isn't the review's to follow.
       ...check.branch ? { action: existing
-        ? button("branch", `Open ${short} review`, () => navigate.toPluginPanel("review", { subPath: existing }), { warning: true })
-        : button("branch", `Start a review of ${short}`, () => void act("branch", async () => {
-          const started = await rpc.call("reviewFolderBranch", { targetKey });
-          if (started.ok && started.targetKey) navigate.toPluginPanel("review", { subPath: started.targetKey });
-          return started;
-        }, "Couldn’t start that branch’s review."), { warning: true }) } : {} });
+        ? button("branch", `${short} review ↗`, () => navigate.toPluginPanel("review", { subPath: existing }), { aria: `${short} review`, hint: `Go to the ${short} review` })
+        : feature.workBranch || !local ? start
+        : <span className="flex flex-wrap gap-1">
+          {start}
+          {button("follow", "Follow it instead", () => void act("follow", () => rpc.call("followFolderBranch", { targetKey }), "Couldn’t follow that branch."), { variant: "ghost" })}
+        </span> } : {} });
+  }
+  if (review.followed && check.state !== "paused") {
+    add({ id: "folder-followed", tone: "info", icon: "GitBranch", label: "Branch renamed",
+      text: <>Now following <Code>{branchLabel(review.followed.branch)}</Code>. It was <Code>{localIdOf({ targetKey, feature: { ...feature, branch: review.followed.from } })}</Code>, which still opens it.</>,
+      action: button("followed", "Got it", () => void act("followed", () => rpc.call("dismissFollowed", { targetKey }), "Couldn’t save that.")) });
   }
   if (check.state === "offline" || check.state === "unavailable") {
     // A machine that's asleep is routine; a folder that can't be read isn't.
     add(check.state === "offline"
       ? { id: "folder-unread", tone: "info", icon: "WifiOff", label: "Machine offline", text: `${feature.machine} is offline. This is the folder as last read.`, action: checkAgain }
       : { id: "folder-unread", tone: "warning", icon: "AlertTriangle", text: check.message ?? "Couldn’t read the folder.", action: checkAgain });
+  }
+  if (check.state === "ahead") {
+    const n = check.aheadFiles ?? 1;
+    add({ id: "folder-ahead", tone: "info", icon: "FileDiff", label: "Not pushed yet",
+      text: `${files(n)} on ${feature.machine} ${n === 1 ? "isn’t" : "aren’t"} on GitHub yet${localComments ? `, with ${localComments} of your comments` : ""}.`,
+      ...onNotPushed ? { action: button("not-pushed", "Review them", onNotPushed) } : {} });
   }
   if (check.state === "changed" && localDiffChanges) {
     add({ id: "folder-changed", tone: "info", icon: "FileDiff", label: "Folder changed",
@@ -138,9 +186,9 @@ export function useFeatureNotices(targetKey: string, review: Reviewed | null, on
   // While a guide is being written, its own notice says so.
   // Not while a guide is being written, which has its own notice, nor once Rewrite guide can't run: the folder's gone,
   // or the review's archived.
-  if (feature.guideOlderThanDiff && review.kind === "ref" && review.status !== "generating" && check.state !== "gone" && !review.archivedAt && !review.userArchivedAt) {
+  if (feature.guideOlderThanDiff && review.status !== "generating" && check.state !== "gone" && !review.archivedAt && !review.userArchivedAt) {
     add({ id: "guide-behind", tone: "info", icon: "Route", label: "Guide out of date",
-      text: feature.guideOlderThanDiff === "include" ? "The guide was written before you changed which files are shown." : "The guide was written before your last Update.",
+      text: GUIDE_OLDER[feature.guideOlderThanDiff],
       action: button("rewrite", "Rewrite guide", () => void act("rewrite", () => rpc.call("rewriteGuide", { targetKey }), "Couldn’t rewrite the guide."), { description: REWRITE_GUIDE, agent: true }) });
   }
   if (check.flagged.length) {
@@ -148,9 +196,7 @@ export function useFeatureNotices(targetKey: string, review: Reviewed | null, on
       text: check.flagged.length === 1 ? flaggedFileNotice(check.flagged[0]!) : `${listed(check.flagged, 3)} look like secrets and are committed. Check they belong in the repo.`,
       action: button("flagged", "Got it", () => void act("flagged", () => rpc.call("dismissFlagged", { targetKey, files: check.flagged }), "Couldn’t save that."), { warning: true }) });
   }
-  if (check.prReview) {
-    add({ id: "pr-review", tone: "info", icon: "GitPullRequest", text: "This branch’s PR has a review of its own.", action: button("pr", "Open PR review", () => navigate.toPluginPanel("review", { subPath: check.prReview! })) });
-  }
+  notices.push(...prNotices);
   // A secret goes to agents only from a button that names it: its name, whole, on the button; its path in the text, the
   // hover and the button's accessible name.
   for (const file of check.hidden.filter((hidden) => hidden.reason === "secret")) {
@@ -176,8 +222,8 @@ export function useFeatureNotices(targetKey: string, review: Reviewed | null, on
       text: more.length
         ? <><em className="font-medium">{first!.title}</em> and <MoreThreads threads={more} onOpen={open} /> are also editing this folder; their changes are in this review.</>
         : <><em className="font-medium">{first!.title}</em> is also editing this folder; its changes are in this review.</>,
-      // With others beside it, the button names the one it opens.
-      action: more.length ? button("open", `Open ${first!.title}`, () => open(first!.threadId)) : button("open", "Open", () => open(first!.threadId), { aria: `Open ${first!.title}` }) });
+      // The button names the thread it goes to.
+      action: button("open", `${first!.title} ↗`, () => open(first!.threadId), { aria: first!.title, hint: `Go to ${first!.title}` }) });
   }
   return notices;
 }

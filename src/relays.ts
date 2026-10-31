@@ -7,7 +7,7 @@ import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import { messageAssistant } from "./agent";
 import { runGh } from "./gh";
 import { mergePr, pushback, readWriteFacts, refusalText } from "./github-writes";
-import { parseTarget, prReviewKey } from "./targets";
+import { reviewNamed as reviewOf } from "./targets";
 import { reviewIdentity } from "../lib/review-identity";
 import type { Verdict } from "./draft";
 import type { ActivityEntry, ReadyToApprove, ReviewMeta } from "./store";
@@ -19,14 +19,14 @@ export const ASK_USAGE = [
   "usage: bb review ask <review> <text>",
   "",
   "Sends <text> to the review's agent as relayed from this thread, starting the agent if the review has none. It answers this thread.",
-  "  <review>  a GitHub PR URL, owner/repo#n, or a review key (pr-…, ref-…)",
+  "  <review>  the review's id (web#12, api:feat-x), a GitHub PR URL, owner/repo#n, or a review key (pr-…, ref-…)",
   "A review with an agent can take `bb thread tell <agentThreadId>` too, with the id from `bb review list --json`.",
 ].join("\n");
 export const APPROVE_USAGE = [
   "usage: bb review approve <review…> [--body <text>]",
   "",
   "Lines each PR's approval up in Needs review as Ready to approve. Nothing posts until the reviewer approves it there.",
-  "  <review>  a GitHub PR URL, owner/repo#n, or a review key (pr-…)",
+  "  <review>  the review's id (web#12), a GitHub PR URL, owner/repo#n, or a review key (pr-…)",
   "  --body    the summary to approve with, the same for each; without it, the approval alone",
 ].join("\n");
 /** GitHub takes up to 65,536 characters in a review body. */
@@ -70,12 +70,7 @@ export function register(deps: ServeDeps, { submit }: {
   /** The reviews being approved now: a second click waits for the first's answer. */
   const posting = new Set<string>();
 
-  /** The review `given` names, as the other subcommands find it: a PR's link, owner/repo#n, or a key. */
-  async function reviewNamed(given: string): Promise<ReviewMeta | null> {
-    const target = parseTarget(given);
-    const key = target.kind === "pr" && target.repo ? await prReviewKey(store, { repo: target.repo, number: target.number }) : given.trim();
-    return await store.getReview(key);
-  }
+  const reviewNamed = (given: string) => reviewOf(store, bb, given);
   const named = (review: ReviewMeta) => `${reviewIdentity(review).id} (${review.targetKey})`;
 
   /** Post one row, if it's still the one waiting: held, without `alsoHeld`, when the PR has commits since it was asked. */
@@ -161,7 +156,8 @@ export function register(deps: ServeDeps, { submit }: {
       const text = words.join(" ").trim();
       if (!given || !text) return { exitCode: 2, stderr: `Give the review and the message.\n${ASK_USAGE}` };
       const review = await reviewNamed(given);
-      if (!review) return { exitCode: 1, stderr: `No saved review for ${given}. Pass the PR's URL or the review's key.` };
+      if (!review) return { exitCode: 1, stderr: `No saved review for ${given}. Pass its id, the PR's URL or the review's key.` };
+      if ("ambiguous" in review) return { exitCode: 1, stderr: review.ambiguous };
       const from = ctx.threadId ?? null;
       const context = from
         ? `Relayed with bb review ask from thread ${from}, one of the reviewer's. Answer that thread with \`bb thread tell ${from}\`.`
@@ -195,7 +191,8 @@ export function register(deps: ServeDeps, { submit }: {
       let failures = 0;
       for (const each of given) {
         const review = await reviewNamed(each);
-        const refused = !review ? `${each}: no saved review. Pass the PR's URL or the review's key.`
+        if (review && "ambiguous" in review) { failures++; lines.push(review.ambiguous); continue; }
+        const refused = !review ? `${each}: no saved review. Pass its id, the PR's URL or the review's key.`
           : review.kind !== "pr" ? `${named(review)}: a local review has nothing to approve on GitHub.`
           : review.prState === "MERGED" || review.prState === "CLOSED" ? `${named(review)}: the PR is ${review.prState.toLowerCase()}, so there's nothing to approve.`
           : review.ownPr ? `${named(review)}: it's the reviewer's own PR, and GitHub allows only a Comment review on it.`

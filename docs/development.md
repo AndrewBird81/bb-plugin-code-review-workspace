@@ -36,7 +36,7 @@ docker rm -f crw-test-pg
 - With `CRW_TEST_PG_URL` set, `createStore` returns the Store over a Postgres schema of each fake host's own, migrated by its first statement and dropped once its test ends (`src/test-backend.test-support.ts`). The plugin a test starts and the test's own `testStore(bb)` share that schema, and `testSql(bb)` reaches its tables.
 - `src/store-backends.test.ts` runs a seeded random sequence of Store calls on SQLite and on Postgres, and compares each call's answer and every read after it. `src/storage-postgres.test.ts` starts the plugin on Postgres storage, as its settings choose it, and `src/storage-cli.test.ts` moves seeded reviews to Postgres and back with `bb review storage`. They, and the tests in `src/db/` that connect to Postgres, are skipped without the URL.
 - `scripts/storage-round-trip.ts` does the same with a copy of a real `data.db`, such as a production snapshot, as an operator would, and writes the table checksums and reads dumps of what came back, to compare with `scripts/store-dump.ts`'s of the snapshot: `npx vite-node scripts/storage-round-trip.ts <data.db> <out dir>`, with `CRW_TEST_PG_URL` set.
-- A few tests are SQLite's alone: the former install's import, the dump script, the SQLite executor's own, a query plan's index, and `src/data-1.7.0.test.ts`, which reads the rows 1.7.0 wrote in `src/fixtures/1.7.0` (made by `scripts/fixture-1.7.0.ts` in a v1.7.0 checkout) and checks every Store read and GitHub payload against 1.7.0's. The other way, 1.7.0 reading 1.8.0's data, is [docs/fixture-1.8.0.md](fixture-1.8.0.md).
+- A few tests are SQLite's alone: the former install's import, the dump script, the SQLite executor's own, a query plan's index, and `src/data-1.7.0.test.ts`, which reads the rows 1.7.0 wrote in `src/fixtures/1.7.0` (made by `scripts/fixture-1.7.0.ts` in a v1.7.0 checkout) and checks every Store read and GitHub payload against 1.7.0's, and `src/data-1.8.1.test.ts`, the same for 1.8.1's rows in `src/fixtures/1.8.1` (made by `scripts/fixture-1.8.0.ts write` in a v1.8.1 checkout). The other way, 1.7.0 reading 1.8.0's data, is [docs/fixture-1.8.0.md](fixture-1.8.0.md), and 1.8.1 reading 1.9.0's, [docs/fixture-1.9.0.md](fixture-1.9.0.md).
 
 ## Browser regression test
 
@@ -53,8 +53,16 @@ BB_E2E_URL=http://127.0.0.1:4331 npm test -- --project e2e
 `BB_E2E_URL` must point at a BB on this machine (`127.0.0.1`, `localhost`, or `[::1]`): the test writes reviews and settings to the BB it reaches.
 
 - The browser uses the running BB shell and built plugin UI. Code Review Workspace RPC requests are intercepted into the official SDK test host with real temporary SQLite. GitHub and agent calls are stubbed at their external boundaries, so no real PR review or agent thread is created.
-- The flow covers settings persistence, the Overview and Start reading, Comments from BB's title bar and its state across a reload, adding a comment by line and editing it in the code, keyboard tooltips, Finish review's summary, verdict, and private notes, Finish in a 390px phone's Comments sheet above the dock, full screen's verdict and Submit, reload, starting a review agent conversation with file context, Pop out and Dock keeping a half-typed message, All reviews' sections, and merge archival.
+- The flow covers settings persistence, the Overview and Start reading, Comments from BB's title bar and its state across a reload, adding a comment by line and editing it in the code, keyboard tooltips, Finish review's summary, verdict, and private notes, Finish in a 390px phone's Comments sheet above the dock, full screen's verdict and Submit, reload, starting a review agent conversation with file context in BB's side panel, its half-typed message kept as the panel closes and Comments opens beside it, All reviews' sections, and merge archival.
 - Without `BB_E2E_URL`, this test is skipped.
+
+A third, `e2e/native-panel.test.ts`, goes between a review and its main thread: Show beside review, an unsent reply in the Main thread tab kept through BB's panel closing and on the thread's own page, Send now then Watch, where the focus goes as a tab opens, Main thread ↗ and back by Review · N open ↗ with the review's scroll kept, the thread's Review tab with its comment row and the agent's first message there, and the switch key both ways. BB draws a thread's page and chat only for a real thread, so it needs a test BB with a machine of its own (`bb-host-daemon join` under the test BB's HOME), a project, and a thread in it, whose id `BB_E2E_THREAD` gives, and for the agent's first message on the thread, another, `BB_E2E_AGENT_THREAD`; no agent needs to run:
+
+```sh
+BB_E2E_URL=http://127.0.0.1:4331 BB_E2E_THREAD=thr_… npm test -- --project e2e
+```
+
+Without `BB_E2E_THREAD`, it is skipped. Both tests close BB's side panel first: BB keeps it open or closed on the server, across sessions.
 
 A second browser test checks Needs You notifications: a finished guide's popup, opening the review from it, the retained inbox row, and Dismiss. It needs a separate isolated test BB on port 4333 with Needs You installed, and saves a screenshot to `docs/verification/` (gitignored):
 

@@ -105,7 +105,7 @@ const dockedChapters = (slot: Slot) => {
   const host = slot.container.ownerDocument.getElementById("gr-navigator-pr-42");
   return host && !host.hidden && !host.getAttribute("role") ? host : null;
 };
-const dockedPanel = (slot: Slot) => slot.queryByRole("complementary", { name: "Comments and agent" });
+const dockedPanel = (slot: Slot) => slot.queryByRole("complementary", { name: "Comments and Finish review" });
 
 test("folded with Chapters open and Find half typed, unfolding docks them, and folding brings the sheet back: text, caret and focus kept", async () => {
   const screen = fakeScreen(OUTER.width, OUTER.height);

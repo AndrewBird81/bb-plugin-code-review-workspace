@@ -1,5 +1,7 @@
 import { NOT_OWN_REVIEW } from "./review-command";
-import { parseTarget, prReviewKey } from "./targets";
+import type { BbPluginApi } from "@get-bb/plugin-sdk";
+import { placeFacts } from "./review-places";
+import { reviewNamed } from "./targets";
 import { addComment, deleteComment, describeComments, editComment, listComments, type DraftResult } from "./draft-comments";
 import { SEVERITIES, type Severity } from "./draft";
 import type { AsyncStore } from "./store-queue";
@@ -7,12 +9,13 @@ import type { AsyncStore } from "./store-queue";
 export const COMMENT_USAGE = [
   "usage: bb review comment list   <review> [--json]",
   "       bb review comment add    <review> <file>:<line> --code <text> --body <text> [--severity <severity>] [--evidence <text>] [--pre-existing] [--side LEFT|RIGHT]",
-  "       bb review comment edit   <review> <file>:<line> --body <text> [--code <text>] [--severity <severity>] [--evidence <text>] [--pre-existing] [--side LEFT|RIGHT]",
-  "       bb review comment delete <review> <file>:<line> [--side LEFT|RIGHT]",
+  "       bb review comment edit   <review> <file>:<line> --body <text> [--code <text>] [--severity <severity>] [--evidence <text>] [--pre-existing] [--side LEFT|RIGHT|LOCAL]",
+  "       bb review comment delete <review> <file>:<line> [--side LEFT|RIGHT|LOCAL]",
   "",
   "Changes a review's local draft in this bb. Nothing is posted to GitHub; the reviewer submits the draft from Code Review Workspace.",
-  "  <review>       a GitHub PR URL, or a review key (pr-…, ref-…)",
-  "  <file>:<line>  the line's number in the new file, or with --side LEFT, in the old file;",
+  "  <review>       the review's id (web#12, api:feat-x), a GitHub PR URL, or a review key (pr-…, ref-…)",
+  "  <file>:<line>  the line's number in the new file, or with --side LEFT, in the old file; edit and delete take",
+  "                 --side LOCAL for a comment not on GitHub yet, as list shows it;",
   "                 <file>:<start>-<end> for lines in one hunk, where edit sets the comment's first line",
   "  --code         the line's text, without the diff's +, -, or space, or a range's lines, one per line;",
   "                 add, and edit of a range, refuse lines that don't match",
@@ -47,7 +50,9 @@ export async function firstGuideRefusal(store: AsyncStore, targetKey: string): P
 
 /** `bb review comment …`: list and change a review's draft comments. `changed` runs after a successful change.
  * `ownReview`, set when a review's own agent runs it, refuses every other review. */
-export async function runCommentCommand(store: AsyncStore, argv: string[], changed: (targetKey: string) => void, ownReview?: string): Promise<CliResult> {
+export async function runCommentCommand(store: AsyncStore, bb: BbPluginApi, argv: string[], changed: (targetKey: string) => void, ownReview?: string): Promise<CliResult> {
+  // What names a local review by its id, asked of bb before the lock, as every other store call waits on it.
+  const facts = await placeFacts(bb, await store.listReviews());
   return store.exclusive(async (tx) => {
     const [action, ...rest] = argv;
     if (action === "--help" || action === "-h") return { exitCode: 0, stdout: COMMENT_USAGE };
@@ -68,10 +73,11 @@ export async function runCommentCommand(store: AsyncStore, argv: string[], chang
     }
     if (positional.length !== (spec.location ? 2 : 1)) return usage(spec.location ? "Give the review and the comment's <file>:<line>." : "Give the review.");
 
-    const target = parseTarget(positional[0]);
-    const key = target.kind === "pr" && target.repo ? await prReviewKey(tx, { repo: target.repo, number: target.number }) : positional[0].trim();
-    if (ownReview !== undefined && key !== ownReview) return { exitCode: 2, stderr: NOT_OWN_REVIEW };
-    if (!await tx.getReview(key)) return { exitCode: 1, stderr: `No saved review for ${positional[0]}. Pass the PR's URL or the review's key.` };
+    const named = await reviewNamed(tx, bb, positional[0], facts);
+    if (named && "ambiguous" in named) return { exitCode: 1, stderr: named.ambiguous };
+    if (ownReview !== undefined && named?.targetKey !== ownReview) return { exitCode: 2, stderr: NOT_OWN_REVIEW };
+    if (!named) return { exitCode: 1, stderr: `No saved review for ${positional[0]}. Pass its id, the PR's URL or the review's key.` };
+    const key = named.targetKey;
     if (action === "list") {
       return { exitCode: 0, stdout: values.json === undefined ? await describeComments(tx, key) : JSON.stringify({ review: key, comments: await listComments(tx, key) }, null, 2) };
     }
@@ -79,11 +85,11 @@ export async function runCommentCommand(store: AsyncStore, argv: string[], chang
     const at = positional[1].match(/^(.+):([1-9]\d*)(?:-([1-9]\d*))?$/);
     if (!at) return usage(`${positional[1]} isn't a <file>:<line> or <file>:<start>-<end>.`);
     const side = values.side?.toUpperCase();
-    if (side !== undefined && side !== "LEFT" && side !== "RIGHT") return usage("--side is LEFT or RIGHT.");
+    if (side !== undefined && side !== "LEFT" && side !== "RIGHT" && (action === "add" || side !== "LOCAL")) return usage(action === "add" ? "--side is LEFT or RIGHT. A comment not on GitHub yet is the reviewer's to add." : "--side is LEFT, RIGHT, or LOCAL.");
     const severity = values.severity?.toLowerCase() as Severity | "none" | undefined;
     if (severity !== undefined && severity !== "none" && !SEVERITIES.includes(severity)) return usage("--severity is blocking, should-fix, question, nit, or none.");
     const ends = [Number(at[2]), Number(at[3] ?? at[2])].sort((a, b) => a - b);
-    const location = { file: at[1], line: ends[1], ...(side ? { side: side as "LEFT" | "RIGHT" } : {}) };
+    const location = { file: at[1], line: ends[1], ...(side ? { side: side as "LEFT" | "RIGHT" | "LOCAL" } : {}) };
     const range = at[3] && action !== "delete" ? { startLine: ends[0] } : {};
     if (action === "add" && values.code === undefined) return usage("add needs --code with the line's text.");
     if (action !== "delete" && !values.body?.trim()) return usage(`${action} needs --body with the comment's text.`);

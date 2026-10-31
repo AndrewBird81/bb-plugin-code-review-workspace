@@ -5,8 +5,8 @@ const queryOf = (fields = "") => `query($q:String!){search(type:ISSUE,first:50,q
   ... on PullRequest{number title url isDraft updatedAt ${fields}author{login} repository{nameWithOwner}}
 }}}`;
 const QUERY = queryOf();
-/** Your own PRs, with their branch, which a folder's review of it is found by. */
-const OWN_QUERY = queryOf("headRefName ");
+/** Your own PRs, with their branch and the repo it's in, a fork's for a PR from one, which a folder's review of it is found by. */
+const OWN_QUERY = queryOf("headRefName headRepository{nameWithOwner} ");
 const ownQuery = "is:pr is:open author:@me archived:false sort:updated-desc";
 /** Requests for you; with teams, also for any team you're on, which can be many. */
 const requestedQuery = (teams: boolean) => `is:pr is:open archived:false ${teams ? "review-requested" : "user-review-requested"}:@me sort:updated-desc`;
@@ -40,10 +40,11 @@ export async function discoverPrs(run: RunGh, options: { reviewed: boolean; team
   return [...prs.values()];
 }
 
-/** Your open PRs, up to 50, with their head branch; a failed search rejects. */
+/** Your open PRs, up to 50, with their head branch and its repo; a failed search rejects. */
 export async function discoverOwnPrs(run: RunGh): Promise<DiscoveredPr[]> {
   return (await search(run, ownQuery, OWN_QUERY)).map((n) => ({
     repo: String(n.repository.nameWithOwner).toLowerCase(), number: n.number, title: n.title ?? "", url: n.url ?? "", author: n.author?.login ?? null,
     updatedAt: Date.parse(n.updatedAt), isDraft: !!n.isDraft, requested: false, reviewed: false, own: true, head: n.headRefName ?? null,
+    headRepo: n.headRepository?.nameWithOwner ? String(n.headRepository.nameWithOwner).toLowerCase() : null,
   }));
 }

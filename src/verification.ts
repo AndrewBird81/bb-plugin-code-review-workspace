@@ -18,7 +18,7 @@ import { baselineOf, diffAt, feedbackView, headOf, isSummaryItem, summarize } fr
 import { describeInterdiff, interdiff } from "./interdiff";
 import { sendBaselineOf, sendKey } from "../lib/send-baseline";
 import { commentsOut, reported, type OutComment } from "../lib/fixes";
-import { settleFixes } from "./fix-tally";
+import { draftsOut, settleFixes } from "./fix-tally";
 import type { AssessmentItem, AssessmentVerdict } from "../lib/feedback";
 import type { Claim, CommentLocation, Verdict } from "./draft";
 import { untrusted } from "./untrusted";
@@ -81,7 +81,7 @@ async function fixesContext(bb: BbPluginApi, review: ReviewMeta, out: readonly O
 export async function startVerification(bb: BbPluginApi, store: AsyncStore, targetKey: string, reason: string, kind: TurnKind, { fixes = false }: { fixes?: boolean } = {}): Promise<boolean> {
   const { prompt, review, out } = await store.exclusive(async (tx) => {
     const review = await tx.getReview(targetKey);
-    return { prompt: reReviewCheckPrompt((await tx.getPreferences()).preferences), review, out: review ? commentsOut((await tx.getDraft(targetKey)).comments, review.threadSends) : [] };
+    return { prompt: reReviewCheckPrompt((await tx.getPreferences()).preferences), review, out: review ? commentsOut(await draftsOut(tx, review), review.threadSends) : [] };
   });
   if (!prompt || !review || (fixes ? !out.length : review.kind !== "pr" || !baselineOf(review).at)) return false;
   const context = fixes ? [`Why now: ${reason}.`, await fixesContext(bb, review, out)].join("\n") : verificationContext(review, reason);
@@ -107,14 +107,16 @@ export async function startVerification(bb: BbPluginApi, store: AsyncStore, targ
   return true;
 }
 
-/** Where a comment out is, as list_feedback says it: its line, or the GitHub thread it is. */
-type Sent = OutComment & { at?: CommentLocation & { body: string }; thread?: string };
+/**
+ * Where a comment out is, as list_feedback says it: its line, on the review whose draft it's on (`on`, draftsOut), or the
+ * GitHub thread it is.
+ */
+type Sent = OutComment & { at?: CommentLocation & { body: string; on: string }; thread?: string };
 
 /** The comments out with the thread that fixes them, by id: draft comments with their place, and GitHub threads. */
 async function sentComments(store: AsyncStore, review: ReviewMeta): Promise<Map<string, Sent>> {
-  const { comments } = await store.getDraft(review.targetKey);
   const sent = new Map<string, Sent>();
-  for (const comment of comments) if (comment.state === "sent" && comment.id && comment.sendN !== undefined) sent.set(comment.id, { id: comment.id, sendN: comment.sendN, claim: comment.claim, at: comment });
+  for (const comment of await draftsOut(store, review)) if (comment.state === "sent" && comment.id && comment.sendN !== undefined) sent.set(comment.id, { id: comment.id, sendN: comment.sendN, claim: comment.claim, at: comment });
   for (const [thread, entry] of Object.entries(review.threadSends ?? {})) sent.set(entry.id, { ...entry, thread });
   return sent;
 }
@@ -445,7 +447,7 @@ export async function assess(store: AsyncStore, caller: ReviewMeta, input: Asses
       for (const item of inferred) {
         const comment = sent.get(item.id)!;
         const claim: Claim = { outcome: item.claimed!, note: item.evidence.trim().slice(0, 1000), threadId: checker, at: now, inferred: true };
-        if (comment.at) await tx.trackComments(review.targetKey, [{ at: comment.at, claim }]);
+        if (comment.at) await tx.trackComments(comment.at.on, [{ at: comment.at, claim }]);
         else {
           // A report always stands over what a check found.
           const threadSends = (await tx.getReview(review.targetKey))?.threadSends ?? {};

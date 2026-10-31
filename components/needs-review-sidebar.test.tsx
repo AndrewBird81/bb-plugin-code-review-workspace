@@ -4,6 +4,7 @@ import { cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import type { Turn } from "../lib/turn";
 import { defaultPreferences } from "../src/preferences";
+import { computeTurn } from "../lib/turn";
 import { shortNames } from "./NeedsReviewSidebar";
 
 afterEach(() => { cleanup(); document.body.innerHTML = ""; localStorage.clear(); vi.useRealTimers(); });
@@ -124,6 +125,33 @@ test("a row is its name alone, the PR's repository and number in its tooltip; tw
   expect(within(document.body).getByRole("link", { name: "alice/fix-login Fix login 1h" })).toBeTruthy();
   expect(within(document.body).getByRole("link", { name: "bob/fix-login Fix login 1h" })).toBeTruthy();
   branches.lifecycle.unmount();
+});
+
+test("a review that became its PR's is one row by the PR's title, numbered only beside another of its name; the one merged into it is no second", async () => {
+  threadList();
+  const converted = {
+    targetKey: "br-conv", kind: "pr", repo: "acme/web", number: 31, title: "Retry uploads", status: "ready", turn: turn("needs", "new", 1),
+    feature: { environmentId: "env1", machine: "MaxBook", path: "/Users/me/src/web", branch: "feat/retry", baseRef: "main", repo: "acme/web" },
+    became: { at: Date.now(), number: 31, url: "https://github.com/acme/web/pull/31", from: "web:feat/retry", carried: 1, local: 0, outside: 0 },
+  };
+  // The PR's own review, merged into it: archived, pointing at it, as the server's turn says.
+  const tombstone = { targetKey: "pr-31", kind: "pr" as const, repo: "acme/web", number: 31, title: "Retry uploads", status: "ready" as const, archivedAt: Date.now(), mergedInto: "br-conv", pinnedAt: 1 };
+  const merged = [converted, { ...tombstone, turn: computeTurn(tombstone) }];
+  expect(merged[1]!.turn).toMatchObject({ group: "archive", reason: "merged-into" });
+  const slot = await renderSidebar(merged);
+  const section = await within(document.body).findByRole("region", { name: "Needs review" });
+  expect(within(section).getAllByRole("link").map((row) => row.textContent)).toEqual(["Retry uploads1h"]);
+  expect(within(section).getByRole("link").getAttribute("title")).toBe("acme/web#31 · Guide ready · 1h");
+  expect(within(document.body).queryByRole("region", { name: "Pinned" })).toBeNull();
+  slot.lifecycle.unmount();
+  cleanup();
+  // Beside another PR of its name, each has its number.
+  threadList();
+  const twins = await renderSidebar([...merged, { ...reviews[0], title: "Retry uploads" }]);
+  expect(await within(document.body).findByRole("link", { name: "#31 Retry uploads 1h" })).toBeTruthy();
+  expect(within(document.body).getByRole("link", { name: "#3 Retry uploads 1d" })).toBeTruthy();
+  expect(within(document.body).getAllByRole("link", { name: /Retry uploads/ })).toHaveLength(2);
+  twins.lifecycle.unmount();
 });
 
 test("a renamed review's row says your name, with the PR's title first in its tooltip and description", async () => {

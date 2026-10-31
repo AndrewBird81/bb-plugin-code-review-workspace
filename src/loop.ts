@@ -6,18 +6,19 @@
 // that comment's Send, for the main thread to apply as written: the folder keeps one writer.
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import { z } from "zod";
-import { sameLocation, type CommentLocation, type DraftComment } from "./draft";
+import { isLocal, sameLocation, type CommentLocation, type DraftComment } from "./draft";
 import { newCommentIds, type ReviewLifecycle, type ReviewMeta, type SendEntry, type SnapshotFiles } from "./store";
 import type { AsyncStore } from "./store-queue";
-import { assistantReview } from "./draft-comments";
+import { assistantReview, mergedAway } from "./draft-comments";
 import { requireReviewRevision } from "./review-revision";
 import { isMissingThread } from "./thread-errors";
-import { branchLine, commentText, fenced, fixerExecution, fixerTitle, GUARD, GUARD_BUT_PUSH, header, isOwnChange, placed, theirPr, where, type Placed } from "./fix-handoff";
+import { branchLine, commentText, fenced, fixerExecution, fixerTitle, GUARD, GUARD_BUT_PUSH, header, isOwnChange, onlyLocal, placed, theirPr, where, type Placed } from "./fix-handoff";
 import { homeShort, mainThreadState } from "./feature-review";
 import { diffFilesHead } from "./env-diff";
 import { pruneDiffs } from "./feedback-view";
 import { machineStatus } from "./machines";
-import { sendKey } from "../lib/send-baseline";
+import { localSendKey, sendKey } from "../lib/send-baseline";
+import { NOT_PUSHED } from "../lib/push";
 import { inlineCode } from "./untrusted";
 import { isFixer, usesFixer } from "../lib/fixer";
 import { failed, type EventListeners, type RpcHandlers, type ServeDeps } from "./server-modules";
@@ -49,7 +50,7 @@ export interface Choices { force?: boolean; thread?: "unarchive" | "fresh" | "fo
 /** What you add to a Send: your own message, and whether the draft's summary goes too. */
 export interface SendExtras { message?: string; includeSummary?: boolean }
 /** A Send that went: where, whether it waits for the thread's turn to end, its number and the ids of its comments. */
-export interface Sent { ok: true; delivery: "sent" | "queued"; threadId: string; title: string | null; sendN: number; ids: string[]; skipped?: number }
+export interface Sent { ok: true; delivery: "sent" | "queued"; threadId: string; title: string | null; sendN: number; ids: string[]; skipped?: number; keptLocal?: number }
 
 
 interface Deps { bb: BbPluginApi; store: AsyncStore; changed(targetKey: string): void; submitReview?: { submitting(targetKey: string): boolean; sendStarted(targetKey: string): void; sendEnded(targetKey: string): void } }
@@ -363,6 +364,8 @@ export async function send(deps: Deps, targetKey: string, picked: readonly Comme
   const unbriefed = toFixer && main!.origin === "forked" && !(now.sends ?? []).some((entry) => entry.threadId === main!.threadId);
   const briefed = unbriefed ? await fixerPlace(bb, store, now) : null;
   const laterFixer = toFixer && !briefed;
+  // A fixer works at the PR's head, which hasn't the lines of a comment not on GitHub yet: that one stays, for a main thread in its folder.
+  const atHead = !!fixer || toFixer;
   // To a thread in the PR's own folder: stay on its branch, if the folder is on it.
   const stayOn = "to" in routed && !toFixer && main && main.environmentId === now.feature?.environmentId ? await folderBranchLine(bb, now) : null;
   const moved = fresh?.from ? newWorktree(shown, fresh.from) : null;
@@ -377,11 +380,16 @@ export async function send(deps: Deps, targetKey: string, picked: readonly Comme
       deps.submitReview?.sendStarted(targetKey);
       holding = true;
       const draft = await tx.getDraft(targetKey);
-      const comments = draft.comments.filter((comment) => picked.some((at) => sameLocation(at, comment)));
+      const chosen = draft.comments.filter((comment) => picked.some((at) => sameLocation(at, comment)));
+      const comments = atHead ? chosen.filter((comment) => !isLocal(comment)) : chosen;
+      const keptLocal = chosen.length - comments.length;
       const now = (await tx.getReview(targetKey)) ?? review;
       const items = await githubItems(tx, now, github);
+      if (keptLocal && !comments.length && !items.length) {
+        throw new Error(onlyLocal(keptLocal, "sent"));
+      }
       // A GitHub item the review no longer has, as one gone from GitHub's window, is left out; the Send says how many.
-      if (!comments.length && !items.length || picked.length && !comments.length) return null;
+      if (!comments.length && !items.length || picked.length && !chosen.length) return null;
       // Only your Reopen sends a comment you resolved or dismissed again.
       const settled = comments.find((comment) => comment.state === "resolved" || comment.state === "dismissed");
       if (settled) throw new Error(`The comment on ${settled.file}:${settled.line} is ${settled.state}. Reopen it to send it again.`);
@@ -393,12 +401,14 @@ export async function send(deps: Deps, targetKey: string, picked: readonly Comme
       const named = comments.map((comment) => ({ ...comment, id: comment.id ?? ids[unnamed.indexOf(comment)] })) as Array<DraftComment & { id: string }>;
       const itemIds = items.map((item) => now.threadSends?.[githubId(item)]?.id ?? ids[unnamed.length + unsentItems.indexOf(item)]);
       const patch = await tx.patch(targetKey);
+      // LOCAL comments' code is in what Not pushed yet showed.
+      const local = named.some(isLocal) ? await tx.getSnapshot(targetKey, NOT_PUSHED) : null;
       const stale = await tx.staleDraftComments(targetKey);
       const preExisting = (await tx.getPreferences()).preferences.knobs.preExistingFindings;
       const files: SnapshotFiles | null = review.feature ? await tx.getSnapshotFiles(targetKey, diffFilesHead(await tx.patchHash(targetKey))) : null;
       const { message, summary } = extras(draft.body, add);
       const texts = [
-        ...named.map((comment) => commentText(comment, patch, stale, preExisting, { id: comment.id, author: theirs })),
+        ...named.map((comment) => commentText(comment, isLocal(comment) ? local ?? "" : patch, stale, preExisting, { id: comment.id, author: theirs })),
         ...items.map((item, i) => itemText(item, itemIds[i], patch)),
       ];
       const apply = add.patch === undefined ? [] : [
@@ -413,7 +423,7 @@ export async function send(deps: Deps, targetKey: string, picked: readonly Comme
         : moved ? where(moved.shown, moved.branch, lead) : where(shown, laterFixer && main ? fixerBranchLine(recordOf(now, main.threadId)?.branch ?? main.branch) : stayOn ?? undefined, lead);
       // A fixer sent to again stays on its branch, and is told again what the quoted words are.
       const text = [message, opening, ...texts, ...apply, summary, ...limits, ...laterFixer ? [UNTRUSTED_NOTE] : [], REPORT].filter(Boolean).join("\n\n");
-      return { comments: named, items: items.map((item, i) => ({ githubId: githubId(item), id: itemIds[i] })), skipped: github.length - items.length, patch, files, text };
+      return { comments: named, items: items.map((item, i) => ({ githubId: githubId(item), id: itemIds[i] })), skipped: github.length - items.length, keptLocal, patch, local, files, text };
     });
     if (!composed) throw new Error(github.length && !picked.length ? `${github.length === 1 ? "That comment is" : "Those comments are"} no longer on GitHub as the review last read it, so there's nothing to send.` : "Those comments are no longer in the draft.");
     const went = await go(deps, shown, routed, composed.text);
@@ -422,6 +432,7 @@ export async function send(deps: Deps, targetKey: string, picked: readonly Comme
       const n = Math.max(0, ...(now.sends ?? []).map((entry) => entry.n)) + 1;
       await tx.saveSnapshot(targetKey, sendKey(n), composed.patch);
       if (composed.files) await tx.saveSnapshotFiles(targetKey, sendKey(n), composed.files);
+      if (composed.local) await tx.saveSnapshot(targetKey, localSendKey(n), composed.local);
       // Each comment as it went, with no report yet; one edited meanwhile is open again, for the next Send.
       const { comments } = await tx.getDraft(targetKey);
       const unchanged = composed.comments.filter((sent) => comments.some((comment) => sameLocation(comment, sent) && comment.body === sent.body));
@@ -447,7 +458,7 @@ export async function send(deps: Deps, targetKey: string, picked: readonly Comme
     if (went.fresh) await settleFolder(deps, targetKey, went.fresh);
     deps.changed(targetKey);
     bb.realtime.publish(`draft:${targetKey}`, {});
-    return { ok: true, delivery: went.delivery, threadId: went.threadId, title: went.title, sendN: n, ids: [...composed.comments.map((comment) => comment.id), ...composed.items.map((item) => item.id)], ...composed.skipped ? { skipped: composed.skipped } : {} };
+    return { ok: true, delivery: went.delivery, threadId: went.threadId, title: went.title, sendN: n, ids: [...composed.comments.map((comment) => comment.id), ...composed.items.map((item) => item.id)], ...composed.skipped ? { skipped: composed.skipped } : {}, ...composed.keptLocal ? { keptLocal: composed.keptLocal } : {} };
   } finally {
     if (holding) deps.submitReview?.sendEnded(targetKey);
   }
@@ -604,7 +615,7 @@ export function register(deps: ServeDeps) {
     async sendToSourceThread({ targetKey, comments, threads, message, includeSummary, letPush, force, thread }) {
       if (!await sendOn()) throw new Error(off);
       const sent = await send(deps, targetKey, comments, { message, includeSummary, letPush, force, thread, ...threads?.length ? { github: threads } : {} });
-      return sent.ok ? { ok: true, delivery: sent.delivery, title: sent.title, threadId: sent.threadId, sendN: sent.sendN, ...sent.skipped ? { skipped: sent.skipped } : {} } : sent;
+      return sent.ok ? { ok: true, delivery: sent.delivery, title: sent.title, threadId: sent.threadId, sendN: sent.sendN, ...sent.skipped ? { skipped: sent.skipped } : {}, ...sent.keptLocal ? { keptLocal: sent.keptLocal } : {} } : sent;
     },
     async sendApprovalToSourceThread({ targetKey, revision, message, includeSummary, force, thread }) {
       if (!await sendOn()) throw new Error(off);
@@ -657,6 +668,8 @@ export function register(deps: ServeDeps) {
     execute: async ({ file, line, side = "RIGHT", patch, force, thread }, { threadId }) => {
       const targetKey = await store.exclusive((tx) => assistantReview(tx, threadId));
       if (!targetKey) return failed("This conversation is no longer a review's assistant, so it has no comments to send.");
+      const away = await mergedAway(store, targetKey);
+      if (away) return failed(away);
       const { knobs } = (await store.getPreferences()).preferences;
       // Settings' switch holds at once, though a running agent keeps the tools it started with.
       if (!knobs.reviewAgentActs) return failed("Settings has the review agent only draft now, so nothing was sent. The reviewer can send it with Send now on the comment.");

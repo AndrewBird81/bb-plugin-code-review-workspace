@@ -1,4 +1,4 @@
-import type { Severity } from "../src/draft";
+import type { CommentLocation, Severity } from "../src/draft";
 
 export type DraftRecovery = {
   /**
@@ -8,7 +8,7 @@ export type DraftRecovery = {
    * `severity`, the comment's, when it has one; `editing`, when the box edits the line's comment, that comment's text as
    * the box opened on it, else the box is a new comment's; `filled`, what the plugin put in it, unknown when absent.
    */
-  composer?: { file: string; line: string; side: "LEFT" | "RIGHT"; body: string; revision?: string; inline?: boolean; asking?: boolean; startLine?: number; startSide?: "LEFT" | "RIGHT"; summary?: boolean; severity?: Severity; editing?: string; filled?: string[] };
+  composer?: { file: string; line: string; side: CommentLocation["side"]; body: string; revision?: string; inline?: boolean; asking?: boolean; startLine?: number; startSide?: "LEFT" | "RIGHT"; summary?: boolean; severity?: Severity; editing?: string; filled?: string[] };
   /** Unsaved summary text from before the summary had a box of its own, kept while the box holds something else. */
   summary?: { body: string; revision?: string };
 };

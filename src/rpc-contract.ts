@@ -31,7 +31,8 @@ const commentShape = z
   .object({
     file: z.string(),
     line: lineNumber,
-    side: z.enum(["LEFT", "RIGHT"]),
+    // LOCAL: a line only in a PR's review's folder, on Not pushed yet's new side (src/draft.ts isLocal).
+    side: z.enum(["LEFT", "RIGHT", "LOCAL"]),
     // A range's first line, and its side when it isn't `side` (src/draft.ts DraftComment).
     startLine: startLine.optional(),
     startSide: z.enum(["LEFT", "RIGHT"]).optional(),
@@ -51,7 +52,7 @@ const commentShape = z
   })
   .strict();
 
-const location = { file: z.string(), line: lineNumber, side: z.enum(["LEFT", "RIGHT"]) };
+const location = { file: z.string(), line: lineNumber, side: z.enum(["LEFT", "RIGHT", "LOCAL"]) };
 // What Send to thread adds to what it sends (src/fix-handoff.ts): your message, as long as a summary may be, and the summary.
 const sendExtras = { message: z.string().max(65_000).optional(), includeSummary: z.boolean().optional() };
 // Where a Send goes past its warning (src/loop.ts): force, past it, as on a PR you don't own; thread, when the main
@@ -108,7 +109,8 @@ export const rpcContract = defineRpcContract({
   getReviewBundle: {
     input: z.object({ targetKey: z.string(), knownRevision: z.string().optional() }).strict(),
     // diffError: why a pruned review's diff couldn't be read again; the rest still loads.
-    output: z.object({ review: z.any().nullable(), guide: z.any().nullable(), patch: z.string().nullable(), revision: z.string(), diffError: z.string().optional() }),
+    // mergedInto: the review was merged into this one, which opens instead (src/merge.ts).
+    output: z.object({ review: z.any().nullable(), guide: z.any().nullable(), patch: z.string().nullable(), revision: z.string(), diffError: z.string().optional(), mergedInto: z.object({ targetKey: z.string(), id: z.string() }).optional() }),
   },
   getPreferences: { input: z.null(), output: z.object({ preferences: preferencesSchema, revision: z.number().int() }) },
   savePreferences: {
@@ -297,7 +299,7 @@ export const rpcContract = defineRpcContract({
     input: z.object({
       targetKey: z.string(), revision: z.string().optional(), account: z.string().optional(),
       // The comments, summary, and verdict the page shows; submission refuses a draft that no longer matches.
-      comments: z.array(z.object({ file: z.string(), line: z.number().int(), side: z.enum(["LEFT", "RIGHT"]), startLine: z.number().int().optional(), startSide: z.enum(["LEFT", "RIGHT"]).optional(), severity: z.enum(SEVERITIES).optional(), introduced: z.literal(false).optional(), body: z.string() })),
+      comments: z.array(z.object({ file: z.string(), line: z.number().int(), side: z.enum(["LEFT", "RIGHT", "LOCAL"]), startLine: z.number().int().optional(), startSide: z.enum(["LEFT", "RIGHT"]).optional(), severity: z.enum(SEVERITIES).optional(), introduced: z.literal(false).optional(), body: z.string() })),
       // Of those, the ones the page shows as posting: not one sent to fix from your own change, resolved or dismissed.
       // Submission refuses a draft whose comments that post differ; without it, one with any comment sent.
       posting: z.array(z.object(location).strict()).optional(),
@@ -357,9 +359,10 @@ export const rpcContract = defineRpcContract({
   },
   newConversation: { input: targetKey, output: z.object({ ok: z.boolean() }) },
   // A visible coding thread that fixes draft comments; the draft stays. On a PR you don't own it warns, and force starts it.
+  // keptLocal: comments not on GitHub yet left out, as the thread is at the PR's head.
   startFixThread: {
     input: z.object({ targetKey: z.string(), comments: z.array(z.object(location).strict()).min(1), force: z.boolean().optional() }).strict(),
-    output: z.union([z.object({ ok: z.literal(true), threadId: z.string(), title: z.string() }), sendWarning]),
+    output: z.union([z.object({ ok: z.literal(true), threadId: z.string(), title: z.string(), keptLocal: z.number().int().optional() }), sendWarning]),
   },
   // The review's main thread, which its Sends go to (src/loop.ts): the top thread in its folder, or the thread `bb review`
   // ran in, and the machine it works on when that's known.
@@ -372,8 +375,9 @@ export const rpcContract = defineRpcContract({
   sendToSourceThread: {
     input: z.object({ targetKey: z.string(), comments: z.array(z.object(location).strict()), threads: z.array(z.string().min(1)).max(100).optional(), ...sendExtras, ...sendChoices }).strict()
       .refine((input) => input.comments.length > 0 || !!input.threads?.length, "Choose a comment to send."),
-    // skipped: GitHub items left out, as the review no longer has them.
-    output: z.union([z.object({ ok: z.literal(true), delivery: z.enum(["sent", "queued"]), title: z.string().nullable(), threadId: z.string().optional(), sendN: z.number().int().optional(), skipped: z.number().int().optional() }), sendWarning]),
+    // skipped: GitHub items left out, as the review no longer has them. keptLocal: comments not on GitHub yet left out of a
+    // fixer's Send, at the PR's head, for a main thread in their folder.
+    output: z.union([z.object({ ok: z.literal(true), delivery: z.enum(["sent", "queued"]), title: z.string().nullable(), threadId: z.string().optional(), sendN: z.number().int().optional(), skipped: z.number().int().optional(), keptLocal: z.number().int().optional() }), sendWarning]),
   },
   // Tells the main thread you approve the change as is, at the revision the page shows. With comments not yet sent, or
   // told already for this diff, it warns.
@@ -421,9 +425,10 @@ export const rpcContract = defineRpcContract({
    * Have the main thread commit the changes you reviewed, then push that commit (src/push.ts); where it stands is the
    * review's `push`. force: Push anyway, past the warning that the commit isn't what you reviewed, on the commit `sha`
    * the page showed and the warning it answers, by when it came (`at`); the push itself is never a force-push. note: nothing was asked, as when GitHub has the commit already.
+   * thenOpenPr: Push and open PR, the review agent drafting the PR once the push lands.
    */
   push: {
-    input: z.object({ targetKey: z.string(), force: z.boolean().optional(), sha: z.string().regex(/^[0-9a-f]{40}$/).optional(), at: z.number().optional() }).strict(),
+    input: z.object({ targetKey: z.string(), force: z.boolean().optional(), thenOpenPr: z.boolean().optional(), sha: z.string().regex(/^[0-9a-f]{40}$/).optional(), at: z.number().optional() }).strict(),
     output: z.object({ ok: z.boolean(), error: z.string().optional(), warning: z.string().optional(), note: z.string().optional(), delivery: z.enum(["sent", "queued"]).optional() }),
   },
   /** Clear the review's Push: Got it to what it says, or Cancel while it waits. Nothing is told to the main thread. */
@@ -434,6 +439,11 @@ export const rpcContract = defineRpcContract({
    * happen first, as pushing the branch.
    */
   openPr: { input: targetKey, output: z.object({ ok: z.boolean(), error: z.string().optional(), note: z.string().optional() }) },
+  /**
+   * What Push offers a local review (src/open-pr.ts): whether it can open a PR, whether its branch is on GitHub and has
+   * a PR there, `compare`, where GitHub opens one by hand, and `toPush`, whether the folder has anything to push.
+   */
+  pushPlan: { input: targetKey, output: z.object({ openable: z.boolean(), onGithub: z.boolean(), pr: z.boolean(), compare: z.string().optional(), toPush: z.boolean().optional() }) },
   /** The review's Let it push when done: on, a Send leaves out "Don't push until I say", unless it says otherwise. */
   setLetPush: {
     input: z.object({ targetKey: z.string(), letPush: z.boolean() }).strict(),
@@ -445,18 +455,27 @@ export const rpcContract = defineRpcContract({
     output: z.object({ ok: z.boolean(), error: z.string().optional() }),
   },
   /**
-   * Not pushed yet, on a PR: what the folder of its main thread, a fixer's or its own, has that the PR's head on GitHub
-   * doesn't, committed or not (src/own-pr.ts); or, with no such folder, or one that can't be read now, why.
+   * Not pushed yet, on a PR: what its own folder, or without one its main thread's, a fixer's, has that the PR's head
+   * on GitHub doesn't, committed or not (src/own-pr.ts); or, with no such folder, or one that can't be read now, why.
    */
   getNotPushed: {
     input: targetKey,
     output: z.union([
       z.object({
-        state: z.literal("available"), patch: z.string(), base: z.string(), branch: z.string(), machine: z.string().nullable(), threadId: z.string(),
+        state: z.literal("available"), patch: z.string(), base: z.string(), branch: z.string(),
+        /** `base` is the commit the review's diff is at: a removed line here is that diff's new line of its number. */
+        onReviewHead: z.boolean(), machine: z.string().nullable(), threadId: z.string().nullable(),
         hidden: z.array(z.object({ path: z.string(), reason: z.enum(["secret", "binary", "large"]) })), notice: z.string().nullable(),
+        /** The files you marked Viewed here: still at the revision you viewed, or changed since (`stale`). */
+        views: z.array(z.object({ file: z.string(), viewed: z.boolean(), stale: z.boolean() })),
       }),
       z.object({ state: z.enum(["none", "offline", "gone", "unavailable"]), message: z.string() }),
     ]),
+  },
+  /** Viewed on Not pushed yet, for the file's revision as the page last read it, apart from the same file's in the chapters. */
+  setNotPushedViewed: {
+    input: z.object({ targetKey: z.string(), file: z.string(), viewed: z.boolean() }).strict(),
+    output: z.object({ ok: z.boolean() }),
   },
   /** Stop showing Branch kept for a fixer's branch, once you've deleted it or chosen to keep it. */
   dismissKeptBranch: {
@@ -471,30 +490,50 @@ export const rpcContract = defineRpcContract({
   /**
    * A local review's folder now, for its notices: as the review shows it, `changedFiles` changed since, paused on
    * another `branch`, its machine offline, gone, or unreadable (`message`); the other threads working there; the files it
-   * keeps out, and committed ones that look like secrets; the review its PR had already, if any; and, paused, the review
-   * of the branch the folder is on, if any (src/feature-review.ts).
+   * keeps out, and committed ones that look like secrets; and, paused, the review of the branch the folder is on, if any
+   * (src/feature-review.ts).
    */
   checkFeature: {
     input: targetKey,
     output: z.object({
-      state: z.enum(["current", "changed", "paused", "offline", "gone", "unavailable"]),
+      state: z.enum(["current", "changed", "ahead", "paused", "offline", "gone", "unavailable"]),
       changedFiles: z.number().int().optional(),
+      aheadFiles: z.number().int().optional(),
+      aheadPaths: z.array(z.string()).optional(),
       branch: z.string().nullable().optional(),
       message: z.string().optional(),
       alsoActive: z.array(z.object({ threadId: z.string(), title: z.string() })),
       hidden: z.array(z.object({ path: z.string(), reason: z.enum(["secret", "binary", "large"]) })),
       flagged: z.array(z.string()),
-      prReview: z.string().optional(),
       branchReview: z.string().optional(),
     }),
   },
+  /** Look for a local review's PR on GitHub now, at most once every 25 seconds per review (src/pr-watch.ts): it becomes the PR's review when there is one. */
+  checkPr: { input: targetKey, output: z.object({ ok: z.boolean() }) },
   /** Got it: stop warning about these committed files that look like secrets, in this review. */
   dismissFlagged: {
     input: z.object({ targetKey: z.string(), files: z.array(z.string().min(1)).min(1).max(1000) }).strict(),
     output: z.object({ ok: z.boolean(), error: z.string().optional() }),
   },
+  /** Follow: the local review becomes that of the branch its folder is on now, under its key, as when the branch is renamed. */
+  followFolderBranch: { input: targetKey, output: z.object({ ok: z.boolean(), error: z.string().optional() }) },
+  /** Got it on "Now following ‹branch›". */
+  dismissFollowed: { input: targetKey, output: z.object({ ok: z.boolean() }) },
   /** Review the branch a local review's folder is on now, in that branch's own review, addressed to the same main thread. */
   reviewFolderBranch: { input: targetKey, output: z.object({ ok: z.boolean(), error: z.string().optional(), targetKey: z.string().optional() }) },
+  /** Got it on "Now PR #4512": the review stops saying it became its PR's. */
+  dismissBecame: { input: targetKey, output: z.object({ ok: z.boolean() }) },
+  /**
+   * Merge into one review: a folder's review that offers to merge with its PR's own review, from
+   * either's page, merges with it (src/merge.ts). `targetKey`: the review that stays.
+   */
+  mergeReviews: { input: targetKey, output: z.object({ ok: z.boolean(), error: z.string().optional(), targetKey: z.string().optional() }) },
+  /** Keep both, on the merge offer, from either review's page: neither offers to merge again (`mergeDeclined`). */
+  keepBothReviews: { input: targetKey, output: z.object({ ok: z.boolean(), error: z.string().optional() }) },
+  /** Make it PR #12's review, or Try again: the local review becomes the PR its branch has that it held (`prPending`). */
+  takePendingPr: { input: targetKey, output: z.object({ ok: z.boolean(), error: z.string().optional() }) },
+  /** Not this one: the PR held isn't this review's, and it stops asking. */
+  dismissPendingPr: { input: targetKey, output: z.object({ ok: z.boolean() }) },
 
   // BB's thread pages (src/thread-surfaces.ts): Review changes above a thread's message box, and the Review tab.
   /** Review changes: the review of the folder the thread works in, at its branch now, started or opened as it is, as bb review with no arguments. */

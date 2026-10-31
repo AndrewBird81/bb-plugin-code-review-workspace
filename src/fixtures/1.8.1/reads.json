@@ -1,0 +1,1997 @@
+{
+  "format": "crw-store-reads/1",
+  "global": {
+    "getPreferences": {
+      "preferences": {
+        "assistantAgent": null,
+        "assistantInstructions": "",
+        "autoStartRepos": [],
+        "automaticReview": "Review this change for defects a careful senior engineer would block on or want fixed. Precision over recall: a missed nit costs nothing; a wrong comment costs the reviewer's trust.\n1. Start with read_pr_context: what the PR says it does, linked tickets, the repo's review rules, CI, and what other reviewers already raised.\n2. Read the whole diff, high-risk chapters first. Before you comment, confirm the problem with read_file (callers, the base version). If you can't confirm it, don't comment; ask a question only when the answer decides whether there's a bug.\n3. Skip style, naming, formatting, anything a linter or CI reports, lockfiles, generated files, and anything an existing GitHub thread already raises.\n4. One issue per add_draft_comment, on the line the fix goes. Start with **Blocking:**, **Should fix:** or **Question:**. Say what fails (input → wrong result), then the fix; when the fix replaces specific lines, add a ```suggestion block. Put how you confirmed it in evidence, with file:line: only what you read or ran.\n5. At most 10 comments; keep the most severe.\n6. Then set_review_summary: 2–5 bullets, blockers first with file:line, and anything you couldn't check. Suggest APPROVE only if nothing blocks and you read every non-generated file, REQUEST_CHANGES only for a verified blocking issue, otherwise COMMENT.",
+        "diffLayout": "split",
+        "guideAgent": null,
+        "guideDetail": "standard",
+        "guideInstructions": "",
+        "knobs": {
+          "agentCoverage": true,
+          "alertGuides": true,
+          "alertTurns": true,
+          "approveGuard": true,
+          "approveGuardPace": 500,
+          "askAboutSelection": true,
+          "checkFailureActions": true,
+          "ciInCode": true,
+          "codeOwners": true,
+          "commentKeys": true,
+          "digDeeper": true,
+          "foldGeneratedFiles": true,
+          "foldViewedFiles": true,
+          "localDiffChanges": true,
+          "lockfileDigest": true,
+          "mentionsWake": true,
+          "moveToSummary": true,
+          "openInEditor": true,
+          "paletteCommands": true,
+          "preExistingFindings": true,
+          "prepareOnReturn": true,
+          "recheckOnNewCommits": true,
+          "removalReasons": true,
+          "requirements": true,
+          "returnToOverview": true,
+          "reviewAgentActs": false,
+          "reviewChangesLine": false,
+          "reviewCommandInThreads": true,
+          "reviewMd": true,
+          "runAutomaticReview": true,
+          "runReReviewCheck": true,
+          "sendToThread": true,
+          "singleKeyShortcuts": true,
+          "stopGenerating": true,
+          "testWeakening": true,
+          "trackOwnPrs": false,
+          "trackReviewedPrs": true,
+          "unattendedAgents": true
+        },
+        "markdownFiles": "source",
+        "newFiles": "file",
+        "pushChecks": "off",
+        "rereviewShows": "since",
+        "runRepoChecks": false,
+        "threadListReviews": true,
+        "trackGithubReviews": true,
+        "trackTeamRequests": false,
+        "unattendedAuthors": "members",
+        "verificationPrompt": "Check whether the author properly addressed each piece of my earlier feedback. Start with list_feedback and read_changes_since_review, and read files with read_file when you need context.\nRecord a verdict with one line of evidence for every item with assess_feedback.\nThen look for new problems the fix commits introduce, and add each as an inline draft comment.\nDraft a reply with draft_thread_reply only on open threads where one adds something: what's still missing, or a short thanks naming the fixing commit. Keep everything terse.",
+        "wakeOnReplies": "questions"
+      },
+      "revision": 1
+    },
+    "listReviews": [
+      {
+        "createdAt": 1793000000053,
+        "feature": {
+          "baseRef": "main",
+          "branch": "casey/downloads-23",
+          "changedFiles": null,
+          "environmentId": "env_23",
+          "hostId": "host_maxbook",
+          "machine": "MaxBook",
+          "path": "/Users/casey/src/web-23",
+          "prReview": "pr-86f279ce9c29f106-23",
+          "repo": "acme/web"
+        },
+        "gitRef": "casey/downloads-23",
+        "kind": "ref",
+        "mainThread": {
+          "environmentId": "env_23",
+          "origin": "adopted",
+          "since": 1793000000030,
+          "threadId": "thr_23"
+        },
+        "projectId": "p1",
+        "status": "ready",
+        "targetKey": "br-8b39b2ddf5bd0076",
+        "title": "Retry downloads 23"
+      },
+      {
+        "createdAt": 1793000000052,
+        "feature": {
+          "baseRef": "main",
+          "branch": "casey/downloads-22",
+          "changedFiles": null,
+          "environmentId": "env_22",
+          "hostId": "host_maxbook",
+          "machine": "MaxBook",
+          "path": "/Users/casey/src/web-22",
+          "prReview": "pr-86f279ce9c29f106-22",
+          "repo": "acme/web"
+        },
+        "gitRef": "casey/downloads-22",
+        "kind": "ref",
+        "mainThread": {
+          "environmentId": "env_22",
+          "origin": "adopted",
+          "since": 1793000000030,
+          "threadId": "thr_22"
+        },
+        "projectId": "p1",
+        "status": "ready",
+        "targetKey": "br-9eb956119044eee4",
+        "title": "Retry downloads 22"
+      },
+      {
+        "author": "casey",
+        "base": "main",
+        "createdAt": 1793000000051,
+        "feature": {
+          "baseRef": "main",
+          "branch": "casey/downloads-21",
+          "changedFiles": null,
+          "environmentId": "env_21",
+          "hostId": "host_maxbook",
+          "machine": "MaxBook",
+          "path": "/Users/casey/src/web-21",
+          "repo": "acme/web"
+        },
+        "gitRef": "main...casey/downloads-21",
+        "head": "casey/downloads-21",
+        "headSha": "c3d4e5f60718293a4b5c6d7e8f90123456789abc",
+        "kind": "pr",
+        "mainThread": {
+          "environmentId": "env_21",
+          "origin": "adopted",
+          "since": 1793000000030,
+          "threadId": "thr_21"
+        },
+        "number": 21,
+        "projectId": "p1",
+        "repo": "acme/web",
+        "startedPrState": "OPEN",
+        "status": "ready",
+        "targetKey": "br-0a93e726f82b0934",
+        "title": "Retry downloads 21",
+        "url": "https://github.com/acme/web/pull/21"
+      },
+      {
+        "author": "casey",
+        "createdAt": 1793000000025,
+        "kind": "pr",
+        "number": 22,
+        "projectId": "p1",
+        "repo": "acme/web",
+        "status": "tracked",
+        "targetKey": "pr-86f279ce9c29f106-22",
+        "title": "Retry downloads 22",
+        "url": "https://github.com/acme/web/pull/22"
+      },
+      {
+        "author": "casey",
+        "createdAt": 1793000000025,
+        "kind": "pr",
+        "number": 23,
+        "projectId": "p1",
+        "repo": "acme/web",
+        "status": "tracked",
+        "targetKey": "pr-86f279ce9c29f106-23",
+        "title": "Retry downloads 23",
+        "url": "https://github.com/acme/web/pull/23"
+      },
+      {
+        "activity": [
+          {
+            "asking": "unattended",
+            "at": 1793000000705,
+            "text": "Drafted 1 comment"
+          }
+        ],
+        "author": "per",
+        "base": "main",
+        "createdAt": 1793000000020,
+        "head": "per/metrics",
+        "headSha": "c3d4e5f60718293a4b5c6d7e8f90123456789abc",
+        "kind": "pr",
+        "latestHeadSha": "c3d4e5f60718293a4b5c6d7e8f90123456789abc",
+        "number": 15,
+        "ownPr": false,
+        "prState": "OPEN",
+        "projectId": "p1",
+        "readyToApprove": {
+          "action": "approve",
+          "at": 1793000000710,
+          "body": "Thanks, looks good.",
+          "comments": [
+            {
+              "body": "Nice.",
+              "line": 2,
+              "path": "api.ts",
+              "side": "RIGHT"
+            }
+          ],
+          "from": "thr_orch",
+          "fromTitle": "Orchestrate",
+          "headSha": "c3d4e5f60718293a4b5c6d7e8f90123456789abc",
+          "token": "tok-approve",
+          "verdict": "APPROVE"
+        },
+        "repo": "acme/web",
+        "reviewer": "casey",
+        "sends": [
+          {
+            "at": 1793000000700,
+            "ids": [
+              "c9"
+            ],
+            "n": 1,
+            "threadId": "thr_fix15"
+          }
+        ],
+        "status": "ready",
+        "targetKey": "pr-86f279ce9c29f106-15",
+        "title": "Add upload metrics",
+        "url": "https://github.com/acme/web/pull/15",
+        "watchingSince": 1793000000000
+      },
+      {
+        "activity": [
+          {
+            "asking": "direct",
+            "at": 1793000000402,
+            "text": "Posted a reply on util.ts:1",
+            "url": "https://github.com/acme/web/pull/12#discussion_r72"
+          },
+          {
+            "asking": "relayed",
+            "at": 1793000000403,
+            "from": "thr_orch",
+            "fromTitle": "Orchestrate",
+            "text": "Resolved a thread on util.ts:1"
+          }
+        ],
+        "author": "casey",
+        "base": "main",
+        "createdAt": 1793000000010,
+        "feature": {
+          "baseRef": "main",
+          "branch": "casey/login",
+          "environmentId": "env_login",
+          "folderGone": true,
+          "hostId": "host_maxbook",
+          "machine": "MaxBook",
+          "path": "/Users/casey/src/web-login",
+          "repo": "acme/web"
+        },
+        "gitRef": "main...casey/login",
+        "head": "casey/login",
+        "headFork": null,
+        "headSha": "c3d4e5f60718293a4b5c6d7e8f90123456789abc",
+        "implementers": [
+          {
+            "environmentId": "env_login",
+            "origin": "adopted",
+            "since": 1793000000010,
+            "threadId": "thr_login"
+          }
+        ],
+        "keptBranches": [
+          {
+            "at": 1793000000305,
+            "branch": "bb/login-thr_login",
+            "machine": "MaxBook",
+            "path": "/Users/casey/src/web"
+          }
+        ],
+        "kind": "pr",
+        "latestHeadSha": "c3d4e5f60718293a4b5c6d7e8f90123456789abc",
+        "mainThread": {
+          "branch": "bb/fixes-thr_fixer",
+          "environmentId": "env_fixer",
+          "fixer": {
+            "at": 1793000000300,
+            "sha": "c3d4e5f60718293a4b5c6d7e8f90123456789abc"
+          },
+          "origin": "fresh",
+          "since": 1793000000300,
+          "threadId": "thr_fixer"
+        },
+        "notPushedSeen": {
+          "at": 1793000000430,
+          "base": "c3d4e5f60718293a4b5c6d7e8f90123456789abc",
+          "environmentId": "env_fixer"
+        },
+        "number": 12,
+        "ownPr": true,
+        "prConversation": [
+          {
+            "at": 1793000000005,
+            "author": "per",
+            "body": "Can this land today?",
+            "bot": false,
+            "id": "IC_1",
+            "kind": "comment",
+            "url": "https://github.com/acme/web/pull/12#issuecomment-1",
+            "waiting": true
+          }
+        ],
+        "prState": "OPEN",
+        "projectId": "p1",
+        "push": {
+          "at": 1793000000500,
+          "fixer": true,
+          "flag": "unrequested",
+          "head": "casey/login",
+          "remote": "4444444444444444444444444444444444444444",
+          "repo": "acme/web",
+          "state": "flagged",
+          "threadId": "thr_fixer"
+        },
+        "readyToApprove": {
+          "action": "merge",
+          "at": 1793000000600,
+          "body": "",
+          "comments": [],
+          "from": "thr_orch",
+          "fromTitle": "Orchestrate",
+          "headSha": "c3d4e5f60718293a4b5c6d7e8f90123456789abc",
+          "merge": {
+            "auto": true,
+            "deleteBranch": true,
+            "method": "squash"
+          },
+          "token": "tok-merge",
+          "verdict": null
+        },
+        "remoteHead": {
+          "at": 1793000000500,
+          "head": "casey/login",
+          "repo": "acme/web",
+          "sha": "4444444444444444444444444444444444444444"
+        },
+        "repo": "acme/web",
+        "reviewer": "casey",
+        "sends": [
+          {
+            "at": 1793000000310,
+            "coverClosed": true,
+            "ids": [
+              "c5",
+              "c6",
+              "c7",
+              "c8"
+            ],
+            "letPush": true,
+            "n": 1,
+            "patch": "--- a/api.ts\n+++ b/api.ts\n@@ -3 +3 @@\n-send();\n+send().catch(log);\n",
+            "readyAt": 1793000000420,
+            "threadId": "thr_fixer"
+          }
+        ],
+        "sent": {
+          "at": 1793000000310,
+          "comments": [
+            {
+              "at": 1793000000310,
+              "body": "Sent: use the shared constant.",
+              "file": "api.ts",
+              "line": 2,
+              "side": "RIGHT"
+            }
+          ],
+          "threadId": "thr_fixer",
+          "title": "Fixes for web#12 · Fix login race"
+        },
+        "sourceThreadAt": 1793000000300,
+        "sourceThreadId": "thr_fixer",
+        "status": "ready",
+        "targetKey": "pr-86f279ce9c29f106-12",
+        "threadSends": {
+          "PRRT_7": {
+            "claim": {
+              "at": 1793000000402,
+              "note": "Matches the SLO.",
+              "outcome": "done",
+              "threadId": "thr_fixer"
+            },
+            "id": "c8",
+            "sendN": 1
+          }
+        },
+        "title": "Fix login race",
+        "url": "https://github.com/acme/web/pull/12",
+        "watchingSince": 1793000000000
+      },
+      {
+        "activity": [
+          {
+            "asking": "direct",
+            "at": 1793000000050,
+            "text": "Sent 4 comments to Retry uploads"
+          }
+        ],
+        "createdAt": 1793000000000,
+        "feature": {
+          "baseRef": "main",
+          "branch": "casey/upload-retries",
+          "changedFiles": null,
+          "environmentId": "env_fixture",
+          "hostId": "host_maxbook",
+          "machine": "MaxBook",
+          "mergeBaseRef": "0123456789abcdef0123456789abcdef01234567",
+          "path": "/Users/casey/src/web",
+          "repo": "acme/web"
+        },
+        "fixes": {
+          "checked": 0,
+          "fixed": 0,
+          "inferred": 0,
+          "reported": 0,
+          "sent": 1
+        },
+        "flaggedSeen": [
+          "config/secrets.yml"
+        ],
+        "gitRef": "casey/upload-retries",
+        "implementers": [
+          {
+            "environmentId": "env_fixture",
+            "origin": "adopted",
+            "since": 1792999995000,
+            "threadId": "thr_before"
+          }
+        ],
+        "includeHidden": [
+          ".env.example"
+        ],
+        "kind": "ref",
+        "letPush": true,
+        "mainThread": {
+          "environmentId": "env_fixture",
+          "origin": "adopted",
+          "since": 1793000000000,
+          "threadId": "thr_main"
+        },
+        "projectId": "p1",
+        "push": {
+          "at": 1793000000300,
+          "head": "casey/upload-retries",
+          "repo": "acme/web",
+          "sha": "2222222222222222222222222222222222222222",
+          "state": "pushed",
+          "threadId": "thr_main"
+        },
+        "remoteHead": {
+          "at": 1793000000301,
+          "head": "casey/upload-retries",
+          "repo": "acme/web",
+          "sha": "2222222222222222222222222222222222222222"
+        },
+        "sends": [
+          {
+            "at": 1793000000050,
+            "checkedAt": 1793000000120,
+            "ids": [
+              "c1",
+              "c2",
+              "c3",
+              "c4"
+            ],
+            "n": 1,
+            "readyAt": 1793000000110,
+            "readyBy": {
+              "from": "main"
+            },
+            "threadId": "thr_main"
+          },
+          {
+            "at": 1793000000200,
+            "ids": [
+              "c1"
+            ],
+            "letPush": true,
+            "n": 2,
+            "queued": "msg_q2",
+            "threadId": "thr_main"
+          }
+        ],
+        "sent": {
+          "at": 1793000000200,
+          "comments": [
+            {
+              "at": 1793000000200,
+              "body": "Cap the retries at 3.",
+              "file": "api.ts",
+              "line": 1,
+              "side": "RIGHT"
+            }
+          ],
+          "threadId": "thr_main",
+          "title": "Retry uploads"
+        },
+        "sourceThreadAt": 1793000000000,
+        "sourceThreadId": "thr_main",
+        "status": "ready",
+        "targetKey": "br-278040a3ec03412c",
+        "title": "Retry uploads"
+      }
+    ],
+    "listAssistantThreads": [],
+    "reasonedRemovals": [],
+    "listAgentOutcomes": [],
+    "listFilterViews": [],
+    "generationOf": {}
+  },
+  "reviews": {
+    "br-0a93e726f82b0934": {
+      "getReview": {
+        "author": "casey",
+        "base": "main",
+        "createdAt": 1793000000051,
+        "feature": {
+          "baseRef": "main",
+          "branch": "casey/downloads-21",
+          "changedFiles": null,
+          "environmentId": "env_21",
+          "hostId": "host_maxbook",
+          "machine": "MaxBook",
+          "path": "/Users/casey/src/web-21",
+          "repo": "acme/web"
+        },
+        "gitRef": "main...casey/downloads-21",
+        "head": "casey/downloads-21",
+        "headSha": "c3d4e5f60718293a4b5c6d7e8f90123456789abc",
+        "kind": "pr",
+        "mainThread": {
+          "environmentId": "env_21",
+          "origin": "adopted",
+          "since": 1793000000030,
+          "threadId": "thr_21"
+        },
+        "number": 21,
+        "projectId": "p1",
+        "repo": "acme/web",
+        "startedPrState": "OPEN",
+        "status": "ready",
+        "targetKey": "br-0a93e726f82b0934",
+        "title": "Retry downloads 21",
+        "url": "https://github.com/acme/web/pull/21"
+      },
+      "getReviewerNotes": {
+        "body": "",
+        "revision": 0
+      },
+      "getReviewContext": null,
+      "hasPatch": true,
+      "patchHash": "a62c37a6292e710b2edbaf47665730bd4fe8a5e7d2474f16f719bffd5f627eeb",
+      "patch": {
+        "length": 279,
+        "sha256": "a62c37a6292e710b2edbaf47665730bd4fe8a5e7d2474f16f719bffd5f627eeb"
+      },
+      "diffPositions": [
+        [
+          "api.ts",
+          {
+            "left": 3,
+            "right": 4,
+            "sha256": "6cb829e1ac57652775f7d8f320ad28409cabb220ddceb7329c566465900da5ba"
+          }
+        ],
+        [
+          "util.ts",
+          {
+            "left": 2,
+            "right": 2,
+            "sha256": "874c690fe320ec844368646fe4a6658320e3118c157efa48c2481e392e3c731e"
+          }
+        ]
+      ],
+      "getGuide": null,
+      "guideBackupHead": null,
+      "generationWorker": null,
+      "isCurrentGeneration": {},
+      "getDraft": {
+        "body": "",
+        "comments": [
+          {
+            "body": "Retry downloads too, 21.",
+            "file": "api.ts",
+            "line": 2,
+            "side": "RIGHT"
+          }
+        ],
+        "targetKey": "br-0a93e726f82b0934",
+        "verdict": "COMMENT"
+      },
+      "staleDraftComments": [],
+      "listDiscussions": [],
+      "getFileViews": [],
+      "fileHashes": {
+        "files": [
+          "api.ts",
+          "util.ts"
+        ],
+        "current": {
+          "$map": [
+            [
+              "api.ts",
+              "0f5365326694dec9c2c082aa3fecacffae9ac93c15417c7218f746a29e109906"
+            ],
+            [
+              "util.ts",
+              "50c07b2ac48978da98d374dd7d6a08a9c35e19bfdcf9e31566dcfe5b9abc2f42"
+            ]
+          ]
+        },
+        "legacy": {
+          "$map": [
+            [
+              "api.ts",
+              "a59632a14d46a46fa2819e7d59eb70a5dd56e2978995e81579ebbd1297211eb0"
+            ],
+            [
+              "util.ts",
+              "912af391de9289cc9ae72b4a6894bcde3d2cdae453199d7fd50489d6d708e334"
+            ]
+          ]
+        }
+      },
+      "getAgentThread": null,
+      "listAgentMessages": [],
+      "getAssistantThread": null,
+      "listFeedbackThreads": [],
+      "feedbackFetched": null,
+      "latestAssessmentRun": null,
+      "listReplyDrafts": {
+        "$map": []
+      },
+      "isDiscoveryIgnored": false,
+      "agentCommentChanges": [],
+      "getSnapshot": {
+        "c3d4e5f60718293a4b5c6d7e8f90123456789abc": {
+          "length": 279,
+          "sha256": "a62c37a6292e710b2edbaf47665730bd4fe8a5e7d2474f16f719bffd5f627eeb"
+        }
+      },
+      "getAssessment": {},
+      "locations": [
+        {
+          "at": {
+            "file": "api.ts",
+            "line": 2,
+            "side": "RIGHT"
+          },
+          "draftCommentCode": "retry(upload);",
+          "draftCommentStartCode": {
+            "$undefined": true
+          },
+          "lastDiscussionChange": null
+        }
+      ]
+    },
+    "br-278040a3ec03412c": {
+      "getReview": {
+        "activity": [
+          {
+            "asking": "direct",
+            "at": 1793000000050,
+            "text": "Sent 4 comments to Retry uploads"
+          }
+        ],
+        "createdAt": 1793000000000,
+        "feature": {
+          "baseRef": "main",
+          "branch": "casey/upload-retries",
+          "changedFiles": null,
+          "environmentId": "env_fixture",
+          "hostId": "host_maxbook",
+          "machine": "MaxBook",
+          "mergeBaseRef": "0123456789abcdef0123456789abcdef01234567",
+          "path": "/Users/casey/src/web",
+          "repo": "acme/web"
+        },
+        "fixes": {
+          "checked": 0,
+          "fixed": 0,
+          "inferred": 0,
+          "reported": 0,
+          "sent": 1
+        },
+        "flaggedSeen": [
+          "config/secrets.yml"
+        ],
+        "gitRef": "casey/upload-retries",
+        "implementers": [
+          {
+            "environmentId": "env_fixture",
+            "origin": "adopted",
+            "since": 1792999995000,
+            "threadId": "thr_before"
+          }
+        ],
+        "includeHidden": [
+          ".env.example"
+        ],
+        "kind": "ref",
+        "letPush": true,
+        "mainThread": {
+          "environmentId": "env_fixture",
+          "origin": "adopted",
+          "since": 1793000000000,
+          "threadId": "thr_main"
+        },
+        "projectId": "p1",
+        "push": {
+          "at": 1793000000300,
+          "head": "casey/upload-retries",
+          "repo": "acme/web",
+          "sha": "2222222222222222222222222222222222222222",
+          "state": "pushed",
+          "threadId": "thr_main"
+        },
+        "remoteHead": {
+          "at": 1793000000301,
+          "head": "casey/upload-retries",
+          "repo": "acme/web",
+          "sha": "2222222222222222222222222222222222222222"
+        },
+        "sends": [
+          {
+            "at": 1793000000050,
+            "checkedAt": 1793000000120,
+            "ids": [
+              "c1",
+              "c2",
+              "c3",
+              "c4"
+            ],
+            "n": 1,
+            "readyAt": 1793000000110,
+            "readyBy": {
+              "from": "main"
+            },
+            "threadId": "thr_main"
+          },
+          {
+            "at": 1793000000200,
+            "ids": [
+              "c1"
+            ],
+            "letPush": true,
+            "n": 2,
+            "queued": "msg_q2",
+            "threadId": "thr_main"
+          }
+        ],
+        "sent": {
+          "at": 1793000000200,
+          "comments": [
+            {
+              "at": 1793000000200,
+              "body": "Cap the retries at 3.",
+              "file": "api.ts",
+              "line": 1,
+              "side": "RIGHT"
+            }
+          ],
+          "threadId": "thr_main",
+          "title": "Retry uploads"
+        },
+        "sourceThreadAt": 1793000000000,
+        "sourceThreadId": "thr_main",
+        "status": "ready",
+        "targetKey": "br-278040a3ec03412c",
+        "title": "Retry uploads"
+      },
+      "getReviewerNotes": {
+        "body": "",
+        "revision": 0
+      },
+      "getReviewContext": null,
+      "hasPatch": true,
+      "patchHash": "4c7066037813a18910705a742b95f61a530deaa2c3d603854b893f03bb6aeb69",
+      "patch": {
+        "length": 410,
+        "sha256": "4c7066037813a18910705a742b95f61a530deaa2c3d603854b893f03bb6aeb69"
+      },
+      "diffPositions": [
+        [
+          "api.ts",
+          {
+            "left": 3,
+            "right": 4,
+            "sha256": "6cb829e1ac57652775f7d8f320ad28409cabb220ddceb7329c566465900da5ba"
+          }
+        ],
+        [
+          "util.ts",
+          {
+            "left": 2,
+            "right": 2,
+            "sha256": "874c690fe320ec844368646fe4a6658320e3118c157efa48c2481e392e3c731e"
+          }
+        ],
+        [
+          "retry.ts",
+          {
+            "left": 0,
+            "right": 1,
+            "sha256": "cabc154a7e9d3c2959e3c14ee4642fbd4bccd048de7132e97ef807956a674df2"
+          }
+        ]
+      ],
+      "getGuide": null,
+      "guideBackupHead": null,
+      "generationWorker": null,
+      "isCurrentGeneration": {},
+      "getDraft": {
+        "body": "",
+        "comments": [
+          {
+            "body": "Cap the retries at 3.",
+            "file": "api.ts",
+            "id": "c1",
+            "line": 1,
+            "sendN": 2,
+            "severity": "should-fix",
+            "side": "RIGHT",
+            "state": "sent"
+          },
+          {
+            "author": "agent",
+            "body": "Retry only on a network error.",
+            "claim": {
+              "at": 1793000000101,
+              "outcome": "done",
+              "threadId": "thr_sub"
+            },
+            "editedBy": "agent",
+            "evidence": "Read api.ts:2.",
+            "file": "api.ts",
+            "id": "c2",
+            "line": 2,
+            "sendN": 1,
+            "severity": "blocking",
+            "side": "RIGHT",
+            "state": "resolved"
+          },
+          {
+            "body": "Log the failure.",
+            "claim": {
+              "at": 1793000000102,
+              "note": "The caller logs it.",
+              "outcome": "declined",
+              "threadId": "thr_main"
+            },
+            "file": "api.ts",
+            "id": "c3",
+            "line": 3,
+            "sendN": 1,
+            "side": "RIGHT",
+            "state": "dismissed"
+          },
+          {
+            "body": "Say done once.",
+            "claim": {
+              "at": 1793000000103,
+              "inferred": true,
+              "outcome": "done",
+              "threadId": null
+            },
+            "file": "api.ts",
+            "id": "c4",
+            "line": 4,
+            "sendN": 1,
+            "side": "RIGHT",
+            "state": "open"
+          },
+          {
+            "body": "Not sent yet.",
+            "file": "util.ts",
+            "line": 1,
+            "side": "RIGHT"
+          }
+        ],
+        "targetKey": "br-278040a3ec03412c",
+        "verdict": "COMMENT"
+      },
+      "staleDraftComments": [],
+      "listDiscussions": [],
+      "getFileViews": [],
+      "fileHashes": {
+        "files": [
+          "api.ts",
+          "retry.ts",
+          "util.ts"
+        ],
+        "current": {
+          "$map": [
+            [
+              "api.ts",
+              "0f5365326694dec9c2c082aa3fecacffae9ac93c15417c7218f746a29e109906"
+            ],
+            [
+              "retry.ts",
+              "70283026c08bff3e6d7be5cab16da680eac3457b8847418bcfbab354d8d8e933"
+            ],
+            [
+              "util.ts",
+              "50c07b2ac48978da98d374dd7d6a08a9c35e19bfdcf9e31566dcfe5b9abc2f42"
+            ]
+          ]
+        },
+        "legacy": {
+          "$map": [
+            [
+              "api.ts",
+              "a59632a14d46a46fa2819e7d59eb70a5dd56e2978995e81579ebbd1297211eb0"
+            ],
+            [
+              "retry.ts",
+              "842d6585440761296566a4e1fe7500fca821ab32ffc6b02689c5c219ef8d34c0"
+            ],
+            [
+              "util.ts",
+              "912af391de9289cc9ae72b4a6894bcde3d2cdae453199d7fd50489d6d708e334"
+            ]
+          ]
+        }
+      },
+      "getAgentThread": null,
+      "listAgentMessages": [],
+      "getAssistantThread": null,
+      "listFeedbackThreads": [],
+      "feedbackFetched": null,
+      "latestAssessmentRun": null,
+      "listReplyDrafts": {
+        "$map": []
+      },
+      "isDiscoveryIgnored": false,
+      "agentCommentChanges": [],
+      "getSnapshot": {
+        "diff:4c7066037813a18910705a742b95f61a530deaa2c3d603854b893f03bb6aeb69:files": {
+          "length": 110,
+          "sha256": "46e81fc138f222ed9f44fedfa31730eb8495789fa26c4e638d71d56faf447f1e"
+        },
+        "diff:a62c37a6292e710b2edbaf47665730bd4fe8a5e7d2474f16f719bffd5f627eeb:files": {
+          "length": 110,
+          "sha256": "ff2504ca155a527fe045c11c1f90a46bb20ba57b7685e2c798ba4243dbc449ee"
+        },
+        "send:1": {
+          "length": 279,
+          "sha256": "a62c37a6292e710b2edbaf47665730bd4fe8a5e7d2474f16f719bffd5f627eeb"
+        },
+        "send:1:files": {
+          "length": 110,
+          "sha256": "ff2504ca155a527fe045c11c1f90a46bb20ba57b7685e2c798ba4243dbc449ee"
+        },
+        "send:2": {
+          "length": 410,
+          "sha256": "4c7066037813a18910705a742b95f61a530deaa2c3d603854b893f03bb6aeb69"
+        },
+        "send:2:files": {
+          "length": 110,
+          "sha256": "46e81fc138f222ed9f44fedfa31730eb8495789fa26c4e638d71d56faf447f1e"
+        }
+      },
+      "getAssessment": {},
+      "locations": [
+        {
+          "at": {
+            "file": "api.ts",
+            "line": 1,
+            "side": "RIGHT"
+          },
+          "draftCommentCode": "const tries = 5;",
+          "draftCommentStartCode": {
+            "$undefined": true
+          },
+          "lastDiscussionChange": null
+        },
+        {
+          "at": {
+            "file": "api.ts",
+            "line": 2,
+            "side": "RIGHT"
+          },
+          "draftCommentCode": "retry(upload);",
+          "draftCommentStartCode": {
+            "$undefined": true
+          },
+          "lastDiscussionChange": null
+        },
+        {
+          "at": {
+            "file": "api.ts",
+            "line": 3,
+            "side": "RIGHT"
+          },
+          "draftCommentCode": "send();",
+          "draftCommentStartCode": {
+            "$undefined": true
+          },
+          "lastDiscussionChange": null
+        },
+        {
+          "at": {
+            "file": "api.ts",
+            "line": 4,
+            "side": "RIGHT"
+          },
+          "draftCommentCode": "done();",
+          "draftCommentStartCode": {
+            "$undefined": true
+          },
+          "lastDiscussionChange": null
+        },
+        {
+          "at": {
+            "file": "util.ts",
+            "line": 1,
+            "side": "RIGHT"
+          },
+          "draftCommentCode": "export const wait = 100;",
+          "draftCommentStartCode": {
+            "$undefined": true
+          },
+          "lastDiscussionChange": null
+        }
+      ]
+    },
+    "br-8b39b2ddf5bd0076": {
+      "getReview": {
+        "createdAt": 1793000000053,
+        "feature": {
+          "baseRef": "main",
+          "branch": "casey/downloads-23",
+          "changedFiles": null,
+          "environmentId": "env_23",
+          "hostId": "host_maxbook",
+          "machine": "MaxBook",
+          "path": "/Users/casey/src/web-23",
+          "prReview": "pr-86f279ce9c29f106-23",
+          "repo": "acme/web"
+        },
+        "gitRef": "casey/downloads-23",
+        "kind": "ref",
+        "mainThread": {
+          "environmentId": "env_23",
+          "origin": "adopted",
+          "since": 1793000000030,
+          "threadId": "thr_23"
+        },
+        "projectId": "p1",
+        "status": "ready",
+        "targetKey": "br-8b39b2ddf5bd0076",
+        "title": "Retry downloads 23"
+      },
+      "getReviewerNotes": {
+        "body": "",
+        "revision": 0
+      },
+      "getReviewContext": null,
+      "hasPatch": true,
+      "patchHash": "a62c37a6292e710b2edbaf47665730bd4fe8a5e7d2474f16f719bffd5f627eeb",
+      "patch": {
+        "length": 279,
+        "sha256": "a62c37a6292e710b2edbaf47665730bd4fe8a5e7d2474f16f719bffd5f627eeb"
+      },
+      "diffPositions": [
+        [
+          "api.ts",
+          {
+            "left": 3,
+            "right": 4,
+            "sha256": "6cb829e1ac57652775f7d8f320ad28409cabb220ddceb7329c566465900da5ba"
+          }
+        ],
+        [
+          "util.ts",
+          {
+            "left": 2,
+            "right": 2,
+            "sha256": "874c690fe320ec844368646fe4a6658320e3118c157efa48c2481e392e3c731e"
+          }
+        ]
+      ],
+      "getGuide": null,
+      "guideBackupHead": null,
+      "generationWorker": null,
+      "isCurrentGeneration": {},
+      "getDraft": {
+        "body": "",
+        "comments": [
+          {
+            "body": "Retry downloads too, 23.",
+            "file": "api.ts",
+            "line": 2,
+            "side": "RIGHT"
+          }
+        ],
+        "targetKey": "br-8b39b2ddf5bd0076",
+        "verdict": "COMMENT"
+      },
+      "staleDraftComments": [],
+      "listDiscussions": [],
+      "getFileViews": [],
+      "fileHashes": {
+        "files": [
+          "api.ts",
+          "util.ts"
+        ],
+        "current": {
+          "$map": [
+            [
+              "api.ts",
+              "0f5365326694dec9c2c082aa3fecacffae9ac93c15417c7218f746a29e109906"
+            ],
+            [
+              "util.ts",
+              "50c07b2ac48978da98d374dd7d6a08a9c35e19bfdcf9e31566dcfe5b9abc2f42"
+            ]
+          ]
+        },
+        "legacy": {
+          "$map": [
+            [
+              "api.ts",
+              "a59632a14d46a46fa2819e7d59eb70a5dd56e2978995e81579ebbd1297211eb0"
+            ],
+            [
+              "util.ts",
+              "912af391de9289cc9ae72b4a6894bcde3d2cdae453199d7fd50489d6d708e334"
+            ]
+          ]
+        }
+      },
+      "getAgentThread": null,
+      "listAgentMessages": [],
+      "getAssistantThread": null,
+      "listFeedbackThreads": [],
+      "feedbackFetched": null,
+      "latestAssessmentRun": null,
+      "listReplyDrafts": {
+        "$map": []
+      },
+      "isDiscoveryIgnored": false,
+      "agentCommentChanges": [],
+      "getSnapshot": {},
+      "getAssessment": {},
+      "locations": [
+        {
+          "at": {
+            "file": "api.ts",
+            "line": 2,
+            "side": "RIGHT"
+          },
+          "draftCommentCode": "retry(upload);",
+          "draftCommentStartCode": {
+            "$undefined": true
+          },
+          "lastDiscussionChange": null
+        }
+      ]
+    },
+    "br-9eb956119044eee4": {
+      "getReview": {
+        "createdAt": 1793000000052,
+        "feature": {
+          "baseRef": "main",
+          "branch": "casey/downloads-22",
+          "changedFiles": null,
+          "environmentId": "env_22",
+          "hostId": "host_maxbook",
+          "machine": "MaxBook",
+          "path": "/Users/casey/src/web-22",
+          "prReview": "pr-86f279ce9c29f106-22",
+          "repo": "acme/web"
+        },
+        "gitRef": "casey/downloads-22",
+        "kind": "ref",
+        "mainThread": {
+          "environmentId": "env_22",
+          "origin": "adopted",
+          "since": 1793000000030,
+          "threadId": "thr_22"
+        },
+        "projectId": "p1",
+        "status": "ready",
+        "targetKey": "br-9eb956119044eee4",
+        "title": "Retry downloads 22"
+      },
+      "getReviewerNotes": {
+        "body": "",
+        "revision": 0
+      },
+      "getReviewContext": null,
+      "hasPatch": true,
+      "patchHash": "a62c37a6292e710b2edbaf47665730bd4fe8a5e7d2474f16f719bffd5f627eeb",
+      "patch": {
+        "length": 279,
+        "sha256": "a62c37a6292e710b2edbaf47665730bd4fe8a5e7d2474f16f719bffd5f627eeb"
+      },
+      "diffPositions": [
+        [
+          "api.ts",
+          {
+            "left": 3,
+            "right": 4,
+            "sha256": "6cb829e1ac57652775f7d8f320ad28409cabb220ddceb7329c566465900da5ba"
+          }
+        ],
+        [
+          "util.ts",
+          {
+            "left": 2,
+            "right": 2,
+            "sha256": "874c690fe320ec844368646fe4a6658320e3118c157efa48c2481e392e3c731e"
+          }
+        ]
+      ],
+      "getGuide": null,
+      "guideBackupHead": null,
+      "generationWorker": null,
+      "isCurrentGeneration": {},
+      "getDraft": {
+        "body": "",
+        "comments": [
+          {
+            "body": "Retry downloads too, 22.",
+            "file": "api.ts",
+            "line": 2,
+            "side": "RIGHT"
+          }
+        ],
+        "targetKey": "br-9eb956119044eee4",
+        "verdict": "COMMENT"
+      },
+      "staleDraftComments": [],
+      "listDiscussions": [],
+      "getFileViews": [],
+      "fileHashes": {
+        "files": [
+          "api.ts",
+          "util.ts"
+        ],
+        "current": {
+          "$map": [
+            [
+              "api.ts",
+              "0f5365326694dec9c2c082aa3fecacffae9ac93c15417c7218f746a29e109906"
+            ],
+            [
+              "util.ts",
+              "50c07b2ac48978da98d374dd7d6a08a9c35e19bfdcf9e31566dcfe5b9abc2f42"
+            ]
+          ]
+        },
+        "legacy": {
+          "$map": [
+            [
+              "api.ts",
+              "a59632a14d46a46fa2819e7d59eb70a5dd56e2978995e81579ebbd1297211eb0"
+            ],
+            [
+              "util.ts",
+              "912af391de9289cc9ae72b4a6894bcde3d2cdae453199d7fd50489d6d708e334"
+            ]
+          ]
+        }
+      },
+      "getAgentThread": null,
+      "listAgentMessages": [],
+      "getAssistantThread": null,
+      "listFeedbackThreads": [],
+      "feedbackFetched": null,
+      "latestAssessmentRun": null,
+      "listReplyDrafts": {
+        "$map": []
+      },
+      "isDiscoveryIgnored": false,
+      "agentCommentChanges": [],
+      "getSnapshot": {},
+      "getAssessment": {},
+      "locations": [
+        {
+          "at": {
+            "file": "api.ts",
+            "line": 2,
+            "side": "RIGHT"
+          },
+          "draftCommentCode": "retry(upload);",
+          "draftCommentStartCode": {
+            "$undefined": true
+          },
+          "lastDiscussionChange": null
+        }
+      ]
+    },
+    "pr-86f279ce9c29f106-12": {
+      "getReview": {
+        "activity": [
+          {
+            "asking": "direct",
+            "at": 1793000000402,
+            "text": "Posted a reply on util.ts:1",
+            "url": "https://github.com/acme/web/pull/12#discussion_r72"
+          },
+          {
+            "asking": "relayed",
+            "at": 1793000000403,
+            "from": "thr_orch",
+            "fromTitle": "Orchestrate",
+            "text": "Resolved a thread on util.ts:1"
+          }
+        ],
+        "author": "casey",
+        "base": "main",
+        "createdAt": 1793000000010,
+        "feature": {
+          "baseRef": "main",
+          "branch": "casey/login",
+          "environmentId": "env_login",
+          "folderGone": true,
+          "hostId": "host_maxbook",
+          "machine": "MaxBook",
+          "path": "/Users/casey/src/web-login",
+          "repo": "acme/web"
+        },
+        "gitRef": "main...casey/login",
+        "head": "casey/login",
+        "headFork": null,
+        "headSha": "c3d4e5f60718293a4b5c6d7e8f90123456789abc",
+        "implementers": [
+          {
+            "environmentId": "env_login",
+            "origin": "adopted",
+            "since": 1793000000010,
+            "threadId": "thr_login"
+          }
+        ],
+        "keptBranches": [
+          {
+            "at": 1793000000305,
+            "branch": "bb/login-thr_login",
+            "machine": "MaxBook",
+            "path": "/Users/casey/src/web"
+          }
+        ],
+        "kind": "pr",
+        "latestHeadSha": "c3d4e5f60718293a4b5c6d7e8f90123456789abc",
+        "mainThread": {
+          "branch": "bb/fixes-thr_fixer",
+          "environmentId": "env_fixer",
+          "fixer": {
+            "at": 1793000000300,
+            "sha": "c3d4e5f60718293a4b5c6d7e8f90123456789abc"
+          },
+          "origin": "fresh",
+          "since": 1793000000300,
+          "threadId": "thr_fixer"
+        },
+        "notPushedSeen": {
+          "at": 1793000000430,
+          "base": "c3d4e5f60718293a4b5c6d7e8f90123456789abc",
+          "environmentId": "env_fixer"
+        },
+        "number": 12,
+        "ownPr": true,
+        "prConversation": [
+          {
+            "at": 1793000000005,
+            "author": "per",
+            "body": "Can this land today?",
+            "bot": false,
+            "id": "IC_1",
+            "kind": "comment",
+            "url": "https://github.com/acme/web/pull/12#issuecomment-1",
+            "waiting": true
+          }
+        ],
+        "prState": "OPEN",
+        "projectId": "p1",
+        "push": {
+          "at": 1793000000500,
+          "fixer": true,
+          "flag": "unrequested",
+          "head": "casey/login",
+          "remote": "4444444444444444444444444444444444444444",
+          "repo": "acme/web",
+          "state": "flagged",
+          "threadId": "thr_fixer"
+        },
+        "readyToApprove": {
+          "action": "merge",
+          "at": 1793000000600,
+          "body": "",
+          "comments": [],
+          "from": "thr_orch",
+          "fromTitle": "Orchestrate",
+          "headSha": "c3d4e5f60718293a4b5c6d7e8f90123456789abc",
+          "merge": {
+            "auto": true,
+            "deleteBranch": true,
+            "method": "squash"
+          },
+          "token": "tok-merge",
+          "verdict": null
+        },
+        "remoteHead": {
+          "at": 1793000000500,
+          "head": "casey/login",
+          "repo": "acme/web",
+          "sha": "4444444444444444444444444444444444444444"
+        },
+        "repo": "acme/web",
+        "reviewer": "casey",
+        "sends": [
+          {
+            "at": 1793000000310,
+            "coverClosed": true,
+            "ids": [
+              "c5",
+              "c6",
+              "c7",
+              "c8"
+            ],
+            "letPush": true,
+            "n": 1,
+            "patch": "--- a/api.ts\n+++ b/api.ts\n@@ -3 +3 @@\n-send();\n+send().catch(log);\n",
+            "readyAt": 1793000000420,
+            "threadId": "thr_fixer"
+          }
+        ],
+        "sent": {
+          "at": 1793000000310,
+          "comments": [
+            {
+              "at": 1793000000310,
+              "body": "Sent: use the shared constant.",
+              "file": "api.ts",
+              "line": 2,
+              "side": "RIGHT"
+            }
+          ],
+          "threadId": "thr_fixer",
+          "title": "Fixes for web#12 · Fix login race"
+        },
+        "sourceThreadAt": 1793000000300,
+        "sourceThreadId": "thr_fixer",
+        "status": "ready",
+        "targetKey": "pr-86f279ce9c29f106-12",
+        "threadSends": {
+          "PRRT_7": {
+            "claim": {
+              "at": 1793000000402,
+              "note": "Matches the SLO.",
+              "outcome": "done",
+              "threadId": "thr_fixer"
+            },
+            "id": "c8",
+            "sendN": 1
+          }
+        },
+        "title": "Fix login race",
+        "url": "https://github.com/acme/web/pull/12",
+        "watchingSince": 1793000000000
+      },
+      "getReviewerNotes": {
+        "body": "",
+        "revision": 0
+      },
+      "getReviewContext": null,
+      "hasPatch": true,
+      "patchHash": "a62c37a6292e710b2edbaf47665730bd4fe8a5e7d2474f16f719bffd5f627eeb",
+      "patch": {
+        "length": 279,
+        "sha256": "a62c37a6292e710b2edbaf47665730bd4fe8a5e7d2474f16f719bffd5f627eeb"
+      },
+      "diffPositions": [
+        [
+          "api.ts",
+          {
+            "left": 3,
+            "right": 4,
+            "sha256": "6cb829e1ac57652775f7d8f320ad28409cabb220ddceb7329c566465900da5ba"
+          }
+        ],
+        [
+          "util.ts",
+          {
+            "left": 2,
+            "right": 2,
+            "sha256": "874c690fe320ec844368646fe4a6658320e3118c157efa48c2481e392e3c731e"
+          }
+        ]
+      ],
+      "getGuide": null,
+      "guideBackupHead": null,
+      "generationWorker": null,
+      "isCurrentGeneration": {},
+      "getDraft": {
+        "body": "",
+        "comments": [
+          {
+            "body": "Open: still to send.",
+            "file": "api.ts",
+            "line": 1,
+            "side": "RIGHT"
+          },
+          {
+            "body": "Sent: use the shared constant.",
+            "file": "api.ts",
+            "id": "c5",
+            "line": 2,
+            "sendN": 1,
+            "side": "RIGHT",
+            "state": "sent"
+          },
+          {
+            "body": "Resolved: log it.",
+            "claim": {
+              "at": 1793000000400,
+              "commit": "3333333333333333333333333333333333333333",
+              "outcome": "done",
+              "threadId": "thr_fixer"
+            },
+            "file": "api.ts",
+            "id": "c6",
+            "line": 3,
+            "sendN": 1,
+            "side": "RIGHT",
+            "state": "resolved"
+          },
+          {
+            "body": "Dismissed: rename it.",
+            "claim": {
+              "at": 1793000000401,
+              "note": "Out of scope.",
+              "outcome": "declined",
+              "threadId": "thr_fixer"
+            },
+            "file": "api.ts",
+            "id": "c7",
+            "line": 4,
+            "sendN": 1,
+            "severity": "nit",
+            "side": "RIGHT",
+            "state": "dismissed"
+          }
+        ],
+        "targetKey": "pr-86f279ce9c29f106-12",
+        "verdict": "COMMENT"
+      },
+      "staleDraftComments": [],
+      "listDiscussions": [],
+      "getFileViews": [],
+      "fileHashes": {
+        "files": [
+          "api.ts",
+          "util.ts"
+        ],
+        "current": {
+          "$map": [
+            [
+              "api.ts",
+              "0f5365326694dec9c2c082aa3fecacffae9ac93c15417c7218f746a29e109906"
+            ],
+            [
+              "util.ts",
+              "50c07b2ac48978da98d374dd7d6a08a9c35e19bfdcf9e31566dcfe5b9abc2f42"
+            ]
+          ]
+        },
+        "legacy": {
+          "$map": [
+            [
+              "api.ts",
+              "a59632a14d46a46fa2819e7d59eb70a5dd56e2978995e81579ebbd1297211eb0"
+            ],
+            [
+              "util.ts",
+              "912af391de9289cc9ae72b4a6894bcde3d2cdae453199d7fd50489d6d708e334"
+            ]
+          ]
+        }
+      },
+      "getAgentThread": null,
+      "listAgentMessages": [],
+      "getAssistantThread": null,
+      "listFeedbackThreads": [
+        {
+          "author": "per",
+          "body": "Why 100?",
+          "commentId": 71,
+          "createdAt": 1792999991000,
+          "id": "PRRT_7",
+          "isOutdated": false,
+          "isResolved": false,
+          "line": 1,
+          "originalLine": 1,
+          "path": "util.ts",
+          "replies": [],
+          "replyAt": null,
+          "resolvedBy": null,
+          "resolvedSeenAt": null,
+          "reviewId": "PRR_7",
+          "side": "RIGHT",
+          "startLine": null,
+          "status": "open",
+          "subjectType": "LINE"
+        }
+      ],
+      "feedbackFetched": {
+        "fetchedAt": 1793400923583,
+        "prUpdatedAt": 1792999999000
+      },
+      "latestAssessmentRun": null,
+      "listReplyDrafts": {
+        "$map": []
+      },
+      "isDiscoveryIgnored": false,
+      "agentCommentChanges": [],
+      "getSnapshot": {
+        "c3d4e5f60718293a4b5c6d7e8f90123456789abc": {
+          "length": 279,
+          "sha256": "a62c37a6292e710b2edbaf47665730bd4fe8a5e7d2474f16f719bffd5f627eeb"
+        },
+        "not-pushed:files": {
+          "length": 110,
+          "sha256": "ff2504ca155a527fe045c11c1f90a46bb20ba57b7685e2c798ba4243dbc449ee"
+        },
+        "send:1": {
+          "length": 279,
+          "sha256": "a62c37a6292e710b2edbaf47665730bd4fe8a5e7d2474f16f719bffd5f627eeb"
+        }
+      },
+      "getAssessment": {},
+      "locations": [
+        {
+          "at": {
+            "file": "api.ts",
+            "line": 1,
+            "side": "RIGHT"
+          },
+          "draftCommentCode": "const tries = 5;",
+          "draftCommentStartCode": {
+            "$undefined": true
+          },
+          "lastDiscussionChange": null
+        },
+        {
+          "at": {
+            "file": "api.ts",
+            "line": 2,
+            "side": "RIGHT"
+          },
+          "draftCommentCode": "retry(upload);",
+          "draftCommentStartCode": {
+            "$undefined": true
+          },
+          "lastDiscussionChange": null
+        },
+        {
+          "at": {
+            "file": "api.ts",
+            "line": 3,
+            "side": "RIGHT"
+          },
+          "draftCommentCode": "send();",
+          "draftCommentStartCode": {
+            "$undefined": true
+          },
+          "lastDiscussionChange": null
+        },
+        {
+          "at": {
+            "file": "api.ts",
+            "line": 4,
+            "side": "RIGHT"
+          },
+          "draftCommentCode": "done();",
+          "draftCommentStartCode": {
+            "$undefined": true
+          },
+          "lastDiscussionChange": null
+        }
+      ]
+    },
+    "pr-86f279ce9c29f106-15": {
+      "getReview": {
+        "activity": [
+          {
+            "asking": "unattended",
+            "at": 1793000000705,
+            "text": "Drafted 1 comment"
+          }
+        ],
+        "author": "per",
+        "base": "main",
+        "createdAt": 1793000000020,
+        "head": "per/metrics",
+        "headSha": "c3d4e5f60718293a4b5c6d7e8f90123456789abc",
+        "kind": "pr",
+        "latestHeadSha": "c3d4e5f60718293a4b5c6d7e8f90123456789abc",
+        "number": 15,
+        "ownPr": false,
+        "prState": "OPEN",
+        "projectId": "p1",
+        "readyToApprove": {
+          "action": "approve",
+          "at": 1793000000710,
+          "body": "Thanks, looks good.",
+          "comments": [
+            {
+              "body": "Nice.",
+              "line": 2,
+              "path": "api.ts",
+              "side": "RIGHT"
+            }
+          ],
+          "from": "thr_orch",
+          "fromTitle": "Orchestrate",
+          "headSha": "c3d4e5f60718293a4b5c6d7e8f90123456789abc",
+          "token": "tok-approve",
+          "verdict": "APPROVE"
+        },
+        "repo": "acme/web",
+        "reviewer": "casey",
+        "sends": [
+          {
+            "at": 1793000000700,
+            "ids": [
+              "c9"
+            ],
+            "n": 1,
+            "threadId": "thr_fix15"
+          }
+        ],
+        "status": "ready",
+        "targetKey": "pr-86f279ce9c29f106-15",
+        "title": "Add upload metrics",
+        "url": "https://github.com/acme/web/pull/15",
+        "watchingSince": 1793000000000
+      },
+      "getReviewerNotes": {
+        "body": "",
+        "revision": 0
+      },
+      "getReviewContext": null,
+      "hasPatch": true,
+      "patchHash": "a62c37a6292e710b2edbaf47665730bd4fe8a5e7d2474f16f719bffd5f627eeb",
+      "patch": {
+        "length": 279,
+        "sha256": "a62c37a6292e710b2edbaf47665730bd4fe8a5e7d2474f16f719bffd5f627eeb"
+      },
+      "diffPositions": [
+        [
+          "api.ts",
+          {
+            "left": 3,
+            "right": 4,
+            "sha256": "6cb829e1ac57652775f7d8f320ad28409cabb220ddceb7329c566465900da5ba"
+          }
+        ],
+        [
+          "util.ts",
+          {
+            "left": 2,
+            "right": 2,
+            "sha256": "874c690fe320ec844368646fe4a6658320e3118c157efa48c2481e392e3c731e"
+          }
+        ]
+      ],
+      "getGuide": null,
+      "guideBackupHead": null,
+      "generationWorker": null,
+      "isCurrentGeneration": {},
+      "getDraft": {
+        "body": "Looks good once the retries are counted.",
+        "comments": [
+          {
+            "body": "Count the retries.",
+            "file": "api.ts",
+            "id": "c9",
+            "line": 2,
+            "sendN": 1,
+            "severity": "should-fix",
+            "side": "RIGHT",
+            "state": "sent"
+          }
+        ],
+        "targetKey": "pr-86f279ce9c29f106-15",
+        "verdict": "APPROVE",
+        "verdictChosen": true
+      },
+      "staleDraftComments": [],
+      "listDiscussions": [],
+      "getFileViews": [],
+      "fileHashes": {
+        "files": [
+          "api.ts",
+          "util.ts"
+        ],
+        "current": {
+          "$map": [
+            [
+              "api.ts",
+              "0f5365326694dec9c2c082aa3fecacffae9ac93c15417c7218f746a29e109906"
+            ],
+            [
+              "util.ts",
+              "50c07b2ac48978da98d374dd7d6a08a9c35e19bfdcf9e31566dcfe5b9abc2f42"
+            ]
+          ]
+        },
+        "legacy": {
+          "$map": [
+            [
+              "api.ts",
+              "a59632a14d46a46fa2819e7d59eb70a5dd56e2978995e81579ebbd1297211eb0"
+            ],
+            [
+              "util.ts",
+              "912af391de9289cc9ae72b4a6894bcde3d2cdae453199d7fd50489d6d708e334"
+            ]
+          ]
+        }
+      },
+      "getAgentThread": null,
+      "listAgentMessages": [],
+      "getAssistantThread": null,
+      "listFeedbackThreads": [],
+      "feedbackFetched": null,
+      "latestAssessmentRun": null,
+      "listReplyDrafts": {
+        "$map": []
+      },
+      "isDiscoveryIgnored": false,
+      "agentCommentChanges": [],
+      "getSnapshot": {
+        "c3d4e5f60718293a4b5c6d7e8f90123456789abc": {
+          "length": 279,
+          "sha256": "a62c37a6292e710b2edbaf47665730bd4fe8a5e7d2474f16f719bffd5f627eeb"
+        },
+        "send:1": {
+          "length": 279,
+          "sha256": "a62c37a6292e710b2edbaf47665730bd4fe8a5e7d2474f16f719bffd5f627eeb"
+        }
+      },
+      "getAssessment": {},
+      "locations": [
+        {
+          "at": {
+            "file": "api.ts",
+            "line": 2,
+            "side": "RIGHT"
+          },
+          "draftCommentCode": "retry(upload);",
+          "draftCommentStartCode": {
+            "$undefined": true
+          },
+          "lastDiscussionChange": null
+        }
+      ]
+    },
+    "pr-86f279ce9c29f106-22": {
+      "getReview": {
+        "author": "casey",
+        "createdAt": 1793000000025,
+        "kind": "pr",
+        "number": 22,
+        "projectId": "p1",
+        "repo": "acme/web",
+        "status": "tracked",
+        "targetKey": "pr-86f279ce9c29f106-22",
+        "title": "Retry downloads 22",
+        "url": "https://github.com/acme/web/pull/22"
+      },
+      "getReviewerNotes": {
+        "body": "",
+        "revision": 0
+      },
+      "getReviewContext": null,
+      "hasPatch": false,
+      "patchHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "patch": {
+        "length": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "diffPositions": [],
+      "getGuide": null,
+      "guideBackupHead": null,
+      "generationWorker": null,
+      "isCurrentGeneration": {},
+      "getDraft": {
+        "body": "",
+        "comments": [],
+        "targetKey": "pr-86f279ce9c29f106-22",
+        "verdict": "COMMENT"
+      },
+      "staleDraftComments": [],
+      "listDiscussions": [],
+      "getFileViews": [],
+      "fileHashes": {
+        "files": [],
+        "current": {
+          "$map": []
+        },
+        "legacy": {
+          "$map": []
+        }
+      },
+      "getAgentThread": null,
+      "listAgentMessages": [],
+      "getAssistantThread": null,
+      "listFeedbackThreads": [],
+      "feedbackFetched": null,
+      "latestAssessmentRun": null,
+      "listReplyDrafts": {
+        "$map": []
+      },
+      "isDiscoveryIgnored": false,
+      "agentCommentChanges": [],
+      "getSnapshot": {},
+      "getAssessment": {},
+      "locations": []
+    },
+    "pr-86f279ce9c29f106-23": {
+      "getReview": {
+        "author": "casey",
+        "createdAt": 1793000000025,
+        "kind": "pr",
+        "number": 23,
+        "projectId": "p1",
+        "repo": "acme/web",
+        "status": "tracked",
+        "targetKey": "pr-86f279ce9c29f106-23",
+        "title": "Retry downloads 23",
+        "url": "https://github.com/acme/web/pull/23"
+      },
+      "getReviewerNotes": {
+        "body": "Mine: check the timeouts.",
+        "revision": 1
+      },
+      "getReviewContext": null,
+      "hasPatch": false,
+      "patchHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "patch": {
+        "length": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "diffPositions": [],
+      "getGuide": null,
+      "guideBackupHead": null,
+      "generationWorker": null,
+      "isCurrentGeneration": {},
+      "getDraft": {
+        "body": "",
+        "comments": [],
+        "targetKey": "pr-86f279ce9c29f106-23",
+        "verdict": "COMMENT"
+      },
+      "staleDraftComments": [],
+      "listDiscussions": [],
+      "getFileViews": [],
+      "fileHashes": {
+        "files": [],
+        "current": {
+          "$map": []
+        },
+        "legacy": {
+          "$map": []
+        }
+      },
+      "getAgentThread": null,
+      "listAgentMessages": [],
+      "getAssistantThread": null,
+      "listFeedbackThreads": [],
+      "feedbackFetched": null,
+      "latestAssessmentRun": null,
+      "listReplyDrafts": {
+        "$map": []
+      },
+      "isDiscoveryIgnored": false,
+      "agentCommentChanges": [],
+      "getSnapshot": {},
+      "getAssessment": {},
+      "locations": []
+    }
+  }
+}

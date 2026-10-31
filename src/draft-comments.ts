@@ -1,13 +1,14 @@
 // Draft comments as agents and `bb review comment` change them. Everything
 // here edits this bb's local draft; only the reviewer submits it to GitHub.
 import type { PreviousState, ReviewMeta } from "./store";
-import { isSummary, linesOf, postedBody, rangeOf, sameLocation, severityOf, type CommentLocation, type DraftComment, type Severity } from "./draft";
+import { isLocal, isSummary, linesOf, postedBody, rangeOf, sameLocation, severityOf, type CommentLocation, type DraftComment, type Severity } from "./draft";
 import { diffPositions, rangeProblem } from "./review-positions";
 import { asked } from "./asks";
 import type { AsyncStore } from "./store-queue";
+import { reviewIdentity } from "../lib/review-identity";
 
 /** A comment's location as callers give it; side defaults to RIGHT. */
-export interface LocationInput { file: string; line: number; side?: "LEFT" | "RIGHT" }
+export interface LocationInput { file: string; line: number; side?: CommentLocation["side"] }
 /** A range's first line, when a comment covers several; `line` is its last. Its side defaults to the comment's. */
 export interface RangeInput { startLine?: number; startSide?: "LEFT" | "RIGHT" }
 export interface NewComment extends LocationInput, RangeInput {
@@ -25,11 +26,18 @@ export type DraftResult = { ok: true; text: string } | { ok: false; error: strin
 
 const normalize = (text: string) => text.replace(/\s+/g, " ").trim();
 const located = (input: LocationInput): CommentLocation => ({ file: input.file, line: input.line, side: input.side ?? "RIGHT" });
-const where = (at: CommentLocation & RangeInput) => isSummary(at) ? "the review summary" : `${at.file}:${linesOf(at)}${at.side === "LEFT" ? " (LEFT side)" : ""}`;
+const where = (at: CommentLocation & RangeInput) => isSummary(at) ? "the review summary" : `${at.file}:${linesOf(at)}${at.side === "LEFT" ? " (LEFT side)" : at.side === "LOCAL" ? " (not on GitHub yet)" : ""}`;
 
 /** The review whose assistant conversation this thread is. */
 export async function assistantReview(store: AsyncStore, threadId: string): Promise<string | null> {
   return (await store.listAssistantThreads()).find((thread) => thread.threadId === threadId)?.targetKey ?? null;
+}
+
+/** What a review agent's tools answer once its review was merged into another, where the reviewer goes on; null otherwise. */
+export async function mergedAway(store: Pick<AsyncStore, "getReview">, targetKey: string | null): Promise<string | null> {
+  const review = targetKey ? await store.getReview(targetKey) : null;
+  const into = review?.mergedInto ? await store.getReview(review.mergedInto) : null;
+  return into ? `This review was merged into \`${reviewIdentity(into).id}\`. The reviewer continues there.` : null;
 }
 
 export function unchangeable(review: ReviewMeta | null): string | null {
@@ -137,6 +145,8 @@ export async function editComment(store: AsyncStore, targetKey: string, input: L
     const previous = before(comment, await tx.draftCommentCode(targetKey, at, "start"));
     let range = rangeOf(comment);
     if (input.startLine !== undefined) {
+      // Its lines are the folder's, in Not pushed yet, not the review's diff that new lines are checked against.
+      if (isLocal(at)) return { ok: false, error: `The comment on ${where(at)} keeps its lines: the reviewer moves it in Not pushed yet. Nothing was changed.` };
       range = rangeOf({ ...at, startLine: input.startLine, startSide: input.startSide });
       if (input.code === undefined) return { ok: false, error: `Give code, the text of lines ${input.startLine} to ${at.line}, to change the comment's lines. Nothing was changed.` };
       // New lines bind it to the current diff, which a comment drafted against an older one wasn't checked against.

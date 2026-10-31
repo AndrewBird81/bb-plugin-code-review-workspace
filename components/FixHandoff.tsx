@@ -3,7 +3,7 @@ import { experimental_useSidebarThreads, ThreadTitle, useBbNavigate, useRpc } fr
 import { toast } from "sonner";
 import type { rpcContract } from "../src/rpc-contract";
 import { linesOf, type DraftComment } from "../src/draft";
-import { useMainThread } from "../lib/main-thread";
+import { askChangeThread, useMainThread } from "../lib/main-thread";
 import { useKnob } from "../lib/settings";
 import { cn } from "../lib/utils";
 import { useWorkspace } from "../lib/workspace-context";
@@ -15,9 +15,10 @@ import { Textarea } from "./ui/textarea";
 import { locationKey } from "./InlineDraft";
 import { useDraft } from "./DraftProvider";
 import { plainLine } from "./comments/look";
-import { isOpen, sentNote, SendWarning, type Choice, type SendWarned } from "./SendNow";
+import { isOpen, keptLocalNote, sentNote, SendWarning, type Choice, type SendWarned } from "./SendNow";
 
-const LINK = `relative rounded-sm text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 ${TOUCH_TARGET}`;
+/** A link in a line of text, as Watch and Main thread ↗ after a Send. */
+export const LINK = `relative rounded-sm text-primary underline decoration-primary/40 underline-offset-4 hover:decoration-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 ${TOUCH_TARGET}`;
 const plural = (n: number) => `${n} comment${n === 1 ? "" : "s"}`;
 /** A thread working now, whose Send waits for its turn to end. */
 const BUSY = new Set(["starting", "active", "stopping"]);
@@ -25,7 +26,7 @@ const BUSY = new Set(["starting", "active", "stopping"]);
 /** A thread's title as BB's thread list shows it, or as it was read, where the list doesn't have it. */
 export function ThreadName({ threadId, title, wrap = false }: { threadId: string; title: string | null; wrap?: boolean }) {
   const listed = experimental_useSidebarThreads().threads.some((thread) => thread.id === threadId);
-  return <span className={cn("inline-block min-w-0 max-w-full align-bottom font-medium text-foreground", wrap ? "line-clamp-2 break-words" : "truncate")}>{listed ? <ThreadTitle threadId={threadId} /> : title ?? "the main thread"}</span>;
+  return <span className={cn("inline-block min-w-0 max-w-full align-bottom font-medium text-foreground", wrap ? "line-clamp-2 break-words" : "truncate")}>{listed ? <ThreadTitle threadId={threadId} /> : title ?? "Main thread"}</span>;
 }
 
 /**
@@ -39,7 +40,7 @@ export function FixHandoff({ targetKey, comments, revision }: { targetKey: strin
   const rpc = useRpc<typeof rpcContract>();
   const navigate = useBbNavigate();
   const sendOn = useKnob("sendToThread");
-  const { panel } = useWorkspace();
+  const { panel, layout } = useWorkspace();
   // refresh: a Send makes its comments sent, which the draft says at once, as BB's realtime would.
   const { review, draft, refresh, isLocal, ownPr } = useDraft();
   const { thread: main, reload } = useMainThread(targetKey, review);
@@ -59,7 +60,7 @@ export function FixHandoff({ targetKey, comments, revision }: { targetKey: strin
   const [error, setError] = useState<string | null>(null);
   // A Send that warned, and what sends it once you choose.
   const [warned, setWarned] = useState<(SendWarned & { retry: (choice: Choice) => void; anyway: string }) | null>(null);
-  const [started, setStarted] = useState<{ threadId: string; title: string } | null>(null);
+  const [started, setStarted] = useState<{ threadId: string; title: string; keptLocal?: number } | null>(null);
   // An approval's is for the diff it approved.
   const [sent, setSent] = useState<{ threadId: string; title: string | null; note: string; revision?: string } | null>(null);
   // Comments sent, resolved or dismissed don't go again.
@@ -95,13 +96,13 @@ export function FixHandoff({ targetKey, comments, revision }: { targetKey: strin
   }
   const start = () => attempt(async (choice) => {
     const result = await rpc.call("startFixThread", { targetKey, comments: picked(), ...choice });
-    if (result.ok) setStarted({ threadId: result.threadId, title: result.title });
+    if (result.ok) setStarted({ threadId: result.threadId, title: result.title, keptLocal: result.keptLocal });
     return result;
   }, "Start anyway");
   const send = () => attempt(async (choice) => {
     const count = chosen.length;
     const result = await rpc.call("sendToSourceThread", { targetKey, comments: picked(), ...extras(), ...choice });
-    if (result.ok) { setSent({ threadId: result.threadId ?? to!.threadId, title: result.title, note: sentNote(result.delivery, result.title, plural(count)) }); reload(); refresh(); }
+    if (result.ok) { setSent({ threadId: result.threadId ?? to!.threadId, title: result.title, note: sentNote(result.delivery, result.title, plural(count - (result.keptLocal ?? 0))) + keptLocalNote(result.keptLocal) }); reload(); refresh(); }
     return result;
   }, "Send anyway");
   const approve = () => attempt(async (choice) => {
@@ -132,8 +133,9 @@ export function FixHandoff({ targetKey, comments, revision }: { targetKey: strin
   return <section aria-label={to ? "Send to the main thread" : "Fix in a new thread"} className="space-y-2">
     {/* A part of Finish, as Open a PR after it is. */}
     <h3 aria-hidden className="px-0.5 text-[11px] font-semibold uppercase tracking-wider text-subtle-foreground">{to ? "Main thread" : "Fix in a new thread"}</h3>
-    {told && <p role="status" className="min-w-0 text-xs text-muted-foreground">{told.note} · <button type="button" className={LINK} onClick={() => navigate.toThread(told.threadId)}>Open</button></p>}
-    {started && <p role="status" className="text-xs text-muted-foreground">Started a thread: <span className="text-foreground">{started.title}</span> · <button type="button" className={LINK} onClick={() => navigate.toThread(started.threadId)}>Open</button></p>}
+    {/* Watch shows the thread beside the review; a phone, where BB's panel covers it, has the thread's page only. */}
+    {told && <p role="status" className="min-w-0 text-xs text-muted-foreground">{told.note} · {layout.mode === "tablet" && <><button type="button" className={LINK} onClick={() => panel.open("main")}>Watch</button> · </>}<button type="button" className={LINK} onClick={() => navigate.toThread(told.threadId)}>Main thread<span aria-hidden> ↗</span></button></p>}
+    {started && <p role="status" className="text-xs text-muted-foreground">Started a thread: <button type="button" className={LINK} onClick={() => navigate.toThread(started.threadId)}>{started.title}<span aria-hidden> ↗</span></button>{started.keptLocal ? `.${keptLocalNote(started.keptLocal, sendOn)}` : ""}</p>}
     {error && <p role="alert" className="text-xs text-destructive-text">{error}</p>}
     {warned && <SendWarning warned={warned} busy={busy} anyway={warned.anyway} what={plural(chosen.length)} onChoose={warned.retry} onCancel={() => setWarned(null)} />}
     {picking ? <fieldset className="space-y-2">
@@ -181,14 +183,15 @@ export function FixHandoff({ targetKey, comments, revision }: { targetKey: strin
       <Button variant="outline" size="sm" className={`max-w-full ${TOUCH_CONTROL}`} onClick={() => choose("approve")}><Icon name="Send" className="size-4" aria-hidden />Send approval to main thread</Button>
       <p className="text-xs text-muted-foreground">Tells it “Approved”, with your message and the summary if you add them{waits}. Nothing goes to GitHub.</p>
     </div> : open.length > 0 && (to ? <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-      <Button variant="outline" size="sm" className={`max-w-full ${TOUCH_CONTROL}`} onClick={() => choose("send")}><Icon name="Send" className="size-4" aria-hidden />Send {open.length} to main thread</Button>
+      {/* With no Submit, on a local review, Send is the step before any other: before Push. */}
+      <Button variant={isLocal ? "default" : "outline"} size="sm" className={`max-w-full ${TOUCH_CONTROL}`} onClick={() => choose("send")}><Icon name="Send" className="size-4" aria-hidden />Send {open.length} to main thread</Button>
       <span className="text-xs text-muted-foreground">or <button type="button" className={LINK} onClick={() => choose("fix")}>Fix in a new thread</button></span>
     </div> : <Button variant="outline" size="sm" className={TOUCH_CONTROL} onClick={() => choose("fix")}><Icon name="Code" className="size-4" aria-hidden />Fix in a new thread</Button>)}
     {/* Which thread that is, and where: the review and its main thread can share a name. */}
     {to && !picking && <p className="text-xs text-muted-foreground">
       {to.state === "gone" ? <>The main thread was deleted: Send starts a fresh thread. </>
         : <>{name}{to.machine && <> · {to.machine}</>}{to.state === "archived" ? <>, archived: Send offers to unarchive it or start a fresh thread. </> : " · "}</>}
-      <button type="button" className={LINK} onClick={() => panel.open("main")}>Change main thread</button>
+      <button type="button" className={LINK} onClick={() => { askChangeThread(targetKey); panel.open("main"); }}>Change main thread</button>
     </p>}
   </section>;
 }

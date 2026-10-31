@@ -96,7 +96,7 @@ function diffStats(text: string): { add: number; del: number } {
   return { add, del };
 }
 
-const annotationSide = (side: "LEFT" | "RIGHT"): AnnotationSide => (side === "LEFT" ? "deletions" : "additions");
+const annotationSide = (side: CommentLocation["side"]): AnnotationSide => (side === "LEFT" ? "deletions" : "additions");
 
 /** More changed lines than this start a file folded. */
 const LARGE_DIFF = 1500;
@@ -212,12 +212,6 @@ const StaticDiff = memo(function StaticDiff({ text, darkTheme, lightTheme, theme
   if (!fileDiff) return null;
   return <div className="overflow-x-auto"><FileDiff fileDiff={fileDiff} options={options} /></div>;
 });
-
-/** One file's diff to read, not comment on, elsewhere than the review's code (Not pushed yet): unified, wrapped, without its file's header. */
-export function ReadOnlyDiff({ text, themeMode }: { text: string; themeMode?: "light" | "dark" }) {
-  const theme = useTheme();
-  return <StaticDiff text={text} darkTheme={theme?.dark} lightTheme={theme?.light} themeMode={themeMode} wrap />;
-}
 
 /** A collapsible diff that draws only while open. */
 function DiffDetails({ summary, text, defaultOpen = false, className, theme, themeMode, wrap }: {

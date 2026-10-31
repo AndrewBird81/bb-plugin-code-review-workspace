@@ -1,5 +1,5 @@
 import { expect, test, vi } from "vitest";
-import { chromium } from "playwright";
+import { chromium, type Page } from "playwright";
 import { mkdir } from "node:fs/promises";
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
 import { createStore } from "../src/store";
@@ -11,10 +11,16 @@ import { MARK_PART } from "../src/agent-chat.test-support";
 
 vi.mock("../src/gh", async (original) => ({ ...await original<typeof import("../src/gh")>(), runGh: vi.fn() }));
 
+/** BB keeps its side panel open or closed on the server, across sessions: each test starts with it closed. */
+async function hideBbPanel(page: Page) {
+  const hide = page.getByRole("button", { name: /^Hide right panel/ }).first();
+  await hide.waitFor({ timeout: 3000 }).then(() => hide.click()).catch(() => {});
+}
+
 // The running BB supplies the real app shell and built plugin. Its plugin RPCs
 // are routed through the official test host, with real SQLite and mocked GitHub
 // and agent boundaries. No test review, comment or agent is sent to production.
-test.skipIf(!process.env.BB_E2E_URL)("fullscreen verdict → submitted → reload → merge → archive, with in-plugin chat", async () => {
+test.skipIf(!process.env.BB_E2E_URL)("fullscreen verdict → submitted → reload → merge → archive, with the review agent in BB's side panel", async () => {
   const base = loopbackUrl("BB_E2E_URL", process.env.BB_E2E_URL!);
   let prState = "OPEN";
   let approved = false;
@@ -85,11 +91,12 @@ test.skipIf(!process.env.BB_E2E_URL)("fullscreen verdict → submitted → reloa
     await page.screenshot({ animations: "disabled", path: `${dir}/settings-mobile.png` });
     await page.setViewportSize({ width: 1440, height: 1000 });
     await page.getByRole("button", { name: "Back to review", exact: true }).click();
+    await hideBbPanel(page);
     // A first open shows the Overview; reading starts at chapter 1.
     await page.getByRole("button", { name: /^Start reading: Input validation/ }).click();
     // Comments, docked beside the code; it stays closed or open across a reload.
     await commands.getByRole("button", { name: "Comments", exact: true }).click();
-    const side = page.getByRole("complementary", { name: "Comments and agent", exact: true });
+    const side = page.getByRole("complementary", { name: "Comments and Finish review", exact: true });
     expect(await side.evaluate((element) => element.getBoundingClientRect().width)).toBe(400);
     await page.getByRole("button", { name: "Comment options", exact: true }).click();
     await page.getByRole("button", { name: "Add comment by line…", exact: true }).click();
@@ -177,33 +184,30 @@ test.skipIf(!process.env.BB_E2E_URL)("fullscreen verdict → submitted → reloa
     expect(submission?.[1]?.stdin).not.toContain("Private:");
     expect(submission?.[1]?.stdin).toContain("Please test whitespace-only input too.");
     expect(submission?.[1]?.stdin).toContain("The validation looks good with this test follow-up.");
-    // In full screen, the commands sit at the band's end.
+    // In full screen, the commands sit at the band's end; Ask agent leaves full screen for BB's side panel.
     const askAgent = commands.getByRole("button", { name: "Ask agent", exact: true });
     await askAgent.click();
+    await page.waitForFunction(() => !document.fullscreenElement);
     const assistant = page.getByRole("region", { name: "Review agent", exact: true });
     await assistant.waitFor();
-    expect(await page.getByRole("dialog", { name: /^Review agent/ }).count()).toBe(0);
+    // In BB's panel, not the review's: its own panel stays Comments' and Finish review's.
+    expect(await page.getByRole("complementary", { name: "Comments and Finish review", exact: true }).getByRole("region", { name: "Review agent" }).count()).toBe(0);
+    expect(await askAgent.getAttribute("aria-pressed")).toBe("true");
     await page.getByPlaceholder(/Ask the agent/).fill("Explain the validation guard");
     await askAgent.click();
     await assistant.waitFor({ state: "hidden" });
     await page.keyboard.press("Tab");
     await askAgent.focus();
-    const assistantTooltip = page.getByRole("tooltip", { name: "Ask agent (a)", exact: true });
-    await assistantTooltip.waitFor();
-    expect(await assistantTooltip.evaluate((element) => document.fullscreenElement?.contains(element))).toBe(true);
+    await page.getByRole("tooltip", { name: "Ask agent (a)", exact: true }).waitFor();
     await askAgent.press("Enter");
+    // BB keeps the tab while its panel is closed: the message is still there.
     expect(await page.getByRole("textbox", { name: "Ask the agent", exact: true }).inputValue()).toBe("Explain the validation guard");
-    await page.getByRole("button", { name: "Pop out", exact: true }).click();
-    const widget = page.getByRole("dialog", { name: /^Review agent/ });
-    await widget.waitFor();
-    expect(await widget.evaluate((element) => document.fullscreenElement?.contains(element))).toBe(true);
-    expect(await widget.getByRole("textbox", { name: "Ask the agent", exact: true }).inputValue()).toBe("Explain the validation guard");
-    await page.screenshot({ animations: "disabled", path: `${dir}/assistant-widget.png` });
-    await widget.getByRole("button", { name: "Dock", exact: true }).click();
-    // Switching the panel to Comments and back keeps the message.
+    await page.screenshot({ animations: "disabled", path: `${dir}/assistant-tab.png` });
+    // Comments beside it, and the agent's message kept.
     await commands.getByRole("button", { name: "Comments", exact: true }).click();
-    await askAgent.click();
     expect(await page.getByRole("textbox", { name: "Ask the agent", exact: true }).inputValue()).toBe("Explain the validation guard");
+    await page.screenshot({ animations: "disabled", path: `${dir}/assistant-tab-comments.png` });
+    await commands.getByRole("button", { name: "Comments", exact: true }).click();
     await page.getByRole("button", { name: "Send", exact: true }).click();
     // bb's ThreadChat takes over. The stubbed worker id has no thread in this bb.
     await assistant.getByText("This thread is no longer available.").waitFor();
@@ -212,17 +216,18 @@ test.skipIf(!process.env.BB_E2E_URL)("fullscreen verdict → submitted → reloa
     expect(JSON.stringify(harness.inspection.sdk.callsTo("threads.spawn"))).not.toContain("Private: verify");
     await page.screenshot({ animations: "disabled", path: `${dir}/assistant-panel.png` });
     expect(await page.getByText("Open as thread", { exact: true }).count()).toBe(0);
-    await page.evaluate(() => document.exitFullscreen());
-    // A docked panel opens again where it was.
+    // BB's panel opens again where it was.
     await page.reload();
     await assistant.waitFor();
     // Nothing left to submit, so the title bar has no Finish review: Comments' foot opens the submitted review.
     expect(await commands.getByRole("button", { name: /^Finish review:/ }).count()).toBe(0);
     await commands.getByRole("button", { name: "Comments", exact: true }).click();
-    await side.getByRole("button", { name: "Finish review", exact: true }).click();
+    // Beside BB's open panel, the review is narrower than Comments docks in, so Comments is over the code.
+    await page.getByRole("dialog", { name: "Comments", exact: true }).getByRole("button", { name: "Finish review", exact: true }).click();
     await page.getByRole("region", { name: "Submitted review" }).waitFor();
     await page.getByText("Private notes", { exact: true }).click();
     expect(await page.getByRole("textbox", { name: "Private notes", exact: true }).inputValue()).toBe("Private: verify the staged rollout, then the cache.");
+    await page.getByRole("button", { name: "Close panel", exact: true }).click();
     await page.getByRole("button", { name: "All reviews", exact: true }).click();
     await page.getByText("Nothing needs you right now", { exact: true }).waitFor();
     await page.getByRole("button", { name: /^Reviewed/ }).click();
@@ -252,17 +257,18 @@ test.skipIf(!process.env.BB_E2E_URL)("fullscreen verdict → submitted → reloa
     await commands.getByRole("button", { name: "Review actions", exact: true }).click();
     expect(await page.getByRole("button", { name: /^(Update|Rebuild) guide$/ }).count()).toBe(0);
     await page.keyboard.press("Escape");
-    await askAgent.click();
+    if (await askAgent.getAttribute("aria-pressed") !== "true") await askAgent.click();
     await assistant.getByText("This thread is no longer available.").waitFor();
     expect(harness.inspection.sdk.callsTo("threads.spawn")).toHaveLength(1);
-    // A phone opens its sheets only from the dock.
+    // A phone: the dock's Ask agent opens BB's panel over the page.
     await page.setViewportSize({ width: 390, height: 844 });
     await page.reload();
+    await hideBbPanel(page);
     await commands.getByRole("button", { name: "Ask agent", exact: true }).click();
     await assistant.getByText("This thread is no longer available.").waitFor();
     expect(await assistant.evaluate((element) => element.getBoundingClientRect().right <= innerWidth)).toBe(true);
     await page.screenshot({ animations: "disabled", path: `${dir}/assistant-mobile.png` });
-    await page.getByRole("dialog", { name: "Review agent", exact: true }).getByRole("button", { name: "Close", exact: true }).click();
+    await hideBbPanel(page);
     await commands.getByRole("button", { name: "All reviews", exact: true }).click();
     await page.reload();
     await archiveHeader.waitFor();
@@ -318,13 +324,14 @@ test.skipIf(!process.env.BB_E2E_URL)("Send 3 → reports → Resolve 2 / Reopen 
   async function sendAll(count: number) {
     const comments = page.getByRole("group", { name: "Review commands" }).getByRole("button", { name: "Comments", exact: true });
     if (await comments.getAttribute("aria-pressed") !== "true") await comments.click();
-    await page.getByRole("complementary", { name: "Comments and agent", exact: true }).getByRole("button", { name: "Finish review", exact: true }).click();
+    await page.getByRole("complementary", { name: "Comments and Finish review", exact: true }).getByRole("button", { name: "Finish review", exact: true }).click();
     await page.getByRole("button", { name: `Send ${count} to main thread`, exact: true }).click();
     await page.getByRole("group", { name: "Comments to send", exact: true }).getByRole("button", { name: "Send", exact: true }).click();
     await page.getByRole("region", { name: "Send to the main thread", exact: true }).getByText(`Sent ${count} comment${count === 1 ? "" : "s"} to Retry uploads.`).waitFor();
   }
   try {
     await page.goto(`${base}/plugins/code-review-workspace/review/${key}`);
+    await hideBbPanel(page);
     const collapseOffice = page.getByRole("button", { name: "Collapse office to current worker", exact: true });
     await collapseOffice.waitFor({ timeout: 5000 }).then(() => collapseOffice.click()).catch(() => {});
     await page.getByRole("button", { name: /^Start reading: Retries/ }).click();

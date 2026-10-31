@@ -1,16 +1,22 @@
 import { useCallback, useEffect } from "react";
 import { VERDICT_LABEL } from "../src/draft";
-import { useDraftStatus } from "../lib/draft-status";
+import { useDraftStatus, useLocalToSend } from "../lib/draft-status";
 import { useFullscreenPortalContainer } from "../lib/portal-scope";
 import { ariaKeys, keyHint } from "../lib/review-shortcuts";
 import { cn } from "../lib/utils";
 import { phoneWindow } from "../lib/workspace-layout";
-import { mountTitleBar, panelPage, useNeedsYou, useWorkspaceFor } from "../lib/workspace-store";
+import { useBbNavigate, useRpc } from "@get-bb/plugin-sdk/app";
+import { toast } from "sonner";
+import type { rpcContract } from "../src/rpc-contract";
+import { useAppPanel } from "../lib/app-panel";
+import { switchHint } from "../lib/commands";
+import { mountTitleBar, panelPage, useNeedsYou, useTabShown, useWorkspaceFor } from "../lib/workspace-store";
 import type { WorkspaceApi } from "../lib/workspace-context";
 import { CompactViewportOverrideProvider } from "./ui/hooks/use-compact-viewport";
 import { Button } from "./ui/button";
 import { Hint } from "./ui/hint";
 import { REWRITE_GUIDE } from "./shell/ReviewNotices";
+import { keptApartLine } from "./shell/PrNotices";
 import { useMediaQuery } from "./ui/hooks/use-media-query";
 import { Icon } from "./ui/icon";
 import { ReviewActions, type ReviewMenuItem } from "./ReviewActions";
@@ -26,9 +32,9 @@ export type TitleBarPlacement = "title" | "band";
 let focusToggle: { to: TitleBarPlacement; until: number } | null = null;
 
 /**
- * The review's commands: Comments, Ask agent, Main thread (with one), Finish review, Review actions (⋯) and Full screen; on All reviews, the
- * list's. BB renders it in its title bar (navPanel headerContent) with the page's subPath, apart from the page, so it
- * reads the workspace from the store. A plain function, not memo: the SDK takes only a function as a slot's component.
+ * The review's commands: Comments, Ask agent, Main thread ↗ and Show beside review (with one), Finish review, Review
+ * actions (⋯) and Full screen; on All reviews, the list's. BB renders it in its title bar (navPanel headerContent) with
+ * the page's subPath, apart from the page, so it reads the workspace from the store. A plain function, not memo: the SDK takes only a function as a slot's component.
  */
 export function TitleBarControls({ subPath, placement = "title" }: { subPath: string; placement?: TitleBarPlacement }) {
   const page = panelPage(subPath);
@@ -47,12 +53,25 @@ TitleBarControls.displayName = "TitleBarControls";
 
 function ReviewControls({ api, placement }: { api: WorkspaceApi; placement: TitleBarPlacement }) {
   const status = useDraftStatus(api.targetKey);
+  const localToSend = useLocalToSend(api.targetKey);
   const needsYou = useNeedsYou(api.targetKey);
   const container = useFullscreenPortalContainer();
   const { layout, panel } = api;
-  // A wide pane's title bar has room for every label; a phone held sideways, and the band, keep to icons and counts.
-  const tier = placement === "band" || layout.mode === "short" ? "icons" : layout.widePane ? "labeled" : "compact";
-  const comments = status?.comments ?? 0;
+  const appPanel = useAppPanel();
+  const navigate = useBbNavigate();
+  // BB's tabs, showing beside the review: never over full screen, which their buttons leave to show them.
+  const agentShown = useTabShown(api.targetKey, "agent") && !api.fullscreen.on;
+  const mainShown = useTabShown(api.targetKey, "main") && !api.fullscreen.on;
+  // A wide pane's title bar has room for every label; a phone held sideways, a narrow pane beside BB's side panel, and
+  // the band keep to icons and counts.
+  const tier = placement === "band" || layout.mode === "short" || layout.narrowPane ? "icons" : layout.widePane ? "labeled" : "compact";
+  // There Finish review is its icon and count too, where "Finish · 1" left BB's crumbs no room; the band keeps its word
+  // over 720px.
+  const finishIcons = placement === "title" && tier === "icons";
+  // Finish review's count: what Submit posts, with the verdict; a local review, which submits nothing, what Send would send.
+  const comments = status?.comments ?? localToSend ?? 0;
+  const finishLabel = status ? `Finish review: ${VERDICT_LABEL[status.verdict]}, ${comments} comment${comments === 1 ? "" : "s"}`
+    : comments ? `Finish review: ${comments} comment${comments === 1 ? "" : "s"} to send` : "Finish review";
   const touch = placement === "title" || layout.mode === "short" ? TOUCH_COMPACT : TOUCH_CONTROL;
   const labeled = cn("h-8 gap-1.5 px-2 text-muted-foreground aria-pressed:text-foreground", touch);
   const icon = cn("size-8 px-0 text-muted-foreground aria-pressed:text-foreground", touch);
@@ -73,25 +92,34 @@ function ReviewControls({ api, placement }: { api: WorkspaceApi; placement: Titl
             {needsYou > 0 && <span aria-hidden className="min-w-4 rounded-full bg-primary px-1 text-center text-[10px] font-semibold leading-4 text-primary-foreground tabular-nums">{needsYou}</span>}
           </Button>
         </Hint>
+        {/* Mid-width, the switch to the main thread keeps its label and Ask agent, with its key and BB's tab, gives way. */}
         <Hint label={keyHint("Ask agent", "a", api.shortcuts)} container={container}>
-          <Button variant="ghost" size="sm" aria-label="Ask agent" aria-pressed={panel.view === "agent"} aria-controls={controls} aria-keyshortcuts={ariaKeys("a", api.shortcuts)} className={tier === "icons" ? icon : labeled} onClick={() => panel.view === "agent" ? panel.close() : api.askAgent()}>
+          <Button variant="ghost" size="sm" aria-label="Ask agent" aria-pressed={agentShown} aria-keyshortcuts={ariaKeys("a", api.shortcuts)} className={tier === "labeled" ? labeled : icon} onClick={() => agentShown ? appPanel?.close() : api.askAgent()}>
             <Icon name="Sparkles" className="text-(--ansi-13)" aria-hidden />
-            {tier !== "icons" && "Ask agent"}
+            {tier === "labeled" && "Ask agent"}
           </Button>
         </Hint>
-        {api.mainThread && <Hint label="Main thread: the thread that writes the code, and gets your Sends" container={container}>
-          <Button variant="ghost" size="sm" aria-label="Main thread" aria-pressed={panel.view === "main"} aria-controls={controls} className={tier === "labeled" ? labeled : icon} onClick={() => panel.toggle("main")}>
+        {/* The other side of the work, a click away, as the thread's Review · 2 open ↗ is from there: always with its ↗. */}
+        {api.mainThread && <Hint label={switchHint("Go to the main thread")} container={container}>
+          <Button variant="ghost" size="sm" aria-label="Go to main thread" className={tier === "icons" ? cn(icon, "w-auto gap-0.5 px-1.5") : labeled} onClick={() => navigate.toThread(api.mainThread!.threadId)}>
             <Icon name="Code" aria-hidden />
-            {tier === "labeled" && "Main thread"}
+            {tier !== "icons" && "Main thread"}
+            <Icon name="ArrowUpRight" className="size-3.5" aria-hidden />
           </Button>
         </Hint>}
-        {status && <Hint label={keyHint("Finish review", "s", api.shortcuts)} container={container}>
-          <Button variant="ghost" size="sm" aria-label={`Finish review: ${VERDICT_LABEL[status.verdict]}, ${comments} comment${comments === 1 ? "" : "s"}`} aria-pressed={panel.view === "finish"} aria-controls={controls} aria-keyshortcuts={ariaKeys("s", api.shortcuts)} className={labeled} onClick={() => panel.view === "finish" ? panel.close() : api.openFinish()}>
-            <Icon name="Github" aria-hidden />
+        {api.mainThread && <Hint label={mainShown ? "Hide main thread" : "Show main thread beside review"} container={container}>
+          <Button variant="ghost" size="sm" aria-label="Show main thread beside review" aria-pressed={mainShown} className={icon} onClick={() => mainShown ? appPanel?.close() : panel.open("main")}>
+            <Icon name="Columns2" aria-hidden />
+          </Button>
+        </Hint>}
+        {(status || localToSend !== null) && <Hint label={keyHint("Finish review", "s", api.shortcuts)} container={container}>
+          <Button variant="ghost" size="sm" aria-label={finishLabel} aria-pressed={panel.view === "finish"} aria-controls={controls} aria-keyshortcuts={ariaKeys("s", api.shortcuts)} className={finishIcons ? cn(icon, comments > 0 && "w-auto gap-1 px-2") : labeled} onClick={() => panel.view === "finish" ? panel.close() : api.openFinish()}>
+            {/* A local review's goes to the main thread, not GitHub. */}
+            <Icon name={status ? "Github" : "Send"} aria-hidden />
             {/* A band under 720px (full screen on a phone) keeps its room for where you are: the icon and the count. */}
-            <span className={cn(placement === "band" && "@max-[720px]/band:hidden")}>{tier === "labeled" ? "Finish review" : "Finish"}</span>
-            {tier === "labeled" && <span className="font-normal text-subtle-foreground">· {VERDICT_LABEL[status.verdict]}</span>}
-            {comments > 0 && <span className="font-normal text-subtle-foreground tabular-nums"><span className={cn(placement === "band" && "@max-[720px]/band:hidden")}>· </span>{comments}</span>}
+            {!finishIcons && <span className={cn(placement === "band" && "@max-[720px]/band:hidden")}>{tier === "labeled" ? "Finish review" : "Finish"}</span>}
+            {tier === "labeled" && status && <span className="font-normal text-subtle-foreground">· {VERDICT_LABEL[status.verdict]}</span>}
+            {comments > 0 && <span className="font-normal text-subtle-foreground tabular-nums">{!finishIcons && <span className={cn(placement === "band" && "@max-[720px]/band:hidden")}>· </span>}{comments}</span>}
           </Button>
         </Hint>}
         <ReviewMenu api={api} className={icon} />
@@ -123,13 +151,32 @@ function ReviewControls({ api, placement }: { api: WorkspaceApi; placement: Titl
  * after its Rename…, so the menu doesn't open on what starts the guide writer, with the workspace's Keyboard
  * shortcuts and Review settings… after Open on GitHub. An archived review's guide isn't rebuilt. A phone, without a
  * mouse to say a keyboard may be there, has no Keyboard shortcuts; an iPad keeps them, for its keyboard. Neither has
- * them while Settings turns single-key shortcuts off.
+ * them while Settings turns single-key shortcuts off. An offer about its PR you dismissed is here after the guide's:
+ * Keep both's Merge into one review, saying which stays, and Not this one's Make it PR #n's review.
  */
 export function ReviewMenu({ api, className }: { api: WorkspaceApi; className?: string }) {
   const fine = useMediaQuery("(any-pointer: fine)");
+  const rpc = useRpc<typeof rpcContract>();
   const keys = api.shortcuts && (fine || !phoneWindow());
   const local = api.review.kind === "ref";
-  const items: ReviewMenuItem[] = api.review.archivedAt || local ? [] : [{ label: api.newCommits ? "Update guide" : "Rebuild guide", icon: "ArrowReloadHorizontal", onSelect: () => void api.rebuild() }];
+  const { keptApart, prPending } = api.review;
+  const call = (run: () => Promise<{ ok: boolean; error?: string }>, failed: string) => async () => {
+    try {
+      const result = await run();
+      if (!result.ok) toast.error(result.error ?? failed);
+      else await api.reload();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : failed);
+    }
+  };
+  const dismissed: ReviewMenuItem[] = api.review.archivedAt ? [] : [
+    // On a PR's review, for the folder's review it names, of the PR's two or more.
+    ...keptApart ? [{ label: "Merge into one review", icon: "GitMerge", detail: keptApartLine(keptApart, !local), onSelect: call(() => rpc.call("mergeReviews", { targetKey: local ? api.targetKey : keptApart.targetKey }), "Couldn’t merge the two reviews.") } satisfies ReviewMenuItem] : [],
+    // Why it was held, as its notice said.
+    ...local && prPending?.declined && prPending.why !== "error" ? [{ label: `Make it PR #${prPending.number}’s review`, icon: "GitPullRequest",
+      detail: prPending.why === "branch" && prPending.head ? `PR #${prPending.number} is from \`${prPending.head}\`, not this branch.` : `This branch has PR #${prPending.number}, opened before this review.`, onSelect: call(() => rpc.call("takePendingPr", { targetKey: api.targetKey }), "Couldn’t make it the PR’s review.") } satisfies ReviewMenuItem] : [],
+  ];
+  const items: ReviewMenuItem[] = [...api.review.archivedAt || local ? [] : [{ label: api.newCommits ? "Update guide" : "Rebuild guide", icon: "ArrowReloadHorizontal", onSelect: () => void api.rebuild() } satisfies ReviewMenuItem], ...dismissed];
   const afterRename: ReviewMenuItem[] = api.review.archivedAt || !local ? [] : [{ label: "Rewrite guide", icon: "Sparkles", agent: true, description: REWRITE_GUIDE, onSelect: () => void api.rebuild() }];
   const trailing: ReviewMenuItem[] = [
     ...(keys ? [{ label: "Keyboard shortcuts", icon: "CircleQuestion", keys: "?", onSelect: api.showShortcuts } satisfies ReviewMenuItem] : []),

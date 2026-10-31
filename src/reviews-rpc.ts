@@ -9,7 +9,8 @@ import { NOT_LISTED, runListCommand } from "./list-command";
 import { createPrReview } from "./start-review";
 import { isAssistantAnswering } from "./agent";
 import { personalProjectId } from "./machines";
-import { placeFacts, reviewPlaces } from "./review-places";
+import { identityIn, placeFacts, reviewPlaces } from "./review-places";
+import { reviewIdentity } from "../lib/review-identity";
 import { agentReadsHead } from "./agent-reads";
 import { isMissingThread } from "./thread-errors";
 import { ghPrChecksJsonArgs, runGh, runGit } from "./gh";
@@ -19,7 +20,7 @@ import { pluginThreadsTitled } from "./thread-review";
 import { recordFormerWorker } from "./former-workers";
 import { parseChecks } from "./threads";
 import { localDiffChanged, rerunReview, updateReview } from "./rereview";
-import { updateFeature as updateFolder } from "./feature-review";
+import { heldForBranch, ownBranch, updateFeature as updateFolder } from "./feature-review";
 import { feedbackProgress, type TurnOptions } from "../lib/turn";
 import { findStacks } from "../lib/stacks";
 import { defaultName } from "../lib/review-name";
@@ -62,7 +63,11 @@ export function register(deps: ServeDeps) {
     const reviews = all.map((review) => ownPrOf(review, login));
     const stacks = findStacks(reviews);
     const places = reviewPlaces(await placeFacts(bb, reviews), reviews);
-    return await Promise.all(reviews.map(async ({ reviewBodies: _bodies, agentReads: _reads, prConversation: _said, ...review }) => await decorate(review, options, stacks, places, titles)));
+    // Archive says which review one merged into another went to (src/merge.ts).
+    const idOf = (key: string) => { const into = reviews.find((review) => review.targetKey === key); return into ? reviewIdentity({ ...into, place: places.get(key) }).id : null; };
+    return await Promise.all(reviews.map(async ({ reviewBodies: _bodies, agentReads: _reads, prConversation: _said, ...review }) => ({
+      ...await decorate(review, options, stacks, places, titles), ...review.mergedInto ? { mergedIntoId: idOf(review.mergedInto) } : {},
+    })));
   };
   /** A review whose diff pruneOldDiffs dropped reads it again when it's opened; returns why it couldn't. */
   async function rereadPrunedDiff(targetKey: string): Promise<string | undefined> {
@@ -86,6 +91,13 @@ export function register(deps: ServeDeps) {
   }
   const handlers = {
     async getReviewBundle({ targetKey, knownRevision }) {
+      // One merged into another review opens that one (src/merge.ts).
+      const tombstone = await store.getReview(targetKey);
+      const into = tombstone?.mergedInto ? await store.getReview(tombstone.mergedInto) : null;
+      if (into) {
+        const all = await store.listReviews();
+        return { review: null, guide: null, patch: null, revision: "", mergedInto: { targetKey: into.targetKey, id: identityIn(await placeFacts(bb, all), all, into).id } };
+      }
       const diffError = await rereadPrunedDiff(targetKey);
       const { revision, found, listedNow } = await store.exclusive(async (tx) => ({ revision: await reviewRevision(tx, targetKey), found: await tx.getReview(targetKey), listedNow: await tx.listReviews() }));
       const owned = await withOwnPr(found);
@@ -98,6 +110,24 @@ export function register(deps: ServeDeps) {
         const review = owned && await decorate(owned, turnOptions((await tx.getPreferences()).preferences), stacks, reviewPlaces(facts, all), await guideTitles(tx, [owned]));
         // Reads of a local review's earlier diff don't count toward its rebuilt one, which the client can't tell apart.
         if (review?.agentReads && review.agentReads.head !== await agentReadsHead(tx, targetKey)) review.agentReads = null;
+        // A folder's review of a branch that isn't the PR's, by any of its names, as one Make it PR #n's review linked: by its branch.
+        const elsewhere = (folder: ReviewMeta) => folder.feature && owned?.head && !ownBranch(folder.feature, owned.head) ? { branch: folder.feature.branch } : {};
+        // The PR's own review names the folder's review offering to merge with it (src/merge.ts), and its comments; not
+        // one you kept apart from it, nor one of another branch that Make it PR #n's review hasn't made its own.
+        const offering = owned && all.find((other) => other.kind === "ref" && !other.archivedAt && other.mergeDeclined !== targetKey && (other.prOffer?.key ?? other.feature?.prReview) === targetKey && !heldForBranch(other, owned));
+        if (review && offering) {
+          review.localReview = { targetKey: offering.targetKey, id: identityIn(facts, all, offering).id, comments: (await tx.getDraft(offering.targetKey)).comments.length, ...offering.prOffer?.intoPr ? { intoPr: true } : {}, ...elsewhere(offering) };
+        }
+        // Kept apart with Keep both: either page names the other, for Review actions' Merge into one review, while
+        // neither is archived nor of another branch, as above. `intoPr`: the PR's review began as another folder's, and stays.
+        const offers = (folder: ReviewMeta) => folder.kind === "ref" ? folder.prOffer?.key ?? folder.feature?.prReview : undefined;
+        const kept = !owned || owned.archivedAt ? undefined : owned.kind === "ref"
+          ? owned.mergeDeclined && offers(owned) === owned.mergeDeclined ? all.find((other) => other.targetKey === owned.mergeDeclined && !other.archivedAt && !heldForBranch(owned, other)) : undefined
+          : all.find((other) => !other.archivedAt && other.mergeDeclined === targetKey && offers(other) === targetKey && !heldForBranch(other, owned));
+        const pr = kept && (owned!.kind === "ref" ? kept : owned!);
+        if (review && kept && pr?.number) {
+          review.keptApart = { targetKey: kept.targetKey, id: identityIn(facts, all, kept).id, number: pr.number, ...pr.feature ? { intoPr: true } : {}, ...owned!.kind === "pr" ? elsewhere(kept) : {} };
+        }
         return { review, guide: await tx.getGuide(targetKey),
           patch: revision === knownRevision ? null : await tx.patch(targetKey), revision,
           ...(diffError ? { diffError } : {}) };

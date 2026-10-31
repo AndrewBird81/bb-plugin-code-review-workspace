@@ -19,8 +19,9 @@ import { agentChat } from "./agent-chat.test-support";
 import { sendToAgent } from "./asking";
 import { startPlugin } from "./plugin-store.test-support";
 import { featureKey } from "./targets";
+import { becomePr } from "./feature-review";
 import { diffFilesHead } from "./env-diff";
-import { pushCommand, pushFlagText } from "../lib/push";
+import { pushCommand, pushFlagText, pushTarget } from "../lib/push";
 
 const KEY = featureKey("env1", "feat/qa");
 const PATCH = "diff --git a/src/a.ts b/src/a.ts\nindex 1111111..2222222 100644\n--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1 +1 @@\n-a\n+b\n";
@@ -54,9 +55,16 @@ async function setup({ branch = "feat/qa", workBranch, pr }: { branch?: string; 
     shown: { "src/a.ts": REVIEWED["src/a.ts"] } as Record<string, string>,
     // Asked about GitHub's head, BB can't read the folder, as when its machine sleeps.
     unreadable: false,
+    // What the branch's commits are counted from: the review's base, or the PR's head once it's the PR's.
+    base,
   };
-  const github: { sha: string | null } = { sha: OLD };
+  // The branch's head on GitHub, and its open PRs, as the read of a local review's branch finds them (src/pr-watch.ts).
+  const github: { sha: string | null; prs: Array<{ number: number; url: string; createdAt: string }> } = { sha: OLD, prs: [] };
   runGh.mockImplementation(async (args: string[]) => {
+    if (args[0] === "api" && args[1] === "graphql" && args.some((a) => a.includes("b0: repository"))) {
+      const nodes = github.prs.map((pr) => ({ ...pr, baseRepository: { nameWithOwner: "acme/api" }, headRepository: { nameWithOwner: "acme/api" } }));
+      return ok(JSON.stringify({ data: { b0: { ref: github.sha ? { target: { oid: github.sha }, associatedPullRequests: { nodes } } : null, parent: null } } }));
+    }
     if (args[0] === "api" && args[1] === "graphql" && args.some((a) => a.includes("ref(qualifiedName"))) {
       return ok(JSON.stringify({ data: { repository: { ref: github.sha ? { target: { oid: github.sha } } : null } } }));
     }
@@ -67,15 +75,17 @@ async function setup({ branch = "feat/qa", workBranch, pr }: { branch?: string; 
     return { stdout: "", stderr: "not here", code: 1 };
   });
   const chat = agentChat("agent");
+  // The review agent's machine offline: what's sent to it fails.
+  const agent = { offline: false };
   const sent: any[] = [];
   const { bb, harness, calls } = folderHost({
     files: [{ path: "src/a.ts" }],
     env: { branchName: pr ? "bb/fixes-thr_fix" : workBranch ?? branch },
     answers: {
-      workspaceStatus: (input) => folder.unreadable && input.mergeBaseBranch && input.mergeBaseBranch !== base ? { outcome: "unavailable", failure: { code: "host_offline", message: "MaxBook is asleep" } } : ({ outcome: "available", workspace: {
+      workspaceStatus: (input) => folder.unreadable && input.mergeBaseBranch && input.mergeBaseBranch !== folder.base ? { outcome: "unavailable", failure: { code: "host_offline", message: "MaxBook is asleep" } } : ({ outcome: "available", workspace: {
         workingTree: { hasUncommittedChanges: folder.dirty, fileCount: folder.dirty ? 1 : 0 }, checkout: { kind: "branch", headSha: folder.head },
         // Against the review's base, the branch's commits; against GitHub's head, whether GitHub has commits the folder doesn't.
-        mergeBase: !input.mergeBaseBranch ? null : input.mergeBaseBranch === base ? { aheadCount: folder.commits.length, behindCount: folder.behind ? 2 : 0, commits: folder.commits.map(({ sha }) => ({ sha })) }
+        mergeBase: !input.mergeBaseBranch ? null : input.mergeBaseBranch === folder.base ? { aheadCount: folder.commits.length, behindCount: folder.behind ? 2 : 0, commits: folder.commits.map(({ sha }) => ({ sha })) }
           : { aheadCount: 1, behindCount: folder.behind ? 2 : 0, commits: [] },
       } }),
       files: (input) => {
@@ -87,14 +97,19 @@ async function setup({ branch = "feat/qa", workBranch, pr }: { branch?: string; 
           const files = Object.entries(folder.shown).map(([path, revision]) => ({ path, previousPath: null, changeKind: "modified", binary: false, origin: "tracked", loadMode: "auto", revision }));
           return { outcome: "available", truncated: false, mergeBaseRef: input.target.mergeBaseBranch, files, initialPatches: files.map(({ path }) => ({ path, patch: `diff --git a/${path} b/${path}\n--- a/${path}\n+++ b/${path}\n@@ -1 +1 @@\n-a\n+b\n`, truncated: false })) };
         }
-        expect(input.target).toEqual({ type: "branch_committed", mergeBaseBranch: base });
+        expect(input.target).toEqual({ type: "branch_committed", mergeBaseBranch: folder.base });
         return { outcome: "available", truncated: false, files: Object.entries(folder.committed).flatMap(([path, revision]) => revision ? [{ path, revision }] : []) };
       },
     },
   }, { threads: {
     get: async ({ threadId }: { threadId: string }) => ({ id: threadId, archivedAt: null, deletedAt: null, status: "idle", title: threadId === "coder" ? "Snooze flaky checks" : threadId, environmentId: "env1", visibility: threadId === "agent" ? "hidden" : "visible" }),
     ...chat.sdk,
-    send: async (args: any) => { if (args.threadId === "agent") return chat.sdk.send(args); sent.push(args); return { ok: true, delivery: "sent" }; },
+    send: async (args: any) => {
+      if (args.threadId === "agent" && agent.offline) throw new Error("MaxBook is offline.");
+      if (args.threadId === "agent") return chat.sdk.send(args);
+      sent.push(args);
+      return { ok: true, delivery: "sent" };
+    },
     list: async () => [],
     experimental_listAncestors: async ({ threadIds }: { threadIds: string[] }) => ({ threads: threadIds.map((id) => ({ threadId: id, ancestorIds: id === "sub" ? ["coder"] : [] })) }),
   } });
@@ -120,7 +135,7 @@ async function setup({ branch = "feat/qa", workBranch, pr }: { branch?: string; 
   // Push, or Push anyway on the warning the page shows now, unless `at` says another.
   const push = async (force?: boolean, sha?: string, at?: number) => harness.behavior.callRpc("push", { targetKey: key, ...force ? { force, at: at ?? (await run())?.at } : {}, ...sha ? { sha } : {} }) as Promise<any>;
   const text = (i: number) => sent[i].input[0].text as string;
-  return { bb, harness, store, folder, github, sent, chat, calls, push, cli, idle, run, text, key };
+  return { bb, harness, store, folder, github, sent, chat, calls, push, cli, idle, run, text, key, agent };
 }
 
 /** The command the thread is told, quoted for its shell. */
@@ -149,6 +164,126 @@ test("Push asks the main thread to commit and report, not push; a reported commi
   github.sha = HEAD;
   await idle();
   expect(await run()).toMatchObject({ state: "pushed", sha: HEAD });
+});
+
+test("when the main thread stops, the read of the branch finds its PR in the same request: the review becomes the PR's, its Push pushed", async () => {
+  const { push, cli, idle, run, github, store, key } = await setup();
+  const answers = runGh.getMockImplementation()!;
+  runGh.mockImplementation(async (args: string[]) => {
+    if (args[0] === "pr" && args[1] === "view") return ok(JSON.stringify({ number: 7, title: "Snooze flaky checks", author: { login: "me" }, baseRefName: "main", headRefName: "feat/qa", url: "https://github.com/acme/api/pull/7", headRefOid: HEAD, state: "OPEN", createdAt: new Date().toISOString() }));
+    if (args[0] === "pr" && args[1] === "diff") return ok(PATCH);
+    return answers(args);
+  });
+  await push();
+  await cli("coder", "report", "--commit", HEAD);
+  // The thread pushed and opened a draft PR in the same turn.
+  github.sha = HEAD;
+  github.prs = [{ number: 7, url: "https://github.com/acme/api/pull/7", createdAt: new Date().toISOString() }];
+  const before = runGh.mock.calls.filter(([args]) => args[1] === "graphql").length;
+  await idle();
+  expect(await run()).toMatchObject({ state: "pushed", sha: HEAD });
+  expect(await store.getReview(key)).toMatchObject({ kind: "pr", number: 7, ownPr: true, became: { number: 7, from: "api:feat/qa" } });
+  // One read of GitHub, for the branch's head and its PR alike.
+  expect(runGh.mock.calls.filter(([args]) => args[1] === "graphql").length - before).toBe(1);
+});
+
+// Another thread opens the PR while the main thread commits: T1 or the poll makes the review the PR's mid-Push.
+test("a review that becomes its PR's while Push waits on the commit checks it against what the folder had then, and Push goes on", async () => {
+  const { push, cli, run, store, key, folder, bb } = await setup();
+  const answers = runGh.getMockImplementation()!;
+  runGh.mockImplementation(async (args: string[]) => {
+    if (args[0] === "pr" && args[1] === "view") return ok(JSON.stringify({ number: 7, title: "Snooze flaky checks", author: { login: "me" }, baseRefName: "main", headRefName: "feat/qa", url: "https://github.com/acme/api/pull/7", headRefOid: OLD, state: "OPEN", createdAt: new Date().toISOString() }));
+    if (args[0] === "pr" && args[1] === "diff") return ok(PATCH);
+    if (args.some((a) => a.includes("pullRequest(number"))) return ok(JSON.stringify({ data: { repository: { pullRequest: { headRefOid: OLD } } } }));
+    return answers(args);
+  });
+  await push();
+  expect(await run()).toMatchObject({ state: "committing" });
+  expect(await becomePr({ bb, store, gh: { runGh, runGit }, changed: vi.fn() }, key, { repo: "acme/api", number: 7 })).toBe("converted");
+  expect(await store.getReview(key)).toMatchObject({ kind: "pr", notPushedSeen: { environmentId: "env1", base: OLD } });
+  expect(await store.getSnapshotFiles(key, "not-pushed")).toEqual({ revisions: folder.shown, hidden: [] });
+  folder.base = OLD;
+  const reported = await cli("coder", "report", "--commit", HEAD);
+  expect(reported.stderr).toBe("");
+  expect(reported.stdout).toContain("it’s what the reviewer reviewed. Push it now, exactly this commit:");
+  expect(await run()).toMatchObject({ state: "pushing", sha: HEAD });
+});
+
+test("a review that becomes its PR's after its folder changed checks the commit against what the review showed, not the folder then, and warns of the change", async () => {
+  const { push, cli, run, store, key, folder, bb } = await setup();
+  const answers = runGh.getMockImplementation()!;
+  runGh.mockImplementation(async (args: string[]) => {
+    if (args[0] === "pr" && args[1] === "view") return ok(JSON.stringify({ number: 7, title: "Snooze flaky checks", author: { login: "me" }, baseRefName: "main", headRefName: "feat/qa", url: "https://github.com/acme/api/pull/7", headRefOid: OLD, state: "OPEN", createdAt: new Date().toISOString() }));
+    if (args[0] === "pr" && args[1] === "diff") return ok(PATCH);
+    if (args.some((a) => a.includes("pullRequest(number"))) return ok(JSON.stringify({ data: { repository: { pullRequest: { headRefOid: OLD } } } }));
+    return answers(args);
+  });
+  await push();
+  // A thread edits a.ts after the review read it, before the review becomes the PR's.
+  const edited = "100644:aaa:100644:ccc";
+  folder.shown = { "src/a.ts": edited };
+  folder.committed = { "src/a.ts": edited };
+  expect(await becomePr({ bb, store, gh: { runGh, runGit }, changed: vi.fn() }, key, { repo: "acme/api", number: 7 })).toBe("converted");
+  expect(await store.getSnapshotFiles(key, "not-pushed")).toEqual({ revisions: { "src/a.ts": REVIEWED["src/a.ts"] }, hidden: [] });
+  folder.base = OLD;
+  await cli("coder", "report", "--commit", HEAD);
+  expect(await run()).toMatchObject({ state: "mismatch", sha: HEAD, files: ["src/a.ts"], warning: "1 file changed since you reviewed." });
+});
+
+test("a review with no record of the files it showed becomes its PR's with nothing in Not pushed yet seen, so Push asks you to open it", async () => {
+  const { push, cli, run, store, key, bb } = await setup();
+  const answers = runGh.getMockImplementation()!;
+  runGh.mockImplementation(async (args: string[]) => {
+    if (args[0] === "pr" && args[1] === "view") return ok(JSON.stringify({ number: 7, title: "Snooze flaky checks", author: { login: "me" }, baseRefName: "main", headRefName: "feat/qa", url: "https://github.com/acme/api/pull/7", headRefOid: OLD, state: "OPEN", createdAt: new Date().toISOString() }));
+    if (args[0] === "pr" && args[1] === "diff") return ok(PATCH);
+    if (args.some((a) => a.includes("pullRequest(number"))) return ok(JSON.stringify({ data: { repository: { pullRequest: { headRefOid: OLD } } } }));
+    return answers(args);
+  });
+  await push();
+  // A diff whose files the review never kept, as a review from before they were.
+  await store.savePatch(key, PATCH.replace("+b", "+b2"));
+  expect(await becomePr({ bb, store, gh: { runGh, runGit }, changed: vi.fn() }, key, { repo: "acme/api", number: 7 })).toBe("converted");
+  expect((await store.getReview(key))?.notPushedSeen).toBeUndefined();
+  await cli("coder", "report", "--commit", HEAD);
+  expect(await run()).toMatchObject({ state: "mismatch", warning: expect.stringContaining("you haven’t opened Not pushed yet for this folder") });
+});
+
+test("a PR's review with its folder pushes from the folder's own origin to its branch on GitHub, a fork's too", () => {
+  const folder = { environmentId: "env1", hostId: "host_max", machine: "MaxBook", path: "/Users/me/src/api", branch: "feat/qa", remoteBranch: "feat/nice", baseRef: "main", repo: "me/api" };
+  const converted = { kind: "pr" as const, repo: "acme/api", number: 7, head: "feat/nice", ownPr: true, headFork: "me", feature: folder, mainThread: { threadId: "coder", environmentId: "env1", origin: "adopted" as const, since: 1 } };
+  expect(pushTarget(converted)).toEqual({ repo: "acme/api", head: "feat/nice", environmentId: "env1", remote: "origin", fixer: false, pr: 7 });
+  // Its folder gone, a fresh thread fixes it as any PR's.
+  expect(pushTarget({ ...converted, feature: { ...folder, folderGone: true } })).toMatchObject({ head: "feat/nice", remote: "<remote>" });
+});
+
+test("a Push on a PR's review that lands on the commit it checked updates the review to the PR's new head", async () => {
+  const { push, cli, idle, run, github, store, key } = await setup();
+  const answers = runGh.getMockImplementation()!;
+  const pr = { head: HEAD, patch: PATCH };
+  runGh.mockImplementation(async (args: string[]) => {
+    if (args[0] === "pr" && args[1] === "view") return ok(JSON.stringify({ number: 7, title: "Snooze flaky checks", author: { login: "me" }, baseRefName: "main", headRefName: "feat/qa", url: "https://github.com/acme/api/pull/7", headRefOid: pr.head, state: "OPEN", createdAt: new Date().toISOString() }));
+    if (args[0] === "pr" && args[1] === "diff") return ok(pr.patch);
+    if (args.some((a) => a.includes("pullRequest(number"))) return ok(JSON.stringify({ data: { repository: { pullRequest: { headRefOid: github.sha } } } }));
+    return answers(args);
+  });
+  await push();
+  await cli("coder", "report", "--commit", HEAD);
+  github.sha = HEAD;
+  github.prs = [{ number: 7, url: "https://github.com/acme/api/pull/7", createdAt: new Date().toISOString() }];
+  await idle();
+  expect(await store.getReview(key)).toMatchObject({ kind: "pr", number: 7, headSha: HEAD });
+  // The PR's diff is the one the guide was written for.
+  expect((await store.getReview(key))?.feature?.guideOlderThanDiff).toBeUndefined();
+  // Pushed again, exactly the commit Push checked.
+  const next = PATCH.replace("+b", "+c");
+  Object.assign(pr, { head: OTHER, patch: next });
+  await store.setLifecycle(key, { push: { state: "pushing", at: Date.now(), threadId: "coder", repo: "acme/api", head: "feat/qa", sha: OTHER } });
+  github.sha = OTHER;
+  await idle();
+  expect(await run()).toMatchObject({ state: "pushed", sha: OTHER });
+  // Not your Update: the guide was written before the PR's latest commits.
+  expect(await store.getReview(key)).toMatchObject({ headSha: OTHER, feature: { guideOlderThanDiff: "push" } });
+  expect(await store.patch(key)).toBe(next);
 });
 
 test("a folder with nothing to commit is checked at its head: a match tells the thread to push it; GitHub at it already has nothing to push", async () => {
@@ -741,4 +876,136 @@ test("the commit report never starts watching: with nothing accepted yet, GitHub
   await u.store.setLifecycle(KEY, { remoteHead: null });
   expect((await u.cli("coder", "report", "--commit", HEAD)).stdout).toContain(refspec(HEAD));
   expect((await u.store.getReview(KEY))!.remoteHead).toBeNull();
+});
+
+/** The review agent's asks to draft the PR, as Open PR sends them (src/open-pr.ts draftPr). */
+const prAsks = (chat: ReturnType<typeof agentChat>) => chat.events.filter((e) => e.type === "client/turn/requested" && (e.data.input as any[])[0]?.text === "Open a PR for this review.").length;
+
+test("Push and open PR keeps its intent through a mismatch and Push anyway, and once pushed asks the review agent to draft the PR, once", async () => {
+  const { harness, cli, idle, run, folder, github, chat, push } = await setup();
+  expect(await harness.behavior.callRpc("push", { targetKey: KEY, thenOpenPr: true })).toEqual({ ok: true, delivery: "sent" });
+  expect(await run()).toMatchObject({ state: "committing", thenOpenPr: true });
+  folder.committed = { "src/a.ts": "100644:aaa:100644:ccc" };
+  await cli("coder", "report", "--commit", HEAD);
+  expect(await run()).toMatchObject({ state: "mismatch", thenOpenPr: true });
+  expect(await push(true)).toEqual({ ok: true, delivery: "sent" });
+  expect(await run()).toMatchObject({ state: "pushing", thenOpenPr: true });
+  expect(prAsks(chat)).toBe(0);
+  github.sha = HEAD;
+  await idle();
+  expect(await run()).toMatchObject({ state: "pushed", sha: HEAD, thenOpenPr: "asked" });
+  expect(prAsks(chat)).toBe(1);
+  // The next stop asks nothing again.
+  await idle();
+  expect(prAsks(chat)).toBe(1);
+});
+
+test("Push and open PR that can't ask the review agent once pushed says why, until Open PR asks it", async () => {
+  const { harness, cli, idle, run, github, chat, agent } = await setup();
+  await harness.behavior.callRpc("push", { targetKey: KEY, thenOpenPr: true });
+  await cli("coder", "report", "--commit", HEAD);
+  agent.offline = true;
+  github.sha = HEAD;
+  await idle();
+  expect(await run()).toMatchObject({ state: "pushed", sha: HEAD, thenOpenPr: "failed", openPrError: expect.stringContaining("MaxBook is offline.") });
+  expect(prAsks(chat)).toBe(0);
+  agent.offline = false;
+  expect(await harness.behavior.callRpc("openPr", { targetKey: KEY })).toEqual({ ok: true });
+  expect(prAsks(chat)).toBe(1);
+  expect(await run()).toMatchObject({ state: "pushed", thenOpenPr: "asked" });
+  expect((await run())!.openPrError).toBeUndefined();
+});
+
+test("Push and open PR that couldn't ask the review agent says so no more once the review becomes its PR's, as you opened it", async () => {
+  const { harness, bb, store, cli, idle, run, github, agent } = await setup();
+  const answers = runGh.getMockImplementation()!;
+  runGh.mockImplementation(async (args: string[]) => {
+    if (args[0] === "pr" && args[1] === "view") return ok(JSON.stringify({ number: 7, title: "Snooze flaky checks", author: { login: "me" }, baseRefName: "main", headRefName: "feat/qa", url: "https://github.com/acme/api/pull/7", headRefOid: HEAD, state: "OPEN", createdAt: new Date().toISOString() }));
+    if (args[0] === "pr" && args[1] === "diff") return ok(PATCH);
+    return answers(args);
+  });
+  await harness.behavior.callRpc("push", { targetKey: KEY, thenOpenPr: true });
+  await cli("coder", "report", "--commit", HEAD);
+  agent.offline = true;
+  github.sha = HEAD;
+  await idle();
+  expect(await run()).toMatchObject({ state: "pushed", thenOpenPr: "failed" });
+  expect(await becomePr({ bb, store, gh: { runGh, runGit }, changed: vi.fn() }, KEY, { repo: "acme/api", number: 7 })).toBe("converted");
+  expect(await run()).toMatchObject({ state: "pushed", sha: HEAD });
+  expect((await run())!.thenOpenPr).toBeUndefined();
+  expect((await run())!.openPrError).toBeUndefined();
+});
+
+test("Push and open PR with nothing to push asks the review agent at once, from Push or from the commit report", async () => {
+  const clean = await setup();
+  clean.folder.dirty = false;
+  clean.github.sha = HEAD;
+  expect(await clean.harness.behavior.callRpc("push", { targetKey: KEY, thenOpenPr: true })).toEqual({ ok: true, note: "Nothing to push. GitHub already has `abc1234` on `feat/qa`. The review agent is drafting the PR; post it from its chat." });
+  expect(prAsks(clean.chat)).toBe(1);
+  expect(await clean.run()).toBeNull();
+
+  const { harness, cli, run, github, chat, idle } = await setup();
+  github.sha = HEAD;
+  await harness.behavior.callRpc("push", { targetKey: KEY, thenOpenPr: true });
+  expect((await cli("coder", "report", "--commit", HEAD)).stdout).toBe("Nothing to push. GitHub already has `abc1234` on `feat/qa`.");
+  expect(await run()).toMatchObject({ state: "pushed", thenOpenPr: "asked" });
+  await idle();
+  expect(prAsks(chat)).toBe(1);
+});
+
+test("Cancel and Stop waiting drop Push and open PR: a push that lands after asks the review agent nothing", async () => {
+  const { harness, cli, idle, run, github, chat } = await setup();
+  await harness.behavior.callRpc("push", { targetKey: KEY, thenOpenPr: true });
+  await harness.behavior.callRpc("dismissPush", { targetKey: KEY });
+  expect(await run()).toBeNull();
+  await harness.behavior.callRpc("push", { targetKey: KEY, thenOpenPr: true });
+  await cli("coder", "report", "--commit", HEAD);
+  expect(await run()).toMatchObject({ state: "pushing", thenOpenPr: true });
+  await harness.behavior.callRpc("dismissPush", { targetKey: KEY });
+  github.sha = HEAD;
+  await idle();
+  // Its push, no longer Push's, reads as a move no one asked for.
+  expect(await run()).toMatchObject({ state: "flagged", flag: "unrequested" });
+  expect((await run())!.thenOpenPr).toBeUndefined();
+  expect(prAsks(chat)).toBe(0);
+});
+
+// T1 or the poll makes the review the PR's while the thread pushes: the push lands on a PR's review.
+test("Push and open PR whose review became the PR's while it pushed drops its intent once the push lands, and asks the review agent nothing", async () => {
+  const { harness, bb, store, cli, idle, run, github, chat } = await setup();
+  const answers = runGh.getMockImplementation()!;
+  runGh.mockImplementation(async (args: string[]) => {
+    if (args[0] === "pr" && args[1] === "view") return ok(JSON.stringify({ number: 7, title: "Snooze flaky checks", author: { login: "me" }, baseRefName: "main", headRefName: "feat/qa", url: "https://github.com/acme/api/pull/7", headRefOid: OLD, state: "OPEN", createdAt: new Date().toISOString() }));
+    if (args[0] === "pr" && args[1] === "diff") return ok(PATCH);
+    if (args.some((a) => a.includes("pullRequest(number"))) return ok(JSON.stringify({ data: { repository: { pullRequest: { headRefOid: github.sha } } } }));
+    return answers(args);
+  });
+  await harness.behavior.callRpc("push", { targetKey: KEY, thenOpenPr: true });
+  await cli("coder", "report", "--commit", HEAD);
+  expect(await run()).toMatchObject({ state: "pushing", thenOpenPr: true });
+  expect(await becomePr({ bb, store, gh: { runGh, runGit }, changed: vi.fn() }, KEY, { repo: "acme/api", number: 7 })).toBe("converted");
+  github.sha = HEAD;
+  await idle();
+  expect(await run()).toMatchObject({ state: "pushed", sha: HEAD });
+  expect((await run())!.thenOpenPr).toBeUndefined();
+  expect(prAsks(chat)).toBe(0);
+});
+
+test("Push and open PR on a branch whose PR opened meanwhile makes the review the PR's, and asks the review agent nothing", async () => {
+  const { harness, cli, idle, run, github, store, chat } = await setup();
+  const answers = runGh.getMockImplementation()!;
+  runGh.mockImplementation(async (args: string[]) => {
+    if (args[0] === "pr" && args[1] === "view") return ok(JSON.stringify({ number: 7, title: "Snooze flaky checks", author: { login: "me" }, baseRefName: "main", headRefName: "feat/qa", url: "https://github.com/acme/api/pull/7", headRefOid: HEAD, state: "OPEN", createdAt: new Date().toISOString() }));
+    if (args[0] === "pr" && args[1] === "diff") return ok(PATCH);
+    return answers(args);
+  });
+  await harness.behavior.callRpc("push", { targetKey: KEY, thenOpenPr: true });
+  await cli("coder", "report", "--commit", HEAD);
+  github.sha = HEAD;
+  github.prs = [{ number: 7, url: "https://github.com/acme/api/pull/7", createdAt: new Date().toISOString() }];
+  await idle();
+  expect(await store.getReview(KEY)).toMatchObject({ kind: "pr", number: 7 });
+  expect(await run()).toMatchObject({ state: "pushed", sha: HEAD });
+  expect((await run())!.thenOpenPr).toBeUndefined();
+  expect(prAsks(chat)).toBe(0);
 });

@@ -75,6 +75,25 @@ test("sends only the comments you chose, with the review agent's execution", asy
   expect(spawn.prompt).not.toContain("Why change b?");
 });
 
+test("Fix in a new thread leaves out a comment not on GitHub yet, as the PR's head hasn't its line, and says so; with only that, nothing starts", async () => {
+  const { bb, store, spawns } = host();
+  await ownPr(store);
+  await store.saveSnapshot("pr-1", "not-pushed", "diff --git a/src/b.ts b/src/b.ts\n--- /dev/null\n+++ b/src/b.ts\n@@ -0,0 +1 @@\n+export const d = 5;\n");
+  const LOCAL = { file: "src/b.ts", line: 1, side: "LOCAL" as const };
+  await store.upsertDraftComment("pr-1", { ...LOCAL, body: "Export it from the index." });
+  expect(await start(bb, store, "pr-1", [{ file: "src/a.ts", line: 3, side: "RIGHT" }, LOCAL])).toMatchObject({ ok: true, threadId: "fixer", keptLocal: 1 });
+  expect(spawns()[0].prompt).toContain("Name this better.");
+  expect(spawns()[0].prompt).not.toContain("Export it from the index.");
+  await expect(start(bb, store, "pr-1", [LOCAL])).rejects.toThrow("Not started: it isn’t on GitHub yet. Change Main thread to a thread in its folder to send it.");
+  expect(spawns()).toHaveLength(1);
+  // With Send comments to the main thread off, no Send or Change main thread shows: it says to turn it on.
+  await store.savePreferences({ ...defaultPreferences, knobs: { ...defaultPreferences.knobs, sendToThread: false } }, (await store.getPreferences()).revision);
+  await expect(start(bb, store, "pr-1", [LOCAL])).rejects.toThrow("Not started: it isn’t on GitHub yet. It stays in the draft: turn on Send comments to the main thread in Settings to send it to a thread in its folder.");
+  await store.upsertDraftComment("pr-1", { ...LOCAL, line: 2, body: "And test it." });
+  await expect(start(bb, store, "pr-1", [LOCAL, { ...LOCAL, line: 2 }])).rejects.toThrow("Not started: they aren’t on GitHub yet. They stay in the draft: turn on Send comments to the main thread in Settings to send them to a thread in their folder.");
+  expect(spawns()).toHaveLength(1);
+});
+
 test("a renamed review's fix thread has the name you gave it, and its message names the PR by its title", async () => {
   const { bb, store, spawns } = host();
   await ownPr(store, { name: "Upload retries" });

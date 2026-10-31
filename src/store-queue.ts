@@ -8,7 +8,7 @@ export interface AsyncStore extends Store {
   /**
    * Run `fn` as one turn of the queue: nothing else reaches the store until it settles, and calls `fn` started but
    * didn't await have run. Inside, use `tx`: the outer store throws there, since it would wait for the block. On `tx`
-   * this runs `fn` in the same block. Not a transaction: what ran before a throw stays.
+   * this runs `fn` in the same block. Not a transaction: what ran before a throw stays, unless it ran in tx.transaction.
    */
   exclusive<T>(fn: (tx: AsyncStore) => T | Promise<T>): Promise<T>;
 }

@@ -21,11 +21,12 @@ const KEEPS_VIEW = new Set<string>([
 
 /**
  * Store methods that can change what getGuide answers: a guide, or the patch whose renames it's read with. A turn that
- * calls one reads again the guide of the review it names, or every guide when it names none.
+ * calls one reads again the guide of the review it names, or every guide when it names none, as a transaction, whose
+ * calls run on `backend` itself.
  */
 const CHANGES_GUIDES = new Set<string>([
   "saveGuide", "beginGeneration", "backupGuide", "restoreGuide", "dropGuideBackup", "interruptGenerations", "interruptGeneration",
-  "deleteReview", "savePatch", "dropPatch",
+  "deleteReview", "savePatch", "dropPatch", "mergeReview", "transaction",
 ] satisfies Array<keyof Store>);
 
 /** The review a Store call names, as its first argument or that argument's targetKey; null for one naming none. */

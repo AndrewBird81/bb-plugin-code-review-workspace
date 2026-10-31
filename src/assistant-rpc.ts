@@ -13,9 +13,12 @@ export function register(deps: ServeDeps) {
       return getConversation(bb, store, targetKey);
     },
     // The dock's first message: what you typed, and the file or lines the plugin quoted after it.
-    startConversation({ targetKey, text, typed, inserted, agent }) {
+    async startConversation({ targetKey, text, typed, inserted, agent }) {
       const yours = text === typed || text.startsWith(`${typed}\n\n`);
-      return startConversation(bb, store, { targetKey, text, agent, kind: "ask", said: yours ? typed : "", inserted: inserted || text !== typed });
+      const started = await startConversation(bb, store, { targetKey, text, agent, kind: "ask", said: yours ? typed : "", inserted: inserted || text !== typed });
+      // Its other views, as the review's tab when it started on a thread's page, show the chat.
+      bb.realtime.publish(`conversation:${targetKey}`, {});
+      return started;
     },
     async noteInserted({ targetKey, threadId, text }) {
       if (await store.getAssistantThread(targetKey) !== threadId) throw new Error("The conversation changed. Try again.");

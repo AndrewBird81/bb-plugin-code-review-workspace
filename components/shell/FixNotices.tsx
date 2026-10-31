@@ -14,7 +14,7 @@ import { Button } from "../ui/button";
 import { Hint } from "../ui/hint";
 import { Icon } from "../ui/icon";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover";
-import { SendWarning, type Choice, type SendWarned } from "../SendNow";
+import { keptLocalNote, SendWarning, type Choice, type SendWarned } from "../SendNow";
 import type { Notice } from "./ReviewNotices";
 
 /** The review, as its fixes' notice reads it. */
@@ -59,8 +59,8 @@ function SendRest({ targetKey, onChanged }: { targetKey: string; onChanged: () =
       else {
         setWarned(null);
         // What the review no longer has can't go: said plainly, as there's no getting it back.
-        const sentCount = count - (result.skipped ?? 0);
-        toast.success(`Sent ${sentCount} comment${sentCount === 1 ? "" : "s"} to ${result.title ?? "a fresh thread"}.${result.skipped ? ` ${result.skipped === 1 ? "1 other isn’t" : `${result.skipped} others aren’t`} on GitHub as the review last read it, so ${result.skipped === 1 ? "it" : "they"} didn’t go.` : ""}`);
+        const sentCount = count - (result.skipped ?? 0) - (result.keptLocal ?? 0);
+        toast.success(`Sent ${sentCount} comment${sentCount === 1 ? "" : "s"} to ${result.title ?? "a fresh thread"}.${result.skipped ? ` ${result.skipped === 1 ? "1 other isn’t" : `${result.skipped} others aren’t`} on GitHub as the review last read it, so ${result.skipped === 1 ? "it" : "they"} didn’t go.` : ""}${keptLocalNote(result.keptLocal)}`);
         onChanged();
         void load();
       }

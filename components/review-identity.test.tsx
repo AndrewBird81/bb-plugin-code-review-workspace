@@ -1,16 +1,16 @@
 // @vitest-environment jsdom
 // Which review you're in, at a glance (lib/review-identity.ts): BB's title bar and the window's title, the band's id
-// chip, the page bar, the hero's rename, the phone's dock, the agent's widget and BB's thread list.
+// chip, the page bar, the hero's rename, the phone's dock, and BB's thread list.
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render as draw, renderHook, waitFor, within } from "@testing-library/react";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import { defaultPreferences } from "../src/preferences";
 import { patchReviewState } from "../lib/panel-state";
-import { reviewIdentity } from "../lib/review-identity";
+import { localIdOf, reviewIdentity } from "../lib/review-identity";
 import { publishReviewTitle, useReviewTitle } from "../lib/workspace-store";
 import { bandFit, chipWidth } from "./reading/ReaderBar";
 import { ID_CHIP, ReviewIdChip } from "./ReviewIdChip";
-import { middleCut } from "./shell/PhoneDock";
+import { endCut } from "./shell/PhoneDock";
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }));
 vi.mock("@pierre/diffs/react", () => ({ FileDiff: ({ fileDiff }: any) => <pre data-testid="filediff">{fileDiff.additionLines.join("\n")}</pre> }));
@@ -91,6 +91,19 @@ test("BB's title bar and the window's title lead with the open review's id, its 
     expect(page.experimental_pageTitle, subPath).toBeNull();
     page.lifecycle.unmount();
   }
+});
+
+test("beside BB's side panel on a desktop, a review narrower than a phone's has its title as one line, which BB cuts at its end", async () => {
+  pane(560);
+  const root = document.documentElement;
+  Object.defineProperty(root, "clientWidth", { configurable: true, value: 1440 });
+  Object.defineProperty(root, "clientHeight", { configurable: true, value: 1000 });
+  restores.push(() => { delete (root as { clientWidth?: number }).clientWidth; delete (root as { clientHeight?: number }).clientHeight; });
+  patchReviewState("pr-1", { activeId: "c1" });
+  const review = await render("pr-1", { "pr-1": pr });
+  await review.findAllByTestId("filediff");
+  await waitFor(() => expect(review.experimental_pageTitle).toEqual({ title: "api#4512 · Fix login race", windowTitle: "api#4512 · Fix login race" }));
+  review.lifecycle.unmount();
 });
 
 test("a review without a guide yet, found on GitHub or building, has its title too, and its bar's heading says it whole", async () => {
@@ -247,6 +260,14 @@ test("a long repository's chip cuts only its name, never the PR's number, and sa
   expect(chipWidth(identity)).toBe(160 + Math.ceil(4 * 6.6) + 18);
 });
 
+test("a folder's review that became its PR's keeps its id from before, derived from its folder and branch", () => {
+  const feature = { branch: "bb/snooze-checks-thr_ab12", repo: "acme/api", path: "/Users/ana/src/api" };
+  expect(reviewIdentity({ targetKey: "br-1", kind: "pr", repo: "acme/api", number: 4512 }).id).toBe("api#4512");
+  expect(localIdOf({ targetKey: "br-1", feature })).toBe("api:snooze-checks");
+  // Without a repository, the folder names it, as it did.
+  expect(localIdOf({ targetKey: "br-1", feature: { ...feature, repo: null } })).toBe("api:snooze-checks");
+});
+
 test("two panes on one review keep its title until the last of them closes", () => {
   const title = { id: "api#9", name: "One", line: "api#9 · One" };
   const first = publishReviewTitle("pr-9", title);
@@ -287,11 +308,11 @@ test("a local review goes by one name everywhere: its row, BB's thread list, its
   page.lifecycle.unmount();
 });
 
-test("on a phone, a local review's long id is cut in the middle to the dock's room, both its ends showing, and whole on hover and to a screen reader", async () => {
+test("on a phone, a local review's long id is cut from its end to the dock's room, reading from its start, and whole on hover and to a screen reader", async () => {
   const id = "web:feature/snooze-flaky-checks-on-retries";
   expect(id).toHaveLength(42);
-  expect(middleCut(id, 16)).toBe("web:fe…n-retries");
-  expect(middleCut(id, 42)).toBe(id);
+  expect(endCut(id, 16)).toBe("web:feature/sno…");
+  expect(endCut(id, 42)).toBe(id);
   // About 110px of tab, as at 390px: 16 characters at 6.6px.
   pane(390, { height: 844, phone: true, dockId: 110 });
   patchReviewState("ref-9", { activeId: "c1" });
@@ -301,7 +322,7 @@ test("on a phone, a local review's long id is cut in the middle to the dock's ro
   const shown = tab.querySelector<HTMLElement>("[data-dock-id]")!;
   expect(shown.getAttribute("title")).toBe(id);
   expect(within(shown).getByText(id).className).toBe("sr-only");
-  expect(within(shown).getByText("web:fe…n-retries").getAttribute("aria-hidden")).toBe("true");
+  expect(within(shown).getByText("web:feature/sno…").getAttribute("aria-hidden")).toBe("true");
   slot.lifecycle.unmount();
 });
 

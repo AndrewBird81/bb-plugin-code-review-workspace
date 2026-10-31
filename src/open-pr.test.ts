@@ -10,10 +10,11 @@ vi.mock("./store-queue", async (original) => {
   return { ...actual, queueStore: vi.fn(actual.queueStore) };
 });
 
-import { folderHost } from "./env-diff.test-support";
+import { folderHost, type Folder } from "./env-diff.test-support";
 import { agentChat, MARK_PART } from "./agent-chat.test-support";
 import { sendToAgent } from "./asking";
 import { startPlugin } from "./plugin-store.test-support";
+import { testStore } from "./test-store.test-support";
 import { featureKey, prReviewKey } from "./targets";
 import { prBase } from "./open-pr";
 import { affirms } from "./post-preview";
@@ -57,7 +58,8 @@ async function setup() {
   const chat = agentChat("agent");
   chat.say("Open a PR for this");
   const sent: any[] = [];
-  const { bb, harness } = folderHost({ files: [{ path: "src/a.ts" }] }, { threads: {
+  const folder: Folder = { files: [{ path: "src/a.ts" }] };
+  const { bb, harness } = folderHost(folder, { threads: {
     get: async ({ threadId }: { threadId: string }) => ({ id: threadId, archivedAt: null, deletedAt: null, status: "idle", title: threadId === "agent" ? `Review agent: ${KEY}` : "Snooze flaky checks", providerId: "claude-code" }),
     ...chat.sdk,
     send: async (args: any) => { sent.push(args); return chat.sdk.send(args); },
@@ -80,7 +82,7 @@ async function setup() {
     return harness.inspection.pendingInteractions[0];
   };
   const opens = () => runGh.mock.calls.filter(([args]) => args[1] === "repos/acme/api/pulls").map(([args]) => args as string[]);
-  return { bb, harness, store, tool, form, opens, github, sent, chat, say: (text: string, at = Date.now()) => chat.say(text, { at }) };
+  return { bb, harness, store, tool, form, opens, github, folder, sent, chat, say: (text: string, at = Date.now()) => chat.say(text, { at }) };
 }
 
 test("open_pr shows the title, the description, base ← head and the account first; one click opens it, and the same review becomes the PR's", async () => {
@@ -109,6 +111,31 @@ test("open_pr shows the title, the description, base ← head and the account fi
   expect(await prReviewKey(store, { repo: "acme/api", number: 7 })).toBe(KEY);
   expect((await store.listReviews()).map((r) => r.targetKey)).toEqual([KEY]);
   expect(review.activity).toEqual([expect.objectContaining({ text: "Opened PR #7", asking: "direct", url: "https://github.com/acme/api/pull/7" })]);
+  // Yours at once, and said, for its notice.
+  expect(review).toMatchObject({ ownPr: true, became: { number: 7, url: "https://github.com/acme/api/pull/7", from: "api:feat/qa", carried: 1, local: 0, outside: 0 } });
+});
+
+test("the PR's draft waiting in the Post form is on the review, for Finish review to say, until the form closes", async () => {
+  const { harness, store, tool, form } = await setup();
+  const call = tool({ title: "Snooze flaky checks" });
+  await form();
+  const { prDraft } = (await store.getReview(KEY))!;
+  expect(prDraft!.until - prDraft!.at).toBe(30 * 60_000);
+  harness.behavior.cancelInteraction(harness.inspection.pendingInteractions[0]!.id);
+  expect(toolFailed(await call)).toBe(true);
+  expect((await store.getReview(KEY))?.prDraft).toBeNull();
+});
+
+test("a PR draft said waiting when the plugin stopped, whose Post form went with it, isn't once it starts again", async () => {
+  const { bb, harness } = folderHost({ files: [] });
+  const before = testStore(bb);
+  await before.saveReview({ targetKey: KEY, kind: "ref", gitRef: "feat/qa", title: "Snooze flaky checks", createdAt: 1, status: "ready", projectId: "proj_api" });
+  await before.setLifecycle(KEY, { prDraft: { at: Date.now() - 1, until: Date.now() + 30 * 60_000 } });
+  const store = await startPlugin(bb);
+  const { controller, done } = harness.runService("review-state");
+  await vi.waitFor(async () => expect((await store.getReview(KEY))?.prDraft).toBeNull());
+  controller.abort();
+  await done;
 });
 
 test("a yes for what's no longer the same, as a new title, opens nothing and shows it again", async () => {
@@ -241,6 +268,30 @@ test("in a fork's folder, Open PR opens nothing, from the tool or from Finish: i
   expect(sent).toEqual([]);
   expect(opens()).toEqual([]);
   expect((await store.getReview(KEY))?.kind).toBe("ref");
+});
+
+test("Push's plan: Push and open PR on a branch with no PR, on GitHub or not; none with a PR, in a fork, or on a PR's review; GitHub's compare link to open one by hand; and whether the folder has anything to push", async () => {
+  const { harness, github, store, folder } = await setup();
+  const plan = () => harness.behavior.callRpc("pushPlan", { targetKey: KEY });
+  const compare = "https://github.com/acme/api/compare/main...feat/qa?expand=1";
+  // The folder unread: it may have.
+  expect(await plan()).toEqual({ openable: true, onGithub: true, pr: false, compare, toPush: true });
+  const status = { sha: PUSHED, dirty: false };
+  folder.answers = { workspaceStatus: () => ({ outcome: "available", workspace: { checkout: { kind: "branch", headSha: status.sha }, workingTree: { hasUncommittedChanges: status.dirty, fileCount: 0 } } }) };
+  expect(await plan()).toEqual({ openable: true, onGithub: true, pr: false, compare, toPush: false });
+  status.dirty = true;
+  expect(await plan()).toMatchObject({ toPush: true });
+  Object.assign(status, { sha: "f".repeat(40), dirty: false });
+  expect(await plan()).toMatchObject({ toPush: true });
+  github.branch = null;
+  expect(await plan()).toEqual({ openable: true, onGithub: false, pr: false, compare, toPush: true });
+  github.branch = PUSHED;
+  github.pr = { number: 7, url: "https://github.com/acme/api/pull/7" };
+  expect(await plan()).toEqual({ openable: true, onGithub: true, pr: true, compare, toPush: true });
+  github.fork = "upstream/api";
+  expect(await plan()).toEqual({ openable: false, onGithub: false, pr: false });
+  await store.saveReview({ targetKey: "pr-7", kind: "pr", repo: "acme/api", number: 7, title: "Snooze flaky checks", createdAt: 1, status: "ready" });
+  expect(await harness.behavior.callRpc("pushPlan", { targetKey: "pr-7" })).toEqual({ openable: false, onGithub: false, pr: false });
 });
 
 /** open_pr's form, clicked, with GitHub answering the post with `refuse`. */

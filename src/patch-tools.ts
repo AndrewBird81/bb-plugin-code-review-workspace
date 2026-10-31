@@ -6,14 +6,19 @@ import { readGeneratedFiles } from "./file-contents";
 import { recordAgentReads } from "./agent-reads";
 import { runGh, runGit } from "./gh";
 import { toolThreadReview } from "./thread-review";
+import { mergedAway } from "./draft-comments";
+import { withPrNote } from "./agent";
 import { failed, type ServeDeps } from "./server-modules";
 
 export function register(deps: ServeDeps) {
   const { bb, store } = deps;
-  /** Why a thread may not read `targetKey`'s diff: only a review's own assistant or guide writer may. Null when it may. */
+  /**
+   * Why a thread may not read `targetKey`'s diff: only a review's own assistant or guide writer may, and not once the review
+   * was merged into another. Null when it may.
+   */
   async function notOwnReview(threadId: string, targetKey: string): Promise<string | null> {
     const own = await toolThreadReview(bb, store, threadId);
-    return own === targetKey ? null : `This conversation can read only its own review's diff${own ? `, targetKey ${own}` : ""}.`;
+    return own === targetKey ? await mergedAway(store, own) : `This conversation can read only its own review's diff${own ? `, targetKey ${own}` : ""}.`;
   }
   bb.agents.registerTool({
     name: "read_review_patch",
@@ -27,9 +32,11 @@ export function register(deps: ServeDeps) {
     async execute({ targetKey, file, offset, limit }, { threadId }) {
       const refused = await notOwnReview(threadId, targetKey);
       if (refused) return failed(refused);
+      // Told first, once, if its review became its PR's.
+      const noted = <T>(answer: T) => withPrNote(store, threadId, targetKey, answer);
       if (file !== undefined) {
         // The file's diff, and its read recorded, in one turn: a read counts for the diff it read.
-        return store.exclusive(async (tx) => {
+        return noted(await store.exclusive(async (tx) => {
           const files = splitPatchByFile(await tx.patch(targetKey));
           // A renamed file is keyed by its new path; its old one finds it too.
           const diff = files.find((f) => f.path === file) ?? files.find((f) => f.oldPath === file);
@@ -40,12 +47,12 @@ export function register(deps: ServeDeps) {
           const text = diff.text.slice(offset ?? 0, (offset ?? 0) + (limit ?? 200_000));
           const end = (offset ?? 0) + text.length;
           return text + (end < diff.text.length ? `\n\n[${end}/${diff.text.length} bytes — call again with offset=${end}]` : "");
-        });
+        }));
       }
       const { patch, review } = await store.exclusive(async (tx) => ({ patch: await tx.patch(targetKey), review: await tx.getReview(targetKey) }));
       const generated = review ? await readGeneratedFiles({ runGh, runGit, bb }, review, changedFiles(patch)) : [];
       // The page, and its read recorded, in one turn.
-      return store.exclusive(async (tx) => {
+      return noted(await store.exclusive(async (tx) => {
         const paged = stubSkippedFiles(patch, generated, { lockfileDigest: (await tx.getPreferences()).preferences.knobs.lockfileDigest });
         const past = offsetPastEnd("the diff", offset ?? 0, paged.length);
         if (past) return failed(past);
@@ -54,7 +61,7 @@ export function register(deps: ServeDeps) {
         await recordAgentReads(tx, threadId, targetKey, splitPatchByFile(text).map((f) => f.path));
         const more = end < paged.length ? `\n\n[${end}/${paged.length} bytes — call again with offset=${end}]` : "";
         return text + more;
-      });
+      }));
     },
   });
   bb.agents.registerTool({

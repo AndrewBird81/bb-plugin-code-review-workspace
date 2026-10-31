@@ -5,7 +5,7 @@ For reviewers who need to understand a change before they approve it, often one 
 - **A guide to the change.** An agent writes the PR's intent and its chapters in reading order, each with a risk level. Risky chapters list what to verify, and **Start here** points to the one to three lines most likely to hide a defect.
 - **Requirements, checked.** What the PR's description and linked issues ask for, each marked covered, partial, missing, or unclear, with evidence.
 - **A drafted review you edit.** The review agent drafts line comments with a severity (Blocking, Should fix, Question, or Nit), a summary, and a suggested verdict. Each draft says how the agent confirmed the problem.
-- **Ask agent.** Ask the review agent about the whole change, a line, a selection, or a failing check.
+- **Ask agent.** Ask the review agent about the whole change, a line, a selection, or a failing check, in BB's side panel beside the review.
 - **Finish review.** The summary, your verdict, and exactly what will be posted. Before you approve, it flags blocking comments, unviewed files in high-risk chapters, chapters read faster than your set pace, and, when the agent suggests Approve, files it didn't read.
 
 ## Whose turn and re-review
@@ -25,8 +25,8 @@ For reviewers who need to understand a change before they approve it, often one 
 ## Local changes and agent threads
 
 - **Review changes** above a thread's message box, or `bb review` in it, reviews that thread's folder on any machine: one review per folder and branch, uncommitted and new files included.
-- **Send** your comments to the thread that wrote the code, beside the diff in a Main thread tab. It reports each done or declined, and the review comes back **Ready to re-review** with each fix checked.
-- **Push** from the review: the thread commits what you reviewed, the review checks that commit, and the thread pushes exactly it. Then **Open PR**, and the review becomes the PR's. Teammates' comments on your own PR go through the same loop.
+- **Send** your comments to the thread that wrote the code. **Main thread ↗** goes to it, its **Review · 2 open ↗** comes back, and its chat can show beside the diff in BB's side panel. It reports each done or declined, and the review comes back **Ready to re-review** with each fix checked.
+- **Push** from the review: the thread commits what you reviewed, the review checks that commit, and the thread pushes exactly it. **Push and open PR** has the review agent draft the PR too, and however the PR opens, the review becomes the PR's, its folder still attached. Teammates' comments on your own PR go through the same loop.
 - Agents in your other threads can add draft comments with `bb review comment`, and relay your asks to the review agent.
 
 ## Trust

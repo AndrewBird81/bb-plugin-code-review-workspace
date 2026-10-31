@@ -83,6 +83,7 @@ export function statusWhy(review: ReviewItem, knobs: Pick<Knobs, "localDiffChang
     case "unreachable": return why("Can’t read on GitHub", "neutral", "EyeOff");
     case "paused": return why(`Paused: on ${review.feature?.pausedOn ? branchLabel(review.feature.pausedOn) : "another branch"}`, "neutral", "GitBranch");
     case "folder-gone": return why("Folder removed", "neutral", "Folder");
+    case "merged-into": return why(review.mergedIntoId ? `Merged into ${review.mergedIntoId}` : turn.label, "neutral", "GitMerge");
     default: return null;
   }
 }

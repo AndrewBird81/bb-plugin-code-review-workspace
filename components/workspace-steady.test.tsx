@@ -65,7 +65,7 @@ async function renderWorkspace(review: () => Record<string, unknown>, rpc: Recor
   await slot.findByRole("main", { name: /^Review\b/ });
   return { slot, rpc: handlers };
 }
-const panel = (slot: Awaited<ReturnType<typeof renderWorkspace>>["slot"]) => within(slot.getByRole("complementary", { name: "Comments and agent" }));
+const panel = (slot: Awaited<ReturnType<typeof renderWorkspace>>["slot"]) => within(slot.getByRole("complementary", { name: "Comments and Finish review" }));
 
 test("a background reload with the same guide doesn't redraw the diff", async () => {
   const { slot, rpc } = await renderWorkspace(() => ({ submittedVerdict: "REQUEST_CHANGES", submittedAt: now - DAY, signals: { lastReviewSha: "new", ci: "pending" }, turn: turn() }));
@@ -140,7 +140,7 @@ test("Follow up on a file outside every chapter says so and offers GitHub, witho
   const { toast } = await import("sonner");
   const { slot } = await renderWorkspace(() => ({ submittedVerdict: "REQUEST_CHANGES", submittedAt: now - DAY, turn: turn({ group: "needs", reason: "handled", label: "Feedback handled", signal: "handled:1" }) }));
   // Your thread waits on its author: it's on GitHub, not in Needs you. Comments opens once the workspace has its size.
-  await slot.findByRole("complementary", { name: "Comments and agent" });
+  await slot.findByRole("complementary", { name: "Comments and Finish review" });
   const github = await panel(slot).findByRole("radio", { name: /^On GitHub,/ });
   fireEvent.click(github);
   fireEvent.click(await panel(slot).findByRole("button", { name: "Expand GitHub thread on src/gone.ts:2" }));

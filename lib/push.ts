@@ -5,6 +5,8 @@ import { usesFixer } from "./fixer";
 
 /** Where a Not pushed yet you opened keeps what it showed, beside the review's snapshots: Push checks a fixer's commit against it. */
 export const NOT_PUSHED = "not-pushed";
+/** A file's Viewed on Not pushed yet, among the review's file views, apart from the same path's in its chapters. */
+export const notPushedView = (path: string) => `${NOT_PUSHED}:${path}`;
 
 /**
  * Where a review's Push goes: GitHub's repo and branch, the folder whose commit goes there, the remote it's pushed to
@@ -25,6 +27,13 @@ export function pushTarget(review: Pushable | null): PushTarget | string {
   if (review.kind === "pr") {
     const fixer = usesFixer(review);
     if (review.ownPr !== true || !fixer && !review.feature) return "Push works on a local review, or on your own PR with a thread fixing it.";
+    // The folder it became a PR from, its main thread there: its own origin and branch, a fork's too.
+    const feature = review.feature;
+    if (!fixer && feature && review.repo && review.number && review.mainThread?.environmentId === feature.environmentId) {
+      const head = feature.remoteBranch ?? feature.branch;
+      if (pushCommand("HEAD", head) === null) return unsafe(head);
+      return { repo: review.repo, head, environmentId: feature.environmentId, remote: "origin", fixer: false, pr: review.number };
+    }
     const environmentId = review.mainThread?.environmentId;
     if (!review.repo || !review.number || !review.head || !environmentId) return "No thread is working on this PR in a folder, so there’s nothing to push.";
     if (pushCommand("HEAD", review.head) === null) return unsafe(review.head);
@@ -78,6 +87,9 @@ export const pushAnywayOffered = (run: PushRun | null | undefined): run is PushR
 
 /** What Push says when GitHub has commits the folder doesn't: a push without force would be refused. */
 export const behindText = (head: string) => `GitHub has commits on ${code(head)} that this folder doesn’t. Pull first, or Push anyway to try.`;
+
+/** The review agent's PR draft while it waits in the Post form in its chat (ReviewMeta.prDraft); null once it closed or timed out. */
+export const prDraftWaiting = (review: Pick<ReviewMeta, "prDraft">, now = Date.now()) => review.prDraft && review.prDraft.until > now ? review.prDraft : null;
 
 /** What Push says when GitHub has the commit already. */
 export const nothingToPush = (head: string, commit: string) => `Nothing to push. GitHub already has ${sha(commit)} on ${code(head)}.`;

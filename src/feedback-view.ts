@@ -1,7 +1,7 @@
 // Your feedback, the PR's diffs at the commits that matter, and the assistant's
 // check, assembled for Comments and the assistant's tools.
 import { NOT_PUSHED } from "../lib/push";
-import type { ReviewMeta } from "./store";
+import type { ReviewMeta, Store } from "./store";
 import type { runGh } from "./gh";
 import { ghErrorMessage, ghPrHeadArgs } from "./gh";
 import { diffTooLarge, readFilesPatch, readPrDiff } from "./pr-snapshot";
@@ -10,7 +10,7 @@ import { diffFilesHead } from "./env-diff";
 import { interdiff, type FileInterdiff } from "./interdiff";
 import { firstLine, type AssessmentItem, type FeedbackItem, type FeedbackView } from "../lib/feedback";
 import { baselineOf, type AssessmentSummary } from "../lib/turn";
-import { sendBaselineOf, sendKey, sendOf } from "../lib/send-baseline";
+import { localSendKey, sendBaselineOf, sendKey, sendOf } from "../lib/send-baseline";
 import type { Verdict } from "./draft";
 import { threadLabel } from "./github/threads";
 import type { AsyncStore } from "./store-queue";
@@ -86,13 +86,13 @@ async function compareDiff(run: Run, repo: string, base: string, sha: string): P
 }
 
 /** The diffs this review still needs: its guide's, your review's, the PR's head, and each Send's it keeps. */
-const keptDiffs = (review: ReviewMeta) => [review.headSha, baselineOf(review).sha, headOf(review), ...(review.sends ?? []).map((send) => sendKey(send.n))]
+const keptDiffs = (review: ReviewMeta) => [review.headSha, baselineOf(review).sha, headOf(review), ...(review.sends ?? []).flatMap((send) => [sendKey(send.n), localSendKey(send.n)])]
   .filter((sha): sha is string => !!sha);
 
 /** Keep the diffs this review still needs, and a local review's diff's files. */
-export async function pruneDiffs(store: AsyncStore, review: ReviewMeta) {
-  // A folder's diff's files, and what Not pushed yet showed, for Push.
-  const live = [...review.feature ? [diffFilesHead(await store.patchHash(review.targetKey))] : [], ...review.notPushedSeen ? [NOT_PUSHED] : []];
+export async function pruneDiffs(store: Store, review: ReviewMeta) {
+  // A folder's diff's files, and what Not pushed yet showed, for Push and a PR's review's LOCAL comments.
+  const live = [...review.feature ? [diffFilesHead(await store.patchHash(review.targetKey))] : [], ...review.notPushedSeen || review.feature ? [NOT_PUSHED] : []];
   await store.pruneSnapshots(review.targetKey, [...keptDiffs(review), ...live]);
 }
 

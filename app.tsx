@@ -15,10 +15,12 @@ import { PostPreview } from "./components/PostPreview";
 import { POST_PREVIEW_RENDERER } from "./src/post-preview";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { ReviewChangesSegment, ReviewTab, useReviewChangesVisible, useReviewTabVisible } from "./components/ThreadSurfaces";
-import { paletteCommandsAvailable, postPaletteCommand, readClipboard } from "./lib/commands";
+import { SWITCH_KEY, paletteCommandsAvailable, postPaletteCommand, readClipboard, switchTarget } from "./lib/commands";
 import { useEffect } from "react";
-import { panelPage, showPageTitle, useReviewTitle } from "./lib/workspace-store";
+import { panelPage, showPageTitle, useNarrowPane, useReviewTitle } from "./lib/workspace-store";
 import { useMediaQuery } from "./components/ui/hooks/use-media-query";
+import { MainThreadTab, REVIEW_TABS, ReviewAgentTab, useAgentTabVisible, useMainTabVisible } from "./components/PanelTabs";
+import { tabsRefused } from "./lib/app-panel";
 
 /** Needs review's rows in BB's own thread list: should they fail to draw, BB's list shows without them. */
 function SidebarOverlay() {
@@ -49,12 +51,15 @@ function ThreadReview(props: ExperimentalThreadTabProps) {
  * id and the name are crumbs, where the window is at least 720px wide: BB cuts only the last one short. Narrower, the
  * whole line as one title, cut at its end: BB's crumbs run into each other in a tight bar (seen at 390 and 480px), and
  * it shares the bar between the panel's name and a title by their lengths, so the id alone would be cut to "api#4…".
+ * So does a review narrower than a phone's beside BB's side panel.
  */
 function usePageTitle({ subPath }: { subPath: string }) {
   const page = panelPage(subPath);
   const targetKey = page.kind === "review" ? page.targetKey : null;
   const title = useReviewTitle(targetKey);
-  const narrow = useMediaQuery("(max-width: 719px)");
+  // A narrow pane beside BB's side panel is as tight as a narrow window.
+  const narrowPane = useNarrowPane(targetKey);
+  const narrow = useMediaQuery("(max-width: 719px)") || narrowPane;
   // Told while it shows the title, so the band leaves the review's name to it.
   useEffect(() => title && targetKey ? showPageTitle(targetKey) : undefined, [title, targetKey]);
   if (!title) return null;
@@ -73,6 +78,13 @@ export default definePluginApp((app) => {
     // BB hosts from before page titles ignore it, and the band's id chip still says which review it is.
     experimental_usePageTitle: usePageTitle,
   });
+  // A review's page: Review agent, and Main thread with one, in BB's own side panel (components/PanelTabs.tsx).
+  // A host that refuses a navigation page's tabs, as a client from before them may, loads the plugin without them: the
+  // review's commands then open the agent's and the main thread's chats as threads (components/ReviewWorkspace.tsx).
+  try {
+    app.slots.experimental_tab?.({ ...REVIEW_TABS.agent, title: "Review agent", icon: "code-review-workspace/agent", layout: "flush", component: ReviewAgentTab, useVisible: useAgentTabVisible });
+    app.slots.experimental_tab?.({ ...REVIEW_TABS.main, title: "Main thread", icon: "Code", layout: "flush", component: MainThreadTab, useVisible: useMainTabVisible });
+  } catch { tabsRefused(); }
   // Optional call: BB hosts from before app overlays skip it rather than fail to load the plugin.
   app.slots.experimental_appOverlay?.({ id: "needs-review", component: SidebarOverlay });
   // The review agent's Post form (src/review-agent-tools.ts). A host without the slot shows none; "yes" in chat posts instead.
@@ -88,4 +100,8 @@ export default definePluginApp((app) => {
   app.commands.register({ id: "review-from-clipboard", title: "Code Review Workspace: Review PR from clipboard",
     isAvailable: paletteCommandsAvailable, run: async () => postPaletteCommand({ kind: "clipboard", text: await readClipboard() }) });
   app.commands.register({ id: "all-reviews", title: "Code Review Workspace: All reviews", isAvailable: paletteCommandsAvailable, run: () => postPaletteCommand({ kind: "all" }) });
+  // Doing and reviewing, a key apart: a thread's page goes to its review, a review's page to its main thread.
+  app.commands.register({ id: "switch-review-thread", title: "Code Review Workspace: Switch between review and main thread", defaultShortcut: SWITCH_KEY,
+    isAvailable: (context) => paletteCommandsAvailable() && switchTarget(context) !== null,
+    run: (context) => { const to = switchTarget(context); if (to) postPaletteCommand({ kind: "switch", to }); } });
 });

@@ -1,12 +1,13 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useBbNavigate, useRpc } from "@get-bb/plugin-sdk/app";
 import { toast } from "sonner";
 import type { rpcContract } from "../../src/rpc-contract";
 import type { ReviewLifecycle } from "../../src/store";
-import { pushFlagText } from "../../lib/push";
+import { prDraftWaiting, pushFlagText } from "../../lib/push";
 import { cn } from "../../lib/utils";
 import { TOUCH_CONTROL } from "../touch";
 import { Button } from "../ui/button";
+import { Icon } from "../ui/icon";
 import type { Notice } from "./ReviewNotices";
 
 type Rpc = ReturnType<typeof useRpc<typeof rpcContract>>;
@@ -31,9 +32,27 @@ export async function updateThenClear(rpc: Rpc, targetKey: string): Promise<{ ok
   return updated.ok ? rpc.call("dismissPush", { targetKey }) : updated;
 }
 
+/** The PR drafts said ready, by review and when each was shown, so each is said once while the page stays open. */
+const draftsSaid = new Set<string>();
+
+/**
+ * "The PR draft is ready.", once per draft, while the review agent's Post form waits in its chat (ReviewMeta.prDraft):
+ * a toast with Post PR…, which opens the agent's tab (`onPost`), unless Finish review shows (`finishShown`), which says it.
+ */
+export function usePrDraftToast(targetKey: string, review: Pick<ReviewLifecycle, "prDraft"> | null, finishShown: boolean, onPost: () => void) {
+  const post = useRef(onPost);
+  post.current = onPost;
+  const at = review && prDraftWaiting(review)?.at;
+  useEffect(() => {
+    if (!at || draftsSaid.has(`${targetKey}:${at}`)) return;
+    draftsSaid.add(`${targetKey}:${at}`);
+    if (!finishShown) toast.info("The PR draft is ready.", { action: { label: "Post PR…", onClick: () => post.current() } });
+  }, [targetKey, at, finishShown]);
+}
+
 /**
  * The notice for a flagged Push (src/push.ts), plainly, on the review. GitHub isn't at the commit after the push: a
- * warning, with Push again, Open main thread and Got it. The branch has commits that didn't come from Push, a teammate's
+ * warning, with Push again, Main thread ↗ and Got it. The branch has commits that didn't come from Push, a teammate's
  * or CI's as often as a thread's: news, with Update to review them and Got it. `onChanged` reloads the review.
  */
 export function usePushNotices(targetKey: string, review: Pick<ReviewLifecycle, "push"> & { kind?: "pr" | "ref" } | null, onChanged: () => void): Notice[] {
@@ -60,7 +79,7 @@ export function usePushNotices(targetKey: string, review: Pick<ReviewLifecycle, 
       setBusy(false);
     }
   };
-  const button = (label: string, onClick: () => void, warning: boolean) => <Button variant="outline" size="sm" className={cn("h-7", warning && "border-warning/40", TOUCH_CONTROL)} disabled={busy} onClick={onClick}>{label}</Button>;
+  const button = (label: ReactNode, onClick: () => void, warning: boolean) => <Button variant="outline" size="sm" className={cn("h-7", warning && "border-warning/40", TOUCH_CONTROL)} disabled={busy} onClick={onClick}>{label}</Button>;
   const gotIt = (warning: boolean) => button("Got it", () => void act(() => rpc.call("dismissPush", { targetKey }))(), warning);
   if (run.flag === "unrequested") {
     return [{ id: "push-flagged", tone: "info", icon: "GitCommit", role: "status", label: "New commits on GitHub", firstLine: true, text: <Marked text={text} />,
@@ -70,7 +89,7 @@ export function usePushNotices(targetKey: string, review: Pick<ReviewLifecycle, 
   return [{ id: "push-flagged", tone: "warning", icon: "AlertTriangle", role: "alert", label: "Push not on GitHub", firstLine: true, text: <Marked text={text} />,
     action: <span className="flex flex-wrap gap-2">
       {button("Push again", () => void act(() => rpc.call("push", { targetKey }))(), true)}
-      {button("Open main thread", () => navigate.toThread(run.threadId), true)}
+      {button(<>Main thread<Icon name="ArrowUpRight" className="size-3.5" aria-hidden /></>, () => navigate.toThread(run.threadId), true)}
       {gotIt(true)}
     </span> }];
 }

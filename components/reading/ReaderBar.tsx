@@ -4,7 +4,7 @@ import { reviewIdentity, type ReviewIdentity } from "../../lib/review-identity";
 import { keyHint } from "../../lib/review-shortcuts";
 import { TITLE_BAR_WAIT_MS } from "../../lib/title-bar";
 import { cn } from "../../lib/utils";
-import { OVERVIEW, useWorkspace } from "../../lib/workspace-context";
+import { NOT_PUSHED_PAGE, OVERVIEW, useWorkspace } from "../../lib/workspace-context";
 import { phoneWindow } from "../../lib/workspace-layout";
 import { usePageTitleShown, useTitleBarMounted } from "../../lib/workspace-store";
 import { compareLabel, ComparePicker, sinceFrom } from "../ComparePicker";
@@ -136,6 +136,7 @@ export function ReaderBar({ threads, onCompareShown }: { threads: boolean; onCom
   const short = layout.mode === "short";
   const index = activeId === OVERVIEW ? -1 : sections.findIndex((section) => section.id === activeId);
   const chapter = sections[index];
+  const notPushed = activeId === NOT_PUSHED_PAGE;
   // A re-review compares with your last review, a review with a Send with your last Send, and a first review shows its
   // comparison once you pick a commit. The select is sized for its longest label, so what it says doesn't move it out
   // of the band. A PR with a thread working on it in a folder has Not pushed yet there too.
@@ -172,7 +173,7 @@ export function ReaderBar({ threads, onCompareShown }: { threads: boolean; onCom
           {fit.back && <span aria-hidden className="text-subtle-foreground">/</span>}
           {/* Which review: its id always, and in a chapter its title where the band has room, which goes to its Overview. */}
           <span className="flex min-w-0 shrink-[3] items-center gap-1">
-            {chapter
+            {chapter || notPushed
               // Its words truncate inside it, so a 44px target around it (short's ::after) isn't clipped.
               ? <button type="button" title="Overview" aria-label={fit.title && !titled ? `${identity.id} ${identity.name}` : identity.id} aria-describedby={described} className={cn("flex min-w-0 items-center gap-1.5 rounded-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring", touch)} onClick={() => go(OVERVIEW)}>
                 <ReviewIdChip identity={identity} />{fit.title && !titled && <span className="max-w-56 truncate">{identity.name}</span>}
@@ -183,8 +184,8 @@ export function ReaderBar({ threads, onCompareShown }: { threads: boolean; onCom
             <span aria-hidden className="text-subtle-foreground">/</span>
           </span>
           {!chapter ? <span className="flex min-w-0 items-center gap-1.5 font-medium">
-            <Icon name="AlignLeft" className="size-4 shrink-0 text-primary" aria-hidden />
-            <span className="truncate">Overview</span>
+            <Icon name={notPushed ? "FileDiff" : "AlignLeft"} className="size-4 shrink-0 text-primary" aria-hidden />
+            <span className="truncate">{notPushed ? "Not pushed yet" : "Overview"}</span>
           </span> : <>
             {/* Where you are, not a button: the chapters toggle shows the chapters, here or at the navigator's top. */}
             <span className="flex min-w-0 items-center gap-1.5">

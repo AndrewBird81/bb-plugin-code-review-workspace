@@ -7,6 +7,8 @@ import { defaultKnobs } from "../lib/knobs";
 import { patchReviewState } from "../lib/panel-state";
 import { setNeedsYou } from "../lib/workspace-store";
 import { TITLE_BAR_WAIT_MS } from "../lib/title-bar";
+import { panelTabCalls, renderPanelTab } from "./panel-tabs.test-support";
+import { toast } from "sonner";
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() }, Toaster: () => null }));
 vi.mock("@pierre/diffs/react", () => ({ FileDiff: () => <div data-testid="filediff" /> }));
@@ -14,8 +16,8 @@ vi.mock("@pierre/diffs/react", () => ({ FileDiff: () => <div data-testid="filedi
 const restores: (() => void)[] = [];
 afterEach(() => { cleanup(); localStorage.clear(); sessionStorage.clear(); vi.clearAllMocks(); restores.splice(0).forEach((restore) => restore()); vi.useRealTimers(); });
 
-/** Every ResizeObserver reports this size, and media queries answer for a screen this size. */
-function fakeSize(width: number, height: number) {
+/** Every ResizeObserver reports this size, and media queries answer for a screen this size, or `screen`'s. */
+function fakeSize(width: number, height: number, screen: [number, number] = [width, height]) {
   const original = globalThis.ResizeObserver;
   globalThis.ResizeObserver = class {
     constructor(private notify: ResizeObserverCallback) {}
@@ -25,13 +27,13 @@ function fakeSize(width: number, height: number) {
   } as unknown as typeof ResizeObserver;
   const matchMedia = vi.spyOn(window, "matchMedia").mockImplementation((query: string) => {
     const max = query.match(/max-(width|height): (\d+)px/);
-    const matches = !!max && (max[1] === "width" ? width : height) <= Number(max[2]);
+    const matches = !!max && (max[1] === "width" ? screen[0] : screen[1]) <= Number(max[2]);
     return { matches, media: query, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, onchange: null, dispatchEvent: () => false } as MediaQueryList;
   });
   // The window is the screen: jsdom's is 0 × 0, a phone's.
   const root = document.documentElement;
-  Object.defineProperty(root, "clientWidth", { configurable: true, value: width });
-  Object.defineProperty(root, "clientHeight", { configurable: true, value: height });
+  Object.defineProperty(root, "clientWidth", { configurable: true, value: screen[0] });
+  Object.defineProperty(root, "clientHeight", { configurable: true, value: screen[1] });
   restores.push(() => { globalThis.ResizeObserver = original; matchMedia.mockRestore(); delete (root as { clientWidth?: number }).clientWidth; delete (root as { clientHeight?: number }).clientHeight; });
 }
 
@@ -70,12 +72,12 @@ function handlers(review: Record<string, unknown> = {}, rpc: Record<string, unkn
 }
 
 /** The review's page, and BB's title bar as the host renders it, apart from the page, with the panel's headerContent. */
-async function renderReview({ review, rpc, titleBar = true }: { review?: Record<string, unknown>; rpc?: Record<string, unknown>; titleBar?: boolean } = {}) {
+async function renderReview({ review, rpc, titleBar = true, panel }: { review?: Record<string, unknown>; rpc?: Record<string, unknown>; titleBar?: boolean; panel?: { openTab: () => boolean } } = {}) {
   patchReviewState("pr-42", { activeId: "c1" });
   const app = await loadPluginApp(() => import("../app"));
   const registration = app.navPanels[0]!;
   const bar = titleBar ? renderSlot({ component: registration.headerContent! }, { subPath: "pr-42" }, { rpc: handlers(review, rpc) as any }) : null;
-  const page = renderSlot(registration, { subPath: "pr-42" }, { rpc: handlers(review, rpc) as any });
+  const page = renderSlot(registration, { subPath: "pr-42" }, { rpc: handlers(review, rpc) as any, ...panel ? { experimental_panel: panel } : {} });
   await page.findByTestId("filediff");
   const band = () => within(page.getByRole("navigation", { name: "Breadcrumb" }).closest<HTMLElement>("[class*='@container/band']")!);
   return { page, bar, band };
@@ -113,17 +115,94 @@ test("the title bar's commands fit the pane: labeled from 1000px, shorter below,
   page.lifecycle.unmount(); bar!.lifecycle.unmount(); restores.splice(0).forEach((restore) => restore());
   fakeSize(800, 1200);
   ({ bar, page } = await renderReview());
-  expect(await text(bar)).toEqual(["", "Ask agent", "Finish· 2"]);
+  // Mid-width, Ask agent, with its key and BB's tab, goes to its icon first (Main thread ↗ keeps its label: below).
+  expect(await text(bar)).toEqual(["", "", "Finish· 2"]);
   page.lifecycle.unmount(); bar!.lifecycle.unmount(); restores.splice(0).forEach((restore) => restore());
+  // Finish review too is its icon and count, where "Finish · 2" left BB's crumbs no room.
   fakeSize(844, 390);
   ({ bar, page } = await renderReview());
-  expect(await text(bar)).toEqual(["", "", "Finish· 2"]);
+  expect(await text(bar)).toEqual(["", "", "2"]);
+  page.lifecycle.unmount(); bar!.lifecycle.unmount(); restores.splice(0).forEach((restore) => restore());
+  fakeSize(560, 952, [1440, 1000]);
+  ({ bar, page } = await renderReview());
+  expect(await text(bar)).toEqual(["", "", "2"]);
+  expect(within(bar!.getByRole("group", { name: "Review commands" })).getByRole("button", { name: /^Finish review:/ }).querySelector("svg")?.getAttribute("data-icon")).toBe("Github");
   page.lifecycle.unmount(); bar!.lifecycle.unmount(); restores.splice(0).forEach((restore) => restore());
   // A phone's are its own, in the workspace's dock.
   fakeSize(390, 844);
   ({ bar, page } = await renderReview());
   await page.findByRole("group", { name: "Review commands" });
   expect(bar!.container.innerHTML).toBe("");
+});
+
+test("beside BB's side panel on a desktop, a 560px review keeps its commands in BB's title bar; Ask agent is pressed while its tab shows, and closes it", async () => {
+  fakeSize(560, 952, [1440, 1000]);
+  const { bar, page } = await renderReview();
+  const commands = within(await bar!.findByRole("group", { name: "Review commands" }));
+  const ask = commands.getByRole("button", { name: "Ask agent" });
+  // Icons, leaving BB's crumbs their room.
+  expect(ask.textContent).toBe("");
+  // Not a phone's dock.
+  expect(page.queryByRole("button", { name: /^pr-42, Chapters:/ })).toBeNull();
+  expect(ask.getAttribute("aria-pressed")).toBe("false");
+  fireEvent.click(ask);
+  expect(panelTabCalls(page)).toEqual(["openTab:agent"]);
+  const app = await loadPluginApp(() => import("../app"));
+  const tab = renderPanelTab(app, "agent", "pr-42", { rpc: handlers() as any });
+  await waitFor(() => expect(ask.getAttribute("aria-pressed")).toBe("true"));
+  fireEvent.click(ask);
+  expect(panelTabCalls(bar!)).toEqual(["close"]);
+  tab.lifecycle.unmount();
+  await waitFor(() => expect(ask.getAttribute("aria-pressed")).toBe("false"));
+});
+
+test("Ask agent in full screen leaves it, as BB's side panel is outside it, though its tab showed before", async () => {
+  fakeSize(1400, 900);
+  fakeFullscreen();
+  const { bar, page, band } = await renderReview({ panel: { openTab: () => true } });
+  const app = await loadPluginApp(() => import("../app"));
+  const tab = renderPanelTab(app, "agent", "pr-42", { rpc: handlers() as any });
+  await waitFor(() => expect(bar!.getByRole("button", { name: "Ask agent" }).getAttribute("aria-pressed")).toBe("true"));
+  fireEvent.click(await bar!.findByRole("button", { name: "Full screen" }));
+  await waitFor(() => expect(document.fullscreenElement).toBeTruthy());
+  const ask = await band().findByRole("button", { name: "Ask agent" });
+  expect(ask.getAttribute("aria-pressed")).toBe("false");
+  fireEvent.click(ask);
+  await waitFor(() => expect(document.fullscreenElement).toBeNull());
+  expect(panelTabCalls(page)).toEqual(["openTab:agent"]);
+  expect(toast.error).not.toHaveBeenCalled();
+  tab.lifecycle.unmount();
+});
+
+test("where BB's panel declines the tab, Ask agent says it isn't available here", async () => {
+  fakeSize(1400, 900);
+  const { bar } = await renderReview();
+  fireEvent.click(await bar!.findByRole("button", { name: "Ask agent" }));
+  expect(toast.error).toHaveBeenCalledWith("The review agent isn’t available here.");
+});
+
+test("Main thread ↗ always shows its ↗, keeps its label mid-width, and says its key; Show beside review says what it does, and Hide once it shows", async () => {
+  const withMain = { sourceThreadId: "coder", mainThread: { threadId: "coder", environmentId: null, origin: "adopted", since: 1 } };
+  const go = async (bar: Awaited<ReturnType<typeof renderReview>>["bar"]) => (await bar!.findByRole("button", { name: "Go to main thread" }));
+  fakeSize(1400, 900);
+  let { bar, page } = await renderReview({ review: withMain });
+  expect((await go(bar)).textContent).toBe("Main thread");
+  expect((await go(bar)).querySelector("[data-icon=ArrowUpRight]")).toBeTruthy();
+  page.lifecycle.unmount(); bar!.lifecycle.unmount(); restores.splice(0).forEach((restore) => restore());
+  fakeSize(800, 1200);
+  ({ bar, page } = await renderReview({ review: withMain }));
+  expect((await go(bar)).textContent).toBe("Main thread");
+  page.lifecycle.unmount(); bar!.lifecycle.unmount(); restores.splice(0).forEach((restore) => restore());
+  fakeSize(560, 952, [1440, 1000]);
+  ({ bar, page } = await renderReview({ review: withMain }));
+  const icons = await go(bar);
+  expect(icons.textContent).toBe("");
+  expect(icons.querySelector("[data-icon=ArrowUpRight]")).toBeTruthy();
+  const beside = bar!.getByRole("button", { name: "Show main thread beside review" });
+  expect(beside.querySelector("[data-icon=Columns2]")).toBeTruthy();
+  fireEvent.focus(beside);
+  beside.focus();
+  await bar!.findByRole("tooltip", { name: "Show main thread beside review" });
 });
 
 test("where BB's title bar takes the commands the band doesn't show them; where it doesn't, the band does, after a moment", async () => {
@@ -141,15 +220,57 @@ test("where BB's title bar takes the commands the band doesn't show them; where 
   expect(without.band().getByRole("group", { name: "Review commands" })).toBeTruthy();
 });
 
-test("Submit shows only what can be submitted: a local review and a closed PR have none", async () => {
+test("Submit shows only what can be submitted: a closed PR has none", async () => {
   fakeSize(1400, 900);
-  for (const review of [{ kind: "ref", gitRef: "main...x", url: null }, { prState: "MERGED", archivedAt: 1 }]) {
-    const { bar, page } = await renderReview({ review });
-    const commands = within(await bar!.findByRole("group", { name: "Review commands" }));
-    expect(commands.getByRole("button", { name: "Comments" })).toBeTruthy();
-    expect(commands.queryByRole("button", { name: /^Finish review:/ })).toBeNull();
-    page.lifecycle.unmount(); bar!.lifecycle.unmount();
-  }
+  const { bar } = await renderReview({ review: { prState: "MERGED", archivedAt: 1 } });
+  const commands = within(await bar!.findByRole("group", { name: "Review commands" }));
+  expect(commands.getByRole("button", { name: "Comments" })).toBeTruthy();
+  expect(commands.queryByRole("button", { name: /^Finish review/ })).toBeNull();
+});
+
+test("a local review's Finish review counts the open comments Send would send, with no verdict, as it submits nothing", async () => {
+  fakeSize(1400, 900);
+  const local = { kind: "ref", gitRef: "main...x", url: null };
+  const comments = [{ file: "src/a.ts", line: 1, side: "RIGHT", body: "Here." }, { file: "src/a.ts", line: 2, side: "LOCAL", body: "Not pushed." }, { file: "src/a.ts", line: 3, side: "RIGHT", body: "Sent.", state: "sent" }];
+  let { bar, page } = await renderReview({ review: local, rpc: { getDraft: () => ({ draft: { targetKey: "pr-42", verdict: "COMMENT", body: "", comments }, stale: [] }) } });
+  let commands = within(await bar!.findByRole("group", { name: "Review commands" }));
+  const finish = await commands.findByRole("button", { name: "Finish review: 2 comments to send" });
+  expect(finish.textContent).toBe("Finish review· 2");
+  expect(finish.getAttribute("aria-keyshortcuts")).toBe("s");
+  // Nothing goes to GitHub: Send's icon.
+  expect(finish.querySelector("svg")?.getAttribute("data-icon")).toBe("Send");
+  fireEvent.click(finish);
+  expect(finish.getAttribute("aria-pressed")).toBe("true");
+  expect(page.getByRole("complementary", { name: "Comments and Finish review" })).toBeTruthy();
+  page.lifecycle.unmount(); bar!.lifecycle.unmount();
+  // None open: no count.
+  ({ bar, page } = await renderReview({ review: local, rpc: { getDraft: () => ({ draft: { targetKey: "pr-42", verdict: "COMMENT", body: "", comments: [] }, stale: [] }) } }));
+  commands = within(await bar!.findByRole("group", { name: "Review commands" }));
+  expect((await commands.findByRole("button", { name: "Finish review" })).textContent).toBe("Finish review");
+  page.lifecycle.unmount(); bar!.lifecycle.unmount(); restores.splice(0).forEach((restore) => restore());
+  // Beside BB's side panel, its icon and count, its name unchanged; with none open, its icon.
+  fakeSize(560, 952, [1440, 1000]);
+  ({ bar, page } = await renderReview({ review: local, rpc: { getDraft: () => ({ draft: { targetKey: "pr-42", verdict: "COMMENT", body: "", comments }, stale: [] }) } }));
+  commands = within(await bar!.findByRole("group", { name: "Review commands" }));
+  const icons = await commands.findByRole("button", { name: "Finish review: 2 comments to send" });
+  expect(icons.textContent).toBe("2");
+  expect(icons.querySelector("svg")?.getAttribute("data-icon")).toBe("Send");
+  page.lifecycle.unmount(); bar!.lifecycle.unmount();
+  ({ bar, page } = await renderReview({ review: local, rpc: { getDraft: () => ({ draft: { targetKey: "pr-42", verdict: "COMMENT", body: "", comments: [] }, stale: [] }) } }));
+  commands = within(await bar!.findByRole("group", { name: "Review commands" }));
+  expect((await commands.findByRole("button", { name: "Finish review" })).textContent).toBe("");
+});
+
+test("a local review's Finish review leaves the draft status alone: nothing to submit, as the phone dock reads it", async () => {
+  fakeSize(1400, 900);
+  const { useDraftStatus } = await import("../lib/draft-status");
+  let status: unknown = "unset";
+  const Probe = () => { status = useDraftStatus("pr-42"); return null; };
+  const probe = renderSlot({ component: Probe }, {}, {});
+  const { bar } = await renderReview({ review: { kind: "ref", gitRef: "main...x", url: null } });
+  await within(await bar!.findByRole("group", { name: "Review commands" })).findByRole("button", { name: /^Finish review/ });
+  expect(status).toBeNull();
+  probe.lifecycle.unmount();
 });
 
 test("Comments counts what needs you, opens and closes the panel, and says so pressed", async () => {
@@ -170,10 +291,10 @@ test("Comments counts what needs you, opens and closes the panel, and says so pr
   focusVisible.mockRestore();
   fireEvent.click(comments);
   expect(comments.getAttribute("aria-pressed")).toBe("true");
-  expect(page.getByRole("complementary", { name: "Comments and agent" })).toBeTruthy();
+  expect(page.getByRole("complementary", { name: "Comments and Finish review" })).toBeTruthy();
   fireEvent.click(comments);
   expect(comments.getAttribute("aria-pressed")).toBe("false");
-  expect(page.queryByRole("complementary", { name: "Comments and agent" })).toBeNull();
+  expect(page.queryByRole("complementary", { name: "Comments and Finish review" })).toBeNull();
   act(() => setNeedsYou("pr-42", 0));
 });
 
@@ -184,7 +305,7 @@ test("closing the panel a title-bar command opened gives the focus back to the c
   // A click presses, focuses the button, and lets go.
   const click = (button: HTMLElement) => { fireEvent.pointerDown(button); button.focus(); fireEvent.pointerUp(button); fireEvent.click(button); };
   click(comments);
-  click(within(page.getByRole("complementary", { name: "Comments and agent" })).getByRole("button", { name: "Close panel" }));
+  click(within(page.getByRole("complementary", { name: "Comments and Finish review" })).getByRole("button", { name: "Close panel" }));
   await waitFor(() => expect(document.activeElement).toBe(comments));
   expect(page.getByRole("navigation", { name: "Chapters" })).toBeTruthy();
   fireEvent.keyDown(comments, { key: "t" });
@@ -224,6 +345,73 @@ test("a local review's Review actions offers Rewrite guide after Rename, with th
   expect(bar!.queryByRole("button", { name: /^(Update|Rebuild) guide$/ })).toBeNull();
   fireEvent.click(rewrite);
   await waitFor(() => expect(rereview).toHaveBeenCalledWith({ targetKey: "pr-42" }));
+});
+
+test("after Keep both, Review actions offers Merge into one review on either review, its line saying which stays, while neither is archived", async () => {
+  fakeSize(1400, 900);
+  const mergeReviews = vi.fn(() => ({ ok: true, targetKey: "pr-42" }));
+  const cases = [
+    { review: { keptApart: { targetKey: "br-1", id: "api:feat/qa", number: 42 } }, line: "This PR’s branch has a local review. Merging keeps that one and archives this one." },
+    { review: { kind: "ref", gitRef: "main...feat/qa", url: null, keptApart: { targetKey: "pr-x", id: "web#42", number: 42 } }, line: "PR #42 has its own review. Merging keeps this one and archives that one." },
+    // The local review of another branch, which Make it PR #42's review linked.
+    { review: { keptApart: { targetKey: "br-1", id: "api:part2", number: 42, branch: "part2" } }, line: "A local review of part2 is linked to this PR. Merging keeps that one and archives this one." },
+  ];
+  for (const { review, line } of cases) {
+    const { bar, page } = await renderReview({ review, rpc: { mergeReviews } });
+    fireEvent.click(await bar!.findByRole("button", { name: "Review actions" }));
+    const merge = await bar!.findByRole("button", { name: "Merge into one review" });
+    // Said before you choose it, not only to a screen reader.
+    expect(merge.textContent).toContain(line);
+    expect(merge.getAttribute("aria-description")).toBe(line);
+    // A branch in monospace, as the notice shows it.
+    if (review.keptApart.branch) expect(merge.querySelector(".font-mono")?.textContent).toBe(review.keptApart.branch);
+    // On the PR's review, for the local review it names, of the PR's two or more.
+    fireEvent.click(merge);
+    await waitFor(() => expect(mergeReviews).toHaveBeenLastCalledWith({ targetKey: review.kind === "ref" ? "pr-42" : review.keptApart.targetKey }));
+    page.lifecycle.unmount(); bar!.lifecycle.unmount();
+  }
+  const { bar } = await renderReview({ review: { ...cases[0]!.review, archivedAt: 1 } });
+  fireEvent.click(await bar!.findByRole("button", { name: "Review actions" }));
+  const menu = within((await bar!.findByRole("button", { name: "Rename…" })).parentElement!);
+  expect(menu.queryByRole("button", { name: "Merge into one review" })).toBeNull();
+});
+
+test("a merge from Review actions that fails says why", async () => {
+  fakeSize(1400, 900);
+  const { bar } = await renderReview({ review: { keptApart: { targetKey: "br-1", id: "api:feat/qa", number: 42 } }, rpc: { mergeReviews: () => ({ ok: false, error: "Nope." }) } });
+  fireEvent.click(await bar!.findByRole("button", { name: "Review actions" }));
+  fireEvent.click(await bar!.findByRole("button", { name: "Merge into one review" }));
+  await waitFor(() => expect(toast.error).toHaveBeenCalledWith("Nope."));
+});
+
+test("after Not this one, a local review's Review actions offers Make it PR #12's review, which the notice offered", async () => {
+  fakeSize(1400, 900);
+  const takePendingPr = vi.fn(() => ({ ok: true }));
+  const local = { kind: "ref", gitRef: "main...feat/qa", url: null };
+  const pending = { number: 12, url: "https://github.com/acme/web/pull/12", why: "older", at: 1 };
+  // Its line says why it was held, as the notice did.
+  const lines = [
+    { prPending: { ...pending, declined: true }, line: "This branch has PR #12, opened before this review." },
+    { prPending: { ...pending, why: "branch", head: "part1", declined: true }, line: "PR #12 is from part1, not this branch." },
+  ];
+  for (const { prPending, line } of lines) {
+    const { bar, page } = await renderReview({ review: { ...local, prPending }, rpc: { takePendingPr } });
+    fireEvent.click(await bar!.findByRole("button", { name: "Review actions" }));
+    const take = await bar!.findByRole("button", { name: "Make it PR #12’s review" });
+    expect(take.textContent).toContain(line);
+    expect(take.getAttribute("aria-description")).toBe(line);
+    if ("head" in prPending) expect(take.querySelector(".font-mono")?.textContent).toBe(prPending.head);
+    fireEvent.click(take);
+    await waitFor(() => expect(takePendingPr).toHaveBeenLastCalledWith({ targetKey: "pr-42" }));
+    page.lifecycle.unmount(); bar!.lifecycle.unmount();
+  }
+  // Not declined, the notice offers it; GitHub not answering, its Try again.
+  for (const prPending of [pending, { ...pending, why: "error", declined: true }]) {
+    const { bar, page } = await renderReview({ review: { ...local, prPending } });
+    fireEvent.click(await bar!.findByRole("button", { name: "Review actions" }));
+    expect(within((await bar!.findByRole("button", { name: "Rename…" })).parentElement!).queryByRole("button", { name: "Make it PR #12’s review" })).toBeNull();
+    page.lifecycle.unmount(); bar!.lifecycle.unmount();
+  }
 });
 
 test("an iPad without a mouse keeps Keyboard shortcuts in Review actions, for its keyboard", async () => {

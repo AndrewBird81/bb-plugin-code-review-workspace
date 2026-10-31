@@ -84,9 +84,15 @@ export function register(deps: ServeDeps) {
     });
     if (checking) await checkEnded(checking);
   };
+  // A review agent's chat deleted while its tab shows: the tab reads the conversation again, and says so.
+  const deleted: PluginThreadEventHandler<"thread.deleted"> = async ({ thread }) => {
+    const reviewKey = await store.exclusive((tx) => assistantReview(tx, thread.id));
+    if (reviewKey) bb.realtime.publish(`conversation:${reviewKey}`, { deleted: thread.id });
+  };
   return {
     events: {
       "thread.idle": [settle],
+      "thread.deleted": [deleted],
       "thread.failed": [settle, ({ thread, error }) => guideWorkerFailed(bb, thread.id, error)],
       "message.dispatched": [dispatched],
       "message.cancelled": [cancelled],

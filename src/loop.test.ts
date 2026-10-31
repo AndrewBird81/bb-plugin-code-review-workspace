@@ -99,6 +99,21 @@ test("Send gives each comment an id and sends them to the main thread with the r
   expect(h.harness.inspection.realtimeSignals.map((signal) => signal.channel)).toEqual(expect.arrayContaining(["review:pr-1", "draft:pr-1"]));
 });
 
+test("Send takes a comment on a line only in the folder, with its code from Not pushed yet, and keeps that diff as send:<n>:local", async () => {
+  const h = host();
+  const store = await startPlugin(h.bb);
+  await ownPr(store);
+  const shown = "diff --git a/src/b.ts b/src/b.ts\n--- /dev/null\n+++ b/src/b.ts\n@@ -0,0 +1 @@\n+export const d = 5;\n";
+  await store.saveSnapshot("pr-1", "not-pushed", shown);
+  const LOCAL = { file: "src/b.ts", line: 1, side: "LOCAL" as const };
+  await store.upsertDraftComment("pr-1", { ...LOCAL, body: "Export it from the index." });
+  expect(await call(h.harness, "sendToSourceThread", { targetKey: "pr-1", comments: [A3, LOCAL] })).toMatchObject({ ok: true, sendN: 1 });
+  expect(h.sends()[0].input[0].text).toContain("c2 · `src/b.ts:1` (in the folder, not on GitHub yet)\n```diff\n+export const d = 5;\n```\nExport it from the index.");
+  expect(await comment(store, LOCAL)).toMatchObject({ id: "c2", state: "sent", sendN: 1 });
+  expect(await store.getSnapshot("pr-1", "send:1:local")).toBe(shown);
+  expect(await store.getSnapshot("pr-1", "send:1")).toBe(PATCH);
+});
+
 test("two Sends while the main thread is busy are two queued messages, Send 1 and Send 2, and a comment keeps its id", async () => {
   const h = host({ coder: { title: "Retry uploads", busy: true } });
   const store = await startPlugin(h.bb);

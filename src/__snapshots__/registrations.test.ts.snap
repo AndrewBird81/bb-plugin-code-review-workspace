@@ -198,10 +198,11 @@ exports[`the plugin registers the same RPC methods, tools, CLI subcommands, list
           "type": "string",
         },
         "side": {
-          "description": "RIGHT, the default, for an added or unchanged line; LEFT for a removed line.",
+          "description": "RIGHT, the default, for an added or unchanged line; LEFT for a removed line; LOCAL for a comment not on GitHub yet, as list_draft_comments shows it.",
           "enum": [
             "RIGHT",
             "LEFT",
+            "LOCAL",
           ],
           "type": "string",
         },
@@ -247,10 +248,11 @@ exports[`the plugin registers the same RPC methods, tools, CLI subcommands, list
           "type": "integer",
         },
         "side": {
-          "description": "RIGHT, the default, for an added or unchanged line; LEFT for a removed line.",
+          "description": "RIGHT, the default, for an added or unchanged line; LEFT for a removed line; LOCAL for a comment not on GitHub yet, as list_draft_comments shows it.",
           "enum": [
             "RIGHT",
             "LEFT",
+            "LOCAL",
           ],
           "type": "string",
         },

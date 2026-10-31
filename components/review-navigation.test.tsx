@@ -6,6 +6,7 @@ import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import { defaultPreferences } from "../src/preferences";
 import { defaultKnobs } from "../lib/knobs";
 import { getCommentsFolded, getReviewState, patchReviewState, setHideNits } from "../lib/panel-state";
+import { panelTabCalls, renderPanelTab } from "./panel-tabs.test-support";
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }));
 // Each diff's new lines, the lines pierre would highlight, and a pick of line 1 as pierre reports it.
@@ -63,7 +64,7 @@ async function renderWorkspace({ review = {}, rpc = {}, bundle = {}, opened = tr
   };
   const slot = renderSlot(app.navPanels[0]!, { subPath: "pr-42" }, { rpc: handlers as any });
   await slot.findByRole("main", { name: /^Review\b/ });
-  return { slot, rpc: handlers };
+  return { app, slot, rpc: handlers };
 }
 type Slot = Awaited<ReturnType<typeof renderWorkspace>>["slot"];
 const chapters = (slot: Slot) => within(slot.getByRole("navigation", { name: "Chapters" }));
@@ -71,6 +72,19 @@ const chapters = (slot: Slot) => within(slot.getByRole("navigation", { name: "Ch
 const openDrafts = async (slot: Slot) => fireEvent.click(await slot.findByRole("button", { name: "Comments" }));
 const finishing = (slot: Slot) => !!slot.queryByRole("heading", { name: "Finish review" });
 const currentChapter = (slot: Slot) => chapters(slot).getAllByRole("button").find((button) => button.getAttribute("aria-current") === "step");
+
+test("a comment's row on a thread's Review tab opens the review at that comment, once, whether it opens now or is open already", async () => {
+  const { askToShowComment } = await import("../lib/workspace-store");
+  askToShowComment("pr-42", { file: "src/b.ts", line: 1, side: "RIGHT" });
+  const { slot } = await renderWorkspace();
+  await waitFor(() => expect(currentChapter(slot)?.textContent).toContain("Caching"));
+  // Asked again while it's open: it goes there again.
+  fireEvent.click(chapters(slot).getByText("Parsing"));
+  await waitFor(() => expect(currentChapter(slot)?.textContent).toContain("Parsing"));
+  act(() => askToShowComment("pr-42", { file: "src/c.ts", line: 1, side: "RIGHT" }));
+  await waitFor(() => expect(currentChapter(slot)?.textContent).toContain("Caching"));
+  slot.lifecycle.unmount();
+}, 15_000);
 
 test("reopening a review returns to the chapter you were on", async () => {
   patchReviewState("pr-42", { activeId: "c2" });
@@ -345,7 +359,7 @@ test("Esc clears a line selection, once nothing is over the code", async () => {
 }, 15_000);
 
 test("code you select, as a long-press does on touch, offers Ask agent about selection, which asks the agent about it", async () => {
-  const { slot } = await renderWorkspace();
+  const { app, slot, rpc } = await renderWorkspace();
   const text = await slot.findByText("aa");
   const select = (node: Node | null) => {
     window.getSelection()!.removeAllRanges();
@@ -361,10 +375,14 @@ test("code you select, as a long-press does on touch, offers Ask agent about sel
   await waitFor(() => expect(slot.queryByRole("group", { name: "Selection" })).toBeNull());
   select(text);
   fireEvent.click(await slot.findByRole("button", { name: "Ask agent about selection" }));
-  expect(await slot.findByRole("textbox", { name: "Ask the agent" })).toBeTruthy();
-  expect(await within(slot.getByRole("complementary", { name: "Comments and agent" })).findByText("a.ts")).toBeTruthy();
+  // BB's side panel opens on the Review agent tab, the selection its question's context.
+  expect(panelTabCalls(slot)).toEqual(["openTab:agent"]);
+  const tab = renderPanelTab(app, "agent", "pr-42", { rpc: rpc as any });
+  expect(await tab.findByRole("textbox", { name: "Ask the agent" })).toBeTruthy();
+  expect(await within(tab.getByRole("region", { name: "Review agent" })).findByText("a.ts")).toBeTruthy();
   expect(window.getSelection()!.toString()).toBe("");
   expect(slot.queryByRole("group", { name: "Selection" })).toBeNull();
+  tab.lifecycle.unmount();
   slot.lifecycle.unmount();
 }, 15_000);
 
@@ -706,7 +724,7 @@ test("a asks the agent, s opens the draft to submit, and ? lists the shortcuts u
   const { slot } = await renderWorkspace();
   await slot.findByText("aa");
   press("a");
-  expect(await slot.findByRole("textbox", { name: "Ask the agent" })).toBeTruthy();
+  expect(panelTabCalls(slot)).toEqual(["openTab:agent"]);
   press("s");
   await waitFor(() => expect(finishing(slot)).toBe(true));
   press("?");
@@ -717,17 +735,18 @@ test("a asks the agent, s opens the draft to submit, and ? lists the shortcuts u
   slot.lifecycle.unmount();
 }, 15_000);
 
-test("with the agent popped out, Ask agent asks it there, leaving the side panel closed", async () => {
-  localStorage.setItem("gr:agentdock:pr-42", JSON.stringify({ mode: "widget", rect: { x: 100, y: 100, w: 400, h: 500 } }));
-  const { slot } = await renderWorkspace();
+test("a asks the agent about the file you're on, in BB's Review agent tab, its box focused, leaving the side panel closed", async () => {
+  const { app, slot, rpc } = await renderWorkspace();
   await slot.findByText("aa");
-  const widget = within(await slot.findByRole("dialog", { name: /^Review agent/ }));
-  await widget.findByRole("textbox", { name: "Ask the agent" });
+  const tab = renderPanelTab(app, "agent", "pr-42", { rpc: rpc as any });
+  await tab.findByRole("textbox", { name: "Ask the agent" });
   press("a");
+  expect(panelTabCalls(slot)).toEqual(["openTab:agent"]);
   // The file you're on is the question's context.
-  expect(await widget.findByText("a.ts")).toBeTruthy();
-  await waitFor(() => expect(document.activeElement).toBe(widget.getByRole("textbox", { name: "Ask the agent" })));
-  expect(slot.queryByRole("complementary", { name: "Comments and agent" })).toBeNull();
+  expect(await within(tab.getByRole("region", { name: "Review agent" })).findByText("a.ts")).toBeTruthy();
+  await waitFor(() => expect(document.activeElement).toBe(tab.getByRole("textbox", { name: "Ask the agent" })));
+  expect(slot.queryByRole("complementary", { name: "Comments and Finish review" })).toBeNull();
+  tab.lifecycle.unmount();
   slot.lifecycle.unmount();
 }, 15_000);
 
@@ -769,7 +788,7 @@ test("with single-key shortcuts off, keys do nothing, but Esc still closes what'
   expect(currentChapter(slot)?.textContent).toContain("Parsing");
   expect(slot.queryByText("bb")).toBeNull();
   expect(slot.getByRole("navigation", { name: "Chapters" })).toBeTruthy();
-  expect(slot.queryByRole("complementary", { name: "Comments and agent" })).toBeNull();
+  expect(slot.queryByRole("complementary", { name: "Comments and Finish review" })).toBeNull();
   expect(slot.queryByRole("dialog", { name: "Keyboard shortcuts" })).toBeNull();
   expect(rpc.setFileViewed).not.toHaveBeenCalled();
   expect(rpc.setFilesViewed).not.toHaveBeenCalled();
@@ -822,7 +841,7 @@ test("a local review's Comments has no Feedback or Threads, and the agent goes b
   const { slot } = await renderWorkspace({ review: { kind: "ref", targetKey: "pr-42" } });
   await slot.findByText("aa");
   await openDrafts(slot);
-  const panel = within(slot.getByRole("complementary", { name: "Comments and agent" }));
+  const panel = within(slot.getByRole("complementary", { name: "Comments and Finish review" }));
   expect(panel.getByRole("region", { name: "Comments" })).toBeTruthy();
   expect(panel.getByText("Comments on a local review stay in BB.")).toBeTruthy();
   expect(slot.queryByRole("button", { name: "Threads" })).toBeNull();
@@ -849,10 +868,10 @@ test("t shows and hides the chapters, c Comments, and i folds comments in code, 
   press("t");
   expect(slot.getByRole("navigation", { name: "Chapters" })).toBeTruthy();
   press("c");
-  expect(slot.getByRole("complementary", { name: "Comments and agent" })).toBeTruthy();
+  expect(slot.getByRole("complementary", { name: "Comments and Finish review" })).toBeTruthy();
   expect(slot.getByRole("region", { name: "Comments" })).toBeTruthy();
   press("c");
-  expect(slot.queryByRole("complementary", { name: "Comments and agent" })).toBeNull();
+  expect(slot.queryByRole("complementary", { name: "Comments and Finish review" })).toBeNull();
   // Unfolded where there's room, until you say otherwise.
   expect(getCommentsFolded()).toBeUndefined();
   press("i");

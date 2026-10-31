@@ -46,15 +46,15 @@ test("discoverPrs rejects when a search fails", async () => {
   await expect(discoverPrs(run, { reviewed: false })).rejects.toThrow(/rate limit/);
 });
 
-test("discoverOwnPrs searches your open PRs, with their head branch, and reads nothing else", async () => {
-  const run = vi.fn(async (_args: string[]) => results([node("Acme/Web", 4, { headRefName: "feat/qa", author: { login: "me" } }), {}]));
+test("discoverOwnPrs searches your open PRs, with their head branch and its repo, and reads nothing else", async () => {
+  const run = vi.fn(async (_args: string[]) => results([node("Acme/Web", 4, { headRefName: "feat/qa", headRepository: { nameWithOwner: "Me/Web" }, author: { login: "me" } }), {}]));
   const prs = await discoverOwnPrs(run);
   expect(searched(run)).toEqual(["is:pr is:open author:@me archived:false sort:updated-desc"]);
-  expect(run.mock.calls[0][0].join(" ")).toContain("headRefName");
+  expect(run.mock.calls[0][0].join(" ")).toContain("headRefName headRepository{nameWithOwner}");
   expect(run.mock.calls[0][0].join(" ")).not.toMatch(/mutation/i);
   expect(prs).toEqual([{
     repo: "acme/web", number: 4, title: "PR 4", url: "https://github.com/Acme/Web/pull/4", author: "me",
-    updatedAt: Date.parse("2026-10-10T12:00:00Z"), isDraft: false, requested: false, reviewed: false, own: true, head: "feat/qa",
+    updatedAt: Date.parse("2026-10-10T12:00:00Z"), isDraft: false, requested: false, reviewed: false, own: true, head: "feat/qa", headRepo: "me/web",
   }]);
 });
 

@@ -84,6 +84,44 @@ export function callGit<T>(bb: BbPluginApi, method: string, input: Parameters<Bb
   return bb.sdk.plugins.callRpc({ pluginId: GIT_PLUGIN, method, input, outputSchema });
 }
 
+const statusOutput = z.object({ outcome: z.string(), workspace: z.object({
+  checkout: z.object({ headSha: z.string().nullable().optional() }).optional(),
+  mergeBase: z.object({ behindCount: z.number().optional(), commits: z.array(z.object({ sha: z.string() })).optional() }).nullable().optional(),
+}).optional() });
+const branchesOutput = z.object({ selectedBranch: z.object({ name: z.string(), kind: z.string() }).nullable() });
+
+/** Whether the folder has commit `sha`: nothing in it is missing from the folder's head. False when bb can't say. */
+export async function folderHas(bb: BbPluginApi, environmentId: string, sha: string): Promise<boolean> {
+  const read = await callGit(bb, "workspaceStatus", { environmentId, mergeBaseBranch: sha }, statusOutput).catch(() => null);
+  return read?.outcome === "available" && read.workspace?.mergeBase?.behindCount === 0;
+}
+
+/**
+ * Whether commit `sha` is one of the folder's head's own since `base`, so `base` hasn't it, nor `origin/<base>` where the
+ * folder has that, as a local base not fetched since may not. False when bb can't say of `base`.
+ */
+export async function folderHasSince(bb: BbPluginApi, environmentId: string, base: string, sha: string): Promise<boolean> {
+  /** Null when bb has no merge base with `ref`, as for a ref the folder hasn't. */
+  const since = async (ref: string) => {
+    const read = await callGit(bb, "workspaceStatus", { environmentId, mergeBaseBranch: ref }, statusOutput).catch(() => null);
+    const mergeBase = read?.outcome === "available" ? read.workspace?.mergeBase : null;
+    return mergeBase ? !!mergeBase.commits?.some((commit) => commit.sha === sha) : null;
+  };
+  return await since(base) === true && (base.startsWith("origin/") || await since(`origin/${base}`) !== false);
+}
+
+/** The folder's head commit; null when bb can't say. */
+export async function folderHead(bb: BbPluginApi, environmentId: string): Promise<string | null> {
+  const read = await callGit(bb, "workspaceStatus", { environmentId }, statusOutput).catch(() => null);
+  return read?.outcome === "available" ? read.workspace?.checkout?.headSha ?? null : null;
+}
+
+/** Whether the folder's repo has `branch` locally; null when bb can't say. */
+export async function folderHasBranch(bb: BbPluginApi, environmentId: string, branch: string): Promise<boolean | null> {
+  const read = await callGit(bb, "branches", { environmentId, limit: 1, selectedBranch: branch }, branchesOutput).catch(() => null);
+  return read?.selectedBranch ? read.selectedBranch.kind === "local" : null;
+}
+
 /** BB answered that the thing asked for doesn’t exist: not that it couldn’t say. */
 export const isNotFound = (error: unknown) => (error as { status?: number } | null)?.status === 404 || String(error).includes("HTTP 404");
 const errorText = (error: unknown) => error instanceof Error ? error.message : String(error);

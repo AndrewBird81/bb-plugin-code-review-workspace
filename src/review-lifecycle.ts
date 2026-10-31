@@ -50,6 +50,12 @@ export interface SyncHealth {
   error: { kind: "auth" | "rate-limit" | "partial" | "teams" | "gh-missing" | "other"; at: number; count?: number; retryAt?: number } | null;
 }
 
+/** Whether reads of GitHub wait now: gh isn't signed in or can't start, or GitHub limits reads, until `retryAt` if it said. */
+export function githubWaits(health: SyncHealth, now: number): boolean {
+  const error = health.error;
+  return error?.kind === "auth" || error?.kind === "gh-missing" || error?.kind === "rate-limit" && (error.retryAt ?? Infinity) > now;
+}
+
 /** What the plugin does when a review's turn changes. Each returns whether work started. */
 export interface TurnActions {
   /** A re-review came back to you: regenerate an out-of-date guide, then check your feedback. */
@@ -62,8 +68,8 @@ export interface TurnActions {
   autoStart(targetKey: string): Promise<boolean>;
   /** The project reviews found on GitHub run in. */
   projectId(): Promise<string | null>;
-  /** A folder's review becomes its branch's PR's, or links to the PR's own review (src/feature-review.ts becomePr). */
-  becomePr(targetKey: string, pr: { repo: string; number: number }): Promise<"converted" | "linked" | "skipped">;
+  /** A folder's review becomes its branch's PR's, merged with the PR's own review or offering to (src/feature-review.ts becomePr). */
+  becomePr(targetKey: string, pr: { repo: string; number: number }): Promise<"converted" | "merged" | "offered" | "skipped" | "pr-closed" | "pr-merged">;
 }
 
 const MINUTE = 60_000;
@@ -182,8 +188,9 @@ export function createReviewSync(bb: BbPluginApi, store: AsyncStore, run: typeof
   }
 
   // A merged PR isn't read again, but for once to fill in what earlier reads didn't keep, as when it merged and its labels.
+  // A review merged into another isn't: that one is read (src/merge.ts).
   const readable = (review: ReviewMeta | null): review is ReviewMeta & { repo: string; number: number } =>
-    !!review && review.kind === "pr" && !!review.repo && !!review.number && (review.prState !== "MERGED" || review.prMergedAt === undefined);
+    !!review && review.kind === "pr" && !!review.repo && !!review.number && (review.prState !== "MERGED" || review.prMergedAt === undefined) && !review.mergedInto;
 
   /**
    * Read these reviews' PRs in batches and apply what changed. `pass`: a sync pass, whose read speaks for every review.
@@ -274,7 +281,8 @@ export function createReviewSync(bb: BbPluginApi, store: AsyncStore, run: typeof
     // What GitHub said, recorded in one turn; your threads, when they need reading, in the turn after GitHub answers.
     const read = await store.exclusive(async (tx) => {
       const before = await tx.getReview(key);
-      if (!before || before.prState === "MERGED" && facts.state !== "MERGED") return null;
+      // One merged into another review while GitHub answered stays as the merge left it, in Archive.
+      if (!before || before.mergedInto || before.prState === "MERGED" && facts.state !== "MERGED") return null;
       // What happened before bb first read the PR is history: it shows, but doesn't alert or start work.
       const firstRead = before.watchingSince == null;
       if (firstRead) await tx.setLifecycle(key, { watchingSince: startedAt, watchedHead: facts.headSha });
@@ -302,8 +310,9 @@ export function createReviewSync(bb: BbPluginApi, store: AsyncStore, run: typeof
       try { threads = await github.threads(facts.repo, facts.number, login, facts.author); } catch (error) { warn(error); }
       const gone = await store.exclusive(async (tx) => {
         if (threads) try {
-          // The review may have been deleted while GitHub answered.
-          if (!await tx.getReview(key)) return true;
+          // The review may have been deleted, or merged into another, while GitHub answered.
+          const now = await tx.getReview(key);
+          if (!now || now.mergedInto) return true;
           // Every open review page reads the threads again when told, so it's told only when they changed.
           if (await tx.saveFeedbackThreads(key, threads, facts.updatedAt)) bb.realtime.publish(`feedback:${key}`, { ts: clock() });
         } catch (error) { warn(error); }
@@ -578,7 +587,7 @@ export function createReviewSync(bb: BbPluginApi, store: AsyncStore, run: typeof
    * (and after tracking is turned back on) only fills the list, as does a look whose search widened;
    * later requests alert. A failure
    * recorded before `since` that a good look disproves is cleared. Your PR of a folder's branch makes that
-   * folder's review the PR's, or links it to the PR's review, instead of adding another.
+   * folder's review the PR's, merged with the PR's own review or offering to, instead of adding another.
    */
   async function discover(since: number): Promise<void> {
     if (!actions) return;
@@ -650,24 +659,26 @@ export function createReviewSync(bb: BbPluginApi, store: AsyncStore, run: typeof
   }
 
   /**
-   * Your PRs whose repo and branch are an open review of a folder's: that review becomes the PR's, or links to the PR's
-   * own review (M4). Returns the reviews that became PRs', and the PRs whose folder's review couldn't yet, which wait
-   * for it rather than get a second review. A PR you took off the list stays off.
+   * Your PRs, drafts too, whose head is an open review of a folder's, by its repo, a fork's for a PR from one, and its
+   * branch, or that branch's name on GitHub, or the name a thread pushed it as: that review becomes the PR's, merged with the PR's own review or offering to
+   * (src/merge.ts), and one offering waits for your click. Returns the reviews that became PRs', and the PRs whose
+   * folder's review couldn't yet, which wait for it rather than get a second review. A PR you took off the list stays off.
    */
   async function adoptFeatures(own: DiscoveredPr[]): Promise<{ converted: string[]; waiting: Set<DiscoveredPr> }> {
     const converted: string[] = [];
     const waiting = new Set<DiscoveredPr>();
     if (!own.length || !actions) return { converted, waiting };
-    const folders = (await store.listReviews()).filter((r) => r.kind === "ref" && r.feature?.repo && !r.feature.prReview && !r.archivedAt && !r.userArchivedAt);
+    // One kept apart from its PR's review keeps its offer, and is found for its branch's next PR.
+    const folders = (await store.listReviews()).filter((r) => r.kind === "ref" && r.feature?.repo && (!r.prOffer || r.mergeDeclined === r.prOffer.key) && !r.archivedAt && !r.userArchivedAt);
     for (const pr of own) {
-      const at = folders.findIndex((r) => r.feature!.repo!.toLowerCase() === pr.repo && r.feature!.branch === pr.head);
+      const at = folders.findIndex(({ feature }) => feature!.repo!.toLowerCase() === (pr.headRepo ?? pr.repo) && (feature!.branch === pr.head || feature!.remoteBranch === pr.head || feature!.pushedAs === pr.head));
       if (at < 0 || await store.isDiscoveryIgnored(keyFor({ kind: "pr", number: pr.number, repo: pr.repo }))) continue;
       const [folder] = folders.splice(at, 1);
       const became = await actions.becomePr(folder.targetKey, { repo: pr.repo, number: pr.number }).catch((error) => {
         bb.log.warn(`Could not make ${folder.targetKey} the review of ${pr.repo}#${pr.number}: ${String(error)}`);
         return "skipped" as const;
       });
-      if (became === "converted") converted.push(folder.targetKey);
+      if (became === "converted" || became === "merged") converted.push(folder.targetKey);
       else if (became === "skipped") waiting.add(pr);
     }
     return { converted, waiting };

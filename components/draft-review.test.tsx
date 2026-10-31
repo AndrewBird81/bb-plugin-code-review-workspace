@@ -425,12 +425,12 @@ test("when BB mounts a review's new workspace before the old one goes, the old o
   const Probe = () => { status = useDraftStatus("pr-7"); return null; };
   const probe = renderSlot({ component: Probe }, {}, { rpc: rpc as any });
   const old = renderSlot({ component: workspace }, {}, { rpc: rpc as any });
-  await waitFor(() => expect(status).toEqual({ verdict: "COMMENT", comments: 1 }));
+  await waitFor(() => expect(status).toEqual({ verdict: "COMMENT", comments: 1, local: 0 }));
   const fresh = renderSlot({ component: workspace }, {}, { rpc: rpc as any });
   await waitFor(() => expect(fresh.getAllByText("Draft saved").length).toBeGreaterThan(0));
   old.lifecycle.unmount();
   await new Promise((resolve) => setTimeout(resolve, 50));
-  expect(status).toEqual({ verdict: "COMMENT", comments: 1 });
+  expect(status).toEqual({ verdict: "COMMENT", comments: 1, local: 0 });
   expect(commentsOf("pr-7").items).toHaveLength(1);
   // The last one going forgets them.
   fresh.lifecycle.unmount();

@@ -61,12 +61,20 @@ test("i folds every card in the code to a pill that says who, its state, its fir
   const draft = await diff().findByRole("group", { name: "Draft comment on src/a.ts:2, folded" });
   expect(draft.textContent).toContain("Agent draft · not submitted · Blocking");
   expect(draft.textContent).toContain("An entry that expires now is still served.");
+  // In a review under 440px wide, on any pointer, as on a phone: its state on a line of its own, its first line under it.
+  // From 440px it has room on one line, without a state badge.
+  const lines = draft.querySelector("[class~='@max-[440px]/review:flex-col']");
+  expect(lines?.classList.contains("@max-[600px]/review:flex-col")).toBe(false);
+  expect(lines?.firstElementChild?.textContent).toBe("Agent draft · not submitted · Blocking");
   const thread = diff().getByRole("group", { name: "GitHub thread on src/a.ts:2, folded" });
   expect(thread.textContent).toContain("@bob");
   expect(thread.textContent).toContain("Resolved");
   // Its first line as plain words.
   expect(thread.textContent).toContain("Nit: why upper case?");
   expect(thread.textContent).toContain("1 reply");
+  // With no severity, its separator is for one line only: two start the second with its first line.
+  const dot = Array.from(thread.querySelectorAll("[aria-hidden]")).find((part) => part.textContent === "·");
+  expect(dot?.classList.contains("@max-[440px]/review:hidden")).toBe(true);
   const check = diff().getByRole("group", { name: "CI failure on src/a.ts:3, folded" });
   expect(check.textContent).toContain("Check failed · lint");
   expect(diff().queryByRole("article")).toBeNull();
@@ -148,4 +156,40 @@ test("going to a comment from the list opens its pill", async () => {
   expect(await diff().findByRole("article", { name: "GitHub thread on src/a.ts:2" })).toBeTruthy();
   expect(diff().getByRole("group", { name: "Draft comment on src/a.ts:2, folded" })).toBeTruthy();
   slot.lifecycle.unmount();
+});
+
+test("under 600px wide, a pill with Not on GitHub yet takes two lines, its second keeping its severity whole and cutting only its first line; the badge is beside its state, on the first", async () => {
+  const { render } = await import("@testing-library/react");
+  const { CommentPill } = await import("./comments/CommentPill");
+  const { NotOnGithubBadge } = await import("./InlineDraft");
+  const pill = render(<CommentPill frame="" icon={null} who={null} words="Draft · goes with Send" tag="Should fix" stateBadge={<NotOnGithubBadge brief />}
+    text="An entry that expires now is still served, and its replacement waits for the next read." name="Draft comment on src/a.ts:2" onShow={() => {}} />);
+  // On one line from 440 to 600px, its state and badge left its first line no room; on any pointer, as on a phone.
+  const lines = pill.container.querySelector("[class~='@max-[600px]/review:flex-col']")!;
+  expect(lines.classList.contains("@max-[440px]/review:flex-col")).toBe(false);
+  expect(pill.getByRole("group").classList.contains("@max-[600px]/review:h-11")).toBe(true);
+  const [first, second] = Array.from(lines.children);
+  // On every width, the badge is whole beside the state, "Not on GitHub" under 440px wide.
+  const badge = first!.lastElementChild!;
+  expect(badge.textContent).toBe("Not on GitHub yet");
+  expect(badge.className).not.toMatch(/hidden/);
+  expect(badge.classList.contains("shrink-0")).toBe(true);
+  expect(badge.querySelector("[class~='@max-[440px]/review:hidden']")?.textContent).toBe(" yet");
+  // Its words one span, so the badge's gap doesn't open before " yet".
+  const chip = badge.firstElementChild!;
+  expect(chip.children.length).toBe(2);
+  expect(chip.lastElementChild!.textContent).toBe("Not on GitHub yet");
+  const narrow = Array.from(second!.querySelectorAll("[class~='@max-[600px]/review:inline'], [class~='@max-[600px]/review:inline-flex']"));
+  expect(narrow.map((part) => part.textContent)).toEqual(["Should fix"]);
+  for (const part of narrow) {
+    expect(part.classList.contains("shrink-0"), part.textContent!).toBe(true);
+    expect(part.closest(".truncate"), part.textContent!).toBeNull();
+  }
+  // Its separator the one-line pill's, shown on both, so the line's gap is even on either side of it: "Should fix · An entry".
+  const dot = narrow[0]!.nextElementSibling!;
+  expect(dot.textContent).toBe("·");
+  expect(dot.className).not.toMatch(/hidden/);
+  expect(second!.classList.contains("gap-1.5")).toBe(true);
+  expect(Array.from(second!.children).filter((part) => part.textContent === "·")).toEqual([dot]);
+  expect(second!.querySelector(".truncate")?.textContent).toBe("An entry that expires now is still served, and its replacement waits for the next read.");
 });

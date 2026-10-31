@@ -82,6 +82,18 @@ test("adding never replaces a comment; editing and deleting change only the one 
   expect(runGh).not.toHaveBeenCalled();
 });
 
+test("the agent edits and deletes a comment not on GitHub yet by its side, LOCAL, but adds none there, nor moves its lines", async () => {
+  const { store, call, add, error } = await host();
+  await store.upsertDraftComment("pr-1", { file: "a.ts", line: 3, side: "LOCAL", author: "agent", body: "Folder's" });
+  await store.upsertDraftComment("pr-1", { file: "a.ts", line: 3, side: "RIGHT", author: "agent", body: "PR's" });
+  await expect(add({ file: "a.ts", line: 3, side: "LOCAL", code: "const c = b * 2;", body: "x" })).rejects.toThrow();
+  expect(await call("edit_draft_comment", { file: "a.ts", line: 3, side: "LOCAL", body: "Folder's, reworded" })).toBe("Updated the draft comment on a.ts:3 (not on GitHub yet).");
+  expect(error(await call("edit_draft_comment", { file: "a.ts", line: 3, side: "LOCAL", startLine: 2, code: "const b = 3;\nconst c = b * 2;", body: "x" })))
+    .toBe("The comment on a.ts:3 (not on GitHub yet) keeps its lines: the reviewer moves it in Not pushed yet. Nothing was changed.");
+  expect(await call("delete_draft_comment", { file: "a.ts", line: 3, side: "LOCAL" })).toBe("Deleted the draft comment on a.ts:3 (not on GitHub yet).");
+  expect((await store.getDraft("pr-1")).comments.map((c) => [c.side, c.body])).toEqual([["RIGHT", "PR's"]]);
+});
+
 test("only a review's current assistant changes its draft, and only while the draft can be submitted", async () => {
   const { store, call, add, error } = await host();
   const comment = { file: "a.ts", line: 3, code: "const c = b * 2;", body: "x" };

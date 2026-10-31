@@ -11,7 +11,7 @@ import { mainThreadLink } from "./loop";
 import { callGit, diffFilesHead, isSecretPath } from "./env-diff";
 import { fenced, header, placed } from "./fix-handoff";
 import { ghErrorMessage, type runGh } from "./gh";
-import { assistantReview } from "./draft-comments";
+import { assistantReview, mergedAway } from "./draft-comments";
 import type { Turn } from "./asking";
 import { reviewIdentity } from "../lib/review-identity";
 import { behindText, mismatchText, pushAnywayOffered, pushFlagText, NOT_PUSHED, nothingToPush, plainText, pushCommand, pushTarget, type PushTarget } from "../lib/push";
@@ -20,6 +20,9 @@ import { inlineCode } from "./untrusted";
 import type { PushRun, ReviewLifecycle, ReviewMeta, SendEntry } from "./store";
 import { failed, type EventListeners, type RpcHandlers, type ServeDeps } from "./server-modules";
 import { ONLY_WITH_THESE_TOOLS } from "./review-agent-tools";
+import { becomeFound, readBranches } from "./pr-watch";
+import { updateFeature } from "./feature-review";
+import { draftPr } from "./open-pr";
 
 type Run = typeof runGh;
 type Deps = Pick<ServeDeps, "bb" | "store" | "gh" | "changed">;
@@ -71,7 +74,7 @@ const MAX_COMMITS = 50;
  * The folder's head commit, and whether it has changes not committed; with `base`, the branch's commits since it, in
  * bb's order, and how many there are. Null when bb can't say.
  */
-async function folderHead(deps: Deps, environmentId: string, base?: string): Promise<{ sha: string | null; dirty: boolean; commits?: { shas: string[]; count: number } } | null> {
+export async function folderHead(deps: Pick<Deps, "bb">, environmentId: string, base?: string): Promise<{ sha: string | null; dirty: boolean; commits?: { shas: string[]; count: number } } | null> {
   const read = await callGit(deps.bb, "workspaceStatus", { environmentId, ...base ? { mergeBaseBranch: base } : {} }, statusOutput).catch(() => null);
   if (read?.outcome !== "available" || !read.workspace) return null;
   const { workingTree, checkout, mergeBase } = read.workspace;
@@ -229,6 +232,29 @@ async function tell(deps: Deps, review: ReviewMeta, threadId: string, text: stri
   return sent?.delivery === "queued" ? "queued" : "sent";
 }
 
+/** What Push and open PR says once the review agent was asked to draft the PR. */
+const DRAFTING = "The review agent is drafting the PR; post it from its chat.";
+
+/**
+ * Push and open PR, once its push landed or had nothing to push: the review agent drafts the PR, as Open PR asks it,
+ * unless the branch has its PR already (`found`), which the review became, as the read that found the push found, or
+ * before it landed. The intent is taken first, so it runs once; "asked" once the agent was.
+ */
+async function openPrAfter(deps: Deps, key: string, found = false) {
+  const run = await deps.store.exclusive(async (tx) => {
+    const run = (await tx.getReview(key))?.push;
+    if (run?.state !== "pushed" || run.thenOpenPr !== true) return null;
+    await tx.setLifecycle(key, { push: { ...run, thenOpenPr: undefined } });
+    return run;
+  });
+  if (!run) return;
+  deps.changed(key);
+  const said = found ? null : await draftPr(deps, key).catch((failure) => ({ ok: false, error: error(failure), note: undefined }));
+  if (said && !said.ok) deps.bb.log.warn(`Push and open PR on ${key} didn’t ask the review agent: ${said.error ?? said.note}`);
+  const asked = said?.ok && !said.note ? { thenOpenPr: "asked" as const } : said && !said.ok ? { thenOpenPr: "failed" as const, openPrError: said.error ?? said.note ?? "The review agent couldn’t start." } : null;
+  if (asked) await swapPush(deps, key, (now) => now?.at === run.at ? null : "moved on", { ...run, ...asked });
+}
+
 /**
  * What Push answers: what it asked the thread, to commit, to push, or to push anyway; or `note`, nothing was asked; or
  * `warning`, it waits for your choice; or an error.
@@ -243,7 +269,7 @@ const BUSY = (run: PushRun | null) => run?.state === "committing" || run?.state 
  * warns first. With `force`, Push anyway, on the warning shown (`sha`, when the page shows one): the checked commit goes
  * as it is, if the folder is still at it; or, past GitHub being ahead, Push goes on without asking that again.
  */
-export async function startPush(deps: Deps, targetKey: string, { force = false, sha, at }: { force?: boolean; sha?: string; at?: number } = {}): Promise<Started> {
+export async function startPush(deps: Deps, targetKey: string, { force = false, sha, at, thenOpenPr = false }: { force?: boolean; sha?: string; at?: number; thenOpenPr?: boolean } = {}): Promise<Started> {
   const { store, gh } = deps;
   if (!(await store.getPreferences()).preferences.knobs.sendToThread) return { ok: false, error: OFF };
   const review = await store.getReview(targetKey);
@@ -270,13 +296,14 @@ export async function startPush(deps: Deps, targetKey: string, { force = false, 
         return failedTo(failure, swapped.was);
       }
     }
-    // GitHub was ahead, before any commit: go on, and don't ask that again.
+    // GitHub was ahead, before any commit: go on, and don't ask that again, nor drop Push and open PR.
     pastBehind = true;
+    thenOpenPr = run.thenOpenPr === true;
   }
   const main = await mainThreadLink(deps, targetKey).catch(() => null);
   if (!main) return { ok: false, error: "This review has no main thread to commit and push. Choose one in Main thread." };
   if (main.state !== "open") return { ok: false, error: `${main.title ?? "The main thread"} is ${main.state === "archived" ? "archived. Unarchive it" : "deleted. Start a fresh thread from Main thread"}, then Push.` };
-  const run: PushRun = { state: "committing", at: Date.now(), threadId: main.threadId, repo: place.repo, head: place.head, ...pastBehind ? { pastBehind: true as const } : {} };
+  const run: PushRun = { state: "committing", at: Date.now(), threadId: main.threadId, repo: place.repo, head: place.head, ...pastBehind ? { pastBehind: true as const } : {}, ...thenOpenPr ? { thenOpenPr: true as const } : {} };
   const claimed = await swapPush(deps, targetKey, BUSY, run);
   if ("error" in claimed) return { ok: false, error: claimed.error };
   const [head, remote] = await Promise.all([folderHead(deps, place.environmentId), githubHead(gh.runGh, place)]);
@@ -299,7 +326,10 @@ export async function startPush(deps: Deps, targetKey: string, { force = false, 
     // Nothing to commit, and GitHub has the folder's head.
     if (head?.sha && !head.dirty && github?.sha === head.sha) {
       await savePush(deps, targetKey, null);
-      return { ok: true, note: nothingToPush(place.head, head.sha) };
+      const note = nothingToPush(place.head, head.sha);
+      if (!thenOpenPr) return { ok: true, note };
+      const said = await draftPr(deps, targetKey);
+      return said.ok || said.note ? { ok: true, note: `${note} ${said.ok && !said.note ? DRAFTING : said.note}` } : { ok: false, error: `${plainText(note).replace(/`/g, "")} ${said.error}` };
     }
     // GitHub has commits the folder doesn't: said before the thread is told anything.
     const behind = pastBehind ? false : await behindGithub(deps, place.environmentId, github?.sha);
@@ -380,7 +410,10 @@ export async function reportCommit(deps: Deps, sha: string, mine: ReadonlySet<st
   if (saved !== true) return { exitCode: 1, stderr: `Push on ${id} stopped: ${saved === "moved" || saved?.state === "flagged" ? "its branch has commits on GitHub that didn’t come from Push" : "the reviewer cancelled it"}. Don’t push; the reviewer decides.` };
   deps.changed(key);
   if (!checked.ok || next.state === "mismatch") return { exitCode: 0, stdout: `Recorded ${short(sha)} for ${id}, but ${checked.ok ? "it can’t go yet" : "it isn’t what the reviewer reviewed"}: ${plainText(warning)} Don’t push: the reviewer chooses Push anyway or Update first in the review, and you’ll be told.` };
-  if (next.state === "pushed") return { exitCode: 0, stdout: nothingToPush(place.head, checked.sha) };
+  if (next.state === "pushed") {
+    await openPrAfter(deps, key);
+    return { exitCode: 0, stdout: nothingToPush(place.head, checked.sha) };
+  }
   return { exitCode: 0, stdout: `Checked ${short(checked.sha)} for ${id}: it’s what the reviewer reviewed. Push it now, exactly this commit:\n  ${pushCommand(checked.sha, place.head, place.remote)}\n${forkRemote(place)}Don’t force-push unless the reviewer says so.` };
 }
 
@@ -391,7 +424,7 @@ export async function reportCommit(deps: Deps, sha: string, mine: ReadonlySet<st
  * with Push, a flag you haven't dismissed staying as it is. A main thread that failed, or was archived or deleted
  * (`why`), while Push waited on its commit, stopped it. With Send to thread off, there's no Push, and nothing is read.
  */
-async function readAfter(deps: Deps, thread: { id: string; queued: boolean }, why?: NonNullable<PushRun["why"]>) {
+async function readAfter(deps: Deps & Pick<ServeDeps, "sync">, thread: { id: string; queued: boolean }, why?: NonNullable<PushRun["why"]>) {
   const { store, gh } = deps;
   if (!(await store.getPreferences()).preferences.knobs.sendToThread) return;
   const reviews = (await store.listReviews()).filter((review) => !review.archivedAt && !review.userArchivedAt
@@ -399,11 +432,13 @@ async function readAfter(deps: Deps, thread: { id: string; queued: boolean }, wh
   for (const review of reviews) {
     const place = pushPlace(review);
     if (typeof place === "string") continue;
-    const read = await githubHead(gh.runGh, place);
+    // A local review's read finds the branch's PR too, in the same request (src/pr-watch.ts).
+    const branch = place.pr ? null : (await readBranches(gh.runGh, [{ repo: place.repo, branch: place.head }]))[0]!;
+    const read = branch ?? await githubHead(gh.runGh, place);
     const github = "sha" in read ? { repo: place.repo, head: place.head, sha: read.sha } : null;
-    await store.exclusive(async (tx) => {
+    const landed = await store.exclusive(async (tx) => {
       const stored = await tx.getReview(review.targetKey);
-      if (!stored) return;
+      if (!stored) return false;
       // A thread that failed, or was archived or deleted, closes its Sends' cover now, on this event, before anything is
       // judged, and whether or not GitHub could be read.
       const closing = why ? (stored.sends ?? []).filter((send) => send.threadId === thread.id && send.letPush && !send.coverClosed) : [];
@@ -425,7 +460,14 @@ async function readAfter(deps: Deps, thread: { id: string; queued: boolean }, wh
       else if (stopped) next = { ...run!, state: "flagged", flag: "stopped", why, at: Date.now() };
       await tx.setLifecycle(review.targetKey, { ...write, ...accept && github ? accepted(github) : {}, ...next !== undefined ? { push: next } : {} });
       if (next !== undefined) deps.changed(review.targetKey);
+      return accept;
     });
+    // A PR's review pushed from its folder at exactly the commit Push checked: it shows the PR there, without the guide writer.
+    if (landed && review.kind === "pr" && review.feature) await updateFeature(deps, review.targetKey, "push").catch(() => {});
+    // Its PR, once there is one: the review becomes its review, the Push it shows going on.
+    const found = branch ? await becomeFound(deps, review.targetKey, branch) : false;
+    // On a review that became its PR's meanwhile, Push and open PR has nothing left to open.
+    if (landed) await openPrAfter(deps, review.targetKey, found || !!place.pr);
   }
 }
 
@@ -436,10 +478,10 @@ const PUSH_ANYWAY = ["push anyway", "push it anyway", "just push it anyway", "pu
 export function register(deps: ServeDeps) {
   const { bb, store, changed, classify } = deps;
   const handlers = {
-    async push({ targetKey, force, sha, at }) {
+    async push({ targetKey, force, sha, at, thenOpenPr }) {
       // Push anyway from the page goes on the warning it shows, by when it came.
       if (force && at === undefined) return { ok: false, error: "Push anyway needs the warning it answers. Reload, then choose." };
-      const { asked: _asked, at: _at, ...started } = await startPush(deps, targetKey, { force, sha, at });
+      const { asked: _asked, at: _at, ...started } = await startPush(deps, targetKey, { force, sha, at, thenOpenPr });
       return started;
     },
     async dismissPush({ targetKey }) {
@@ -477,6 +519,8 @@ export function register(deps: ServeDeps) {
     execute: async ({ force, at }, { threadId }) => {
       const targetKey = await store.exclusive((tx) => assistantReview(tx, threadId));
       if (!targetKey) return failed("This conversation is no longer a review's assistant, so it has nothing to push.");
+      const away = await mergedAway(store, targetKey);
+      if (away) return failed(away);
       if (!(await store.getPreferences()).preferences.knobs.reviewAgentActs) return failed("Settings has the review agent only draft now, so nothing was pushed. The reviewer can use Push in Finish review.");
       // Pushes happen when the reviewer says so, in the review: never on a relay, nor in a turn the plugin started.
       const turn = await classify(threadId).catch((): Turn => ({ asking: "unattended", message: null }));

@@ -17,7 +17,7 @@ const later = async () => {};
 export function testWorkspace(targetKey: string, over: Partial<WorkspaceApi> = {}): WorkspaceApi {
   return {
     targetKey, review: { targetKey, kind: "pr" }, guide: { title: "Guide", intent: "", sections: [], unplacedFiles: [] } as unknown as WorkspaceApi["guide"], sections: [], activeId: OVERVIEW, go: noop,
-    layout: { mode: "tablet", nav: "closed", panel: "docked", navCanDock: true, panelCanDock: true, narrowReader: false, widePane: true, phoneResized: false },
+    layout: { mode: "tablet", nav: "closed", panel: "docked", navCanDock: true, panelCanDock: true, narrowReader: false, widePane: true, narrowPane: false, phoneResized: false },
     nav: { open: false, toggle: noop, find: noop, view: "chapters", setView: noop },
     panel: { view: "comments", open: noop, toggle: noop, close: noop },
     files: { views: new Map(), toggleViewed: noop, markChapterViewed: noop, nextUnviewed: noop, foldAll: noop },
@@ -25,7 +25,7 @@ export function testWorkspace(targetKey: string, over: Partial<WorkspaceApi> = {
     display: { layout: "unified", toggleLayout: noop, newFiles: "file", setNewFiles: noop, markdownFiles: "source", setMarkdownFiles: noop, unifiedOnly: false, wrap: false, setWrap: noop, hideWhitespace: false, setHideWhitespace: noop, githubThreads: true, setGithubThreads: noop, commentsFolded: false, setCommentsFolded: noop },
     reveal: noop, showLocation: noop, followUp: noop, askAgent: noop, openFinish: noop,
     fullscreen: { available: false, on: false, toggle: noop }, leave: later,
-    snooze: later, newCommits: false, rebuild: later, reload: later, pinnable: false, showShortcuts: noop, shortcuts: true, mainThread: null,
+    snooze: later, newCommits: false, rebuild: later, reload: later, pinnable: false, showShortcuts: noop, shortcuts: true, mainThread: null, patch: "",
     ...over,
   };
 }

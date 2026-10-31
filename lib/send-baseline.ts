@@ -2,6 +2,8 @@ import type { ReviewLifecycle } from "../src/store";
 
 /** The snapshot a Send's diff is kept as: `send:<n>`. */
 export const sendKey = (n: number) => `send:${n}`;
+/** What Not pushed yet showed when a Send took LOCAL comments, kept beside its diff: `send:<n>:local`. */
+export const localSendKey = (n: number) => `${sendKey(n)}:local`;
 
 /** The Send a snapshot key names, as `send:2` names 2; null for a commit's. */
 export function sendOf(key: string | null | undefined): number | null {

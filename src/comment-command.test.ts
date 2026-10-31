@@ -8,6 +8,8 @@ import { getConversation, newConversation } from "./agent";
 import { FORMER_WORKERS_KEPT, formerWorkerReview, recordFormerWorker } from "./former-workers";
 import type { AsyncStore } from "./store-queue";
 import { testStore } from "./test-store.test-support";
+import { runCommentCommand } from "./comment-command";
+import { runSummaryCommand } from "./summary-command";
 
 vi.mock("./gh", async (original) => ({ ...await original<typeof import("./gh")>(), runGh: vi.fn() }));
 
@@ -49,6 +51,15 @@ test("bb review comment adds, lists, edits, and deletes local draft comments, an
   expect(runGh).not.toHaveBeenCalled();
 });
 
+test("bb review comment edits and deletes a comment not on GitHub yet with --side LOCAL, but adds none there", async () => {
+  const { store, cli } = await host();
+  await store.upsertDraftComment(key, { file: "a.ts", line: 2, side: "LOCAL", author: "agent", body: "Folder's" });
+  expect(await cli("add", url, "a.ts:2", "--side", "LOCAL", "--code", "next();", "--body", "x")).toMatchObject({ exitCode: 2, stderr: expect.stringMatching(/^--side is LEFT or RIGHT\./) });
+  expect(await cli("edit", url, "a.ts:2", "--side", "local", "--body", "Reworded")).toMatchObject({ exitCode: 0, stdout: "Updated the draft comment on a.ts:2 (not on GitHub yet)." });
+  expect(await cli("delete", url, "a.ts:2", "--side", "LOCAL")).toMatchObject({ exitCode: 0, stdout: "Deleted the draft comment on a.ts:2 (not on GitHub yet)." });
+  expect((await store.getDraft(key)).comments).toEqual([]);
+});
+
 test("bb review comment and summary find a renamed repository's review by the URL bb review list prints for it (bug bash CLI-2)", async () => {
   const { harness, store, cli } = await host();
   // As the sync leaves it: the old name and key, the PR's new URL.
@@ -78,6 +89,23 @@ test("while a review's first guide is written, comment and summary say the draft
   // The skill says so, rather than that nothing waits for the guide.
   const skill = readFileSync(new URL("../skills/code-review-workspace/SKILL.md", import.meta.url), "utf8").replace(/\s+/g, " ");
   expect(skill).toContain("you needn't wait for it, but comments and the summary do: run `bb review list` until the review says guide ready.");
+});
+
+test("bb review comment and summary ask bb what names a review by its id outside the store's lock, so other store calls don't wait on bb", async () => {
+  const commands = [(store: AsyncStore, bb: Parameters<typeof runCommentCommand>[1]) => runCommentCommand(store, bb, ["list", "web#7"], () => {}),
+    (store: AsyncStore, bb: Parameters<typeof runSummaryCommand>[1]) => runSummaryCommand(store, bb, ["web#7"], () => {})];
+  for (const command of commands) {
+    const { bb, harness, store } = await host();
+    // A local review, whose id needs bb's projects.
+    await store.saveReview({ targetKey: "ref-1", kind: "ref", gitRef: "main...feature", cwd: "/repo", status: "ready", createdAt: 1 });
+    let answer!: () => void;
+    harness.inspection.sdk.stub("projects.list", () => new Promise((resolve) => { answer = () => resolve([]); }));
+    const ran = command(store, bb);
+    await vi.waitFor(() => expect(harness.inspection.sdk.callsTo("projects.list")).toHaveLength(1));
+    expect(await Promise.race([store.exclusive(async () => "free"), new Promise((resolve) => setTimeout(() => resolve("held"), 200))])).toBe("free");
+    answer();
+    expect(await ran).toMatchObject({ exitCode: 0 });
+  }
 });
 
 test("the comment usage BB shows agents, and the skill, name the options add and edit take (bug bash CLI-10, DOC-7)", async () => {

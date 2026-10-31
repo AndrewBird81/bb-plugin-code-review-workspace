@@ -83,7 +83,7 @@ test("a report from a thread not in your list says so and opens it; one from a s
   const { slot, card } = await renderCards([sent, resolved]);
   const c2 = within(await card("Draft comment on src/a.ts:3"));
   expect(c2.getByText(/^Reported by/).textContent).toBe("Reported by a thread not in your list ↗");
-  fireEvent.click(c2.getByRole("button", { name: "a thread not in your list ↗" }));
+  fireEvent.click(c2.getByRole("button", { name: "a thread not in your list" }));
   expect(slot.inspection.navigateCalls).toContainEqual(expect.objectContaining({ method: "toThread" }));
   expect(c2.getByRole("button", { name: "Dismiss" })).toBeTruthy();
   // Resolved, the card keeps what was reported, which its status line no longer says.

@@ -3,6 +3,7 @@ import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import type { DraftProviderProps } from "./DraftProvider";
+import { defaultPreferences } from "../src/preferences";
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }));
 
@@ -19,11 +20,15 @@ const comments = [
   { file: "src/b.ts", line: 9, side: "LEFT", body: "Keep the check." },
 ];
 
-async function renderTray(rpc: Record<string, unknown>, props: Record<string, unknown>, options: Record<string, unknown> = {}, drafted: readonly unknown[] = comments, body = "") {
+async function renderTray(rpc: Record<string, unknown>, props: Record<string, unknown>, options: Record<string, unknown> = {}, drafted: readonly unknown[] = comments, body = "", knobs?: Partial<typeof defaultPreferences.knobs>) {
   await loadPluginApp(() => import("../app"));
   const DraftTray = await draftTray();
+  const { SettingsContext } = await import("../lib/settings");
   const draft = { targetKey: "k", verdict: "COMMENT", body, comments: drafted };
-  const component = () => <DraftTray targetKey="k" activeChapterId="c1" activeFiles={["src/a.ts"]} reviewRevision="r1" account="reviewer" {...props} />;
+  const Tray = () => <DraftTray targetKey="k" activeChapterId="c1" activeFiles={["src/a.ts"]} reviewRevision="r1" account="reviewer" {...props} />;
+  // Settings as loaded, `knobs` changed.
+  const preferences = { ...defaultPreferences, knobs: { ...defaultPreferences.knobs, ...knobs } };
+  const component = knobs ? () => <SettingsContext.Provider value={{ preferences, settled: Promise.resolve(preferences), fallback: preferences }}><Tray /></SettingsContext.Provider> : Tray;
   const slot = renderSlot({ component }, {}, { rpc: { setReviewPresence: () => ({ ok: true }), getReviewerNotes: () => ({ body: "", revision: 0 }), getDraft: () => ({ draft, stale: [], discussions: [] }), setVerdict: () => ({ draft }), ...rpc } as any, ...options });
   await slot.findByText("Draft saved");
   return slot;
@@ -39,8 +44,8 @@ test("on your own PR, Fix in a new thread starts a thread with the comments you 
   fireEvent.click(slot.getByRole("button", { name: "Start thread" }));
   await waitFor(() => expect(startFixThread).toHaveBeenCalledWith({ targetKey: "k", comments: [{ file: "src/a.ts", line: 2, side: "RIGHT" }] }));
   const started = await within(slot.getByRole("region", { name: "Fix in a new thread" })).findByRole("status");
-  expect(started.textContent).toBe("Started a thread: Fix review comments: #12 Retry · Open");
-  fireEvent.click(within(started).getByRole("button", { name: "Open" }));
+  expect(started.textContent).toBe("Started a thread: Fix review comments: #12 Retry ↗");
+  fireEvent.click(within(started).getByRole("button", { name: "Fix review comments: #12 Retry" }));
   expect(slot.inspection.navigateCalls).toContainEqual({ method: "toThread", threadId: "t9" });
   // The draft is as it was.
   expect(slot.getAllByRole("button", { name: /^Draft · not submitted/ })).toHaveLength(2);
@@ -73,6 +78,13 @@ test("someone else's PR with no main thread doesn't offer it, and with no commen
 const local = { review: { targetKey: "k", kind: "ref", gitRef: "HEAD", sourceThreadId: "coder" }, isLocal: true };
 const open = (over: Record<string, unknown> = {}) => () => ({ thread: { threadId: "coder", title: "Retry uploads", state: "open", machine: "MaxBook", ...over } });
 
+test("a main thread with no title BB's list or the review knows is called Main thread", async () => {
+  const slot = await renderTray({ getSourceThread: open({ title: null }) }, local);
+  const region = within(await slot.findByRole("region", { name: "Send to the main thread" }));
+  expect(region.getByRole("button", { name: "Change main thread" }).closest("p")!.textContent).toBe("Main thread · MaxBook · Change main thread");
+  slot.lifecycle.unmount();
+});
+
 test("a review with a main thread leads with Send N to it, by its title and machine, and a Send that queues says the thread is busy", async () => {
   const getSourceThread = vi.fn(open());
   const sendToSourceThread = vi.fn(async () => ({ ok: true, delivery: "queued", title: "Retry uploads", threadId: "coder", sendN: 3 }));
@@ -94,9 +106,13 @@ test("a review with a main thread leads with Send N to it, by its title and mach
   fireEvent.click(region.getByRole("button", { name: "Send" }));
   await waitFor(() => expect(sendToSourceThread).toHaveBeenCalledWith({ targetKey: "k", comments: [{ file: "src/a.ts", line: 2, side: "RIGHT" }] }));
   const status = await region.findByRole("status");
-  expect(status.textContent).toBe("Queued for Retry uploads: it’s busy, and gets 1 comment when its turn ends. · Open");
-  fireEvent.click(within(status).getByRole("button", { name: "Open" }));
+  expect(status.textContent).toBe("Queued for Retry uploads: it’s busy, and gets 1 comment when its turn ends. · Watch · Main thread ↗");
+  fireEvent.click(within(status).getByRole("button", { name: "Main thread" }));
   expect(slot.inspection.navigateCalls).toContainEqual({ method: "toThread", threadId: "coder" });
+  // Watch shows it beside the review instead, in BB's Main thread tab.
+  panel.open.mockClear();
+  fireEvent.click(within(status).getByRole("button", { name: "Watch" }));
+  expect(panel.open.mock.calls).toEqual([["main"]]);
   slot.lifecycle.unmount();
 });
 
@@ -124,7 +140,37 @@ test("Send counts only the comments not sent yet, and Let it push when done is t
   await waitFor(() => expect(setLetPush).toHaveBeenCalledWith({ targetKey: "k", letPush: true }));
   expect(picks.getByText(/It may push when it’s done\./)).toBeTruthy();
   fireEvent.click(picks.getByRole("button", { name: "Send" }));
-  expect((await within(slot.getByRole("region", { name: "Send to the main thread" })).findByRole("status")).textContent).toBe("Sent 1 comment to Retry uploads. · Open");
+  expect((await within(slot.getByRole("region", { name: "Send to the main thread" })).findByRole("status")).textContent).toBe("Sent 1 comment to Retry uploads. · Watch · Main thread ↗");
+  slot.lifecycle.unmount();
+});
+
+test("Fix in a new thread that left out a comment not on GitHub yet says how to send it", async () => {
+  const startFixThread = vi.fn(async () => ({ ok: true, threadId: "t9", title: "Fixes for web#12", keptLocal: 1 }));
+  const slot = await renderTray({ startFixThread }, { ownPr: true });
+  fireEvent.click(slot.getByRole("button", { name: "Fix in a new thread" }));
+  fireEvent.click(slot.getByRole("button", { name: "Start thread" }));
+  expect((await within(slot.getByRole("region", { name: "Fix in a new thread" })).findByRole("status")).textContent)
+    .toBe("Started a thread: Fixes for web#12 ↗. 1 isn’t on GitHub yet: change Main thread to a thread in its folder to send it.");
+  slot.lifecycle.unmount();
+  // With Send comments to the main thread off, there's no Change main thread: it says to turn it on.
+  for (const [keptLocal, note] of [[1, "1 isn’t on GitHub yet. It stays in the draft: turn on Send comments to the main thread in Settings to send it to a thread in its folder."], [2, "2 aren’t on GitHub yet. They stay in the draft: turn on Send comments to the main thread in Settings to send them to a thread in their folder."]] as const) {
+    const starting = vi.fn(async () => ({ ok: true, threadId: "t9", title: "Fixes for web#12", keptLocal }));
+    const sendOff = await renderTray({ startFixThread: starting }, { ownPr: true }, {}, comments, "", { sendToThread: false });
+    fireEvent.click(sendOff.getByRole("button", { name: "Fix in a new thread" }));
+    fireEvent.click(sendOff.getByRole("button", { name: "Start thread" }));
+    expect((await within(sendOff.getByRole("region", { name: "Fix in a new thread" })).findByRole("status")).textContent).toBe(`Started a thread: Fixes for web#12 ↗. ${note}`);
+    sendOff.lifecycle.unmount();
+    cleanup();
+  }
+});
+
+test("a fixer's Send that left out a comment not on GitHub yet counts what went and says where that one goes", async () => {
+  const sendToSourceThread = vi.fn(async () => ({ ok: true, delivery: "sent", title: "Fixes for web#12", threadId: "fixer", sendN: 1, keptLocal: 1 }));
+  const slot = await renderTray({ getSourceThread: open({ title: "Fixes for web#12" }), sendToSourceThread }, local);
+  fireEvent.click(await slot.findByRole("button", { name: "Send 2 to main thread" }));
+  fireEvent.click(within(slot.getByRole("group", { name: "Comments to send" })).getByRole("button", { name: "Send" }));
+  expect((await within(slot.getByRole("region", { name: "Send to the main thread" })).findByRole("status")).textContent)
+    .toBe("Sent 1 comment to Fixes for web#12. 1 isn’t on GitHub yet: change Main thread to a thread in its folder to send it. · Watch · Main thread ↗");
   slot.lifecycle.unmount();
 });
 
@@ -147,7 +193,7 @@ test("a Send that warns says why and what it offers, and the choice sends it: an
   expect(region.getByText(/^Sends them to/).textContent).toBe("Sends them to Retry uploads once it’s unarchived, or to a fresh thread in ~/src/api, each with an id it reports on. It won’t push until you say. Nothing goes to GitHub.");
   fireEvent.click(within(warning).getByRole("button", { name: "Unarchive and send" }));
   await waitFor(() => expect(sendToSourceThread).toHaveBeenLastCalledWith({ targetKey: "k", comments: [{ file: "src/a.ts", line: 2, side: "RIGHT" }, { file: "src/b.ts", line: 9, side: "LEFT" }], force: true, thread: "unarchive" }));
-  expect((await region.findByRole("status")).textContent).toBe("Sent 2 comments to Retry uploads. · Open");
+  expect((await region.findByRole("status")).textContent).toBe("Sent 2 comments to Retry uploads. · Watch · Main thread ↗");
   expect(region.queryByRole("alert")).toBeNull();
   slot.lifecycle.unmount();
 });
@@ -247,8 +293,8 @@ test("with no comments to send, Send offers to tell the main thread you approve,
   fireEvent.click(form.getByRole("button", { name: "Send" }));
   await waitFor(() => expect(sendApprovalToSourceThread).toHaveBeenCalledWith({ targetKey: "k", revision: "r1" }));
   const status = await region.findByRole("status");
-  expect(status.textContent).toBe("Queued for Retry uploads: it’s busy, and gets your approval when its turn ends. · Open");
-  fireEvent.click(within(status).getByRole("button", { name: "Open" }));
+  expect(status.textContent).toBe("Queued for Retry uploads: it’s busy, and gets your approval when its turn ends. · Watch · Main thread ↗");
+  fireEvent.click(within(status).getByRole("button", { name: "Main thread" }));
   expect(slot.inspection.navigateCalls).toContainEqual({ method: "toThread", threadId: "coder" });
   expect(region.queryByRole("button", { name: /^Send approval/ })).toBeNull();
   slot.lifecycle.unmount();
@@ -258,7 +304,7 @@ test("an approval already sent for this diff isn't offered again, one for an old
   const approved = (revision: string) => ({ ...local, review: { ...local.review, approvalSent: { at: 1, threadId: "coder", title: "Retry uploads", revision } } });
   const same = await renderTray({ getSourceThread: open() }, approved("r1"), {}, []);
   const status = await within(await same.findByRole("region", { name: "Send to the main thread" })).findByRole("status");
-  expect(status.textContent).toBe("Sent your approval to Retry uploads. · Open");
+  expect(status.textContent).toBe("Sent your approval to Retry uploads. · Watch · Main thread ↗");
   expect(same.queryByRole("button", { name: /^Send approval/ })).toBeNull();
   same.lifecycle.unmount();
   const sendApprovalToSourceThread = vi.fn(async () => { throw new Error("Couldn’t send to the thread: The machine is offline."); });
@@ -291,7 +337,7 @@ test("an approval can add your message and, when there is one, the summary, whic
   fireEvent.click(again.getByRole("checkbox", { name: "Include the summary" }));
   fireEvent.click(again.getByRole("button", { name: "Send" }));
   await waitFor(() => expect(sendApprovalToSourceThread).toHaveBeenCalledWith({ targetKey: "k", revision: "r1", message: "Ship it.", includeSummary: true }));
-  expect((await within(slot.getByRole("region", { name: "Send to the main thread" })).findByRole("status")).textContent).toBe("Sent your approval to Retry uploads. · Open");
+  expect((await within(slot.getByRole("region", { name: "Send to the main thread" })).findByRole("status")).textContent).toBe("Sent your approval to Retry uploads. · Watch · Main thread ↗");
   expect(slot.queryByRole("group", { name: "Approval to send" })).toBeNull();
   slot.lifecycle.unmount();
 });

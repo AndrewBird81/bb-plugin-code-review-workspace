@@ -7,7 +7,9 @@
  *
  * `npx vite-node scripts/fixture-1.8.0.ts write <out dir>`, from this checkout's root, writes data.db, a consistent
  * snapshot, and keys.json, what the reader checks it against. With CRW_TEST_PG_URL naming a throwaway Postgres
- * (scripts/test-postgres.sh), it writes the same reviews to its schema crw_fixture_180 too.
+ * (scripts/test-postgres.sh), it writes the same reviews to its schema crw_fixture_180 too. Run in a v1.8.1 checkout,
+ * its data.sql, reads.json, payloads.json and keys.json are src/fixtures/1.8.1, for src/data-1.8.1.test.ts: with a
+ * folder's review that became its PR's, and two linked to their PR's own review, one with your notes.
  *
  * `npx vite-node scripts/fixture-1.8.0.ts read <out dir>`, with this file copied into a v1.7.0 checkout, as
  * `git archive v1.7.0` gives it, after npm ci, from that checkout's root: 1.7.0's Store reads of data.db (and, with
@@ -53,6 +55,8 @@ const sha256 = (text: string) => createHash("sha256").update(text).digest("hex")
 /** The reviews, and each comment's tracking as 1.8.0 wrote it, for the reader. */
 interface Keys {
   feature: string; own: string; teammate: string;
+  /** A folder's review that became PR #21's; folders' reviews linked to #22's review, with nothing of yours, and #23's, with your notes. */
+  converted: string; linked: Array<{ folder: string; pr: string }>;
   /** The feature review's patch: what it shows, its last read of the folder. */
   featurePatch: string;
   comments: Record<string, Array<CommentLocation & { id?: string; state?: string }>>;
@@ -187,24 +191,70 @@ async function writeReviews(store: AsyncStore): Promise<Keys> {
     activity: [{ at: AT + 705, text: "Drafted 1 comment", asking: "unattended" }],
   });
 
+  // A folder's review becomes its PR's, as 1.8.0 makes it, gh answering for #21: or links to the PR's own review.
+  // `read` runs in a v1.7.0 checkout, which has no becomePr; 1.9.0's takes more.
+  const { becomePr: become } = await import("../src/feature-review");
+  const becomePr = become as unknown as (deps: unknown, key: string, pr: { repo: string; number: number }) => Promise<string>;
+  const view = (n: number) => ({ number: n, title: `Retry downloads ${n}`, author: { login: "casey" }, baseRefName: "main", headRefName: `casey/downloads-${n}`, url: `https://github.com/acme/web/pull/${n}`, headRefOid: HEAD, state: "OPEN" });
+  const gh = { runGh: async (args: string[]) => ({ code: 0, stderr: "", stdout: args[1] === "diff" ? PATCH : JSON.stringify(view(Number(args[2]))) }) };
+  const folderReview = async (n: number) => {
+    const k = featureKey(`env_${n}`, `casey/downloads-${n}`);
+    await store.saveReview({ targetKey: k, kind: "ref", gitRef: `casey/downloads-${n}`, title: `Retry downloads ${n}`, status: "ready", createdAt: AT + 30 + n, projectId: "p1" });
+    await store.setLifecycle(k, {
+      feature: { environmentId: `env_${n}`, hostId: "host_maxbook", machine: "MaxBook", path: `/Users/casey/src/web-${n}`, branch: `casey/downloads-${n}`, baseRef: "main", repo: "acme/web", changedFiles: null },
+      mainThread: { threadId: `thr_${n}`, environmentId: `env_${n}`, origin: "adopted", since: AT + 30 },
+    });
+    await store.savePatch(k, PATCH);
+    await store.upsertDraftComment(k, { ...at("api.ts", 2), body: `Retry downloads too, ${n}.` });
+    return k;
+  };
+  const converted = await folderReview(21);
+  const linked: Keys["linked"] = [];
+  for (const n of [22, 23]) {
+    const pr = targetKey({ kind: "pr", repo: "acme/web", number: n });
+    await store.saveReview({ targetKey: pr, kind: "pr", number: n, repo: "acme/web", title: `Retry downloads ${n}`, author: "casey", url: `https://github.com/acme/web/pull/${n}`, status: "tracked", createdAt: AT + 25, projectId: "p1" });
+    if (n === 23) await store.saveReviewerNotes(pr, "Mine: check the timeouts.", 0);
+    linked.push({ folder: await folderReview(n), pr });
+  }
+  for (const [k, n, became] of [[converted, 21, "converted"], ...linked.map(({ folder }, i) => [folder, 22 + i, "linked"] as const)] as const) {
+    const result = await becomePr({ store, gh, changed: () => {} }, k, { repo: "acme/web", number: n });
+    if (result !== became) throw new Error(`${k} ${result}, not ${became}`);
+  }
+
   const comments: Keys["comments"] = {};
   const sendSnapshots: Keys["sendSnapshots"] = {};
-  for (const k of [feature, own, teammate]) {
+  for (const k of [feature, own, teammate, converted, ...linked.flatMap(({ folder, pr }) => [folder, pr])]) {
     comments[k] = (await store.getDraft(k)).comments.map(({ file, line, side, id, state }) => ({ file, line, side, ...id ? { id } : {}, ...state ? { state } : {} }));
     sendSnapshots[k] = [];
     for (const n of [1, 2]) if (await store.getSnapshot(k, sendKey(n)) !== null) sendSnapshots[k].push(sendKey(n));
   }
-  return { feature, own, teammate, featurePatch: sha256(UPDATED), comments, sendSnapshots, knobs };
+  return { feature, own, teammate, converted, linked, featurePatch: sha256(UPDATED), comments, sendSnapshots, knobs };
 }
 
 if (mode === "write") {
   const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   const store = queueStore(createStore(bb));
   const keys = await writeReviews(store);
+  // The review each draft would post, as a teammate's PR's and as your own.
+  const payloads: Record<string, unknown> = {};
+  for (const k of Object.keys(keys.comments)) {
+    const draft = await store.getDraft(k);
+    payloads[k] = { plain: JSON.stringify(toGithubReviewPayload(draft, false, false)), preExisting: JSON.stringify(toGithubReviewPayload(draft, true, false)), own: JSON.stringify(toGithubReviewPayload(draft, false, true)) };
+  }
   await store.dispose();
   rmSync(join(out, "data.db"), { force: true });
-  bb.storage.database().prepare(`VACUUM INTO ?`).run(join(out, "data.db"));
+  const db = bb.storage.database();
+  db.prepare(`VACUUM INTO ?`).run(join(out, "data.db"));
   writeFileSync(join(out, "keys.json"), formatDump(keys));
+  // As scripts/fixture-1.7.0.ts writes src/fixtures/1.7.0: each table's rows as INSERTs, but the migrations' own record;
+  // and every Store read of them.
+  const quote = (value: unknown) => value === null ? "NULL" : typeof value === "number" || typeof value === "bigint" ? String(value) : `'${String(value).replaceAll("'", "''")}'`;
+  const tables = (db.prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name != '_bb_migrations' ORDER BY name`).all() as Array<{ name: string }>).map((row) => row.name);
+  const inserts = tables.flatMap((table) => (db.prepare(`SELECT * FROM "${table}" ORDER BY rowid`).all() as Array<Record<string, unknown>>)
+    .map((row) => `INSERT INTO ${table} (${Object.keys(row).join(", ")}) VALUES (${Object.values(row).map(quote).join(", ")});`));
+  writeFileSync(join(out, "data.sql"), inserts.join("\n") + "\n");
+  writeFileSync(join(out, "reads.json"), (await dumpDatabase(join(out, "data.db"))).reads);
+  writeFileSync(join(out, "payloads.json"), JSON.stringify(payloads, null, 2) + "\n");
   await harness.dispose();
   if (testPgUrl) {
     const { migratePg } = await import("../src/db/pg-migrations");

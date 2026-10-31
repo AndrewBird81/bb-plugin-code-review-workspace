@@ -7,7 +7,7 @@
 import { createHash } from "node:crypto";
 import type { PluginAgentToolResult } from "@get-bb/plugin-sdk";
 import { z } from "zod";
-import { assistantReview } from "./draft-comments";
+import { assistantReview, mergedAway } from "./draft-comments";
 import { linesOf, postedBody, sameComments, VERDICT_LABEL, type CommentLocation, type DraftComment, type Verdict } from "./draft";
 import { writeSummary } from "./draft-summary";
 import { ghReplyThreadArgs, ghResolveThreadArgs, ghUnresolveThreadArgs, runGh } from "./gh";
@@ -88,6 +88,16 @@ export function register(deps: ServeDeps, { submit }: {
   };
   /** Each open Post form, by its token, to cancel when a yes in chat posts it, or a newer one replaces it. */
   const forms = new Map<string, AbortController>();
+  const startedAt = Date.now();
+  /** A Post form doesn't outlive the plugin: a PR draft said waiting before it started isn't. */
+  async function clearPrDrafts() {
+    const stale = await store.exclusive(async (tx) => {
+      const stale = (await tx.listReviews()).filter((review) => review.prDraft && review.prDraft.at < startedAt);
+      for (const review of stale) await tx.setLifecycle(review.targetKey, { prDraft: null });
+      return stale.map((review) => review.targetKey);
+    });
+    for (const key of stale) changed(key);
+  }
 
   /** The review the agent on `threadId` is for, if it's still one's. */
   const reviewFor = (threadId: string) => store.exclusive(async (tx) => {
@@ -98,6 +108,8 @@ export function register(deps: ServeDeps, { submit }: {
   async function reviewOf(threadId: string): Promise<Review | string> {
     const review = await reviewFor(threadId);
     if (!review) return "This conversation is no longer a review's agent.";
+    const away = await mergedAway(store, review.targetKey);
+    if (away) return away;
     if (review.kind !== "pr" || !review.repo || !review.number) return review.feature?.repo ? "This is a local review, with no PR yet: nothing in it goes to GitHub until open_pr opens its PR." : "This is a local review: nothing in it goes to GitHub.";
     return { ...review, repo: review.repo, number: review.number };
   }
@@ -330,6 +342,9 @@ export function register(deps: ServeDeps, { submit }: {
     if (!bb.ui?.requestInput) return `${changedSince}${inChat}`;
     const form = new AbortController();
     forms.set(token, form);
+    // A PR's draft waiting for the reviewer: Finish review says so, with where to post it.
+    const draft = w.kind === "open-pr" ? { at: preview.at, until: preview.at + FORM_TIMEOUT_MS } : null;
+    if (draft) await markPrDraft(review.targetKey, draft);
     try {
       const result = await bb.ui.requestInput({
         threadId, rendererId: POST_PREVIEW_RENDERER, title: preview.shown.title.slice(0, 160), payload: { ...preview.shown },
@@ -353,7 +368,18 @@ export function register(deps: ServeDeps, { submit }: {
       return `${changedSince}The form couldn't open (${error instanceof Error ? error.message : String(error)}). ${inChat}`;
     } finally {
       forms.delete(token);
+      if (draft) await markPrDraft(review.targetKey, null, draft.at);
     }
+  }
+  /** Say the review's PR draft waits in the Post form (ReviewMeta.prDraft), or, with null, that the one shown at `was` closed. */
+  async function markPrDraft(targetKey: string, waiting: { at: number; until: number } | null, was?: number) {
+    const marked = await store.exclusive(async (tx) => {
+      const now = await tx.getReview(targetKey);
+      if (!now || !waiting && now.prDraft?.at !== was) return false;
+      await tx.setLifecycle(targetKey, { prDraft: waiting });
+      return true;
+    }).catch(() => false);
+    if (marked) changed(targetKey);
   }
   /** Keep `preview` as the agent's one waiting post, closing the form of the one it replaces. */
   async function replace(threadId: string, preview: Preview) {
@@ -598,7 +624,7 @@ export function register(deps: ServeDeps, { submit }: {
     async execute({ title, body = "", base: named, confirm: answer }, { threadId, signal }) {
       if (!await acting()) return failed(OFF);
       const found = await reviewFor(threadId);
-      const review = found ? openable(found) : "This conversation is no longer a review's agent.";
+      const review = found ? await mergedAway(store, found.targetKey) ?? openable(found) : "This conversation is no longer a review's agent.";
       if (typeof review === "string") return failed(review);
       // Opening a PR posts under the reviewer's name: a turn they didn't start opens none.
       const turn = await classify(threadId);
@@ -619,6 +645,7 @@ export function register(deps: ServeDeps, { submit }: {
       }), answer);
     },
   });
+  return { clearPrDrafts };
 }
 
 /** The role GitHub needs for a change without text, as github-writes words its refusals. */

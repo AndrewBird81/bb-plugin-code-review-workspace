@@ -4,7 +4,7 @@ import type { FeedbackThread } from "../src/github/types";
 import type { ReviewThread, ThreadComment } from "../src/threads";
 import type { AssessmentVerdict, FeedbackItem, FeedbackView, ReplyDraft } from "./feedback";
 import {
-  buildItems, checkTally, draftStatus, fileCounts, groups, needsYou, shownItems, toSend, CHECK_LABEL, FILTER_LABEL, GROUP_TITLE, REPLY_DRAFT_LABEL, STATE_LABEL, SUMMARY_LABEL, THREAD_FLAG_LABEL,
+  buildItems, checkTally, draftStatus, fileCounts, groups, needsYou, notOnGithub, shownItems, toSend, CHECK_LABEL, FILTER_LABEL, GROUP_TITLE, REPLY_DRAFT_LABEL, STATE_LABEL, SUMMARY_LABEL, THREAD_FLAG_LABEL,
   type CommentItem, type CommentSources, type ThreadItem,
 } from "./comments";
 
@@ -452,6 +452,27 @@ test("on your own PR, comments sent to fix, resolved or dismissed are apart from
   const theirs = groups(buildItems(own(false)));
   expect(theirs.map((group) => [group.id, group.count])).toEqual([["needs-you", 3], ["not-submitted", 4], ["fixes", 1], ["on-github", 0], ["private", 0]]);
   expect(toSend(own(false)).comments).toBe(4);
+});
+
+test("on your own PR, a comment not on GitHub yet that no Send took waits under Not submitted, going with Send, and Not submitted counts only what Submit posts; once sent, it's under Sent to fix", () => {
+  const local: DraftComment = { file: "src/cache.ts", line: 16, side: "LOCAL", body: "Say which field is required." };
+  const sources = (comments: DraftComment[]): CommentSources => ({
+    draft: { draft: { ...draft, comments }, stale: [] }, threads: [], feedback: null, sections, patch,
+    status: { posts: true, own: true, sends: [{ n: 1, at: 1, threadId: "coder", ids: ["c1"] }] },
+  });
+  const items = buildItems(sources([typo, local, { ...local, line: 21, id: "c1", state: "sent", sendN: 1 }]));
+  expect(items.map((item) => [item.id, item.group])).toEqual([
+    ["draft:README.md:2:RIGHT", "not-submitted"], ["draft:src/cache.ts:16:LOCAL", "not-submitted"], ["draft:src/cache.ts:21:LOCAL", "fixes"],
+  ]);
+  expect(groups(items).map((group) => [group.id, group.count, group.summary])).toEqual([
+    ["needs-you", 0, null], ["not-submitted", 1, "1 nit"], ["fixes", 1, "1 sent"], ["on-github", 0, null], ["private", 0, null],
+  ]);
+  expect(shownItems(items, "not-submitted").map((item) => item.id)).toEqual(["draft:README.md:2:RIGHT", "draft:src/cache.ts:16:LOCAL"]);
+  expect(items.filter(notOnGithub).map((item) => item.id)).toEqual(["draft:src/cache.ts:16:LOCAL"]);
+  expect(items.map((item) => item.kind === "draft" && item.label)).toEqual(["Agent draft · not submitted", "Draft · goes with Send", "Sent to the main thread · Send 1"]);
+  expect(buildItems(sources([{ ...local, author: "agent" }]))[0]).toMatchObject({ label: "Agent draft · goes with Send" });
+  // Submit posts only the one on GitHub's diff.
+  expect(toSend(sources([typo, local])).comments).toBe(1);
 });
 
 test("a resolved or dismissed comment's status line says so, with its icon", () => {

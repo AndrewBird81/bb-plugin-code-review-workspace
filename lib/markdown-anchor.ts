@@ -1,4 +1,5 @@
 import { patchRows } from "../src/patch";
+import type { CommentLocation } from "../src/draft";
 import { places, type Place } from "../src/review-positions";
 import type { RenderedBlock } from "./markdown-diff";
 
@@ -115,7 +116,7 @@ export function selectedBlocks(items: RenderedBlock[], from: SelectionEnd, to: S
  * in a changed block's version before goes with that block, and any other old line with the new line it is or comes
  * before. A line between blocks goes with the block before it.
  */
-export function blockAt(items: RenderedBlock[], lines: FileLines, at: { line: number; side: "LEFT" | "RIGHT" }): number {
+export function blockAt(items: RenderedBlock[], lines: FileLines, at: Pick<CommentLocation, "line" | "side">): number {
   const holds = (start: number, end: number) => at.line >= start && at.line <= end;
   if (at.side === "LEFT") {
     const old = items.findIndex((item) => item.side === "LEFT" ? holds(item.block.start, item.block.end) : !!item.previous?.some((old) => holds(old.start, old.end)));

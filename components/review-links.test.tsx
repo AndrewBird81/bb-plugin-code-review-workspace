@@ -141,6 +141,54 @@ test("a local review's comment opens in an editor only where its diff ends at th
   expect(await offered("a..b")).toEqual({ offered: false, asked: false });
 });
 
+test("a folder's review opens its files in the folder, on its machine, while it's there on its branch; on its PR, at a line only in files the folder hasn't changed since", async () => {
+  await loadPluginApp(() => import("../app"));
+  const { ReviewLinksContext, useReviewLinks } = await import("../lib/review-links");
+  const { CommentEditorMenu } = await import("./OpenInEditor");
+  const feature = { environmentId: "env1", hostId: "host_max", machine: "MaxBook", path: "/Users/me/api", branch: "feat/qa", baseRef: "main", repo: "acme/api" };
+  const folderReview = { targetKey: "k", kind: "ref", gitRef: "feat/qa", cwd: "/elsewhere", status: "ready", createdAt: 1, title: "Snooze", feature };
+  const prReview = { targetKey: "k", kind: "pr", repo: "acme/api", number: 7, headSha: "c0ffee", status: "ready", createdAt: 1, title: "Snooze", feature };
+  /** Each comment's menu: what Open in editor says and where it goes, or null for none. */
+  const opened = async (review: Record<string, unknown>, shown: Array<{ file: string; line: number; side: "RIGHT" | "LOCAL" }>, check?: Record<string, unknown>) => {
+    const component = () => {
+      const links = useReviewLinks(review as any);
+      return <ReviewLinksContext.Provider value={links}>{shown.map((comment) => <CommentEditorMenu key={comment.file + comment.side} comment={{ ...comment, body: "Name it." }} />)}</ReviewLinksContext.Provider>;
+    };
+    const listMachines = vi.fn(() => ({ machines: [{ hostId: "server", name: "Server", connected: true, server: true }] }));
+    const checkFeature = vi.fn(() => check ?? { state: "current", alsoActive: [], hidden: [], flagged: [] });
+    const slot = renderSlot({ component }, {}, { rpc: { listMachines, checkFeature } as any });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const said = [];
+    for (const comment of shown) {
+      const menu = slot.queryByRole("button", { name: `More on the comment on ${comment.file}:${comment.line}` });
+      if (!menu) { said.push(null); continue; }
+      fireEvent.click(menu);
+      const link = await slot.findByRole("link", { name: /^Open in editor/ });
+      fireEvent.click(link);
+      said.push(link.textContent);
+      fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+    const navigated = slot.inspection.navigateCalls.map((call: any) => [call.options.target, call.options.location?.line ?? null]);
+    slot.lifecycle.unmount();
+    cleanup();
+    return { said, navigated, asked: listMachines.mock.calls.length > 0 };
+  };
+  const at = { kind: "host", hostId: "host_max", path: "/Users/me/api/src/a.ts" };
+  // A local review of the folder: there, on its machine, not the server's checkout.
+  expect(await opened(folderReview, [{ file: "src/a.ts", line: 1, side: "RIGHT" }])).toEqual({ said: ["Open in editor at line 1"], navigated: [[at, 1]], asked: false });
+  // Paused on another branch, or gone: nowhere to open.
+  expect((await opened({ ...folderReview, feature: { ...feature, pausedOn: "main" } }, [{ file: "src/a.ts", line: 1, side: "RIGHT" }])).said).toEqual([null]);
+  expect((await opened({ ...prReview, feature: { ...feature, folderGone: true } }, [{ file: "src/a.ts", line: 1, side: "RIGHT" }])).said).toEqual([null]);
+  // Its PR: a file the folder changed since the PR's head opens at no line, but a comment on a line only in the folder does.
+  const ahead = { state: "ahead", aheadFiles: 1, aheadPaths: ["src/b.ts"], alsoActive: [], hidden: [], flagged: [] };
+  const pr = await opened(prReview, [{ file: "src/a.ts", line: 1, side: "RIGHT" }, { file: "src/b.ts", line: 2, side: "RIGHT" }, { file: "src/c.ts", line: 4, side: "LOCAL" }], ahead);
+  expect(pr.said).toEqual(["Open in editor at line 1", "Open in editor", "Open in editor at line 4"]);
+  expect(pr.navigated).toEqual([[at, 1], [{ ...at, path: "/Users/me/api/src/b.ts" }, null], [{ ...at, path: "/Users/me/api/src/c.ts" }, 4]]);
+  // Unread, no file's lines are the PR's.
+  expect((await opened(prReview, [{ file: "src/a.ts", line: 1, side: "RIGHT" }], { state: "offline", message: "Asleep", alsoActive: [], hidden: [], flagged: [] })).said).toEqual(["Open in editor"]);
+});
+
 test("on your own change a sent comment's icon says where its fix stands, and a reported note shows its code as code, nothing else", async () => {
   const now = Date.now();
   const drafted = [

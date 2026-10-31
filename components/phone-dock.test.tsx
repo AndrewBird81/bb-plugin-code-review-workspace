@@ -5,6 +5,7 @@ import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import { defaultPreferences } from "../src/preferences";
 import { patchReviewState } from "../lib/panel-state";
 import { setNeedsYou } from "../lib/workspace-store";
+import { panelTabCalls } from "./panel-tabs.test-support";
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }));
 // Each diff's new lines, and a pick of line 1 as pierre reports it.
@@ -44,7 +45,7 @@ const guide = { title: "Guide", intent: "Parses rows.", unplacedFiles: [] as str
   { id: "c2", title: "Caching", overview: "Keeps rows.", diffs: [{ file: "src/b.ts" }] },
 ] };
 
-async function renderPhone() {
+async function renderPhone(local: Array<Record<string, unknown>> = []) {
   phone();
   patchReviewState("pr-42", { activeId: "c1" });
   const app = await loadPluginApp(() => import("../app"));
@@ -59,6 +60,7 @@ async function renderPhone() {
     getDraft: () => ({ draft: { targetKey: "pr-42", verdict: "COMMENT", body: "", comments: [
       { file: "src/a.ts", line: 1, side: "RIGHT", body: "Parse it." },
       { file: "src/b.ts", line: 1, side: "RIGHT", body: "Cache it." },
+      ...local,
     ] }, stale: [] }),
     getReviewerNotes: () => ({ body: "", revision: 0 }),
     getConversation: () => ({ threadId: null, legacy: [], defaults: null }),
@@ -111,7 +113,7 @@ test("Esc, ✕ and a tap on the code above close the sheet, and the focus goes b
   tap(within(slot.getByRole("dialog", { name: "Chapters" })).getByRole("button", { name: "Close" }));
   expect(slot.queryByRole("dialog")).toBeNull();
   await waitFor(() => expect(document.activeElement).toBe(tab));
-  fireEvent.click(dock.getByRole("button", { name: "Ask agent" }));
+  fireEvent.click(dock.getByRole("button", { name: /^Comments/ }));
   fireEvent.click(slot.container.querySelector<HTMLElement>(".bg-black\\/40")!);
   expect(slot.queryByRole("dialog")).toBeNull();
   slot.lifecycle.unmount();
@@ -201,18 +203,17 @@ test("while the dock shows, BB's toasts at the page's bottom sit above it, and d
   expect(rule()).toBeNull();
 });
 
-test("the agent's sheet has no Pop out, and an agent popped out on a bigger screen shows in it", async () => {
-  localStorage.setItem("gr:agentdock:pr-42", JSON.stringify({ mode: "widget", rect: { x: 10, y: 10, w: 300, h: 400 } }));
+test("the dock's Ask agent opens BB's side panel on the Review agent tab, not a sheet; typing there leaves the dock in place", async () => {
   const { slot, dock } = await renderPhone();
+  const group = slot.getByRole("group", { name: "Review commands" });
   fireEvent.click(dock.getByRole("button", { name: "Ask agent" }));
-  const sheet = within(slot.getByRole("dialog", { name: "Review agent" }));
-  expect(await sheet.findByRole("textbox", { name: "Ask the agent" })).toBeTruthy();
-  expect(sheet.queryByRole("button", { name: "Pop out" })).toBeNull();
-  expect(sheet.queryByRole("button", { name: "Dock" })).toBeNull();
-  fireEvent.click(sheet.getByRole("button", { name: "Close" }));
+  expect(panelTabCalls(slot)).toEqual(["openTab:agent"]);
   expect(slot.queryByRole("dialog")).toBeNull();
-  // Kept for where it can pop out.
-  expect(JSON.parse(localStorage.getItem("gr:agentdock:pr-42")!).mode).toBe("widget");
+  // A box in BB's panel, outside the review: the dock makes way only for the review's own.
+  const outside = document.body.appendChild(document.createElement("textarea"));
+  act(() => outside.focus());
+  expect(group.hidden).toBe(false);
+  outside.remove();
   slot.lifecycle.unmount();
 });
 
@@ -247,5 +248,11 @@ test("in a pane under 400px, the dock's Comments shows the count alone, so the c
   expect(words.className.split(" ")).toContain("@max-[400px]/review:hidden");
   expect(comments.closest(".\\@container\\/review")).toBeTruthy();
   expect(comments.textContent).toBe("2 to send");
+  slot.lifecycle.unmount();
+});
+
+test("the dock's count of comments to send takes those not on GitHub yet too, which go with Send, as Not pushed yet's notice counts them", async () => {
+  const { slot, dock } = await renderPhone([{ file: "src/a.ts", line: 3, side: "LOCAL", body: "Only in the folder." }, { file: "src/a.ts", line: 4, side: "LOCAL", body: "Sent.", id: "c9", state: "sent", sendN: 1 }]);
+  expect(await dock.findByRole("button", { name: "Comments, 3 to send" })).toBeTruthy();
   slot.lifecycle.unmount();
 });

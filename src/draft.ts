@@ -48,7 +48,8 @@ export interface DraftComment {
   file: string;
   /** The last line, under which GitHub shows the comment. */
   line: number;
-  side: "LEFT" | "RIGHT";
+  /** LOCAL: a line only in the folder of a PR's review, Not pushed yet's new side (src/own-pr.ts), which GitHub doesn't have. */
+  side: "LEFT" | "RIGHT" | "LOCAL";
   /** The first line, when the comment covers more than one. It's in the same hunk as `line`, and before it. */
   startLine?: number;
   /** The first line's side, when it isn't `side`: a range from a removed line to an added one. */
@@ -83,7 +84,16 @@ export type CommentState = typeof COMMENT_STATES[number];
  * Whether a comment posts with Submit. On your own change (`own`) only an open one does: a Send took it to the thread
  * that fixes it. On someone else's PR a Send never changes what posts: all but the ones you resolved or dismissed.
  */
-export const postable = (c: Pick<DraftComment, "state">, own: boolean) => own ? !c.state || c.state === "open" : c.state !== "resolved" && c.state !== "dismissed";
+export const postable = (c: Pick<DraftComment, "state" | "side">, own: boolean) => !isLocal(c) && (own ? !c.state || c.state === "open" : c.state !== "resolved" && c.state !== "dismissed");
+
+/** A comment on a line only in the folder, not on GitHub yet: it goes with Send, never with Submit, until it's pushed. */
+export const isLocal = (c: Pick<DraftComment, "side">) => c.side === "LOCAL";
+
+/** Where a comment sorts among others on its line: LEFT, then RIGHT, then LOCAL. */
+export const sideOrder = (side: DraftComment["side"]) => side === "LEFT" ? 0 : side === "RIGHT" ? 1 : 2;
+
+/** The side of its diff a line is on: a LOCAL one's is the new side of Not pushed yet's diff, never the PR's. */
+export const diffSide = (side: DraftComment["side"]): "LEFT" | "RIGHT" => side === "LEFT" ? "LEFT" : "RIGHT";
 
 /** A thread's report on a comment it was sent: with `bb review report`, or inferred by Check fixes. */
 export interface Claim {
@@ -109,13 +119,13 @@ export function sameLocation(a: CommentLocation, b: CommentLocation): boolean {
 export const SUMMARY_AT: CommentLocation = { file: "", line: 0, side: "RIGHT" };
 export const isSummary = (at: CommentLocation) => sameLocation(at, SUMMARY_AT);
 
-type Range = Pick<DraftComment, "line" | "side" | "startLine" | "startSide">;
+type Range = Pick<DraftComment, "line" | "side" | "startLine"> & { startSide?: DraftComment["side"] };
 
 /** A comment's range as it's kept: a start only for more than one line, and a start side only when it isn't `side`. */
 export function rangeOf(c: Range): Pick<DraftComment, "startLine" | "startSide"> {
   const startSide = c.startSide ?? c.side;
   if (c.startLine === undefined || c.startLine === c.line && startSide === c.side) return {};
-  return { startLine: c.startLine, ...(startSide !== c.side ? { startSide } : {}) };
+  return { startLine: c.startLine, ...(c.startSide && c.startSide !== c.side ? { startSide: diffSide(c.startSide) } : {}) };
 }
 
 /** A comment's lines as the reviewer reads them: "15", or "10–15" for a range. */

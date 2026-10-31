@@ -1,6 +1,6 @@
 import { createContext, memo, useContext, useState, type KeyboardEvent, type ReactNode, type Ref, type RefObject } from "react";
 import { Markdown } from "@get-bb/plugin-sdk/app";
-import { linesOf, postable, sameLocation, SEVERITIES, SEVERITY_LABEL, type CommentLocation, type Discussion, type DiscussionEntry, type DraftComment, type Severity } from "../src/draft";
+import { isLocal, linesOf, postable, sameLocation, SEVERITIES, SEVERITY_LABEL, type CommentLocation, type Discussion, type DiscussionEntry, type DraftComment, type Severity } from "../src/draft";
 import { draftItemId, draftState, draftStatus, privateItemId, sentCheck, STATE_LABEL, type CommentChecks } from "../lib/comments";
 import { composing } from "../lib/composing";
 import { linkImages } from "../lib/link-images";
@@ -141,7 +141,8 @@ export const InlineLocation = memo(function InlineLocation({ at }: { at: Comment
       const talk = discussion?.entries.filter((entry) => entry.kind === "message").length ?? 0;
       const status = draftStatus(comment, draftState(comment, draft.stale), facts);
       const check = sentCheck(comment, draft.checks);
-      return <div data-draft-at={locationKey(at)}><CommentPill frame={notSubmitted(edge)} icon={<DraftIcon edge={edge} mark={status.mark} />} who={null} words={status.label} badge={check && <CheckBadge check={check} />}
+      return <div data-draft-at={locationKey(at)}><CommentPill frame={notSubmitted(edge)} icon={<DraftIcon edge={edge} mark={status.mark} />} who={null} words={status.label}
+        stateBadge={isLocal(comment) && <NotOnGithubBadge brief />} badge={check && <CheckBadge check={check} />}
         tag={comment.severity && SEVERITY_LABEL[comment.severity]} text={comment.body}
         more={talk ? `${talk} message${talk === 1 ? "" : "s"} with the agent` : null} name={`Draft comment on ${where}`} onShow={fold} /></div>;
     }
@@ -194,6 +195,7 @@ function CommentView({ comment, draft, onFold }: { comment: DraftComment; draft:
         {state === "older-diff" && comment.author === "agent" && <Badge tone="agent" size="sm" icon={<Icon name="Sparkles" aria-hidden />}>Agent</Badge>}
         {comment.startLine !== undefined && <span className="tabular-nums">Lines {linesOf(comment)}</span>}
         {comment.severity && <SeverityBadge severity={comment.severity} />}
+        {isLocal(comment) && <NotOnGithubBadge />}
         {preExisting && comment.introduced === false && <PreExistingBadge />}
         <FixCheckBadge comment={comment} checks={draft.checks} />
         {onFold && <span className="-mr-1.5 ml-auto"><FoldButton onFold={onFold} /></span>}
@@ -222,6 +224,14 @@ export function SeverityBadge({ severity, size }: { severity: Severity; size?: "
 /** A problem in code the PR didn't change, beside the comment's severity (Settings' Keep pre-existing problems apart). */
 export function PreExistingBadge() {
   return <Badge size="sm" icon={<Icon name="History" aria-hidden />} title="In code this PR didn’t change">Pre-existing</Badge>;
+}
+
+/**
+ * A LOCAL comment, on a line only in the folder (src/draft.ts isLocal). `brief`: "Not on GitHub" under 440px wide, beside
+ * a folded comment's state; its words one span, so the badge's gap doesn't open before " yet".
+ */
+export function NotOnGithubBadge({ brief = false }: { brief?: boolean }) {
+  return <Badge size="sm" icon={<Icon name="FileDiff" aria-hidden />} title="On a line only in the folder. It goes with Send, and can’t post until it’s pushed.">{brief ? <span>Not on GitHub<span className="@max-[440px]/review:hidden"> yet</span></span> : "Not on GitHub yet"}</Badge>;
 }
 
 /** The comment box's choice of severity. */

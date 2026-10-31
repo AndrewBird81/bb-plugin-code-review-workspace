@@ -1,6 +1,6 @@
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import type { ReviewMeta } from "./store";
-import { parseTarget, prReviewKey, targetKey } from "./targets";
+import { parseTarget, prReviewKey, reviewNamed, targetKey } from "./targets";
 import { ensureGitHeaders } from "./patch";
 import { beginGuide, guideWriterUnavailable } from "./generate";
 import { readPrSnapshot } from "./pr-snapshot";
@@ -40,6 +40,7 @@ const usage = (list: boolean) => [
   "  With no PR or ref, it reviews this thread's folder: its committed, uncommitted and new files on its branch, on any",
   "  machine. One review per folder and branch, addressed to the top thread working there; run again, it opens as it is.",
   "  A git ref named comment, summary, list, ask, approve or storage is given as refs/heads/<name>.",
+  "  A review's id, as api:feat-x or web#12, or its key, opens that review as it is.",
   "  --context  text for the assistant's automatic review, such as the ticket the change implements. It's kept with the review; '' removes it.",
   "  --name     your name for the review, shown in bb instead of the PR's title or the ref; '' puts that back. GitHub, and the agents, keep the PR's title.",
 ].join("\n");
@@ -47,6 +48,36 @@ const CONTEXT_LIMIT = 12_000;
 
 /** The refusal a review's own agent gets for a command on another review. */
 export const NOT_OWN_REVIEW = "This agent can change only its own review.";
+
+/**
+ * `bb review <id>`: the review an id or key names, opened as it is, back from your archive, with your name or context
+ * for it if given. Nothing is read or rebuilt.
+ */
+async function openNamed(deps: Deps, review: ReviewMeta, options: { context?: string; name?: string; inThreads: boolean }, ownReview?: string) {
+  const { store, bb } = deps;
+  const key = review.targetKey;
+  if (ownReview !== undefined && key !== ownReview) return { exitCode: 2, stderr: NOT_OWN_REVIEW };
+  const { context, name } = options;
+  const facts = await placeFacts(bb, await store.listReviews());
+  const { identity, unnamed } = await store.exclusive(async (tx) => {
+    const now = (await tx.getReview(key)) ?? review;
+    if (now.userArchivedAt) await tx.setLifecycle(key, { userArchivedAt: null });
+    if (context !== undefined) await tx.setReviewContext(key, context.trim() || null);
+    if (name !== undefined) await tx.setLifecycle(key, { name: name && name !== defaultName(now) ? name : null });
+    return { identity: identityIn(facts, await tx.listReviews(), (await tx.getReview(key)) ?? now), unnamed: !!now.name && name === "" };
+  });
+  if (review.userArchivedAt || context !== undefined || name !== undefined) {
+    bb.realtime.publish(`review:${key}`, { ts: Date.now() });
+    bb.realtime.publish("reviews", { ts: Date.now() });
+  }
+  const appUrl = options.inThreads ? bb.server.experimental_appUrl : null;
+  const open = appUrl ? `Open ${appUrl.replace(/\/+$/, "")}/plugins/${bb.pluginId}/review/${key}` : "Open the Code Review Workspace panel";
+  const which = `${identity.id}${identity.line === identity.id || identity.name === key ? "" : ` ${JSON.stringify(identity.name)}`} (${key})`;
+  const lines = [`Opened the review of ${which}, as it was; nothing was rebuilt. ${open} to review it.`];
+  if (unnamed) lines.push("Removed your name for the review.");
+  if (context !== undefined) lines.push(context.trim() ? "Kept the context with the review. Paste it into Ask agent to have the agent act on it." : "Removed the review's context.");
+  return { exitCode: 0, stdout: lines.join("\n") };
+}
 
 /**
  * `ownReview` is set when a review's own assistant or guide writer, or one replaced, runs the command: it may start only that review,
@@ -89,6 +120,14 @@ export async function runReviewCommand(deps: Deps, argv: string[], ctx: Ctx, own
     return runFeatureCommand({ ...deps, changed }, { context, name, inThreads }, ctx, ownReview);
   }
   if (!input) return { exitCode: 2, stderr: USAGE };
+  // The context reaches its agents as from the thread that started the review: a review's own agent read the PR's text.
+  if (ownReview !== undefined && context !== undefined) return { exitCode: 2, stderr: "A review's own agent can't set the review's context." };
+  // Your name for it is yours: a review's own agent read the PR's text.
+  if (ownReview !== undefined && name !== undefined) return { exitCode: 2, stderr: "A review's own agent can't rename the review." };
+  // A review's id or key, never a git ref: no branch has a colon in its name. One that became its PR's goes by its old id too.
+  const named = !base && parseTarget(input).kind === "ref" ? await reviewNamed(deps.store, deps.bb, input) : null;
+  if (named && "ambiguous" in named) return { exitCode: 1, stderr: named.ambiguous };
+  if (named) return openNamed(deps, named, { context, name, inThreads }, ownReview);
   if (!ctx.projectId) return { exitCode: 2, stderr: "Run `bb review` inside a project thread." };
   const target = parseTarget(input, base);
   if (target.kind === "pr" && base) return { exitCode: 2, stderr: "--base is only supported for local git refs." };
@@ -103,10 +142,6 @@ export async function runReviewCommand(deps: Deps, argv: string[], ctx: Ctx, own
   const cwd = ctx.cwd ? resolve(ctx.cwd) : undefined;
   let key = targetKey(target, cwd ? { projectId: ctx.projectId, cwd } : undefined);
   if (ownReview !== undefined && target.kind === "ref" && key !== ownReview) return { exitCode: 2, stderr: NOT_OWN_REVIEW };
-  // The context reaches its agents as from the thread that started the review: a review's own agent read the PR's text.
-  if (ownReview !== undefined && context !== undefined) return { exitCode: 2, stderr: "A review's own agent can't set the review's context." };
-  // Your name for it is yours: a review's own agent read the PR's text.
-  if (ownReview !== undefined && name !== undefined) return { exitCode: 2, stderr: "A review's own agent can't rename the review." };
   // Where local reviews' code is, for what the command says (src/review-places.ts): asked of bb before the store's lock.
   const facts: PlaceFacts = await placeFacts(deps.bb, [target]);
   const now = Date.now();

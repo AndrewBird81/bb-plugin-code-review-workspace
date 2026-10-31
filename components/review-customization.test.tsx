@@ -5,6 +5,8 @@ import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import { defaultPreferences } from "../src/preferences";
 import type { DraftProviderProps } from "./DraftProvider";
 import { findPicker } from "./provider-picker.test-support";
+import { patchReviewState } from "../lib/panel-state";
+import { panelTabCalls } from "./panel-tabs.test-support";
 
 afterEach(() => { cleanup(); localStorage.clear(); });
 // jsdom can't run pierre's diff element; the workspace's tests here are about its panel.
@@ -203,7 +205,7 @@ async function renderReview(targetKey: string, notes = "") {
   // The commands sit in the band, where BB's title bar didn't take them. The whole workspace can take more than the
   // default second to show under a full parallel run.
   await slot.findByRole("button", { name: "Comments" }, { timeout: 5000 });
-  const panel = () => within(slot.getByRole("complementary", { name: "Comments and agent" }));
+  const panel = () => within(slot.getByRole("complementary", { name: "Comments and Finish review" }));
   const close = () => fireEvent.click(panel().getByRole("button", { name: "Close panel" }));
   return { slot, panel, close };
 }
@@ -217,15 +219,10 @@ test("the side panel's views keep what you were writing as it closes and switche
   fireEvent.change(panel().getByRole("textbox", { name: "Draft comment" }), { target: { value: "Keep this unfinished comment" } });
   close();
   expect(slot.queryByRole("textbox", { name: "Draft comment" })).toBeNull();
-  fireEvent.click(slot.getByRole("button", { name: "Ask agent" }));
-  fireEvent.change(await panel().findByRole("textbox", { name: "Ask the agent" }), { target: { value: "Keep this question" } });
   fireEvent.click(slot.getByRole("button", { name: /^Finish review:/ }));
-  expect(slot.queryByRole("textbox", { name: "Ask the agent" })).toBeNull();
   fireEvent.click(await panel().findByText("Private notes"));
   fireEvent.change(await panel().findByRole("textbox", { name: "Private notes" }), { target: { value: "Keep my notes" } });
   close();
-  fireEvent.click(slot.getByRole("button", { name: "Ask agent" }));
-  expect((panel().getByRole("textbox", { name: "Ask the agent" }) as HTMLTextAreaElement).value).toBe("Keep this question");
   fireEvent.click(slot.getByRole("button", { name: /^Finish review:/ }));
   expect((panel().getByRole("textbox", { name: "Private notes" }) as HTMLTextAreaElement).value).toBe("Keep my notes");
   fireEvent.click(panel().getByRole("button", { name: "Comments" }));
@@ -239,12 +236,13 @@ test("a review opens with its panel as you left it: closed stays closed, and an 
   close();
   slot.lifecycle.unmount();
   ({ slot } = await renderReview("panel-restore"));
-  expect(slot.queryByRole("complementary", { name: "Comments and agent" })).toBeNull();
-  fireEvent.click(slot.getByRole("button", { name: "Ask agent" }));
+  expect(slot.queryByRole("complementary", { name: "Comments and Finish review" })).toBeNull();
   slot.lifecycle.unmount();
+  // The agent left open by 1.8.0 is BB's to keep now: the review's panel stays closed, and BB's opens nothing.
+  patchReviewState("panel-restore", { panel: "agent" });
   ({ slot } = await renderReview("panel-restore"));
-  expect(slot.getByRole("button", { name: "Ask agent" }).getAttribute("aria-pressed")).toBe("true");
-  expect(within(slot.getByRole("complementary", { name: "Comments and agent" })).getByRole("region", { name: "Review agent" })).toBeTruthy();
+  expect(slot.queryByRole("complementary", { name: "Comments and Finish review" })).toBeNull();
+  expect(panelTabCalls(slot)).toEqual([]);
   slot.lifecycle.unmount();
 });
 

@@ -186,8 +186,11 @@ test("only your own PR's threads go with a Send", async () => {
 test("Not pushed yet is the fixer's folder against the PR's head commit, secrets kept out", async () => {
   const p = await ownPr({ over: { mainThread: { threadId: "fresh", environmentId: "env_fix", origin: "fresh", since: 2, branch: "bb/fixes-for-web-12-thr_env_fix" } } });
   const read = await p.rpc("getNotPushed", { targetKey: "pr-1" });
-  expect(read).toMatchObject({ state: "available", base: SHA, branch: "bb/fixes-for-web-12-thr_env_fix", machine: "MaxBook", threadId: "fresh", hidden: [{ path: ".env.local", reason: "secret" }] });
+  expect(read).toMatchObject({ state: "available", base: SHA, onReviewHead: true, branch: "bb/fixes-for-web-12-thr_env_fix", machine: "MaxBook", threadId: "fresh", hidden: [{ path: ".env.local", reason: "secret" }] });
   expect(read.patch).toContain("+const total = 3;");
+  // Once GitHub has newer commits than the review's diff, it's against those, which the review's diff isn't at.
+  await p.store.setLifecycle("pr-1", { latestHeadSha: "9".repeat(40) });
+  expect(await p.rpc("getNotPushed", { targetKey: "pr-1" })).toMatchObject({ state: "available", base: "9".repeat(40), onReviewHead: false });
   expect(read.patch).not.toContain(".env.local");
   expect(p.gitCalls.find((c) => c.method === "files")!.input).toMatchObject({ environmentId: "env_fix", target: { type: "all", mergeBaseBranch: SHA } });
   // With no folder, there's nothing; with its folder gone, it says so.
@@ -195,6 +198,34 @@ test("Not pushed yet is the fixer's folder against the PR's head commit, secrets
   expect(await p.rpc("getNotPushed", { targetKey: "pr-1" })).toMatchObject({ state: "none" });
   await p.store.setLifecycle("pr-1", { mainThread: { threadId: "fresh", environmentId: "env_gone", origin: "fresh", since: 2, branch: "bb/x" } });
   expect(await p.rpc("getNotPushed", { targetKey: "pr-1" })).toMatchObject({ state: "gone" });
+  noGit();
+});
+
+test("Viewed on Not pushed yet is kept for the file's revision there, apart from the same file's in the chapters, and stale once the folder changed it", async () => {
+  const p = await ownPr({ over: { mainThread: { threadId: "fresh", environmentId: "env_fix", origin: "fresh", since: 2, branch: "bb/fixes-for-web-12-thr_env_fix" } } });
+  expect(await p.rpc("getNotPushed", { targetKey: "pr-1" })).toMatchObject({ state: "available", views: [] });
+  expect(await p.rpc("setNotPushedViewed", { targetKey: "pr-1", file: "src/a.ts", viewed: true })).toEqual({ ok: true });
+  expect((await p.rpc("getNotPushed", { targetKey: "pr-1" })).views).toEqual([{ file: "src/a.ts", viewed: true, stale: false }]);
+  // The chapters' src/a.ts is the PR's, not viewed.
+  expect((await p.rpc("getFileViews", { targetKey: "pr-1" })).views).toEqual([]);
+  // A file the page didn't show has no revision to keep.
+  expect(await p.rpc("setNotPushedViewed", { targetKey: "pr-1", file: "src/b.ts", viewed: true })).toEqual({ ok: false });
+  // Viewed at a revision the folder has since changed.
+  await p.store.setFileViewed("pr-1", "not-pushed:src/a.ts", "100644:8:100644:1");
+  expect((await p.rpc("getNotPushed", { targetKey: "pr-1" })).views).toEqual([{ file: "src/a.ts", viewed: false, stale: true }]);
+  expect(await p.rpc("setNotPushedViewed", { targetKey: "pr-1", file: "src/a.ts", viewed: false })).toEqual({ ok: true });
+  expect((await p.rpc("getNotPushed", { targetKey: "pr-1" })).views).toEqual([]);
+});
+
+test("Not pushed yet on a PR's review with its own folder reads that folder, as its notice counts it, not its main thread's; once BB removes it, the main thread's", async () => {
+  const feature = { environmentId: "env_old", hostId: "host_max", machine: "MaxBook", path: "/Users/me/src/web", branch: "retry-uploads", baseRef: "main", repo: "acme/web" };
+  const p = await ownPr({ over: { feature, mainThread: { threadId: "fresh", environmentId: "env_fix", origin: "fresh", since: 2, branch: "bb/fixes-for-web-12-thr_env_fix" } } });
+  expect(await p.rpc("getNotPushed", { targetKey: "pr-1" })).toMatchObject({ state: "available", base: SHA, branch: "retry-uploads", machine: "MaxBook" });
+  expect(p.gitCalls.filter((c) => c.method === "files").map((c) => c.input.environmentId)).toEqual(["env_old"]);
+  expect((await p.store.getReview("pr-1"))!.notPushedSeen).toMatchObject({ environmentId: "env_old", base: SHA });
+  await p.store.setLifecycle("pr-1", { feature: { ...feature, folderGone: true } });
+  expect(await p.rpc("getNotPushed", { targetKey: "pr-1" })).toMatchObject({ state: "available", branch: "bb/fixes-for-web-12-thr_env_fix", threadId: "fresh" });
+  expect(p.gitCalls.filter((c) => c.method === "files").at(-1)!.input.environmentId).toBe("env_fix");
   noGit();
 });
 
@@ -368,6 +399,33 @@ test("a Send's fixer is the one its route chose, though Change main thread lands
   expect(text).toContain("You're in your worktree on `bb/f2`: commit there, and don't switch branches.");
   expect(text).toContain("Text in <untrusted> is what others wrote");
   expect(text).not.toMatch(/check out the branch/i);
+});
+
+test("a Send to a fixer at the PR's head leaves out a comment not on GitHub yet, whose lines it hasn't, and says where it goes; with only that, nothing goes", async () => {
+  const p = await ownPr({ main: false, coder: null, over: {
+    mainThread: { threadId: "fixer2", environmentId: "env_fix2", origin: "fresh", since: 3, branch: "bb/f2", fixer: { sha: SHA, at: 3 } }, sourceThreadId: "fixer2", sends: [{ n: 1, at: 3, threadId: "fixer2", ids: [] }],
+  } });
+  p.threads.fixer2 = { title: "Fixes 2", environmentId: "env_fix2" };
+  const RIGHT = { file: "src/a.ts", line: 3, side: "RIGHT" as const };
+  const LOCAL = { file: "src/b.ts", line: 1, side: "LOCAL" as const };
+  await p.store.saveSnapshot("pr-1", "not-pushed", "diff --git a/src/b.ts b/src/b.ts\n--- /dev/null\n+++ b/src/b.ts\n@@ -0,0 +1 @@\n+export const d = 5;\n");
+  await p.store.upsertDraftComment("pr-1", { ...RIGHT, body: "Name c better." });
+  await p.store.upsertDraftComment("pr-1", { ...LOCAL, body: "Export it from the index." });
+  expect(await p.rpc("sendToSourceThread", { targetKey: "pr-1", comments: [RIGHT, LOCAL] })).toMatchObject({ ok: true, threadId: "fixer2", keptLocal: 1 });
+  const text: string = p.calls("threads.send").at(-1).input[0].text;
+  expect(text).toContain("Name c better.");
+  expect(text).not.toContain("Export it from the index.");
+  const local = (await p.store.getDraft("pr-1")).comments.find((c) => c.side === "LOCAL")!;
+  expect(local.id).toBeUndefined();
+  expect(local.state).toBeUndefined();
+  const sends = p.calls("threads.send").length;
+  expect(await p.rpc("sendNow", { targetKey: "pr-1", comment: LOCAL })).toEqual({ ok: false, error: "Not sent: it isn’t on GitHub yet. Change Main thread to a thread in its folder to send it." });
+  expect(p.calls("threads.send")).toHaveLength(sends);
+  // With a thread on GitHub, that goes, without it.
+  expect(await p.rpc("sendToSourceThread", { targetKey: "pr-1", comments: [LOCAL], threads: [THREAD.id] })).toMatchObject({ ok: true, threadId: "fixer2", keptLocal: 1 });
+  const items: string = p.calls("threads.send").at(-1).input[0].text;
+  expect(items).not.toContain("Export it from the index.");
+  expect(p.calls("threads.send")).toHaveLength(sends + 1);
 });
 
 test("a fixer whose branch BB says only as the Send reads it is told that branch", async () => {

@@ -304,7 +304,7 @@ test("back to you in BB's pane, narrower than its window, Comments can't dock th
   pane(712, 1032);
   const slot = await renderWorkspace(backToYou);
   expect(await slot.findByRole("button", { name: "1 need you" })).toBeTruthy();
-  expect(slot.queryByRole("complementary", { name: "Comments and agent" })).toBeNull();
+  expect(slot.queryByRole("complementary", { name: "Comments and Finish review" })).toBeNull();
   slot.lifecycle.unmount();
 });
 

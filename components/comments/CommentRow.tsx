@@ -8,7 +8,7 @@ import { Icon } from "../ui/icon";
 import { SEVERITY_LABEL } from "../../src/draft";
 import { CheckBadge, CUT_CODE, FixStatus, frameOf, ItemIcon, itemWords, placeLabel, plainLine, ReplyDraftBadge, SEVERITY_TONE, TAG_TONE, ThreadState } from "./look";
 import { CommentCard, whereOf } from "./CommentCard";
-import { PreExistingBadge } from "../InlineDraft";
+import { NotOnGithubBadge, PreExistingBadge } from "../InlineDraft";
 
 /** Whose thread it is, for one waiting for your reply on someone else's thread: its row names whose comment waits. */
 const threadOf = (item: CommentItem) => item.kind !== "thread" || !item.waitingOn || item.waitingOn === item.who ? null : item.who === "You" ? "Your thread" : `${item.who}’s thread`;
@@ -89,6 +89,7 @@ export const CommentRow = memo(function CommentRow({ targetKey, item, expanded, 
           {/* What it is in a word or two, then its latest message: on the next line when the words leave it no room. */}
           <span className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1">
             {item.at?.side === "LEFT" && item.at.line !== null && <Badge size="sm">Old line</Badge>}
+            {item.at?.side === "LOCAL" && <NotOnGithubBadge />}
             {severity && <Badge tone={SEVERITY_TONE[severity]} size="sm">{SEVERITY_LABEL[severity]}</Badge>}
             {preExisting && <PreExistingBadge />}
             {item.kind === "thread" && item.tag && <Badge tone={TAG_TONE[item.tag] ?? "neutral"} size="sm">{item.tag}</Badge>}

@@ -1,6 +1,6 @@
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import { renameOverviewChapter, type Guide } from "./guide";
-import { rangeOf, sameLocation, type Claim, type CommentLocation, type Discussion, type DiscussionEntry, type Draft, type DraftComment, type GithubReviewComment, type Severity, type Verdict } from "./draft";
+import { diffSide, isLocal, rangeOf, sameLocation, SUMMARY_AT, type Claim, type CommentLocation, type Discussion, type DiscussionEntry, type Draft, type DraftComment, type GithubReviewComment, type Severity, type Verdict } from "./draft";
 import { createHash, randomUUID } from "node:crypto";
 import { preferencesSchema, readPreferences, savedKnobs, unknownKnobs, type PreferencesRecord, type ReviewPreferences, type ReviewerNotesRecord } from "./preferences";
 import type { AssessmentSummary, TurnSignals } from "../lib/turn";
@@ -15,6 +15,9 @@ import { agentCommentStore, type AgentCommentStore } from "./learning";
 import { importFormerInstall } from "./former-install";
 import { sqliteSql, withoutNul, type Sql } from "./db/sql";
 import type { AsyncStore } from "./store-queue";
+import { summaryLine, withSummaryLine } from "../lib/move-to-summary";
+import { localIdOf, reviewIdentity } from "../lib/review-identity";
+import { NOT_PUSHED, notPushedView } from "../lib/push";
 
 export interface ReviewLifecycle {
   prState?: "OPEN" | "CLOSED" | "MERGED";
@@ -167,13 +170,58 @@ export interface ReviewLifecycle {
   /** Push (src/push.ts): the last one, from your click to GitHub, or a push no one asked for. Null once you said Got it. */
   push?: PushRun | null;
   /**
+   * The review agent's PR draft, waiting in the Post form in its chat (src/review-agent-tools.ts open_pr): shown since
+   * `at`, until the form times out at `until`. Null once it closes, posted or not.
+   */
+  prDraft?: { at: number; until: number } | null;
+  /**
    * On your own PR, what Not pushed yet showed when you last opened it: the folder, and the PR's head it compared with.
    * Its files' revisions are kept beside the snapshots (lib/push.ts NOT_PUSHED): Push checks a fixer's commit against them.
    */
   notPushedSeen?: { environmentId: string; base: string; at: number } | null;
   /** The review's branch on GitHub as last read, to tell when it moves with no Push: its head, null for not there. */
   remoteHead?: { repo: string; head: string; sha: string | null; at: number } | null;
+  /**
+   * The local review became its branch's PR's (src/feature-review.ts becomePr): which, its id before (`from`), and how
+   * many comments came with it, not on GitHub yet (`local`), and outside the PR's diff, kept on its older diff, of them
+   * open, so in Needs you (`needsYou`). Null once you said Got it.
+   */
+  became?: { at: number; number: number; url: string; from: string; carried: number; local: number; outside: number; needsYou?: number; merged?: MergeNote } | null;
+  /**
+   * A PR found on the local review's branch that it didn't become: opened before it and not in its folder, from a branch
+   * `head` that isn't the review's by name (FeatureReview.pushedAs), or GitHub didn't answer. `declined`: you said it
+   * isn't this review's PR.
+   */
+  prPending?: { number: number; url: string; why: "older" | "branch" | "error"; head?: string; error?: string; at: number; declined?: true } | null;
+  /**
+   * The PR its branch has has a review of its own, `key`, with what of yours would move (src/merge.ts): the two merge on
+   * your click. `intoPr`: that review began as another folder's, and this one goes into it.
+   */
+  prOffer?: { key: string; number: number; url: string; moves: MergeNote; intoPr?: true } | null;
+  /**
+   * Keep both, on the merge offer: the key of its PR's own review, which this folder's review keeps apart from. Neither
+   * offers to merge again; this one stays local, and the PR's review stays the PR's.
+   */
+  mergeDeclined?: string | null;
+  /** Merged into the review `mergedInto` (store.mergeReview), at `mergedAt`: archived, and its page opens that one. */
+  mergedInto?: string;
+  mergedAt?: number;
+  /** The reviews merged into this one: each one's id then, as another name for this one, and its agent's conversation, kept apart. */
+  mergedFrom?: Array<{ key: string; at: number; id: string; agentThreadId: string | null }>;
+  /**
+   * The review became its PR's, or another review was merged into it (`merged`, which says which), while its agent had
+   * a conversation: told once, with the next message the review sends it or before the next answer of its review tools,
+   * whichever comes first (src/agent.ts takePrNote). Null once told.
+   */
+  agentPrNote?: { number: number; url: string; from: string; merged?: string } | null;
+  /** The folder's branch was renamed, `from` to `branch`, and the review followed it, under its key. Null once you said Got it. */
+  followed?: { from: string; branch: string; at: number } | null;
+  /** The branches the review followed its folder off, renamed or on your Follow, oldest first: its ids then still name it (src/targets.ts reviewNamed). */
+  formerBranches?: string[];
 }
+
+/** What merging a review into another took from it (store.mergeReview), as its notices say: its comments, its summary, its Sends, and its verdict, when it differed from the one kept. */
+export interface MergeNote { comments: number; summary: boolean; sends: number; verdict?: Verdict }
 
 /**
  * A Push, as the review shows it. committing: the main thread was told to commit what you reviewed and report the
@@ -207,6 +255,12 @@ export interface PushRun {
   fixer?: true;
   /** stopped: how the main thread did. */
   why?: "failed" | "archived" | "deleted";
+  /**
+   * Push and open PR: once it lands, the review agent drafts the PR (src/open-pr.ts draftPr); "asked" once it was asked,
+   * "failed" when it couldn't be, and why in `openPrError`, until Open PR asks it.
+   */
+  thenOpenPr?: true | "asked" | "failed";
+  openPrError?: string;
 }
 
 /** A local review's folder and branch. */
@@ -234,15 +288,29 @@ export interface FeatureReview {
    * was on was removed, which the review then reads. `branch` stays what the review pushes to.
    */
   workBranch?: string;
-  /** The key of the review its branch's PR already had when the PR was found: this one links to it instead of becoming it. */
+  /**
+   * 1.8.0: the key of the review its branch's PR already had when the PR was found, which this one linked to. Read once
+   * (src/feature-review.ts checkFeature): the two merge, or this one offers to (`prOffer`). Never written again.
+   */
   prReview?: string;
+  /** The branch's name on GitHub, its PR's head, when it isn't `branch`: pushed as HEAD:feat/nice, or renamed. */
+  remoteBranch?: string;
+  /**
+   * A local review's branch as a thread in its folder last pushed it under another name (src/pr-watch.ts): `git push
+   * origin HEAD:feat/nice`, `gh pr create --head feat/nice`. A PR from it becomes the review's on its own, as one from
+   * `branch` does; one from any other branch waits for your click (src/feature-review.ts becomePr).
+   */
+  pushedAs?: string;
+  /** The folder's head commit as last read on `branch`: a branch it's on now that has it may be `branch` renamed. */
+  headSha?: string;
   /** How many files changed in the folder since the review read it, as last checked; null for none or not checked. */
   changedFiles?: number | null;
   /**
-   * The diff shown is newer than its guide: your Update read the folder again ("update"), or Include or Keep out changed
-   * which files it shows ("include"). Null once a new guide is accepted.
+   * The diff shown is newer than its guide: your Update read the folder again ("update"), Include or Keep out changed
+   * which files it shows ("include"), a PR's review moved to the PR's head as your Push landed ("push"), or the review
+   * became its PR's, whose diff isn't the local changes the guide was written for ("pr"). Null once a new guide is accepted.
    */
-  guideOlderThanDiff?: "update" | "include" | null;
+  guideOlderThanDiff?: "update" | "include" | "push" | "pr" | null;
 }
 
 /** A thread that fixes the review's comments. */
@@ -417,6 +485,20 @@ export interface Store extends AgentCommentStore {
   setReviewContext(targetKey: string, text: string | null): Promise<void>;
   /** Remove the review and everything stored for it. */
   deleteReview(targetKey: string): Promise<void>;
+  /**
+   * Run `fn` on this Store in one transaction, rolled back if it throws. `fn` gets the Store itself, not the queue's:
+   * called on a block's tx, the whole of it is one of the block's calls. `fn` must use only the store it's given: the
+   * queue's would wait on the block `fn` runs in.
+   */
+  transaction<T>(fn: (store: Store) => Promise<T>): Promise<T>;
+  /**
+   * Merge review `from` into `into`, in one transaction: its comments follow their lines onto `into`'s diff, its Sends
+   * number on after `into`'s, and its summary, notes, viewed marks and what it knows of the PR join `into`'s; its
+   * agent's conversation becomes `into`'s when `into` has none (`adopted`). `from` is left archived and empty, but for
+   * the tracked comments `into` couldn't take, pointing at `into`. Returns what it took; null, changing nothing, when
+   * either was merged into a review already.
+   */
+  mergeReview(from: string, into: string): Promise<{ moved: MergeNote; adopted: boolean } | null>;
   savePatch(targetKey: string, patch: string): Promise<void>;
   patch(targetKey: string): Promise<string>;
   /** Whether the review has a diff stored; pruneOldDiffs drops it. */
@@ -556,10 +638,11 @@ export interface Store extends AgentCommentStore {
   /** The text a draft comment's line, or with "start" its range's first line, had when it was drafted. */
   draftCommentCode(targetKey: string, at: CommentLocation, end?: "start" | "line"): Promise<string | undefined>;
   /**
-   * Mark draft comments as drafted against the current diff, each at a possibly new line, all at once.
+   * Mark draft comments as drafted against the current diff, each at a possibly new line, all at once: a LOCAL one,
+   * or one given `side` LOCAL, against what Not pushed yet showed last; one given `side` RIGHT against the review's.
    * A comment whose new place another comment ends up on stays where it was, drafted against the older diff.
    */
-  rebaseDraftComments(targetKey: string, placements: ReadonlyArray<{ at: CommentLocation; line: number; startLine?: number }>): Promise<void>;
+  rebaseDraftComments(targetKey: string, placements: ReadonlyArray<Placement>): Promise<void>;
 }
 
 /** A comment's fields only the server sets, as trackComments changes them. */
@@ -732,6 +815,15 @@ export function storeOn(sql: Sql): Store {
     await writeDraft(sql, moved);
     return moved;
   };
+  // The diff a comment on `side` is drafted on: the review's, or a LOCAL one's, what Not pushed yet showed last.
+  const diffOf = async (k: string, side: CommentLocation["side"]) => {
+    if (!isLocal({ side })) {
+      const { entry, patch } = await parsedPatch(k);
+      return { positions: entry.positions ??= diffPositions(await patch()), hash: entry.hash };
+    }
+    const shown = (await sql.get<{ patch: string }>(`SELECT patch FROM review_snapshots WHERE target_key=? AND head_sha=?`, [k, NOT_PUSHED]))?.patch ?? "";
+    return { positions: diffPositions(shown), hash: patchHash(shown) };
+  };
 
   const rowToMeta = (r: any): ReviewMeta => ({
     targetKey: r.target_key, kind: r.kind, number: r.number ?? undefined, repo: r.repo ?? undefined,
@@ -824,9 +916,176 @@ export function storeOn(sql: Sql): Store {
       if (text === null) await sql.run(`DELETE FROM review_context WHERE target_key=?`, [k]);
       else await sql.run(`INSERT INTO review_context (target_key,text) VALUES (?,?) ON CONFLICT(target_key) DO UPDATE SET text=excluded.text`, [k, text]);
     },
+    transaction(fn) {
+      return sql.transaction(() => fn(this));
+    },
     async deleteReview(k) {
       await sql.transaction(async () => {
         for (const table of REVIEW_TABLES) await sql.run(`DELETE FROM ${table} WHERE target_key=?`, [k]);
+      });
+    },
+    async mergeReview(from, into) {
+      // Each of REVIEW_TABLES: its reviews, patches, guides, guide_backups, generations, agent_threads and agent_messages
+      // stay with `from`, and its snapshots at commits too; the rest moves, or joins `into`'s.
+      return sql.transaction(async () => {
+        const source = await this.getReview(from), target = await this.getReview(into);
+        if (!source || !target || from === into) throw new Error("Review not found.");
+        // Merged already: another trigger, or another window's click, got here first.
+        if (source.mergedInto || target.mergedInto) return null;
+        // A guide still being written for it ends, with its earlier guide back.
+        await this.interruptGeneration(from);
+        const now = Date.now();
+        const was = await this.getDraft(from), draft = await this.getDraft(into);
+        // Its Sends number on after every one this review names, their diffs and checks with them.
+        const top = Math.max(0, ...(target.sends ?? []).map((send) => send.n), ...draft.comments.map((c) => c.sendN ?? 0), ...Object.values(target.threadSends ?? {}).map((sent) => sent.sendN));
+        const renumbered = (head: string) => head.replace(/^send:(\d+)/, (_, n: string) => `send:${Number(n) + top}`);
+
+        // Each comment follows its lines onto this diff, with its id, state and Send, its discussion, and the reviewer's
+        // edits of it. One lost stays at its place, drafted against an older diff; one where this review has the same
+        // text is this review's; one where it has another goes into the summary, its discussion with it. One a thread
+        // tracks stays at its place too, where this review's comment there is another or tracked, so its report finds it;
+        // with that place taken too, it stays on the review merged away, with its id, where its report finds it still.
+        // One not on GitHub yet, on the other folder's lines, goes into your notes, never the summary Submit posts.
+        const placements = await reanchorDraft(this, from, await this.patch(from), await this.patch(into));
+        const [hash, positions] = [await this.patchHash(into), await this.diffPositions(into)];
+        const codeAt = (file: string, side: CommentLocation["side"], line: number) => positions.get(file)?.[side === "LEFT" ? "left" : "right"].get(line) ?? null;
+        const toSummary: DraftComment[] = [], toNotes: DraftComment[] = [], stranded: DraftComment[] = [];
+        for (const c of was.comments) {
+          const renumberedSend = c.sendN !== undefined ? { sendN: c.sendN + top } : {};
+          let place = placements.find(({ at: placed }) => sameLocation(placed, c));
+          let comment: DraftComment = { ...c, ...place ? { line: place.line, ...place.startLine !== undefined ? { startLine: place.startLine } : {} } : {}, ...renumberedSend };
+          let there = draft.comments.find((other) => sameLocation(other, comment));
+          if (!isLocal(c) && there && c.id !== undefined && (there.body !== c.body || there.id !== undefined) && !draft.comments.some((other) => sameLocation(other, c))) {
+            place = undefined;
+            comment = { ...c, ...renumberedSend };
+            there = undefined;
+          }
+          if (isLocal(c) || there && there.body !== c.body) {
+            (isLocal(c) ? toNotes : toSummary).push(c);
+            // One a thread tracks, which keeps its id, keeps its discussion too, in this review's summary's.
+            if (c.id !== undefined) {
+              stranded.push({ ...c, ...renumberedSend });
+              await sql.run(`UPDATE discussion_entries SET target_key=?, file=?, line=?, side=?, start_line=NULL WHERE target_key=? AND file=? AND line=? AND side=?`, [...at(into, SUMMARY_AT), ...at(from, c)]);
+              if ((await stopWaitingAt(from, c)).changes) await sql.run(`INSERT INTO discussion_waits (target_key,file,line,side) VALUES (?,?,?,?) ON CONFLICT DO NOTHING`, at(into, SUMMARY_AT));
+            } else await sql.run(`DELETE FROM discussion_entries WHERE target_key=? AND file=? AND line=? AND side=?`, at(from, c));
+            continue;
+          }
+          if (there) {
+            if (there.id === undefined) {
+              for (const key of TRACKING) if (comment[key] !== undefined) Object.assign(there, { [key]: comment[key] });
+            } else if (c.id !== undefined) stranded.push({ ...c, ...renumberedSend });
+          } else {
+            draft.comments.push(comment);
+            const kept = place ? null : await sql.get<{ patch_hash: string; code: string | null; start_code: string | null }>(`SELECT patch_hash, code, start_code FROM draft_comment_revisions WHERE target_key=? AND file=? AND line=? AND side=?`, at(from, c));
+            const revision = kept ?? { patch_hash: hash, code: codeAt(comment.file, comment.side, comment.line), start_code: comment.startLine === undefined ? null : codeAt(comment.file, comment.startSide ?? comment.side, comment.startLine) };
+            await sql.run(`INSERT INTO draft_comment_revisions (target_key,file,line,side,patch_hash,code,start_code) VALUES (?,?,?,?,?,?,?)
+              ON CONFLICT(target_key,file,line,side) DO UPDATE SET patch_hash=excluded.patch_hash, code=excluded.code, start_code=excluded.start_code`,
+              [...at(into, comment), revision.patch_hash, revision.code, revision.start_code]);
+          }
+          await sql.run(`UPDATE discussion_entries SET target_key=?, line=?, start_line=CASE WHEN start_line IS NULL THEN NULL ELSE COALESCE(?, start_line + ?) END WHERE target_key=? AND file=? AND line=? AND side=?`,
+            [into, comment.line, place?.startLine ?? null, comment.line - c.line, ...at(from, c)]);
+          if ((await stopWaitingAt(from, c)).changes) await sql.run(`INSERT INTO discussion_waits (target_key,file,line,side) VALUES (?,?,?,?) ON CONFLICT DO NOTHING`, at(into, comment));
+          await sql.run(`UPDATE agent_comment_changes SET target_key=?, line=? WHERE target_key=? AND file=? AND line=? AND side=?`, [into, comment.line, ...at(from, c)]);
+        }
+
+        // The summaries joined, this one's first, yours if either was; the verdict you chose, this review's if both did.
+        const bodies = [draft.body, was.body].filter((body) => body.trim());
+        const one = bodies.length === 1 && !toSummary.length ? (draft.body.trim() ? draft : was) : null;
+        const agents = !!bodies.length && !toSummary.length && [draft, was].every((d) => !d.body.trim() || d.bodyAuthor === "agent");
+        await writeDraft(sql, {
+          ...draft, body: toSummary.reduce((body, c) => withSummaryLine(body, summaryLine(c)), bodies.join("\n\n")),
+          verdict: draft.verdictChosen || !was.verdictChosen ? draft.verdict : was.verdict, verdictChosen: draft.verdictChosen || was.verdictChosen || undefined,
+          bodyAuthor: agents ? "agent" : undefined, written: one?.written, suggestedVerdict: draft.suggestedVerdict ?? was.suggestedVerdict, unchecked: draft.unchecked ?? was.unchecked,
+        });
+        await sql.run(`UPDATE discussion_entries SET target_key=? WHERE target_key=? AND file=? AND line=? AND side=?`, [into, ...at(from, SUMMARY_AT)]);
+        if ((await stopWaitingAt(from, SUMMARY_AT)).changes) await sql.run(`INSERT INTO discussion_waits (target_key,file,line,side) VALUES (?,?,?,?) ON CONFLICT DO NOTHING`, at(into, SUMMARY_AT));
+        const id = source.kind !== "pr" && source.feature ? localIdOf({ ...source, feature: source.feature }) : reviewIdentity(source).id;
+        const notes = [(await this.getReviewerNotes(from)).body, ...toNotes.length ? [[`Not on GitHub yet, from \`${id}\`:`, ...toNotes.map((c) => summaryLine(c))].join("\n")] : []];
+        if (notes.some((body) => body.trim())) {
+          await sql.run(`INSERT INTO reviewer_notes (target_key,body,revision) VALUES (?,?,1) ON CONFLICT(target_key) DO UPDATE SET body=excluded.body, revision=reviewer_notes.revision+1`,
+            [into, [(await this.getReviewerNotes(into)).body, ...notes].filter((body) => body.trim()).join("\n\n")]);
+        }
+        const context = await this.getReviewContext(from);
+        if (context) await this.setReviewContext(into, [await this.getReviewContext(into), context].filter(Boolean).join("\n\n"));
+
+        // Of two marks on a file, the one this diff matches, else the newer. Not those on its Not pushed yet's files, another
+        // folder's.
+        const marks = await this.getFileViews(into), theirs = (await this.getFileViews(from)).filter((view) => !view.file.startsWith(notPushedView("")));
+        const current = (await this.fileHashes(into)).current(theirs.map((view) => view.file));
+        for (const view of theirs) {
+          const mine = marks.find((mark) => mark.file === view.file);
+          if (!mine || mine.hash !== current.get(view.file) && (view.hash === current.get(view.file) || view.viewedAt > mine.viewedAt)) await this.setFileViewed(into, view.file, view.hash, view.viewedAt);
+        }
+
+        // Its Sends' diffs move; its diffs at commits are copied where this review has none, for Since your review. Not
+        // its Not pushed yet: another folder's, which this review's LOCAL comments aren't on.
+        for (const { head_sha } of await sql.all<{ head_sha: string }>(`SELECT head_sha FROM review_snapshots WHERE target_key=? ORDER BY head_sha`, [from])) {
+          if (head_sha === NOT_PUSHED || head_sha === `${NOT_PUSHED}${FILES}`) continue;
+          const head = renumbered(head_sha);
+          await sql.run(`INSERT INTO review_snapshots (target_key,head_sha,patch,created_at) SELECT ?, ?, patch, created_at FROM review_snapshots WHERE target_key=? AND head_sha=?
+            ON CONFLICT(target_key,head_sha) DO ${head === head_sha ? "NOTHING" : "UPDATE SET patch=excluded.patch"}`, [into, head, from, head_sha]);
+          if (head !== head_sha) await sql.run(`DELETE FROM review_snapshots WHERE target_key=? AND head_sha=?`, [from, head_sha]);
+        }
+        for (const row of await sql.all<{ head_sha: string; item_id: string; data: string }>(`SELECT head_sha, item_id, data FROM assessment_items WHERE target_key=? ORDER BY head_sha, item_id`, [from])) {
+          await sql.run(`INSERT INTO assessment_items (target_key,head_sha,item_id,data) VALUES (?,?,?,?) ON CONFLICT(target_key,head_sha,item_id) DO NOTHING`, [into, renumbered(row.head_sha), row.item_id, row.data]);
+        }
+        for (const row of await sql.all<{ head_sha: string; data: string; assessed_at: number }>(`SELECT head_sha, data, assessed_at FROM assessment_runs WHERE target_key=? ORDER BY head_sha`, [from])) {
+          const head = renumbered(row.head_sha);
+          await sql.run(`INSERT INTO assessment_runs (target_key,head_sha,data,assessed_at) VALUES (?,?,?,?) ON CONFLICT(target_key,head_sha) DO NOTHING`,
+            [into, head, head === row.head_sha ? row.data : JSON.stringify({ ...JSON.parse(row.data), headSha: head }), row.assessed_at]);
+        }
+        // What it read of the PR's threads, and its replies to them, where this review has none.
+        await sql.run(`INSERT INTO feedback_threads (target_key,thread_id,data,resolved_seen_at) SELECT ?, thread_id, data, resolved_seen_at FROM feedback_threads WHERE target_key=? ON CONFLICT(target_key,thread_id) DO NOTHING`, [into, from]);
+        await sql.run(`INSERT INTO feedback_fetches (target_key,fetched_at,pr_updated_at) SELECT ?, fetched_at, pr_updated_at FROM feedback_fetches WHERE target_key=? ON CONFLICT(target_key) DO NOTHING`, [into, from]);
+        await sql.run(`INSERT INTO reply_drafts (target_key,thread_id,body,author,updated_at) SELECT ?, thread_id, body, author, updated_at FROM reply_drafts WHERE target_key=? ON CONFLICT(target_key,thread_id) DO NOTHING`, [into, from]);
+        // The reviewer's removals of its agent's comments, so this review's agent doesn't raise them again.
+        await sql.run(`UPDATE agent_comment_changes SET target_key=? WHERE target_key=?`, [into, from]);
+        // Its agent's conversation goes on here, unless this review has one: then it's kept apart, named in mergedFrom.
+        const agentThreadId = await this.getAssistantThread(from);
+        const adopted = !!agentThreadId && !await this.getAssistantThread(into);
+        if (adopted) await sql.run(`UPDATE assistant_threads SET target_key=? WHERE target_key=?`, [into, from]);
+
+        // Thread Sends from both: the later Send's.
+        const sends = [...target.sends ?? [], ...(source.sends ?? []).map((send) => ({ ...send, n: send.n + top }))];
+        const sentAt = (n: number) => sends.find((send) => send.n === n)?.at ?? 0;
+        const threadSends = { ...target.threadSends };
+        for (const [id, sent] of Object.entries(source.threadSends ?? {})) {
+          const moved = { ...sent, sendN: sent.sendN + top };
+          if (!threadSends[id] || sentAt(moved.sendN) > sentAt(threadSends[id].sendN)) threadSends[id] = moved;
+        }
+        const mainThread = target.mainThread ?? source.mainThread ?? null;
+        const implementers = [...target.implementers ?? [], ...source.implementers ?? [], ...source.mainThread ? [source.mainThread] : []]
+          .filter((thread, i, all) => thread.threadId !== mainThread?.threadId && all.findIndex((other) => other.threadId === thread.threadId) === i);
+        const pinned = [target.pinnedAt, source.pinnedAt].filter((pin): pin is number => pin != null);
+        const branches = [...target.keptBranches ?? [], ...source.keptBranches ?? []].filter((kept, i, all) => all.findIndex((other) => other.branch === kept.branch) === i);
+        await this.setLifecycle(into, {
+          // What the sync knows of the PR, where this review doesn't yet, so nothing it alerted alerts again.
+          ...Object.fromEntries(SYNC_OWNED.filter((field) => target[field] == null && source[field] != null).map((field) => [field, source[field]])),
+          sends, threadSends, mainThread, implementers,
+          readyToApprove: target.readyToApprove ?? source.readyToApprove ?? null,
+          activity: [...target.activity ?? [], ...source.activity ?? []].sort((a, b) => a.at - b.at),
+          reviewBodies: [...target.reviewBodies ?? [], ...source.reviewBodies ?? []].sort((a, b) => a.at - b.at),
+          name: target.name ?? source.name ?? null, pinnedAt: pinned.length ? Math.min(...pinned) : null,
+          ...(source.submittedAt ?? 0) > (target.submittedAt ?? 0) ? { submittedVerdict: source.submittedVerdict, submittedAt: source.submittedAt, submittedHeadSha: source.submittedHeadSha, submittedReviewId: source.submittedReviewId } : {},
+          ...branches.length ? { keptBranches: branches } : {},
+          ...target.feature?.prReview ? { feature: { ...target.feature, prReview: undefined } } : {},
+          prOffer: null, mergeDeclined: null,
+          mergedFrom: [...target.mergedFrom ?? [], ...source.mergedFrom ?? [], { key: from, at: now, id, agentThreadId: adopted ? null : agentThreadId }],
+        });
+
+        // What's left of it: archived, empty but for the tracked comments this review couldn't take, so no comment's id
+        // is in two reviews, and pointing here.
+        await writeDraft(sql, { targetKey: from, verdict: "COMMENT", body: "", comments: stranded });
+        for (const table of ["draft_comment_revisions", "discussion_waits", "file_views", "reviewer_notes", "review_context", "assessment_items", "assessment_runs", "feedback_threads", "feedback_fetches", "reply_drafts"]) {
+          await sql.run(`DELETE FROM ${table} WHERE target_key=?`, [from]);
+        }
+        await this.setLifecycle(from, { archivedAt: now, mergedInto: into, mergedAt: now, sends: [], threadSends: {}, mainThread: null, implementers: [], readyToApprove: null, pinnedAt: null, prOffer: null });
+        // One that keeps a tracked comment goes without its repo, its link and key kept: 1.8.1's Submit, agent tools and
+        // sync need one, so after a rollback none of them posts that comment (CHANGELOG, 1.9.0). Its id comes from its link.
+        if (stranded.length && source.repo) await sql.run(`UPDATE reviews SET repo=NULL WHERE target_key=?`, [from]);
+        const moved: MergeNote = { comments: was.comments.length, summary: !!was.body.trim(), sends: source.sends?.length ?? 0 };
+        if (draft.verdictChosen && was.verdictChosen && draft.verdict !== was.verdict) moved.verdict = was.verdict;
+        return { moved, adopted };
       });
     },
     async savePatch(k, patch) {
@@ -974,12 +1233,13 @@ export function storeOn(sql: Sql): Store {
         const i = d.comments.findIndex((x) => x.file === c.file && x.line === c.line && x.side === c.side);
         if (i >= 0) d.comments[i] = savedOver(d.comments[i], c); else d.comments.push(savedOver(undefined, c));
         await writeDraft(sql, d);
-        const positions = (await this.diffPositions(k)).get(c.file);
-        const code = positions?.[c.side === "LEFT" ? "left" : "right"].get(c.line) ?? null;
-        const startCode = c.startLine === undefined ? null : positions?.[(c.startSide ?? c.side) === "LEFT" ? "left" : "right"].get(c.startLine) ?? null;
+        const { positions: all, hash } = await diffOf(k, c.side);
+        const positions = all.get(c.file);
+        const code = positions?.[diffSide(c.side) === "LEFT" ? "left" : "right"].get(c.line) ?? null;
+        const startCode = c.startLine === undefined ? null : positions?.[diffSide(c.startSide ?? c.side) === "LEFT" ? "left" : "right"].get(c.startLine) ?? null;
         await sql.run(`INSERT INTO draft_comment_revisions (target_key,file,line,side,patch_hash,code,start_code) VALUES (?,?,?,?,?,?,?)
           ON CONFLICT(target_key,file,line,side) DO UPDATE SET patch_hash=excluded.patch_hash, code=excluded.code, start_code=excluded.start_code`,
-          [k, c.file, c.line, c.side, await this.patchHash(k), code, startCode]);
+          [k, c.file, c.line, c.side, hash, code, startCode]);
         return d;
       }).catch((error: unknown) => {
         // Renames it followed were rolled back with it.
@@ -1039,7 +1299,8 @@ export function storeOn(sql: Sql): Store {
     async staleDraftComments(k) {
       const hash = await this.patchHash(k);
       const stale: DraftComment[] = [];
-      for (const c of (await this.getDraft(k)).comments) {
+      // A LOCAL comment is on what Not pushed yet showed, which Submit never posts.
+      for (const c of (await this.getDraft(k)).comments.filter((c) => !isLocal(c))) {
         const row = await sql.get<{ patch_hash: string }>(`SELECT patch_hash FROM draft_comment_revisions WHERE target_key=? AND file=? AND line=? AND side=?`, [k, c.file, c.line, c.side]);
         if (row?.patch_hash !== hash) stale.push(c);
       }
@@ -1300,27 +1561,29 @@ export function storeOn(sql: Sql): Store {
       return (end === "start" ? row?.start_code : row?.code) ?? undefined;
     },
     async rebaseDraftComments(k, placements) {
-      const positions = await this.diffPositions(k);
-      const hash = await this.patchHash(k);
+      const diffs = { main: await diffOf(k, "RIGHT"), local: await diffOf(k, "LOCAL") };
       await sql.transaction(async () => {
         const d = await this.getDraft(k);
         const moves = new Map<DraftComment, number>();
         const starts = new Map<DraftComment, number>();
-        for (const { at, line, startLine } of placements) {
+        // A LOCAL comment pushed since, onto a line of the review's diff, or one the diff lost that's in the folder.
+        const sides = new Map<DraftComment, NonNullable<Placement["side"]>>();
+        for (const { at, line, startLine, side } of placements) {
           const comment = d.comments.find((c) => sameLocation(c, at));
           if (comment) moves.set(comment, line);
           if (comment && startLine !== undefined) starts.set(comment, startLine);
+          if (comment && side && side !== comment.side) sides.set(comment, side);
         }
         // Collisions count only among final places; a comment that would share one keeps its old place.
         for (let clash = true; clash;) {
           clash = false;
           const places = new Map<string, DraftComment[]>();
           for (const c of d.comments) {
-            const place = JSON.stringify([c.file, moves.get(c) ?? c.line, c.side]);
+            const place = JSON.stringify([c.file, moves.get(c) ?? c.line, sides.get(c) ?? c.side]);
             places.set(place, [...(places.get(place) ?? []), c]);
           }
           for (const group of places.values()) {
-            if (group.length > 1) for (const c of group) if (moves.has(c) && moves.get(c) !== c.line) { moves.delete(c); clash = true; }
+            if (group.length > 1) for (const c of group) if (moves.has(c) && (moves.get(c) !== c.line || sides.has(c))) { moves.delete(c); sides.delete(c); clash = true; }
           }
         }
         for (const c of moves.keys()) await sql.run(`DELETE FROM draft_comment_revisions WHERE target_key=? AND file=? AND line=? AND side=?`, [k, c.file, c.line, c.side]);
@@ -1338,23 +1601,25 @@ export function storeOn(sql: Sql): Store {
         for (const { c, line, ids, waiting } of discussions) {
           // A range's first line follows the comment's, or shifts with its last.
           for (const { id } of ids) {
-            await sql.run(`UPDATE discussion_entries SET line=?, start_line=CASE WHEN start_line IS NULL THEN NULL ELSE COALESCE(?, start_line + ?) END WHERE id=?`,
-              [line, starts.get(c) ?? null, line - c.line, id]);
+            await sql.run(`UPDATE discussion_entries SET line=?, side=?, start_line=CASE WHEN start_line IS NULL THEN NULL ELSE COALESCE(?, start_line + ?) END WHERE id=?`,
+              [line, sides.get(c) ?? c.side, starts.get(c) ?? null, line - c.line, id]);
           }
-          if (waiting) await sql.run(`INSERT INTO discussion_waits (target_key,file,line,side) VALUES (?,?,?,?) ON CONFLICT DO NOTHING`, [k, c.file, line, c.side]);
+          if (waiting) await sql.run(`INSERT INTO discussion_waits (target_key,file,line,side) VALUES (?,?,?,?) ON CONFLICT DO NOTHING`, [k, c.file, line, sides.get(c) ?? c.side]);
         }
         const asks = (await this.getReview(k))?.commentAsks;
         if (asks?.length) {
           await this.setLifecycle(k, { commentAsks: asks.map((entry) => {
             const moved = [...moves].find(([c]) => sameLocation(c, entry));
-            return moved ? { ...entry, line: moved[1] } : entry;
+            return moved ? { ...entry, line: moved[1], side: sides.get(moved[0]) ?? entry.side } : entry;
           }) });
         }
         for (const [c, line] of moves) {
           c.line = line;
           if (starts.has(c)) c.startLine = starts.get(c);
-          const code = positions.get(c.file)?.[c.side === "LEFT" ? "left" : "right"].get(line) ?? null;
-          const startCode = c.startLine === undefined ? null : positions.get(c.file)?.[(c.startSide ?? c.side) === "LEFT" ? "left" : "right"].get(c.startLine) ?? null;
+          if (sides.has(c)) c.side = sides.get(c)!;
+          const { positions, hash } = isLocal(c) ? diffs.local : diffs.main;
+          const code = positions.get(c.file)?.[diffSide(c.side) === "LEFT" ? "left" : "right"].get(line) ?? null;
+          const startCode = c.startLine === undefined ? null : positions.get(c.file)?.[diffSide(c.startSide ?? c.side) === "LEFT" ? "left" : "right"].get(c.startLine) ?? null;
           await sql.run(`INSERT INTO draft_comment_revisions (target_key,file,line,side,patch_hash,code,start_code) VALUES (?,?,?,?,?,?,?)
             ON CONFLICT(target_key,file,line,side) DO UPDATE SET patch_hash=excluded.patch_hash, code=excluded.code, start_code=excluded.start_code`,
             [k, c.file, line, c.side, hash, code, startCode]);
@@ -1364,6 +1629,9 @@ export function storeOn(sql: Sql): Store {
     },
   };
 }
+
+/** What the sync keeps of a PR, which a review merged into another gives it where it has none (mergeReview). */
+const SYNC_OWNED = ["watchingSince", "watchedHead", "notifiedSignal", "latestHeadSha", "signals", "prState", "ownPr", "authorAssociation", "headFork", "prConversation", "turnGroup", "preparedSignal", "autoRunHead"] as const satisfies ReadonlyArray<keyof ReviewLifecycle>;
 
 /** How many reviews' parsed patches stay in memory. */
 const PARSED_REVIEWS = 8;
@@ -1417,15 +1685,15 @@ export async function newCommentIds(store: AsyncStore, kv: BbPluginApi["storage"
   });
 }
 
-// Every table keyed by target_key. A new per-review table belongs here too.
-const REVIEW_TABLES = [
+// Every table keyed by target_key. A new per-review table belongs here too, and in mergeReview.
+export const REVIEW_TABLES = [
   "reviews", "patches", "guides", "drafts", "file_views", "agent_threads", "agent_messages",
   "generations", "draft_comment_revisions", "review_lifecycle", "reviewer_notes", "assistant_threads", "review_context",
   "discussion_entries", "discussion_waits", "review_snapshots", "feedback_threads", "feedback_fetches",
   "assessment_items", "assessment_runs", "reply_drafts", "guide_backups", "agent_comment_changes",
 ] as const;
 
-type Placement = { at: CommentLocation; line: number; startLine?: number };
+type Placement = { at: CommentLocation; line: number; startLine?: number; side?: "RIGHT" | "LOCAL" };
 
 /**
  * Where each unsent comment's line is in `next`, for rebaseDraftComments, and its range's first line. Comments whose
@@ -1433,12 +1701,21 @@ type Placement = { at: CommentLocation; line: number; startLine?: number };
  * the draft and each comment's code first.
  */
 export async function reanchorDraft(store: Pick<Store, "getDraft" | "draftCommentCode">, k: string, previous: string, next: string): Promise<Placement[]> {
-  const { comments } = await store.getDraft(k);
+  // A LOCAL comment is on Not pushed yet's diff, not the review's.
+  return placeOn(store, k, (await store.getDraft(k)).comments.filter((comment) => !isLocal(comment)), previous, next);
+}
+
+/**
+ * Where each of `comments` is in `next`, as reanchorDraft says, and with `side` on that side there: a LOCAL comment
+ * from Not pushed yet's diff onto the review's at the PR's new head, now on GitHub, or one the review's diff lost onto
+ * Not pushed yet's.
+ */
+export async function placeOn(store: Pick<Store, "draftCommentCode">, k: string, comments: DraftComment[], previous: string, next: string, side?: Placement["side"]): Promise<Placement[]> {
   const codes = new Map<DraftComment, { line?: string; start?: string }>();
   for (const comment of comments) {
     codes.set(comment, { line: await store.draftCommentCode(k, comment), start: comment.startLine === undefined ? undefined : await store.draftCommentCode(k, comment, "start") });
   }
-  return placeComments(comments, (comment, end) => codes.get(comment)![end ?? "line"], previous, next);
+  return placeComments(comments, (comment, end) => codes.get(comment)![end ?? "line"], previous, next).map((place) => side ? { ...place, side } : place);
 }
 
 function placeComments(comments: DraftComment[], codeOf: (comment: DraftComment, end?: "start") => string | undefined, previous: string, next: string): Placement[] {
