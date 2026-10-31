@@ -50,7 +50,7 @@ export interface Choices { force?: boolean; thread?: "unarchive" | "fresh" | "fo
 /** What you add to a Send: your own message, and whether the draft's summary goes too. */
 export interface SendExtras { message?: string; includeSummary?: boolean }
 /** A Send that went: where, whether it waits for the thread's turn to end, its number and the ids of its comments. */
-export interface Sent { ok: true; delivery: "sent" | "queued"; threadId: string; title: string | null; sendN: number; ids: string[]; skipped?: number }
+export interface Sent { ok: true; delivery: "sent" | "queued"; threadId: string; title: string | null; sendN: number; ids: string[]; skipped?: number; keptLocal?: number }
 
 
 interface Deps { bb: BbPluginApi; store: AsyncStore; changed(targetKey: string): void; submitReview?: { submitting(targetKey: string): boolean; sendStarted(targetKey: string): void; sendEnded(targetKey: string): void } }
@@ -364,6 +364,8 @@ export async function send(deps: Deps, targetKey: string, picked: readonly Comme
   const unbriefed = toFixer && main!.origin === "forked" && !(now.sends ?? []).some((entry) => entry.threadId === main!.threadId);
   const briefed = unbriefed ? await fixerPlace(bb, store, now) : null;
   const laterFixer = toFixer && !briefed;
+  // A fixer works at the PR's head, which hasn't the lines of a comment not on GitHub yet: that one stays for the folder's main thread.
+  const atHead = !!fixer || toFixer;
   // To a thread in the PR's own folder: stay on its branch, if the folder is on it.
   const stayOn = "to" in routed && !toFixer && main && main.environmentId === now.feature?.environmentId ? await folderBranchLine(bb, now) : null;
   const moved = fresh?.from ? newWorktree(shown, fresh.from) : null;
@@ -378,9 +380,14 @@ export async function send(deps: Deps, targetKey: string, picked: readonly Comme
       deps.submitReview?.sendStarted(targetKey);
       holding = true;
       const draft = await tx.getDraft(targetKey);
-      const comments = draft.comments.filter((comment) => picked.some((at) => sameLocation(at, comment)));
+      const chosen = draft.comments.filter((comment) => picked.some((at) => sameLocation(at, comment)));
+      const comments = atHead ? chosen.filter((comment) => !isLocal(comment)) : chosen;
+      const keptLocal = chosen.length - comments.length;
       const now = (await tx.getReview(targetKey)) ?? review;
       const items = await githubItems(tx, now, github);
+      if (keptLocal && !comments.length && !items.length) {
+        throw new Error(`Not sent: ${keptLocal === 1 ? "it isn’t" : "they aren’t"} on GitHub yet, so ${keptLocal === 1 ? "it goes" : "they go"} to the folder’s main thread, not a thread at the PR’s head.`);
+      }
       // A GitHub item the review no longer has, as one gone from GitHub's window, is left out; the Send says how many.
       if (!comments.length && !items.length || picked.length && !comments.length) return null;
       // Only your Reopen sends a comment you resolved or dismissed again.
@@ -416,7 +423,7 @@ export async function send(deps: Deps, targetKey: string, picked: readonly Comme
         : moved ? where(moved.shown, moved.branch, lead) : where(shown, laterFixer && main ? fixerBranchLine(recordOf(now, main.threadId)?.branch ?? main.branch) : stayOn ?? undefined, lead);
       // A fixer sent to again stays on its branch, and is told again what the quoted words are.
       const text = [message, opening, ...texts, ...apply, summary, ...limits, ...laterFixer ? [UNTRUSTED_NOTE] : [], REPORT].filter(Boolean).join("\n\n");
-      return { comments: named, items: items.map((item, i) => ({ githubId: githubId(item), id: itemIds[i] })), skipped: github.length - items.length, patch, local, files, text };
+      return { comments: named, items: items.map((item, i) => ({ githubId: githubId(item), id: itemIds[i] })), skipped: github.length - items.length, keptLocal, patch, local, files, text };
     });
     if (!composed) throw new Error(github.length && !picked.length ? `${github.length === 1 ? "That comment is" : "Those comments are"} no longer on GitHub as the review last read it, so there's nothing to send.` : "Those comments are no longer in the draft.");
     const went = await go(deps, shown, routed, composed.text);
@@ -451,7 +458,7 @@ export async function send(deps: Deps, targetKey: string, picked: readonly Comme
     if (went.fresh) await settleFolder(deps, targetKey, went.fresh);
     deps.changed(targetKey);
     bb.realtime.publish(`draft:${targetKey}`, {});
-    return { ok: true, delivery: went.delivery, threadId: went.threadId, title: went.title, sendN: n, ids: [...composed.comments.map((comment) => comment.id), ...composed.items.map((item) => item.id)], ...composed.skipped ? { skipped: composed.skipped } : {} };
+    return { ok: true, delivery: went.delivery, threadId: went.threadId, title: went.title, sendN: n, ids: [...composed.comments.map((comment) => comment.id), ...composed.items.map((item) => item.id)], ...composed.skipped ? { skipped: composed.skipped } : {}, ...composed.keptLocal ? { keptLocal: composed.keptLocal } : {} };
   } finally {
     if (holding) deps.submitReview?.sendEnded(targetKey);
   }
@@ -608,7 +615,7 @@ export function register(deps: ServeDeps) {
     async sendToSourceThread({ targetKey, comments, threads, message, includeSummary, letPush, force, thread }) {
       if (!await sendOn()) throw new Error(off);
       const sent = await send(deps, targetKey, comments, { message, includeSummary, letPush, force, thread, ...threads?.length ? { github: threads } : {} });
-      return sent.ok ? { ok: true, delivery: sent.delivery, title: sent.title, threadId: sent.threadId, sendN: sent.sendN, ...sent.skipped ? { skipped: sent.skipped } : {} } : sent;
+      return sent.ok ? { ok: true, delivery: sent.delivery, title: sent.title, threadId: sent.threadId, sendN: sent.sendN, ...sent.skipped ? { skipped: sent.skipped } : {}, ...sent.keptLocal ? { keptLocal: sent.keptLocal } : {} } : sent;
     },
     async sendApprovalToSourceThread({ targetKey, revision, message, includeSummary, force, thread }) {
       if (!await sendOn()) throw new Error(off);

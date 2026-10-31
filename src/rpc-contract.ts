@@ -374,8 +374,9 @@ export const rpcContract = defineRpcContract({
   sendToSourceThread: {
     input: z.object({ targetKey: z.string(), comments: z.array(z.object(location).strict()), threads: z.array(z.string().min(1)).max(100).optional(), ...sendExtras, ...sendChoices }).strict()
       .refine((input) => input.comments.length > 0 || !!input.threads?.length, "Choose a comment to send."),
-    // skipped: GitHub items left out, as the review no longer has them.
-    output: z.union([z.object({ ok: z.literal(true), delivery: z.enum(["sent", "queued"]), title: z.string().nullable(), threadId: z.string().optional(), sendN: z.number().int().optional(), skipped: z.number().int().optional() }), sendWarning]),
+    // skipped: GitHub items left out, as the review no longer has them. keptLocal: comments not on GitHub yet left out of a
+    // fixer's Send, at the PR's head, for the folder's main thread.
+    output: z.union([z.object({ ok: z.literal(true), delivery: z.enum(["sent", "queued"]), title: z.string().nullable(), threadId: z.string().optional(), sendN: z.number().int().optional(), skipped: z.number().int().optional(), keptLocal: z.number().int().optional() }), sendWarning]),
   },
   // Tells the main thread you approve the change as is, at the revision the page shows. With comments not yet sent, or
   // told already for this diff, it warns.

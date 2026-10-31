@@ -139,6 +139,16 @@ test("Send counts only the comments not sent yet, and Let it push when done is t
   slot.lifecycle.unmount();
 });
 
+test("a fixer's Send that left out a comment not on GitHub yet counts what went and says where that one goes", async () => {
+  const sendToSourceThread = vi.fn(async () => ({ ok: true, delivery: "sent", title: "Fixes for web#12", threadId: "fixer", sendN: 1, keptLocal: 1 }));
+  const slot = await renderTray({ getSourceThread: open({ title: "Fixes for web#12" }), sendToSourceThread }, local);
+  fireEvent.click(await slot.findByRole("button", { name: "Send 2 to main thread" }));
+  fireEvent.click(within(slot.getByRole("group", { name: "Comments to send" })).getByRole("button", { name: "Send" }));
+  expect((await within(slot.getByRole("region", { name: "Send to the main thread" })).findByRole("status")).textContent)
+    .toBe("Sent 1 comment to Fixes for web#12. 1 isn’t on GitHub yet: it goes to the folder’s main thread. · Watch · Main thread ↗");
+  slot.lifecycle.unmount();
+});
+
 test("a Send that warns says why and what it offers, and the choice sends it: anyway, unarchived, or to a fresh thread", async () => {
   const sendToSourceThread = vi.fn()
     .mockResolvedValueOnce({ ok: false, warning: "Retry uploads is archived. Unarchive it and send, or start a fresh thread in ~/src/api.", offers: ["unarchive", "fresh"], freshWhere: "in ~/src/api" })

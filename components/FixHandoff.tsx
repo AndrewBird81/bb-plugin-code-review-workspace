@@ -15,7 +15,7 @@ import { Textarea } from "./ui/textarea";
 import { locationKey } from "./InlineDraft";
 import { useDraft } from "./DraftProvider";
 import { plainLine } from "./comments/look";
-import { isOpen, sentNote, SendWarning, type Choice, type SendWarned } from "./SendNow";
+import { isOpen, keptLocalNote, sentNote, SendWarning, type Choice, type SendWarned } from "./SendNow";
 
 /** A link in a line of text, as Watch and Main thread ↗ after a Send. */
 export const LINK = `relative rounded-sm text-primary underline decoration-primary/40 underline-offset-4 hover:decoration-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 ${TOUCH_TARGET}`;
@@ -102,7 +102,7 @@ export function FixHandoff({ targetKey, comments, revision }: { targetKey: strin
   const send = () => attempt(async (choice) => {
     const count = chosen.length;
     const result = await rpc.call("sendToSourceThread", { targetKey, comments: picked(), ...extras(), ...choice });
-    if (result.ok) { setSent({ threadId: result.threadId ?? to!.threadId, title: result.title, note: sentNote(result.delivery, result.title, plural(count)) }); reload(); refresh(); }
+    if (result.ok) { setSent({ threadId: result.threadId ?? to!.threadId, title: result.title, note: sentNote(result.delivery, result.title, plural(count - (result.keptLocal ?? 0))) + keptLocalNote(result.keptLocal) }); reload(); refresh(); }
     return result;
   }, "Send anyway");
   const approve = () => attempt(async (choice) => {

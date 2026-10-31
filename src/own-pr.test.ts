@@ -385,6 +385,28 @@ test("a Send's fixer is the one its route chose, though Change main thread lands
   expect(text).not.toMatch(/check out the branch/i);
 });
 
+test("a Send to a fixer at the PR's head leaves out a comment not on GitHub yet, whose lines it hasn't, and says where it goes; with only that, nothing goes", async () => {
+  const p = await ownPr({ main: false, coder: null, over: {
+    mainThread: { threadId: "fixer2", environmentId: "env_fix2", origin: "fresh", since: 3, branch: "bb/f2", fixer: { sha: SHA, at: 3 } }, sourceThreadId: "fixer2", sends: [{ n: 1, at: 3, threadId: "fixer2", ids: [] }],
+  } });
+  p.threads.fixer2 = { title: "Fixes 2", environmentId: "env_fix2" };
+  const RIGHT = { file: "src/a.ts", line: 3, side: "RIGHT" as const };
+  const LOCAL = { file: "src/b.ts", line: 1, side: "LOCAL" as const };
+  await p.store.saveSnapshot("pr-1", "not-pushed", "diff --git a/src/b.ts b/src/b.ts\n--- /dev/null\n+++ b/src/b.ts\n@@ -0,0 +1 @@\n+export const d = 5;\n");
+  await p.store.upsertDraftComment("pr-1", { ...RIGHT, body: "Name c better." });
+  await p.store.upsertDraftComment("pr-1", { ...LOCAL, body: "Export it from the index." });
+  expect(await p.rpc("sendToSourceThread", { targetKey: "pr-1", comments: [RIGHT, LOCAL] })).toMatchObject({ ok: true, threadId: "fixer2", keptLocal: 1 });
+  const text: string = p.calls("threads.send").at(-1).input[0].text;
+  expect(text).toContain("Name c better.");
+  expect(text).not.toContain("Export it from the index.");
+  const local = (await p.store.getDraft("pr-1")).comments.find((c) => c.side === "LOCAL")!;
+  expect(local.id).toBeUndefined();
+  expect(local.state).toBeUndefined();
+  const sends = p.calls("threads.send").length;
+  expect(await p.rpc("sendNow", { targetKey: "pr-1", comment: LOCAL })).toEqual({ ok: false, error: "Not sent: it isn’t on GitHub yet, so it goes to the folder’s main thread, not a thread at the PR’s head." });
+  expect(p.calls("threads.send")).toHaveLength(sends);
+});
+
 test("a fixer whose branch BB says only as the Send reads it is told that branch", async () => {
   const p = await ownPr({ main: false, coder: null, over: {
     mainThread: { threadId: "fixer2", environmentId: "env_fix2", origin: "fresh", since: 3, fixer: { sha: SHA, at: 3 } }, sourceThreadId: "fixer2", sends: [{ n: 1, at: 3, threadId: "fixer2", ids: [] }],
