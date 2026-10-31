@@ -251,7 +251,8 @@ async function openPrAfter(deps: Deps, key: string, found = false) {
   deps.changed(key);
   const said = found ? null : await draftPr(deps, key).catch((failure) => ({ ok: false, error: error(failure), note: undefined }));
   if (said && !said.ok) deps.bb.log.warn(`Push and open PR on ${key} didn’t ask the review agent: ${said.error ?? said.note}`);
-  if (said?.ok && !said.note) await swapPush(deps, key, (now) => now?.at === run.at ? null : "moved on", { ...run, thenOpenPr: "asked" });
+  const asked = said?.ok && !said.note ? { thenOpenPr: "asked" as const } : said && !said.ok ? { thenOpenPr: "failed" as const, openPrError: said.error ?? said.note ?? "The review agent couldn’t start." } : null;
+  if (asked) await swapPush(deps, key, (now) => now?.at === run.at ? null : "moved on", { ...run, ...asked });
 }
 
 /**

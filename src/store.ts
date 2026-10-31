@@ -243,8 +243,12 @@ export interface PushRun {
   fixer?: true;
   /** stopped: how the main thread did. */
   why?: "failed" | "archived" | "deleted";
-  /** Push and open PR: once it lands, the review agent drafts the PR (src/open-pr.ts draftPr); "asked" once it was asked. */
-  thenOpenPr?: true | "asked";
+  /**
+   * Push and open PR: once it lands, the review agent drafts the PR (src/open-pr.ts draftPr); "asked" once it was asked,
+   * "failed" when it couldn't be, and why in `openPrError`, until Open PR asks it.
+   */
+  thenOpenPr?: true | "asked" | "failed";
+  openPrError?: string;
 }
 
 /** A local review's folder and branch. */

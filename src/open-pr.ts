@@ -118,7 +118,18 @@ export function register(deps: ServeDeps) {
   const { store, gh } = deps;
   const handlers = {
     // Finish review's Open PR.
-    openPr: ({ targetKey }) => draftPr(deps, targetKey),
+    async openPr({ targetKey }) {
+      const said = await draftPr(deps, targetKey);
+      // Push and open PR that couldn't ask the review agent has now.
+      if (said.ok && !said.note && await store.exclusive(async (tx) => {
+        const run = (await tx.getReview(targetKey))?.push;
+        if (run?.thenOpenPr !== "failed") return false;
+        const { openPrError: _, ...pushed } = run;
+        await tx.setLifecycle(targetKey, { push: { ...pushed, thenOpenPr: "asked" } });
+        return true;
+      })) deps.changed(targetKey);
+      return said;
+    },
     // What Finish review's Push offers (components/comments/FinishView.tsx): Push and open PR on a local review whose
     // branch has no PR; Open PR on its own too once the branch is on GitHub; and where GitHub opens one by hand.
     async pushPlan({ targetKey }) {

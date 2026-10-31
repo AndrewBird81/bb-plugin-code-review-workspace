@@ -1030,6 +1030,18 @@ test("Push and open PR says the review agent drafts the PR once it's pushed, the
   slot.lifecycle.unmount();
 });
 
+test("Push and open PR that couldn't ask the review agent once pushed says why, with Open PR to ask it again", async () => {
+  const openPr = vi.fn(() => ({ ok: true }));
+  const { view, slot, part } = await renderPush({ state: "pushed", thenOpenPr: "failed", openPrError: "MaxBook is offline.", at: now, threadId: "coder", repo: "acme/web", head: "feat/qa", sha: HEAD }, { ...plan({ onGithub: true }), openPr });
+  expect(within(part()).getByRole("alert").textContent).toBe("Couldn’t ask the review agent to draft the PR: MaxBook is offline. Open PR asks it again.");
+  // Not Push and open PR again: Open PR, on its own.
+  await waitFor(() => expect(within(part()).getAllByRole("button").map((b) => b.textContent)).toEqual(["Push"]));
+  const open = view.getByRole("heading", { name: "Open a PR" }).closest("section")!;
+  fireEvent.click(within(open as HTMLElement).getByRole("button", { name: "Open PR" }));
+  await waitFor(() => expect(openPr).toHaveBeenCalledWith({ targetKey: "pr-42" }));
+  slot.lifecycle.unmount();
+});
+
 test("with the review agent drafting only, Push is just Push, and once pushed links to GitHub to open the PR", async () => {
   const draftOnly = { getPreferences: () => ({ preferences: { ...defaultPreferences, knobs: { ...defaultKnobs, reviewAgentActs: false } }, revision: 0 }) };
   const readyPlan = plan();

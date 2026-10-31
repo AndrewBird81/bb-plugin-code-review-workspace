@@ -165,8 +165,8 @@ function Push({ plan }: { plan: PushPlan | null | undefined }) {
   const who = target.fixer ? "the fixer" : "the main thread";
   const run = review.push ?? null;
   const sha = run?.sha ? run.sha.slice(0, 7) : "";
-  // Push and open PR, unless the agent was asked already.
-  const both = acts && !!plan?.openable && !plan.pr && run?.thenOpenPr !== "asked";
+  // Push and open PR, unless the agent was asked already, or couldn't be, when Open PR asks it again.
+  const both = acts && !!plan?.openable && !plan.pr && run?.thenOpenPr !== "asked" && run?.thenOpenPr !== "failed";
   async function act(what: NonNullable<typeof busy>, call: () => Promise<{ ok: boolean; error?: string; note?: string }>, done?: string) {
     if (busy) return;
     setBusy(what);
@@ -237,6 +237,7 @@ function Push({ plan }: { plan: PushPlan | null | undefined }) {
           {/* With the agent drafting only, GitHub opens the PR. */}
           {!acts && plan?.openable && !plan.pr && plan.compare && <> · <UrlLink href={plan.compare} title="Go to GitHub to open a PR" className={LINK}>Open a PR on GitHub<span aria-hidden> ↗</span></UrlLink></>}</span>}</p>
         : <p className="text-sm text-muted-foreground">{target.fixer ? "The fixer" : "The main thread"} commits what you reviewed{target.pr ? " in Not pushed yet" : ""}, the review checks it, then it’s pushed to {branch}. Never forced.</p>}
+      {run?.state === "pushed" && run.thenOpenPr === "failed" && <p role="alert" className="flex gap-1.5 text-xs text-destructive-text"><Icon name="AlertCircle" className="mt-0.5 size-3.5 shrink-0" aria-hidden />Couldn’t ask the review agent to draft the PR: {run.openPrError} Open PR asks it again.</p>}
       {both ? <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
         {pushButton("Push and open PR", true)}
         <span className="text-xs text-muted-foreground">or <button type="button" className={LINK} aria-disabled={!!busy || undefined} onClick={() => void push()}>Push only</button></span>

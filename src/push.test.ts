@@ -75,6 +75,8 @@ async function setup({ branch = "feat/qa", workBranch, pr }: { branch?: string; 
     return { stdout: "", stderr: "not here", code: 1 };
   });
   const chat = agentChat("agent");
+  // The review agent's machine offline: what's sent to it fails.
+  const agent = { offline: false };
   const sent: any[] = [];
   const { bb, harness, calls } = folderHost({
     files: [{ path: "src/a.ts" }],
@@ -102,7 +104,12 @@ async function setup({ branch = "feat/qa", workBranch, pr }: { branch?: string; 
   }, { threads: {
     get: async ({ threadId }: { threadId: string }) => ({ id: threadId, archivedAt: null, deletedAt: null, status: "idle", title: threadId === "coder" ? "Snooze flaky checks" : threadId, environmentId: "env1", visibility: threadId === "agent" ? "hidden" : "visible" }),
     ...chat.sdk,
-    send: async (args: any) => { if (args.threadId === "agent") return chat.sdk.send(args); sent.push(args); return { ok: true, delivery: "sent" }; },
+    send: async (args: any) => {
+      if (args.threadId === "agent" && agent.offline) throw new Error("MaxBook is offline.");
+      if (args.threadId === "agent") return chat.sdk.send(args);
+      sent.push(args);
+      return { ok: true, delivery: "sent" };
+    },
     list: async () => [],
     experimental_listAncestors: async ({ threadIds }: { threadIds: string[] }) => ({ threads: threadIds.map((id) => ({ threadId: id, ancestorIds: id === "sub" ? ["coder"] : [] })) }),
   } });
@@ -128,7 +135,7 @@ async function setup({ branch = "feat/qa", workBranch, pr }: { branch?: string; 
   // Push, or Push anyway on the warning the page shows now, unless `at` says another.
   const push = async (force?: boolean, sha?: string, at?: number) => harness.behavior.callRpc("push", { targetKey: key, ...force ? { force, at: at ?? (await run())?.at } : {}, ...sha ? { sha } : {} }) as Promise<any>;
   const text = (i: number) => sent[i].input[0].text as string;
-  return { bb, harness, store, folder, github, sent, chat, calls, push, cli, idle, run, text, key };
+  return { bb, harness, store, folder, github, sent, chat, calls, push, cli, idle, run, text, key, agent };
 }
 
 /** The command the thread is told, quoted for its shell. */
@@ -852,6 +859,22 @@ test("Push and open PR keeps its intent through a mismatch and Push anyway, and 
   // The next stop asks nothing again.
   await idle();
   expect(prAsks(chat)).toBe(1);
+});
+
+test("Push and open PR that can't ask the review agent once pushed says why, until Open PR asks it", async () => {
+  const { harness, cli, idle, run, github, chat, agent } = await setup();
+  await harness.behavior.callRpc("push", { targetKey: KEY, thenOpenPr: true });
+  await cli("coder", "report", "--commit", HEAD);
+  agent.offline = true;
+  github.sha = HEAD;
+  await idle();
+  expect(await run()).toMatchObject({ state: "pushed", sha: HEAD, thenOpenPr: "failed", openPrError: expect.stringContaining("MaxBook is offline.") });
+  expect(prAsks(chat)).toBe(0);
+  agent.offline = false;
+  expect(await harness.behavior.callRpc("openPr", { targetKey: KEY })).toEqual({ ok: true });
+  expect(prAsks(chat)).toBe(1);
+  expect(await run()).toMatchObject({ state: "pushed", thenOpenPr: "asked" });
+  expect((await run())!.openPrError).toBeUndefined();
 });
 
 test("Push and open PR with nothing to push asks the review agent at once, from Push or from the commit report", async () => {
