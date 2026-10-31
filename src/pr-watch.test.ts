@@ -269,6 +269,14 @@ test("T3: the poll reads every local review in one request every 2 minutes; a br
   expect(await s.kind(OTHER)).toBe("ref");
 });
 
+test("T3: a review kept apart from one PR's review is still watched for the branch's next PR", async () => {
+  const s = await setup();
+  await s.store.setLifecycle(KEY, { mergeDeclined: "pr:acme/api#6" });
+  s.github.branches["acme/api:feat/qa"] = { sha: "c0ffee", prs: [{ number: 7 }] };
+  await s.watch.poll();
+  expect(await s.store.getReview(KEY)).toMatchObject({ kind: "pr", number: 7 });
+});
+
 test("T3: the poll waits while GitHub limits reads or gh isn't signed in, and 10 minutes after a read that failed", async () => {
   const s = await setup();
   s.github.branches["acme/api:feat/qa"] = { sha: "c0ffee", prs: [] };

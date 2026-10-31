@@ -1033,6 +1033,19 @@ test("your PR found on GitHub whose review has nothing of yours is merged into t
   expect((await s.store.listReviews()).map((r) => r.targetKey).sort()).toEqual([key, prKey].sort());
 });
 
+test("Keep both with one PR's review still finds the branch's next PR, as your PR on GitHub", async () => {
+  const s = setup();
+  await run(s, "main");
+  await settled(s);
+  // PR #6, closed, has its own review, kept apart.
+  const kept = targetKey({ kind: "pr", repo: "acme/api", number: 6 });
+  await s.store.saveReview({ targetKey: kept, kind: "pr", repo: "acme/api", number: 6, url: "https://github.com/acme/api/pull/6", head: "feat/qa", status: "ready", createdAt: 1 });
+  await s.store.setLifecycle(key, { mergeDeclined: kept });
+  await ownPrSync(s).all(true);
+  expect(await s.store.getReview(key)).toMatchObject({ kind: "pr", number: 7 });
+  expect(await prReviewKey(s.store, { repo: "acme/api", number: 7 })).toBe(key);
+});
+
 test("bb removing the folder: a review that became a PR's goes on; a local one waits for its sent comments, else goes to Archive", async () => {
   const s = setup();
   await plugin(s.bb);

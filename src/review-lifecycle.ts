@@ -668,7 +668,7 @@ export function createReviewSync(bb: BbPluginApi, store: AsyncStore, run: typeof
     const converted: string[] = [];
     const waiting = new Set<DiscoveredPr>();
     if (!own.length || !actions) return { converted, waiting };
-    const folders = (await store.listReviews()).filter((r) => r.kind === "ref" && r.feature?.repo && !r.prOffer && !r.mergeDeclined && !r.archivedAt && !r.userArchivedAt);
+    const folders = (await store.listReviews()).filter((r) => r.kind === "ref" && r.feature?.repo && !r.prOffer && !r.archivedAt && !r.userArchivedAt);
     for (const pr of own) {
       const at = folders.findIndex(({ feature }) => feature!.repo!.toLowerCase() === (pr.headRepo ?? pr.repo) && (feature!.branch === pr.head || feature!.remoteBranch === pr.head || feature!.pushedAs === pr.head));
       if (at < 0 || await store.isDiscoveryIgnored(keyFor({ kind: "pr", number: pr.number, repo: pr.repo }))) continue;

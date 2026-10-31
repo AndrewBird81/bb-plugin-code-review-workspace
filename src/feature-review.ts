@@ -448,8 +448,9 @@ export async function becomePr(deps: Deps, key: string, pr: { repo: string; numb
     }
   };
   if (notOwn(other?.head)) return pending({ number: pr.number, url, why: "branch", head: other!.head!, at: Date.now() });
-  // The PR's review not read yet has no head: GitHub says the PR's branch before a merge is offered or made.
-  if (other && !other.head && !clicked && now.kind === "ref") {
+  // The PR's review not read yet has no head: GitHub says the PR's branch before a merge is offered or made; one kept
+  // apart is neither.
+  if (other && !other.head && !clicked && now.kind === "ref" && now.mergeDeclined !== prKey) {
     if (errorWaits()) return "skipped";
     const found = await readPr();
     if (!found) return "skipped";
