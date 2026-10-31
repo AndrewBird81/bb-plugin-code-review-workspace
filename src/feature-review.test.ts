@@ -1056,7 +1056,12 @@ test("Make it PR #7's review of a PR from another branch, then Keep both: the re
   expect((await s.store.getReview(key))?.prPending).toMatchObject({ why: "branch", head: "part1" });
   expect(await s.harness.behavior.callRpc("takePendingPr", { targetKey: key })).toEqual({ ok: true });
   expect(await s.store.getReview(key)).toMatchObject({ kind: "ref", prOffer: { key: prKey }, prPending: null });
+  // The PR's page names the local review's branch, as it isn't the PR's.
+  const bundle = async (of: string) => (await s.harness.behavior.callRpc("getReviewBundle", { targetKey: of }) as any).review;
+  expect((await bundle(prKey)).localReview).toMatchObject({ targetKey: key, branch: "feat/qa" });
   expect(await s.harness.behavior.callRpc("keepBothReviews", { targetKey: key })).toEqual({ ok: true });
+  expect((await bundle(prKey)).keptApart).toMatchObject({ targetKey: key, branch: "feat/qa" });
+  expect((await bundle(key)).keptApart).not.toHaveProperty("branch");
   s.deps.changed.mockClear();
   expect(await becomePr(s.deps, key, { repo: "acme/api", number: 7 })).toBe("skipped");
   expect(await s.store.getReview(key)).toMatchObject({ kind: "ref", mergeDeclined: prKey, prPending: null });
@@ -1091,6 +1096,7 @@ test("a 1.8.0 link to another branch's PR's review, kept apart, merges only afte
   // The PR of this branch, linked and kept apart so too: Merge into one review merges.
   await s.store.saveReview({ ...(await s.store.getReview(prKey))!, head: "feat/qa" });
   expect((await bundle(key)).keptApart).toMatchObject({ targetKey: prKey, number: 7 });
+  expect((await bundle(prKey)).keptApart).not.toHaveProperty("branch");
   expect(await s.harness.behavior.callRpc("mergeReviews", { targetKey: key })).toEqual({ ok: true, targetKey: key });
   expect(await s.store.getReview(prKey)).toMatchObject({ mergedInto: key });
 });

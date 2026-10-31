@@ -110,11 +110,13 @@ export function register(deps: ServeDeps) {
         const review = owned && await decorate(owned, turnOptions((await tx.getPreferences()).preferences), stacks, reviewPlaces(facts, all), await guideTitles(tx, [owned]));
         // Reads of a local review's earlier diff don't count toward its rebuilt one, which the client can't tell apart.
         if (review?.agentReads && review.agentReads.head !== await agentReadsHead(tx, targetKey)) review.agentReads = null;
+        // A folder's review of a branch that isn't the PR's, as one Make it PR #n's review linked: by its branch.
+        const elsewhere = (folder: ReviewMeta) => folder.feature && owned?.head && folder.feature.branch !== owned.head ? { branch: folder.feature.branch } : {};
         // The PR's own review names the folder's review offering to merge with it (src/merge.ts), and its comments; not
         // one you kept apart from it, nor one of another branch that Make it PR #n's review hasn't made its own.
         const offering = owned && all.find((other) => other.kind === "ref" && !other.archivedAt && other.mergeDeclined !== targetKey && (other.prOffer?.key ?? other.feature?.prReview) === targetKey && !heldForBranch(other, owned));
         if (review && offering) {
-          review.localReview = { targetKey: offering.targetKey, id: identityIn(facts, all, offering).id, comments: (await tx.getDraft(offering.targetKey)).comments.length, ...offering.prOffer?.intoPr ? { intoPr: true } : {} };
+          review.localReview = { targetKey: offering.targetKey, id: identityIn(facts, all, offering).id, comments: (await tx.getDraft(offering.targetKey)).comments.length, ...offering.prOffer?.intoPr ? { intoPr: true } : {}, ...elsewhere(offering) };
         }
         // Kept apart with Keep both: either page names the other, for Review actions' Merge into one review, while
         // neither is archived nor of another branch, as above. `intoPr`: the PR's review began as another folder's, and stays.
@@ -124,7 +126,7 @@ export function register(deps: ServeDeps) {
           : all.find((other) => !other.archivedAt && other.mergeDeclined === targetKey && offers(other) === targetKey && !heldForBranch(other, owned));
         const pr = kept && (owned!.kind === "ref" ? kept : owned!);
         if (review && kept && pr?.number) {
-          review.keptApart = { targetKey: kept.targetKey, id: identityIn(facts, all, kept).id, number: pr.number, ...pr.feature ? { intoPr: true } : {} };
+          review.keptApart = { targetKey: kept.targetKey, id: identityIn(facts, all, kept).id, number: pr.number, ...pr.feature ? { intoPr: true } : {}, ...owned!.kind === "pr" ? elsewhere(kept) : {} };
         }
         return { review, guide: await tx.getGuide(targetKey),
           patch: revision === knownRevision ? null : await tx.patch(targetKey), revision,

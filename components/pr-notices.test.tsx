@@ -175,6 +175,14 @@ test("the PR's own review names its branch's local review and which stays, with 
   const into = await renderWorkspace({ ...pr, localReview: { ...pr.localReview, comments: 0, intoPr: true } });
   await into.slot.findByText("This PR’s branch has a local review. Merging keeps this one and archives that one.");
   into.slot.lifecycle.unmount();
+  cleanup();
+
+  // A local review of another branch, made this PR's with Make it PR #4512's review: named by its branch.
+  const stacked = await renderWorkspace({ ...pr, localReview: { ...pr.localReview, branch: "part2" } });
+  await stacked.slot.findByText(/is linked to this PR/);
+  expect(notice("is linked to this PR").textContent).toContain("A local review of part2 with 1 comment is linked to this PR. Merging keeps that one and archives this one.");
+  expect(stacked.slot.getByText("part2").className).toContain("font-mono");
+  stacked.slot.lifecycle.unmount();
 });
 
 test("a PR opened before the review waits: Make it PR #12's review, or Not this one; one GitHub didn't answer for, Try again", async () => {

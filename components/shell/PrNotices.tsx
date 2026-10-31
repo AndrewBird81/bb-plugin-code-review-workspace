@@ -22,8 +22,8 @@ export interface PrReviewed extends Omit<Identifiable, "targetKey" | "kind"> {
   mergeDeclined?: ReviewLifecycle["mergeDeclined"];
   prPending?: ReviewLifecycle["prPending"];
   mergedFrom?: ReviewLifecycle["mergedFrom"];
-  /** From the server, on a PR's own review (src/reviews-rpc.ts). */
-  localReview?: { targetKey: string; id: string; comments: number; intoPr?: true } | null;
+  /** From the server, on a PR's own review (src/reviews-rpc.ts). `branch`: the local review's, when it isn't the PR's. */
+  localReview?: { targetKey: string; id: string; comments: number; intoPr?: true; branch?: string } | null;
 }
 
 const BUTTON = cn("h-7", TOUCH_CONTROL);
@@ -35,7 +35,7 @@ const CHOICE: Record<Verdict, string> = { APPROVE: "Approve", REQUEST_CHANGES: "
 /** Which review a merge keeps, as its offer says: the folder's, unless the PR's began as another folder's (`intoPr`). */
 const stays = (intoPr: boolean | undefined, onPr: boolean) => (onPr ? intoPr : !intoPr) ? "Merging keeps this one and archives that one." : "Merging keeps that one and archives this one.";
 /** Review actions' Merge into one review after Keep both: the offer's sentence, without what moves, which may have changed. */
-export const keptApartLine = (kept: KeptApart, onPr: boolean) => `${onPr ? "This PR’s branch has a local review." : `PR #${kept.number} has its own review.`} ${stays(kept.intoPr, onPr)}`;
+export const keptApartLine = (kept: KeptApart, onPr: boolean) => `${!onPr ? `PR #${kept.number} has its own review.` : kept.branch ? `A local review of ${kept.branch} is linked to this PR.` : "This PR’s branch has a local review."} ${stays(kept.intoPr, onPr)}`;
 /** What a merge moves, or moved: "3 comments, the summary and 1 Send". */
 const moved = (note: MergeNote, summary: string) => listed([...note.comments ? [plural(note.comments, "comment")] : [], ...note.summary ? [summary] : [], ...note.sends ? [plural(note.sends, "Send")] : []]);
 
@@ -134,7 +134,9 @@ export function usePrNotices(targetKey: string, review: PrReviewed | null, onCha
   }
   if (localReview && !review.archivedAt) {
     notices.push({ id: "pr-offer", tone: "info", icon: "GitPullRequest", firstLine: true,
-      text: `This PR’s branch has a local review${localReview.comments ? ` with ${plural(localReview.comments, "comment")}` : ""}. ${stays(localReview.intoPr, true)}`,
+      text: localReview.branch
+        ? <>A local review of <Code>{localReview.branch}</Code>{localReview.comments ? ` with ${plural(localReview.comments, "comment")}` : ""} is linked to this PR. {stays(localReview.intoPr, true)}</>
+        : `This PR’s branch has a local review${localReview.comments ? ` with ${plural(localReview.comments, "comment")}` : ""}. ${stays(localReview.intoPr, true)}`,
       action: <span className="flex flex-wrap gap-1">
         {merge}
         {open(localReview.targetKey, "Local review", `Go to ${localReview.id}`)}

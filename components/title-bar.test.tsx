@@ -335,6 +335,8 @@ test("after Keep both, Review actions offers Merge into one review on either rev
   const cases = [
     { review: { keptApart: { targetKey: "br-1", id: "api:feat/qa", number: 42 } }, line: "This PR’s branch has a local review. Merging keeps that one and archives this one." },
     { review: { kind: "ref", gitRef: "main...feat/qa", url: null, keptApart: { targetKey: "pr-x", id: "web#42", number: 42 } }, line: "PR #42 has its own review. Merging keeps this one and archives that one." },
+    // The local review of another branch, which Make it PR #42's review linked.
+    { review: { keptApart: { targetKey: "br-1", id: "api:part2", number: 42, branch: "part2" } }, line: "A local review of part2 is linked to this PR. Merging keeps that one and archives this one." },
   ];
   for (const { review, line } of cases) {
     const { bar, page } = await renderReview({ review, rpc: { mergeReviews } });
