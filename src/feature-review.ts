@@ -3,7 +3,7 @@
 // checks the folder (changed, on another branch, its machine offline, other threads there); once its branch has a PR
 // the same review becomes that PR's; and bb removing the folder ends it, unless comments wait on it.
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
-import { placeOn, reanchorDraft, type FeatureReview, type MainThread, type ReviewLifecycle, type ReviewMeta, type Store } from "./store";
+import { placeOn, reanchorDraft, type FeatureReview, type MainThread, type PushRun, type ReviewLifecycle, type ReviewMeta, type Store } from "./store";
 import type { AsyncStore } from "./store-queue";
 import { diffFilesHead, folderHas, folderHasBranch, folderHasSince, folderHead, isNotFound, isSecretPath, readFeatureDiff, readFeatureRevisions, type FeatureDiff, type FolderPr, type HiddenFile } from "./env-diff";
 import { featureKey, mergedSurvivor, prReviewKey, targetKey } from "./targets";
@@ -476,6 +476,9 @@ export async function becomePr(deps: Deps, key: string, pr: { repo: string; numb
 
 type PrSnapshot = Awaited<ReturnType<typeof readPrSnapshot>>;
 
+/** A Push without Push and open PR's intent, or why it couldn't ask the review agent. */
+const withoutOpenPr = ({ thenOpenPr: _intent, openPrError: _why, ...run }: PushRun): PushRun => run;
+
 /** Whether two diffs change the same files the same way, by each file's rebase-proof hash (src/diff-hash.ts). */
 function sameChanges(a: string, b: string): boolean {
   const hashes = (patch: string) => new Map(splitPatchByFile(patch).map((file) => [file.path, normalizedFileHash(file.text)]));
@@ -527,6 +530,8 @@ async function convertIn(db: Store, review: ReviewMeta & { feature: FeatureRevie
     },
     // Yours, until the sync reads it, so Push carries on (lib/push.ts pushTarget).
     ownPr: true, prPending: null, prOffer: null,
+    // The PR is open: Push and open PR's intent goes, asked or failed, with Open PR (src/push.ts openPrAfter).
+    ...review.push?.thenOpenPr ? { push: withoutOpenPr(review.push) } : {},
     // What the review showed of what the folder has that the PR doesn't: a Push waiting on its commit checks it there.
     ...seen ? { notPushedSeen: { environmentId: review.feature.environmentId, base: read.headRefOid, at: Date.now() } } : {},
     became: { at: Date.now(), number: pr.number, url: read.url, from, carried: comments.length, local: local.length, outside: comments.length - placed.length - local.length },

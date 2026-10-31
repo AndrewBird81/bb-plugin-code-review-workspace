@@ -916,6 +916,26 @@ test("Push and open PR that can't ask the review agent once pushed says why, unt
   expect((await run())!.openPrError).toBeUndefined();
 });
 
+test("Push and open PR that couldn't ask the review agent says so no more once the review becomes its PR's, as you opened it", async () => {
+  const { harness, bb, store, cli, idle, run, github, agent } = await setup();
+  const answers = runGh.getMockImplementation()!;
+  runGh.mockImplementation(async (args: string[]) => {
+    if (args[0] === "pr" && args[1] === "view") return ok(JSON.stringify({ number: 7, title: "Snooze flaky checks", author: { login: "me" }, baseRefName: "main", headRefName: "feat/qa", url: "https://github.com/acme/api/pull/7", headRefOid: HEAD, state: "OPEN", createdAt: new Date().toISOString() }));
+    if (args[0] === "pr" && args[1] === "diff") return ok(PATCH);
+    return answers(args);
+  });
+  await harness.behavior.callRpc("push", { targetKey: KEY, thenOpenPr: true });
+  await cli("coder", "report", "--commit", HEAD);
+  agent.offline = true;
+  github.sha = HEAD;
+  await idle();
+  expect(await run()).toMatchObject({ state: "pushed", thenOpenPr: "failed" });
+  expect(await becomePr({ bb, store, gh: { runGh, runGit }, changed: vi.fn() }, KEY, { repo: "acme/api", number: 7 })).toBe("converted");
+  expect(await run()).toMatchObject({ state: "pushed", sha: HEAD });
+  expect((await run())!.thenOpenPr).toBeUndefined();
+  expect((await run())!.openPrError).toBeUndefined();
+});
+
 test("Push and open PR with nothing to push asks the review agent at once, from Push or from the commit report", async () => {
   const clean = await setup();
   clean.folder.dirty = false;

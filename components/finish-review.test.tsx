@@ -1044,6 +1044,18 @@ test("Push and open PR that couldn't ask the review agent once pushed says why, 
   slot.lifecycle.unmount();
 });
 
+test("Push and open PR that couldn't ask the review agent says so only while the branch has no PR, where Open PR is", async () => {
+  const failed = { state: "pushed", thenOpenPr: "failed", openPrError: "MaxBook is offline.", at: now, threadId: "coder", repo: "acme/web", head: "feat/qa", sha: HEAD };
+  const opened = await renderPush(failed, plan({ onGithub: true, pr: true }));
+  await waitFor(() => expect(within(opened.part()).getByRole("status").textContent).toContain("Pushed abc1234"));
+  expect(within(opened.part()).queryByRole("alert")).toBeNull();
+  opened.slot.lifecycle.unmount();
+  const became = await renderPush(failed, plan({ onGithub: true }), { ...folderReview, kind: "pr", repo: "acme/web", number: 7, head: "feat/qa", ownPr: true, headFork: null, mainThread: { threadId: "coder", environmentId: "env1", origin: "adopted", since: 1 } });
+  await waitFor(() => expect(within(became.part()).getByRole("status").textContent).toContain("Pushed abc1234"));
+  expect(within(became.part()).queryByRole("alert")).toBeNull();
+  became.slot.lifecycle.unmount();
+});
+
 test("with the review agent drafting only, Push is just Push, and once pushed links to GitHub to open the PR", async () => {
   const draftOnly = { getPreferences: () => ({ preferences: { ...defaultPreferences, knobs: { ...defaultKnobs, reviewAgentActs: false } }, revision: 0 }) };
   const readyPlan = plan();
