@@ -226,15 +226,16 @@ export function register(deps: Deps) {
 
   /**
    * The name the folder's reviews' branches were last pushed under (FeatureReview.pushedAs), from `names` (pushedName),
-   * oldest first: each on the review of the branch it pushed, the folder's own unless it names another. One pushed as
-   * its own name again has none.
+   * oldest first, each with when its command ran (`at`): each on the review of the branch it pushed, the folder's own
+   * unless it names another, and never from a command older than the review, which may have pushed the branch the
+   * folder was on then, as a stacked branch's parent. One pushed as its own name again has none.
    */
-  async function savePushedAs(reviews: Watched[], names: Array<NonNullable<ReturnType<typeof pushedName>>>): Promise<void> {
+  async function savePushedAs(reviews: Watched[], names: Array<NonNullable<ReturnType<typeof pushedName>> & { at: number }>): Promise<void> {
     if (!names.length) return;
     const env = names.some((name) => name.from === null) ? await bb.sdk.environments.get({ environmentId: reviews[0]!.feature.environmentId }).catch(() => null) : null;
     for (const review of reviews) {
       const branch = folderBranchOf(review.feature);
-      const name = names.filter((one) => (one.from ?? (env?.status === "ready" ? env.branchName : undefined)) === branch).at(-1);
+      const name = names.filter((one) => one.at >= review.createdAt && (one.from ?? (env?.status === "ready" ? env.branchName : undefined)) === branch).at(-1);
       if (!name) continue;
       const saved = await store.exclusive(async (tx) => {
         const now = await tx.getReview(review.targetKey);
@@ -271,10 +272,10 @@ export function register(deps: Deps) {
       // Oldest first.
       const commands = [...rows].sort((a, b) => a.seq - b.seq).flatMap((row) => {
         const item = row.type === "item/completed" ? row.data.item : null;
-        return item?.type === "commandExecution" ? [item.command] : [];
+        return item?.type === "commandExecution" ? [{ command: item.command, at: row.createdAt }] : [];
       });
-      if (!commands.some((command) => OPENS_PR.test(command))) return;
-      await savePushedAs(reviews, commands.flatMap((command) => pushedName(command) ?? []));
+      if (!commands.some(({ command }) => OPENS_PR.test(command))) return;
+      await savePushedAs(reviews, commands.flatMap(({ command, at }) => { const name = pushedName(command); return name ? [{ ...name, at }] : []; }));
       for (const review of reviews) unpushed.delete(review.targetKey);
       await Promise.all(reviews.map((review) => check(review.targetKey, "thread")));
     }).catch((error) => bb.log.warn(`Could not read the commands of thread ${thread.id}: ${String(error)}`));

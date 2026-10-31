@@ -712,6 +712,25 @@ test("a branch whose PR merged or closed, or another repo's PR, leaves the revie
   expect(s.ghCalls).toEqual([]);
 });
 
+test("Not this one on another branch's PR stays: found again, with the branch's name pushed as that branch's, it neither converts nor merges", async () => {
+  const s = setup();
+  await run(s, "main");
+  await settled(s);
+  s.view.headRefName = "part1";
+  Object.assign(s.folder, { prBase: "main", pr: { number: 7, url: "https://github.com/acme/api/pull/7", headRefName: "part1", state: "open" } });
+  await checkFeature(s.deps, key);
+  const waiting = (await s.store.getReview(key))!;
+  expect(waiting).toMatchObject({ kind: "ref", prPending: { why: "branch", head: "part1" } });
+  await s.store.setLifecycle(key, { prPending: { ...waiting.prPending!, declined: true }, feature: { ...waiting.feature!, pushedAs: "part1" } });
+  expect(await becomePr(s.deps, key, { repo: "acme/api", number: 7 })).toBe("skipped");
+  // With the PR's own review too, which has nothing of yours.
+  const prKey = targetKey({ kind: "pr", repo: "acme/api", number: 7 });
+  await s.store.saveReview({ targetKey: prKey, kind: "pr", repo: "acme/api", number: 7, url: "https://github.com/acme/api/pull/7", head: "part1", status: "tracked", createdAt: 1 });
+  expect(await becomePr(s.deps, key, { repo: "acme/api", number: 7 })).toBe("skipped");
+  expect(await s.store.getReview(key)).toMatchObject({ kind: "ref", prPending: { declined: true } });
+  expect((await s.store.getReview(prKey))?.mergedInto).toBeUndefined();
+});
+
 test("a PR whose own review has nothing of yours is merged into the folder's at once; one with your comments waits for your click", async () => {
   const s = setup();
   await run(s, "main");

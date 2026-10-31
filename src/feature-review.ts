@@ -430,7 +430,9 @@ export async function becomePr(deps: Deps, key: string, pr: { repo: string; numb
   // shares until its first push: a PR from a branch that isn't this review's by name waits for your click, merged with
   // nothing before it.
   const notOwn = (head: string | undefined) => !clicked && now.kind === "ref" && !!head && head !== now.feature.branch && head !== now.feature.pushedAs;
-  if (now.prPending?.why === "branch" && now.prPending.url.toLowerCase() === url.toLowerCase() && notOwn(now.prPending.head)) return "skipped";
+  const waiting = now.prPending?.url.toLowerCase() === url.toLowerCase() ? now.prPending : null;
+  // Not this one stays, whatever the branch was pushed as since: only your click makes it the PR's.
+  if (waiting && (!clicked && waiting.declined || waiting.why === "branch" && notOwn(waiting.head))) return "skipped";
   if (notOwn(other?.head)) return pending({ number: pr.number, url, why: "branch", head: other!.head!, at: Date.now() });
   if (other) {
     // Two folders on one branch: the PR's review that began as the other folder's stays, and this one goes into it.

@@ -57,10 +57,11 @@ async function setup({ repo = "acme/api", folder = {} as Partial<Folder> } = {})
     return { code: 1, stderr: "unexpected gh call", stdout: "" };
   });
   const reads = () => runGh.mock.calls.filter(([args]) => args[1] === "graphql").map(([args]) => args.find((a) => a.startsWith("query="))!);
-  // Each thread's commands, as bb's events give them.
-  const commands: Record<string, string[]> = {};
+  // Each thread's commands, as bb's events give them: run now, or at `at`.
+  const commands: Record<string, Array<string | { command: string; at: number }>> = {};
   const list = vi.fn(async ({ threadId, afterSeq }: { threadId: string; afterSeq?: string }) => (commands[threadId] ?? [])
-    .map((command, i) => ({ id: `e${i}`, seq: i + 1, threadId, scope: {}, type: "item/completed", data: { item: { type: "commandExecution", id: `i${i}`, command, cwd: "/Users/me/src/api", status: "completed" } } }))
+    .map((run, i) => typeof run === "string" ? { command: run, at: Date.now(), i } : { ...run, i })
+    .map(({ command, at, i }) => ({ id: `e${i}`, seq: i + 1, threadId, scope: {}, createdAt: at, type: "item/completed", data: { item: { type: "commandExecution", id: `i${i}`, command, cwd: "/Users/me/src/api", status: "completed" } } }))
     .filter((row) => afterSeq === undefined || row.seq > Number(afterSeq)));
   const host = folderHost({ files: [{ path: "src/a.ts" }], ...folder }, { threads: { events: { list } } });
   const store = testStore(host.bb);
@@ -123,6 +124,29 @@ test("T1: a thread on a branch whose upstream is another branch's, with that bra
   s.commands.other = ["git push origin HEAD:part1-wip", "gh pr create --fill"];
   await s.emit("thread.idle", { id: "other", environmentId: "env1" });
   expect(await s.store.getReview(KEY)).toMatchObject({ kind: "ref", prPending: { number: 7, why: "branch", head: "part1" }, feature: { pushedAs: "part1-wip" } });
+});
+
+// `git switch -c feat/qa origin/part1` after part1's thread pushed it and opened its PR: that history isn't this review's.
+test("T1: a push or a new PR from before the review names no branch it was pushed as, so another branch's PR waits for your click, after a restart too", async () => {
+  const s = await setup({ folder: { prBase: "main", pr: { number: 7, url: "https://github.com/acme/api/pull/7", headRefName: "part1", state: "open" } } });
+  s.github.heads[7] = "part1";
+  s.github.branches["acme/api:part1"] = { sha: "c0ffee", prs: [{ number: 7 }] };
+  const before = Date.now() - 60 * 60_000;
+  s.commands.part1 = [{ command: "git push origin HEAD:part1", at: before }, { command: "gh pr create --head part1 --fill", at: before }, "npm test"];
+  s.commands.coder = ["gh pr create --fill"];
+  await s.emit("thread.idle", { id: "part1", environmentId: "env1" });
+  await s.emit("thread.idle", { id: "coder", environmentId: "env1" });
+  const waiting = (await s.store.getReview(KEY))!;
+  expect(waiting).toMatchObject({ kind: "ref", prPending: { number: 7, why: "branch", head: "part1" } });
+  expect(waiting.feature?.pushedAs).toBeUndefined();
+  expect(s.reads().map(branchesIn)).toEqual([["feat/qa"]]);
+  // Not this one, then a restart: its threads are read from their latest commands again.
+  await s.store.setLifecycle(KEY, { prPending: { ...waiting.prPending!, declined: true } });
+  const restarted = register(s.deps as any);
+  s.at(60);
+  for (const id of ["part1", "coder"]) await (restarted.events["thread.idle"]![0] as (payload: unknown) => Promise<void>)({ thread: { id, environmentId: "env1", visibility: "visible" }, sequence: 1, lastAssistantText: null });
+  expect(await s.store.getReview(KEY)).toMatchObject({ kind: "ref", prPending: { number: 7, why: "branch", declined: true } });
+  expect((await s.store.getReview(KEY))?.feature?.pushedAs).toBeUndefined();
 });
 
 test("T1: git -C <dir> push, /usr/bin/git push, jj git push and gh stack push or submit each read the branch at once and have the poll read it again", async () => {
