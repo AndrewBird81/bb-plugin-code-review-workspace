@@ -76,8 +76,9 @@ export function CommentPill({ frame, icon, who, words, tag, stateBadge, badge, b
           {/* A step quieter than who: at 80% a light theme's first line fell to about 4:1. Severity and badge stay whole:
               only the comment's first line is cut. */}
           <span className={cn("flex max-w-full min-w-0 flex-1 items-center gap-1.5 text-foreground/90", two.second)}>
-            <span aria-hidden className={cn("shrink-0 text-subtle-foreground", two.oneLineOnly)}>·</span>
-            {tag && <span className={cn("hidden shrink-0 font-medium text-muted-foreground", two.secondOnly)}>{tag} · </span>}
+            {/* After severity on two lines, as before the first line on one: the line's gap on either side of it. */}
+            {tag && <span className={cn("hidden shrink-0 font-medium text-muted-foreground", two.secondOnly)}>{tag}</span>}
+            <span aria-hidden className={cn("shrink-0 text-subtle-foreground", !tag && two.oneLineOnly)}>·</span>
             {badge && <span className={cn("hidden shrink-0", two.secondOnlyFlex)}>{briefBadge ?? badge}</span>}
             <span className={cn("min-w-0 truncate", CUT_CODE)}><InlineCode text={first} /></span>
           </span>

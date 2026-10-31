@@ -72,6 +72,9 @@ test("i folds every card in the code to a pill that says who, its state, its fir
   // Its first line as plain words.
   expect(thread.textContent).toContain("Nit: why upper case?");
   expect(thread.textContent).toContain("1 reply");
+  // With no severity, its separator is for one line only: two start the second with its first line.
+  const dot = Array.from(thread.querySelectorAll("[aria-hidden]")).find((part) => part.textContent === "·");
+  expect(dot?.classList.contains("@max-[440px]/review:hidden")).toBe(true);
   const check = diff().getByRole("group", { name: "CI failure on src/a.ts:3, folded" });
   expect(check.textContent).toContain("Check failed · lint");
   expect(diff().queryByRole("article")).toBeNull();
@@ -177,10 +180,16 @@ test("under 600px wide, a pill with Not on GitHub yet takes two lines, its secon
   expect(chip.children.length).toBe(2);
   expect(chip.lastElementChild!.textContent).toBe("Not on GitHub yet");
   const narrow = Array.from(second!.querySelectorAll("[class~='@max-[600px]/review:inline'], [class~='@max-[600px]/review:inline-flex']"));
-  expect(narrow.map((part) => part.textContent)).toEqual(["Should fix · "]);
+  expect(narrow.map((part) => part.textContent)).toEqual(["Should fix"]);
   for (const part of narrow) {
     expect(part.classList.contains("shrink-0"), part.textContent!).toBe(true);
     expect(part.closest(".truncate"), part.textContent!).toBeNull();
   }
+  // Its separator the one-line pill's, shown on both, so the line's gap is even on either side of it: "Should fix · An entry".
+  const dot = narrow[0]!.nextElementSibling!;
+  expect(dot.textContent).toBe("·");
+  expect(dot.className).not.toMatch(/hidden/);
+  expect(second!.classList.contains("gap-1.5")).toBe(true);
+  expect(Array.from(second!.children).filter((part) => part.textContent === "·")).toEqual([dot]);
   expect(second!.querySelector(".truncate")?.textContent).toBe("An entry that expires now is still served, and its replacement waits for the next read.");
 });
