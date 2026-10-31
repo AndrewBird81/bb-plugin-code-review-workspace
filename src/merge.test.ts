@@ -13,6 +13,7 @@ import { assess, describeFeedback } from "./verification";
 import { SUMMARY_AT, type DraftComment } from "./draft";
 import type { FeedbackThread } from "./github/types";
 import { testSql, testStore } from "./test-store.test-support";
+import { notPushedView } from "../lib/push";
 
 // The plugin reads GitHub as it starts: here it can't.
 vi.mock("./gh", async (original) => ({ ...await original<typeof import("./gh")>(), runGh: vi.fn(async () => ({ stdout: "", stderr: "no GitHub here", code: 1 })) }));
@@ -215,6 +216,14 @@ test("the review that stays keeps its own Not pushed yet and its diffs at commit
   await fresh.store.mergeReview(P, S);
   expect(await fresh.store.getSnapshot(S, "not-pushed")).toBeNull();
   expect(await fresh.store.getSnapshotFiles(S, "not-pushed")).toBeNull();
+});
+
+test("the review that stays takes none of the other's Viewed marks on Not pushed yet, another folder's files", async () => {
+  const { store } = await setup();
+  await store.setFileViewed(P, notPushedView("a.ts"), "p", 5);
+  await store.setFileViewed(S, notPushedView("b.ts"), "s", 2);
+  await store.mergeReview(P, S);
+  expect((await store.getFileViews(S)).map((view) => view.file).filter((path) => path.startsWith(notPushedView("")))).toEqual([notPushedView("b.ts")]);
 });
 
 test("a comment a thread tracks, where the review that stays has its own, stays where it was, drafted against an older diff, with its id, state and Send; the tally counts it", async () => {

@@ -17,7 +17,7 @@ import { sqliteSql, withoutNul, type Sql } from "./db/sql";
 import type { AsyncStore } from "./store-queue";
 import { summaryLine, withSummaryLine } from "../lib/move-to-summary";
 import { localIdOf, reviewIdentity } from "../lib/review-identity";
-import { NOT_PUSHED } from "../lib/push";
+import { NOT_PUSHED, notPushedView } from "../lib/push";
 
 export interface ReviewLifecycle {
   prState?: "OPEN" | "CLOSED" | "MERGED";
@@ -1008,8 +1008,9 @@ export function storeOn(sql: Sql): Store {
         const context = await this.getReviewContext(from);
         if (context) await this.setReviewContext(into, [await this.getReviewContext(into), context].filter(Boolean).join("\n\n"));
 
-        // Of two marks on a file, the one this diff matches, else the newer.
-        const marks = await this.getFileViews(into), theirs = await this.getFileViews(from);
+        // Of two marks on a file, the one this diff matches, else the newer. Not those on its Not pushed yet's files, another
+        // folder's.
+        const marks = await this.getFileViews(into), theirs = (await this.getFileViews(from)).filter((view) => !view.file.startsWith(notPushedView("")));
         const current = (await this.fileHashes(into)).current(theirs.map((view) => view.file));
         for (const view of theirs) {
           const mine = marks.find((mark) => mark.file === view.file);
