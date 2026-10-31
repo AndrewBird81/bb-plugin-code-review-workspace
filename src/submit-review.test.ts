@@ -234,6 +234,17 @@ test("local refs never submit to GitHub", async () => {
   expect(run).not.toHaveBeenCalled();
 });
 
+test("a review merged into another isn't submitted, though a tracked comment left on it would post: it's submitted from the review it went into", async () => {
+  const { store, run, submit, page } = await setup();
+  await store.trackComments("pr-test", [{ at: { file: "a.ts", line: 1, side: "RIGHT" }, id: "c3", state: "sent", sendN: 1 }]);
+  await store.setVerdict("pr-test", "COMMENT", "");
+  await store.setLifecycle("pr-test", { ownPr: false, mergedInto: "br-s", mergedAt: 5, archivedAt: 5 });
+  // A stale page, which showed c3 as posting, as it would on a PR not yours.
+  expect(await submit("pr-test", undefined, undefined, ...await page(), { posting: [{ file: "a.ts", line: 1, side: "RIGHT" }] })).toEqual({ ok: false, error: "This review was merged into another. Submit it from there." });
+  expect(run).not.toHaveBeenCalled();
+  expect((await store.getDraft("pr-test")).comments.map((c) => c.id)).toEqual(["c3"]);
+});
+
 test("approval persists separately from the cleared draft and survives metadata refresh", async () => {
   const { store, submit, page } = await setup();
   await store.setVerdict("pr-test", "APPROVE", "Looks good");

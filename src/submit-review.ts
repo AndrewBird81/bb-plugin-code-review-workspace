@@ -170,6 +170,8 @@ export function createReviewSubmitter(store: AsyncStore, run: typeof runGh, rece
         if (revision && revision !== await reviewRevision(tx, targetKey)) warned.push(["revision", "This review changed in another window since this page loaded it."]);
         const m = await tx.getReview(targetKey);
         if (!m || m.kind !== "pr" || !m.number || !m.repo) return { error: "Submitting requires a GitHub PR target." };
+        // A tracked comment a merge couldn't place stays on it, and is in the summary of the review it went into.
+        if (m.mergedInto) return { error: "This review was merged into another. Submit it from there." };
         if (reviewed !== undefined && m.headSha !== reviewed) return { error: "The review moved to newer commits since this was asked. Approve it from the review." };
         if (m.prState === "MERGED" || m.prState === "CLOSED") warned.push(["closed", `This PR is ${m.prState.toLowerCase()}.`]);
         if (m.status === "generating") warned.push(["generating", "The guide is still rebuilding, so these comments are on the diff from before it."]);
