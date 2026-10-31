@@ -60,7 +60,7 @@ export function FixHandoff({ targetKey, comments, revision }: { targetKey: strin
   const [error, setError] = useState<string | null>(null);
   // A Send that warned, and what sends it once you choose.
   const [warned, setWarned] = useState<(SendWarned & { retry: (choice: Choice) => void; anyway: string }) | null>(null);
-  const [started, setStarted] = useState<{ threadId: string; title: string } | null>(null);
+  const [started, setStarted] = useState<{ threadId: string; title: string; keptLocal?: number } | null>(null);
   // An approval's is for the diff it approved.
   const [sent, setSent] = useState<{ threadId: string; title: string | null; note: string; revision?: string } | null>(null);
   // Comments sent, resolved or dismissed don't go again.
@@ -96,7 +96,7 @@ export function FixHandoff({ targetKey, comments, revision }: { targetKey: strin
   }
   const start = () => attempt(async (choice) => {
     const result = await rpc.call("startFixThread", { targetKey, comments: picked(), ...choice });
-    if (result.ok) setStarted({ threadId: result.threadId, title: result.title });
+    if (result.ok) setStarted({ threadId: result.threadId, title: result.title, keptLocal: result.keptLocal });
     return result;
   }, "Start anyway");
   const send = () => attempt(async (choice) => {
@@ -135,7 +135,7 @@ export function FixHandoff({ targetKey, comments, revision }: { targetKey: strin
     <h3 aria-hidden className="px-0.5 text-[11px] font-semibold uppercase tracking-wider text-subtle-foreground">{to ? "Main thread" : "Fix in a new thread"}</h3>
     {/* Watch shows the thread beside the review; a phone, where BB's panel covers it, has the thread's page only. */}
     {told && <p role="status" className="min-w-0 text-xs text-muted-foreground">{told.note} · {layout.mode === "tablet" && <><button type="button" className={LINK} onClick={() => panel.open("main")}>Watch</button> · </>}<button type="button" className={LINK} onClick={() => navigate.toThread(told.threadId)}>Main thread<span aria-hidden> ↗</span></button></p>}
-    {started && <p role="status" className="text-xs text-muted-foreground">Started a thread: <button type="button" className={LINK} onClick={() => navigate.toThread(started.threadId)}>{started.title}<span aria-hidden> ↗</span></button></p>}
+    {started && <p role="status" className="text-xs text-muted-foreground">Started a thread: <button type="button" className={LINK} onClick={() => navigate.toThread(started.threadId)}>{started.title}<span aria-hidden> ↗</span></button>{started.keptLocal ? `.${keptLocalNote(started.keptLocal)}` : ""}</p>}
     {error && <p role="alert" className="text-xs text-destructive-text">{error}</p>}
     {warned && <SendWarning warned={warned} busy={busy} anyway={warned.anyway} what={plural(chosen.length)} onChoose={warned.retry} onCancel={() => setWarned(null)} />}
     {picking ? <fieldset className="space-y-2">

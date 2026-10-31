@@ -139,6 +139,16 @@ test("Send counts only the comments not sent yet, and Let it push when done is t
   slot.lifecycle.unmount();
 });
 
+test("Fix in a new thread that left out a comment not on GitHub yet says how to send it", async () => {
+  const startFixThread = vi.fn(async () => ({ ok: true, threadId: "t9", title: "Fixes for web#12", keptLocal: 1 }));
+  const slot = await renderTray({ startFixThread }, { ownPr: true });
+  fireEvent.click(slot.getByRole("button", { name: "Fix in a new thread" }));
+  fireEvent.click(slot.getByRole("button", { name: "Start thread" }));
+  expect((await within(slot.getByRole("region", { name: "Fix in a new thread" })).findByRole("status")).textContent)
+    .toBe("Started a thread: Fixes for web#12 ↗. 1 isn’t on GitHub yet: change Main thread to a thread in its folder to send it.");
+  slot.lifecycle.unmount();
+});
+
 test("a fixer's Send that left out a comment not on GitHub yet counts what went and says where that one goes", async () => {
   const sendToSourceThread = vi.fn(async () => ({ ok: true, delivery: "sent", title: "Fixes for web#12", threadId: "fixer", sendN: 1, keptLocal: 1 }));
   const slot = await renderTray({ getSourceThread: open({ title: "Fixes for web#12" }), sendToSourceThread }, local);

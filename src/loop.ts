@@ -12,7 +12,7 @@ import type { AsyncStore } from "./store-queue";
 import { assistantReview, mergedAway } from "./draft-comments";
 import { requireReviewRevision } from "./review-revision";
 import { isMissingThread } from "./thread-errors";
-import { branchLine, commentText, fenced, fixerExecution, fixerTitle, GUARD, GUARD_BUT_PUSH, header, isOwnChange, placed, theirPr, where, type Placed } from "./fix-handoff";
+import { branchLine, commentText, fenced, fixerExecution, fixerTitle, GUARD, GUARD_BUT_PUSH, header, isOwnChange, onlyLocal, placed, theirPr, where, type Placed } from "./fix-handoff";
 import { homeShort, mainThreadState } from "./feature-review";
 import { diffFilesHead } from "./env-diff";
 import { pruneDiffs } from "./feedback-view";
@@ -386,7 +386,7 @@ export async function send(deps: Deps, targetKey: string, picked: readonly Comme
       const now = (await tx.getReview(targetKey)) ?? review;
       const items = await githubItems(tx, now, github);
       if (keptLocal && !comments.length && !items.length) {
-        throw new Error(`Not sent: ${keptLocal === 1 ? "it isn’t on GitHub yet. Change Main thread to a thread in its folder to send it." : "they aren’t on GitHub yet. Change Main thread to a thread in their folder to send them."}`);
+        throw new Error(onlyLocal(keptLocal, "sent"));
       }
       // A GitHub item the review no longer has, as one gone from GitHub's window, is left out; the Send says how many.
       if (!comments.length && !items.length || picked.length && !chosen.length) return null;

@@ -128,25 +128,36 @@ export const fixerTitle = (review: Placed, guideTitle?: string | null) => `Fixes
 export const theirPr = (review: ReviewMeta) => `This is ${review.author ? `@${review.author}’s` : "someone else’s"} PR, not yours. Your review on GitHub stays as it is.`;
 
 /**
+ * Why `kept` comments not on GitHub yet, alone, weren't `sent` or `started` to a thread at the PR's head, which hasn't
+ * their lines: only a main thread in their folder takes them.
+ */
+export const onlyLocal = (kept: number, not: "sent" | "started") => `Not ${not}: ${kept === 1
+  ? "it isn’t on GitHub yet. Change Main thread to a thread in its folder to send it."
+  : "they aren’t on GitHub yet. Change Main thread to a thread in their folder to send them."}`;
+
+/**
  * Start a visible thread in the review's project that fixes the draft comments at `picked`, on the
- * review agent's execution or else the project's. On someone else's PR it warns first, and `force` starts it. The draft
+ * review agent's execution or else the project's. On someone else's PR it warns first, and `force` starts it. A comment
+ * not on GitHub yet stays out, as the thread checks out the PR's head, which hasn't its line (`keptLocal`). The draft
  * stays as it is.
  */
-export async function startFixThread(bb: BbPluginApi, store: AsyncStore, targetKey: string, picked: readonly CommentLocation[], force = false): Promise<{ ok: true; threadId: string; title: string } | { ok: false; warning: string; offers: ["anyway"] }> {
+export async function startFixThread(bb: BbPluginApi, store: AsyncStore, targetKey: string, picked: readonly CommentLocation[], force = false): Promise<{ ok: true; threadId: string; title: string; keptLocal?: number } | { ok: false; warning: string; offers: ["anyway"] }> {
   const review = await store.getReview(targetKey);
   if (!review) throw new Error("This review no longer exists.");
   if (!force && !(await isOwnChange(review))) return { ok: false, warning: `${theirPr(review)} Start a thread to fix it anyway?`, offers: ["anyway"] };
   if (!review.projectId) throw new Error("This review has no associated project; re-run `bb review` inside a project.");
   // What the message says, read in one turn.
-  const { comments, patch, stale, preExistingFindings, guideTitle } = await store.exclusive(async (tx) => {
+  const { chosen, patch, stale, preExistingFindings, guideTitle } = await store.exclusive(async (tx) => {
     const { preferences } = await tx.getPreferences();
     return {
-      comments: (await tx.getDraft(targetKey)).comments.filter((comment) => picked.some((at) => sameLocation(at, comment))),
+      chosen: (await tx.getDraft(targetKey)).comments.filter((comment) => picked.some((at) => sameLocation(at, comment))),
       patch: await tx.patch(targetKey), stale: await tx.staleDraftComments(targetKey),
       preExistingFindings: preferences.knobs.preExistingFindings, guideTitle: (await tx.getGuide(targetKey))?.title,
     };
   });
-  if (!comments.length) throw new Error("Those comments are no longer in the draft.");
+  const comments = chosen.filter((comment) => !isLocal(comment));
+  const keptLocal = chosen.length - comments.length;
+  if (!comments.length) throw new Error(keptLocal ? onlyLocal(keptLocal, "started") : "Those comments are no longer in the draft.");
   const execution = await fixerExecution(bb, store, review.projectId);
   const shown = await placed(bb, store, review);
   // Its message names the PR by its title.
@@ -158,7 +169,7 @@ export async function startFixThread(bb: BbPluginApi, store: AsyncStore, targetK
       title,
       ...execution,
     });
-    return { ok: true, threadId: thread.id, title };
+    return { ok: true, threadId: thread.id, title, ...keptLocal ? { keptLocal } : {} };
   } catch (error) {
     throw new Error(`Couldn’t start the thread: ${error instanceof Error ? error.message : String(error)}`);
   }

@@ -359,9 +359,10 @@ export const rpcContract = defineRpcContract({
   },
   newConversation: { input: targetKey, output: z.object({ ok: z.boolean() }) },
   // A visible coding thread that fixes draft comments; the draft stays. On a PR you don't own it warns, and force starts it.
+  // keptLocal: comments not on GitHub yet left out, as the thread is at the PR's head.
   startFixThread: {
     input: z.object({ targetKey: z.string(), comments: z.array(z.object(location).strict()).min(1), force: z.boolean().optional() }).strict(),
-    output: z.union([z.object({ ok: z.literal(true), threadId: z.string(), title: z.string() }), sendWarning]),
+    output: z.union([z.object({ ok: z.literal(true), threadId: z.string(), title: z.string(), keptLocal: z.number().int().optional() }), sendWarning]),
   },
   // The review's main thread, which its Sends go to (src/loop.ts): the top thread in its folder, or the thread `bb review`
   // ran in, and the machine it works on when that's known.
