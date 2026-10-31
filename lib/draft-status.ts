@@ -1,8 +1,11 @@
 import { useCallback, useSyncExternalStore } from "react";
 import type { Verdict } from "../src/draft";
 
-/** What the open draft would submit, for the Submit review button and the phone dock's count. */
-export interface DraftStatus { verdict: Verdict; comments: number }
+/**
+ * What the open draft would submit, for the Submit review button, and with its comments not on GitHub yet, which go
+ * with Send (`local`), the phone dock's count.
+ */
+export interface DraftStatus { verdict: Verdict; comments: number; local: number }
 
 const statuses = new Map<string, DraftStatus>();
 const listeners = new Set<() => void>();
@@ -10,7 +13,7 @@ const listeners = new Set<() => void>();
 /** The draft reports itself; null when there's nothing to submit from it, such as a local or closed review. */
 export function setDraftStatus(targetKey: string, status: DraftStatus | null) {
   const current = statuses.get(targetKey);
-  if (status && current && status.verdict === current.verdict && status.comments === current.comments) return;
+  if (status && current && status.verdict === current.verdict && status.comments === current.comments && status.local === current.local) return;
   if (!status && !current) return;
   if (status) statuses.set(targetKey, status);
   else statuses.delete(targetKey);

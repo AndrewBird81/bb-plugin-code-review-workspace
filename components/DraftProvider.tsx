@@ -676,9 +676,11 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
   const lineDiscussions = useMemo(() => discussions.filter((d) => !isSummary(d)), [discussions]);
   // The Submit review button in the review's top bar follows this draft.
   const submittable = loaded && !loadError && !closed && !isLocal && !completed;
+  // Open comments on lines only in the folder: they go with Send, not Submit.
+  const notOnGithub = draft.comments.filter((comment) => comment.side === "LOCAL" && (!comment.state || comment.state === "open")).length;
   useEffect(() => {
-    setDraftStatus(targetKey, submittable ? { verdict: draft.verdict, comments: posting.length } : null);
-  }, [targetKey, submittable, draft.verdict, posting.length]);
+    setDraftStatus(targetKey, submittable ? { verdict: draft.verdict, comments: posting.length, local: notOnGithub } : null);
+  }, [targetKey, submittable, draft.verdict, posting.length, notOnGithub]);
   // A new workspace of the review may already show its draft: the status goes with the last one.
   useEffect(() => holdReview("draft", targetKey, () => setDraftStatus(targetKey, null)), [targetKey]);
   // The diff shows the draft's comments and discussions, and the comment box while it's open there.
@@ -787,8 +789,6 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
   const approvingBlocked = draft.verdict === "APPROVE" && blockingCount > 0;
   const counts = severityCounts(posting);
   const nitCount = draft.comments.filter((comment) => comment.severity === "nit").length;
-  // Open comments on lines only in the folder: they go with Send, not Submit.
-  const notOnGithub = draft.comments.filter((comment) => comment.side === "LOCAL" && (!comment.state || comment.state === "open")).length;
   return {
     targetKey, loadError, load, refresh, loaded, closed, review, draft, posting, checks, setFix, completed, submittedVerdict, receiptUrl, setWriteAnother, status,
     summaryRef, summaryDiscussion, editable, busy, submitting, writing, onSummary, summaryComposer, isLocal, chat, asking, summaryBase, openComposer, saveSummary, revisionRef, undo, requestSummary,

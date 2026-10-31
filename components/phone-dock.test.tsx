@@ -45,7 +45,7 @@ const guide = { title: "Guide", intent: "Parses rows.", unplacedFiles: [] as str
   { id: "c2", title: "Caching", overview: "Keeps rows.", diffs: [{ file: "src/b.ts" }] },
 ] };
 
-async function renderPhone() {
+async function renderPhone(local: Array<Record<string, unknown>> = []) {
   phone();
   patchReviewState("pr-42", { activeId: "c1" });
   const app = await loadPluginApp(() => import("../app"));
@@ -60,6 +60,7 @@ async function renderPhone() {
     getDraft: () => ({ draft: { targetKey: "pr-42", verdict: "COMMENT", body: "", comments: [
       { file: "src/a.ts", line: 1, side: "RIGHT", body: "Parse it." },
       { file: "src/b.ts", line: 1, side: "RIGHT", body: "Cache it." },
+      ...local,
     ] }, stale: [] }),
     getReviewerNotes: () => ({ body: "", revision: 0 }),
     getConversation: () => ({ threadId: null, legacy: [], defaults: null }),
@@ -247,5 +248,11 @@ test("in a pane under 400px, the dock's Comments shows the count alone, so the c
   expect(words.className.split(" ")).toContain("@max-[400px]/review:hidden");
   expect(comments.closest(".\\@container\\/review")).toBeTruthy();
   expect(comments.textContent).toBe("2 to send");
+  slot.lifecycle.unmount();
+});
+
+test("the dock's count of comments to send takes those not on GitHub yet too, which go with Send, as Not pushed yet's notice counts them", async () => {
+  const { slot, dock } = await renderPhone([{ file: "src/a.ts", line: 3, side: "LOCAL", body: "Only in the folder." }, { file: "src/a.ts", line: 4, side: "LOCAL", body: "Sent.", id: "c9", state: "sent", sendN: 1 }]);
+  expect(await dock.findByRole("button", { name: "Comments, 3 to send" })).toBeTruthy();
   slot.lifecycle.unmount();
 });
