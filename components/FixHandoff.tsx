@@ -18,7 +18,7 @@ import { plainLine } from "./comments/look";
 import { isOpen, sentNote, SendWarning, type Choice, type SendWarned } from "./SendNow";
 
 /** A link in a line of text, as Watch and Main thread ↗ after a Send. */
-export const LINK = `relative rounded-sm text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 ${TOUCH_TARGET}`;
+export const LINK = `relative rounded-sm text-primary underline decoration-primary/40 underline-offset-4 hover:decoration-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 ${TOUCH_TARGET}`;
 const plural = (n: number) => `${n} comment${n === 1 ? "" : "s"}`;
 /** A thread working now, whose Send waits for its turn to end. */
 const BUSY = new Set(["starting", "active", "stopping"]);

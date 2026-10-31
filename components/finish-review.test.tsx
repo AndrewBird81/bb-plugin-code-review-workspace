@@ -990,8 +990,9 @@ test("a local review's branch with no PR offers Push and open PR, with Push only
   await within(part()).findByRole("button", { name: "Push and open PR" });
   const buttons = within(part()).getAllByRole("button");
   expect(buttons.map((b) => b.textContent)).toEqual(["Push and open PR", "Push only"]);
-  // The primary button, and a quiet link beside it.
+  // The primary button, and a quiet link beside it, underlined as Finish's links are.
   expect(buttons[0]!.className).not.toContain("border");
+  expect(buttons[1]!.className.split(" ")).toContain("underline");
   expect(view.queryByRole("heading", { name: "Open a PR" })).toBeNull();
   fireEvent.click(buttons[0]!);
   await waitFor(() => expect(calls.push).toHaveBeenCalledWith({ targetKey: "pr-42", thenOpenPr: true }));
@@ -1022,10 +1023,11 @@ test("Push and open PR says the review agent drafts the PR once it's pushed, the
 
   const { slot, part } = await renderPush({ state: "pushed", thenOpenPr: "asked", at: now, threadId: "coder", repo: "acme/web", head: "feat/qa", sha: HEAD }, plan({ onGithub: true }));
   const said = within(part()).getByRole("status");
-  expect(said.textContent).toBe("Pushed abc1234. The review agent is drafting the PR; post it from its chat. · Review agent");
+  // Watch shows its chat beside the review, as Watch after a Send shows the main thread's.
+  expect(said.textContent).toBe("Pushed abc1234. The review agent is drafting the PR; post it from its chat. · Watch");
   // Asked already: a Push of what comes next is just Push.
-  await waitFor(() => expect(within(part()).getAllByRole("button").map((b) => b.textContent)).toEqual(["Review agent", "Push"]));
-  fireEvent.click(within(said).getByRole("button", { name: "Review agent" }));
+  await waitFor(() => expect(within(part()).getAllByRole("button").map((b) => b.textContent)).toEqual(["Watch", "Push"]));
+  fireEvent.click(within(said).getByRole("button", { name: "Watch" }));
   await waitFor(() => expect(panelTabCalls(slot)).toEqual(["openTab:agent"]));
   slot.lifecycle.unmount();
 });
@@ -1052,10 +1054,10 @@ test("with the review agent drafting only, Push is just Push, and once pushed li
   cleanup();
 
   const { slot, part } = await renderPush({ state: "pushed", at: now, threadId: "coder", repo: "acme/web", head: "feat/qa", sha: HEAD }, { ...plan({ onGithub: true }), ...draftOnly });
-  const link = await within(part()).findByRole("link", { name: "Open a PR on GitHub" });
+  const link = await within(part()).findByRole("link", { name: "New PR on GitHub" });
   expect(link.getAttribute("href")).toBe(COMPARE);
   expect(link.getAttribute("title")).toBe("Go to GitHub to open a PR");
-  expect(within(part()).getByRole("status").textContent).toMatch(/^Pushed abc1234 to feat\/qa · .* · Open a PR on GitHub ↗$/);
+  expect(within(part()).getByRole("status").textContent).toMatch(/^Pushed abc1234 to feat\/qa · .* · New PR on GitHub ↗$/);
   slot.lifecycle.unmount();
 });
 

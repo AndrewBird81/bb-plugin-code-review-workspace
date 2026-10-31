@@ -232,10 +232,10 @@ function Push({ plan }: { plan: PushPlan | null | undefined }) {
     </div>
     : <>
       {run?.state === "pushed" ? <p role="status" className="flex gap-1.5 text-sm"><Icon name="CircleCheck" className="mt-0.5 size-4 shrink-0 text-diff-added" aria-hidden />{run.thenOpenPr === "asked"
-        ? <span>Pushed <Mono text={sha} />. The review agent is drafting the PR; post it from its chat. · <button type="button" className={LINK} onClick={() => panel.open("agent")}>Review agent</button></span>
+        ? <span>Pushed <Mono text={sha} />. The review agent is drafting the PR; post it from its chat. · <button type="button" className={LINK} onClick={() => panel.open("agent")}>Watch</button></span>
         : <span>Pushed <Mono text={sha} /> to {branch}{timeAgo(run.at) && <span className="text-muted-foreground"> · {timeAgo(run.at)}</span>}
           {/* With the agent drafting only, GitHub opens the PR. */}
-          {!acts && plan?.openable && !plan.pr && plan.compare && <> · <UrlLink href={plan.compare} title="Go to GitHub to open a PR" className={LINK}>Open a PR on GitHub<span aria-hidden> ↗</span></UrlLink></>}</span>}</p>
+          {!acts && plan?.openable && !plan.pr && plan.compare && <> · <UrlLink href={plan.compare} title="Go to GitHub to open a PR" className={LINK}>New PR on GitHub<span aria-hidden> ↗</span></UrlLink></>}</span>}</p>
         : <p className="text-sm text-muted-foreground">{target.fixer ? "The fixer" : "The main thread"} commits what you reviewed{target.pr ? " in Not pushed yet" : ""}, the review checks it, then it’s pushed to {branch}. Never forced.</p>}
       {run?.state === "pushed" && run.thenOpenPr === "failed" && <p role="alert" className="flex gap-1.5 text-xs text-destructive-text"><Icon name="AlertCircle" className="mt-0.5 size-3.5 shrink-0" aria-hidden />Couldn’t ask the review agent to draft the PR: {run.openPrError} Open PR asks it again.</p>}
       {both ? <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
