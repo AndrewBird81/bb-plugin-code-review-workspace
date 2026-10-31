@@ -250,7 +250,7 @@ Where the band has no room for them, it also holds **Fold comments in code** and
 - Comments show in the code, under their lines, as on GitHub, each with all its actions, so a whole re-review can happen in the code. See [Comments and Finish review](#comments-and-finish-review).
 - Everyone's GitHub review threads show under their lines, with **Reply** and **Resolve**. Resolved and outdated threads are folded; outdated threads and file comments wait in their file's fold, "Outdated (1) · File comments (1)". **GitHub threads in code** in Diff options hides them all.
 - CI failures with annotations show on their lines too, including ones CI reports after you open the review, with **View check**, unless **CI failures in the code** is off in Settings → Reading; the Overview lists failing checks either way. A failure's note also offers **Comment**, which opens a Blocking comment at the line quoting the failure, and **Ask agent**, which quotes it into the agent's box, unsent.
-- **Fold comments** (`i`, or the band's button) shrinks every comment in the code to a one-line marker, with **Show** to open one, so the code reads on its own. On a phone they start folded.
+- **Fold comments** (`i`, or the band's button) shrinks every comment in the code to a one-line marker, with **Show** to open one, so the code reads on its own. On a phone they start folded. On a phone, and in a review under 440px wide, a marker takes two lines, its state on the first and its severity and first line on the second; one with **Not on GitHub yet** does so under 600px wide, as beside BB's side panel in a 1440px window.
 
 ### The review agent
 
