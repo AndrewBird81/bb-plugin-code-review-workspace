@@ -278,7 +278,11 @@ export function register(deps: Deps) {
         return item?.type === "commandExecution" ? [{ command: item.command, at: row.createdAt }] : [];
       });
       if (!commands.some(({ command }) => OPENS_PR.test(command))) return;
-      await savePushedAs(reviews, commands.flatMap(({ command, at }) => { const name = pushedName(command); return name ? [{ ...name, at }] : []; }));
+      // A first read's commands may have run while the folder was on another branch: only one naming the branch it pushes says whose.
+      await savePushedAs(reviews, commands.flatMap(({ command, at }) => {
+        const name = pushedName(command);
+        return name && (after !== undefined || name.from !== null) ? [{ ...name, at }] : [];
+      }));
       for (const review of reviews) unpushed.delete(review.targetKey);
       await Promise.all(reviews.map((review) => check(review.targetKey, "thread")));
     }).catch((error) => bb.log.warn(`Could not read the commands of thread ${thread.id}: ${String(error)}`));

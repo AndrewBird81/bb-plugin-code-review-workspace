@@ -78,7 +78,12 @@ async function setup({ repo = "acme/api", folder = {} as Partial<Folder> } = {})
   const emit = (event: "experimental_thread.events" | "thread.idle" | "thread.failed", thread: { id: string; environmentId: string | null; visibility?: string }) =>
     (watch.events[event]![0] as (payload: unknown) => Promise<void>)({ thread: { visibility: "visible", ...thread }, sequence: 1, lastAssistantText: null });
   const kind = async (key = KEY) => (await store.getReview(key))?.kind;
-  return { ...host, store, github, runGh, reads, commands, list, review, watch, emit, kind, deps, at: (seconds: number) => vi.setSystemTime(T0 + seconds * 1000), unhealthy: (next: SyncHealth["error"]) => { health = { lastReadAt: null, error: next }; } };
+  // A thread in env1 read once as it started, as the plugin reads a live one: its next commands are new to it.
+  const started = async (id: string) => {
+    commands[id] = ["git status"];
+    await emit("experimental_thread.events", { id, environmentId: "env1" });
+  };
+  return { ...host, store, github, runGh, reads, commands, list, review, watch, emit, kind, started, deps, at: (seconds: number) => vi.setSystemTime(T0 + seconds * 1000), unhealthy: (next: SyncHealth["error"]) => { health = { lastReadAt: null, error: next }; } };
 }
 
 test("T1: a thread in the folder that opens a PR makes the review the PR's at once; other commands, hidden threads and other folders read no GitHub", async () => {
@@ -112,8 +117,9 @@ test("T1: a thread in the folder that opens a PR makes the review the PR's at on
 test("T1: a thread that pushed under another name, then failed, makes the review its PR's through PR Status's PR for the folder", async () => {
   const s = await setup({ folder: { prBase: "main", pr: { number: 7, url: "https://github.com/acme/api/pull/7", headRefName: "feat/nice", state: "draft" } } });
   s.github.heads[7] = "feat/nice";
-  // GitHub has no feat/qa: the folder's upstream is feat/nice.
-  s.commands.other = ["git push -u origin HEAD:feat/nice"];
+  // GitHub has no feat/qa: the folder's upstream is feat/nice. The thread was read as it started, as a live one is.
+  await s.started("other");
+  s.commands.other.push("git push -u origin HEAD:feat/nice");
   await s.emit("thread.failed", { id: "other", environmentId: "env1" });
   expect(await s.store.getReview(KEY)).toMatchObject({ kind: "pr", number: 7, head: "feat/nice", feature: { branch: "feat/qa", remoteBranch: "feat/nice" } });
 });
@@ -122,7 +128,8 @@ test("T1: a thread on a branch whose upstream is another branch's, with that bra
   // `git switch -c feat/qa origin/part1`: PR Status names part1's PR until feat/qa's first push -u.
   const s = await setup({ folder: { prBase: "main", pr: { number: 7, url: "https://github.com/acme/api/pull/7", headRefName: "part1", state: "open" } } });
   s.github.heads[7] = "part1";
-  s.commands.other = ["git push origin HEAD:part1-wip", "gh pr create --fill"];
+  await s.started("other");
+  s.commands.other.push("git push origin HEAD:part1-wip", "gh pr create --fill");
   await s.emit("thread.idle", { id: "other", environmentId: "env1" });
   expect(await s.store.getReview(KEY)).toMatchObject({ kind: "ref", prPending: { number: 7, why: "branch", head: "part1" }, feature: { pushedAs: "part1-wip" } });
 });
@@ -150,6 +157,23 @@ test("T1: a push or a new PR from before the review names no branch it was pushe
   expect((await s.store.getReview(KEY))?.feature?.pushedAs).toBeUndefined();
 });
 
+// In the folder, part1 checked out, `git push origin HEAD:part1`, then back to feat/qa while the plugin was down.
+test("T1: a thread's first read names no branch pushed as by HEAD or a PR's --head, which may have been another branch's then", async () => {
+  const s = await setup();
+  s.at(60);
+  s.commands.other = ["git push origin HEAD:part1", "gh pr create --head part1 --fill", "git push origin feat/qa:feat/nice"];
+  await s.emit("thread.idle", { id: "other", environmentId: "env1" });
+  // A push that names the branch it pushes is still the review's.
+  expect((await s.store.getReview(KEY))?.feature?.pushedAs).toBe("feat/nice");
+  s.commands.coder = ["git push origin HEAD:part1"];
+  await s.emit("thread.idle", { id: "coder", environmentId: "env1" });
+  expect((await s.store.getReview(KEY))?.feature?.pushedAs).toBe("feat/nice");
+  // Its next read is of commands run while the folder is on feat/qa.
+  s.commands.coder.push("git push origin HEAD:feat/other");
+  await s.emit("thread.idle", { id: "coder", environmentId: "env1" });
+  expect((await s.store.getReview(KEY))?.feature?.pushedAs).toBe("feat/other");
+});
+
 test("T1: git -C <dir> push, /usr/bin/git push, jj git push and gh stack push or submit each read the branch at once and have the poll read it again", async () => {
   const pushes = ["git -C ~/src/api push -u origin HEAD", "/usr/bin/git push", "jj git push --bookmark feat/qa", "gh stack push", "/bin/zsh -lc \"gh stack submit\""];
   for (const command of pushes) {
@@ -173,7 +197,8 @@ test("T1: a push under another name with no upstream reads that name on GitHub, 
   const s = await setup();
   s.github.heads[7] = "feat/nice";
   s.github.branches["acme/api:feat/nice"] = { sha: "c0ffee", prs: [] };
-  s.commands.coder = ["git push origin HEAD:feat/nice"];
+  await s.started("coder");
+  s.commands.coder.push("git push origin HEAD:feat/nice");
   await s.emit("thread.idle", { id: "coder", environmentId: "env1" });
   expect(s.reads().map(branchesIn)).toEqual([["feat/nice", "feat/qa"]]);
   expect(await s.kind()).toBe("ref");
@@ -189,7 +214,8 @@ test("T1: a thread that pushes the branch under its own name, without a colon, d
     const s = await setup();
     const { feature } = (await s.store.getReview(KEY))!;
     await s.store.setLifecycle(KEY, { feature: { ...feature!, pushedAs: "feat/nice" } });
-    s.commands.coder = [command];
+    await s.started("coder");
+    s.commands.coder.push(command);
     await s.emit("thread.idle", { id: "coder", environmentId: "env1" });
     expect((await s.store.getReview(KEY))?.feature?.pushedAs, command).toBeUndefined();
     // Its next read asks GitHub for that name alone.
