@@ -34,8 +34,8 @@ const listed = (parts: string[]) => parts.length > 1 ? `${parts.slice(0, -1).joi
 const CHOICE: Record<Verdict, string> = { APPROVE: "Approve", REQUEST_CHANGES: "Request changes", COMMENT: "Comment" };
 /** Which review a merge keeps, as its offer says: the folder's, unless the PR's began as another folder's (`intoPr`). */
 const stays = (intoPr: boolean | undefined, onPr: boolean) => (onPr ? intoPr : !intoPr) ? "Merging keeps this one and archives that one." : "Merging keeps that one and archives this one.";
-/** Review actions' Merge into one review after Keep both: the offer's sentence, without what moves, which may have changed. */
-export const keptApartLine = (kept: KeptApart, onPr: boolean) => `${!onPr ? `PR #${kept.number} has its own review.` : kept.branch ? `A local review of ${kept.branch} is linked to this PR.` : "This PR’s branch has a local review."} ${stays(kept.intoPr, onPr)}`;
+/** Review actions' Merge into one review after Keep both: the offer's sentence, without what moves, which may have changed; its branch in `backticks`. */
+export const keptApartLine = (kept: KeptApart, onPr: boolean) => `${!onPr ? `PR #${kept.number} has its own review.` : kept.branch ? `A local review of \`${kept.branch}\` is linked to this PR.` : "This PR’s branch has a local review."} ${stays(kept.intoPr, onPr)}`;
 /** What a merge moves, or moved: "3 comments, the summary and 1 Send". */
 const moved = (note: MergeNote, summary: string) => listed([...note.comments ? [plural(note.comments, "comment")] : [], ...note.summary ? [summary] : [], ...note.sends ? [plural(note.sends, "Send")] : []]);
 

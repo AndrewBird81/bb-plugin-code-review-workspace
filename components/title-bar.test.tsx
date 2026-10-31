@@ -363,6 +363,8 @@ test("after Keep both, Review actions offers Merge into one review on either rev
     // Said before you choose it, not only to a screen reader.
     expect(merge.textContent).toContain(line);
     expect(merge.getAttribute("aria-description")).toBe(line);
+    // A branch in monospace, as the notice shows it.
+    if (review.keptApart.branch) expect(merge.querySelector(".font-mono")?.textContent).toBe(review.keptApart.branch);
     fireEvent.click(merge);
     await waitFor(() => expect(mergeReviews).toHaveBeenLastCalledWith({ targetKey: "pr-42" }));
     page.lifecycle.unmount(); bar!.lifecycle.unmount();
@@ -397,6 +399,7 @@ test("after Not this one, a local review's Review actions offers Make it PR #12'
     const take = await bar!.findByRole("button", { name: "Make it PR #12’s review" });
     expect(take.textContent).toContain(line);
     expect(take.getAttribute("aria-description")).toBe(line);
+    if ("head" in prPending) expect(take.querySelector(".font-mono")?.textContent).toBe(prPending.head);
     fireEvent.click(take);
     await waitFor(() => expect(takePendingPr).toHaveBeenLastCalledWith({ targetKey: "pr-42" }));
     page.lifecycle.unmount(); bar!.lifecycle.unmount();

@@ -21,7 +21,8 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 /**
  * An item a page adds to a review's menu. `keys`: its key, shown at its right where there's a keyboard. `description`:
  * what it does beyond its label, for screen readers. `detail`: one shown under its label too, to read before choosing
- * it. `agent`: it starts an agent, so its icon takes the agent's tone.
+ * it, its `backtick` spans, as a branch, in monospace as a notice's. `agent`: it starts an agent, so its icon takes the
+ * agent's tone.
  */
 export type ReviewMenuItem = { label: string; icon: IconName; onSelect: () => void; keys?: string; description?: string; detail?: string; agent?: boolean };
 
@@ -139,9 +140,9 @@ export function ReviewActions({ review, items, afterRename, trailing, pinnable =
     switched.current = true;
     setView(next);
   };
-  const item = (entry: ReviewMenuItem) => <Button key={entry.label} variant="ghost" size="sm" aria-label={entry.detail && entry.label} aria-keyshortcuts={entry.keys} aria-description={entry.detail ?? entry.description} className={cn(MENU_ITEM, entry.detail && "h-auto items-start py-1.5 [&>svg]:mt-0.5")} onClick={() => pick(entry.onSelect)}>
+  const item = (entry: ReviewMenuItem) => <Button key={entry.label} variant="ghost" size="sm" aria-label={entry.detail && entry.label} aria-keyshortcuts={entry.keys} aria-description={entry.detail?.replaceAll("`", "") ?? entry.description} className={cn(MENU_ITEM, entry.detail && "h-auto items-start py-1.5 [&>svg]:mt-0.5")} onClick={() => pick(entry.onSelect)}>
     <Icon name={entry.icon} className={cn(entry.agent && "text-(--ansi-13)")} aria-hidden />
-    {entry.detail ? <span className="flex min-w-0 flex-col text-left">{entry.label}<span className="whitespace-normal text-xs font-normal text-subtle-foreground">{entry.detail}</span></span> : entry.label}{entry.keys && <kbd aria-hidden className="ml-auto hidden font-sans text-xs text-subtle-foreground pointer-fine:inline">{entry.keys}</kbd>}
+    {entry.detail ? <span className="flex min-w-0 flex-col text-left">{entry.label}<span className="whitespace-normal text-xs font-normal text-subtle-foreground">{entry.detail.split("`").map((part, index) => index % 2 ? <span key={index} className="whitespace-nowrap font-mono">{part}</span> : part)}</span></span> : entry.label}{entry.keys && <kbd aria-hidden className="ml-auto hidden font-sans text-xs text-subtle-foreground pointer-fine:inline">{entry.keys}</kbd>}
   </Button>;
 
   async function saveName(event: FormEvent) {
