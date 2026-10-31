@@ -5,7 +5,9 @@ import { useFullscreenPortalContainer } from "../lib/portal-scope";
 import { ariaKeys, keyHint } from "../lib/review-shortcuts";
 import { cn } from "../lib/utils";
 import { phoneWindow } from "../lib/workspace-layout";
-import { useBbNavigate } from "@get-bb/plugin-sdk/app";
+import { useBbNavigate, useRpc } from "@get-bb/plugin-sdk/app";
+import { toast } from "sonner";
+import type { rpcContract } from "../src/rpc-contract";
 import { useAppPanel } from "../lib/app-panel";
 import { switchHint } from "../lib/commands";
 import { mountTitleBar, panelPage, useNeedsYou, useTabShown, useWorkspaceFor } from "../lib/workspace-store";
@@ -14,6 +16,7 @@ import { CompactViewportOverrideProvider } from "./ui/hooks/use-compact-viewport
 import { Button } from "./ui/button";
 import { Hint } from "./ui/hint";
 import { REWRITE_GUIDE } from "./shell/ReviewNotices";
+import { keptApartLine } from "./shell/PrNotices";
 import { useMediaQuery } from "./ui/hooks/use-media-query";
 import { Icon } from "./ui/icon";
 import { ReviewActions, type ReviewMenuItem } from "./ReviewActions";
@@ -144,13 +147,29 @@ function ReviewControls({ api, placement }: { api: WorkspaceApi; placement: Titl
  * after its Rename…, so the menu doesn't open on what starts the guide writer, with the workspace's Keyboard
  * shortcuts and Review settings… after Open on GitHub. An archived review's guide isn't rebuilt. A phone, without a
  * mouse to say a keyboard may be there, has no Keyboard shortcuts; an iPad keeps them, for its keyboard. Neither has
- * them while Settings turns single-key shortcuts off.
+ * them while Settings turns single-key shortcuts off. An offer about its PR you dismissed is here after the guide's:
+ * Keep both's Merge into one review, saying which stays, and Not this one's Make it PR #n's review.
  */
 export function ReviewMenu({ api, className }: { api: WorkspaceApi; className?: string }) {
   const fine = useMediaQuery("(any-pointer: fine)");
+  const rpc = useRpc<typeof rpcContract>();
   const keys = api.shortcuts && (fine || !phoneWindow());
   const local = api.review.kind === "ref";
-  const items: ReviewMenuItem[] = api.review.archivedAt || local ? [] : [{ label: api.newCommits ? "Update guide" : "Rebuild guide", icon: "ArrowReloadHorizontal", onSelect: () => void api.rebuild() }];
+  const { keptApart, prPending } = api.review;
+  const call = (run: () => Promise<{ ok: boolean; error?: string }>, failed: string) => async () => {
+    try {
+      const result = await run();
+      if (!result.ok) toast.error(result.error ?? failed);
+      else await api.reload();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : failed);
+    }
+  };
+  const dismissed: ReviewMenuItem[] = api.review.archivedAt ? [] : [
+    ...keptApart ? [{ label: "Merge into one review", icon: "GitMerge", detail: keptApartLine(keptApart, !local), onSelect: call(() => rpc.call("mergeReviews", { targetKey: api.targetKey }), "Couldn’t merge the two reviews.") } satisfies ReviewMenuItem] : [],
+    ...local && prPending?.declined && prPending.why !== "error" ? [{ label: `Make it PR #${prPending.number}’s review`, icon: "GitPullRequest", onSelect: call(() => rpc.call("takePendingPr", { targetKey: api.targetKey }), "Couldn’t make it the PR’s review.") } satisfies ReviewMenuItem] : [],
+  ];
+  const items: ReviewMenuItem[] = [...api.review.archivedAt || local ? [] : [{ label: api.newCommits ? "Update guide" : "Rebuild guide", icon: "ArrowReloadHorizontal", onSelect: () => void api.rebuild() } satisfies ReviewMenuItem], ...dismissed];
   const afterRename: ReviewMenuItem[] = api.review.archivedAt || !local ? [] : [{ label: "Rewrite guide", icon: "Sparkles", agent: true, description: REWRITE_GUIDE, onSelect: () => void api.rebuild() }];
   const trailing: ReviewMenuItem[] = [
     ...(keys ? [{ label: "Keyboard shortcuts", icon: "CircleQuestion", keys: "?", onSelect: api.showShortcuts } satisfies ReviewMenuItem] : []),

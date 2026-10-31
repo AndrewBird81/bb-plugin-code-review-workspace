@@ -328,6 +328,57 @@ test("a local review's Review actions offers Rewrite guide after Rename, with th
   await waitFor(() => expect(rereview).toHaveBeenCalledWith({ targetKey: "pr-42" }));
 });
 
+test("after Keep both, Review actions offers Merge into one review on either review, its line saying which stays, while neither is archived", async () => {
+  fakeSize(1400, 900);
+  const mergeReviews = vi.fn(() => ({ ok: true, targetKey: "pr-42" }));
+  const cases = [
+    { review: { keptApart: { targetKey: "br-1", id: "api:feat/qa", number: 42 } }, line: "This PR’s branch has a local review. Merging keeps that one and archives this one." },
+    { review: { kind: "ref", gitRef: "main...feat/qa", url: null, keptApart: { targetKey: "pr-x", id: "web#42", number: 42 } }, line: "PR #42 has its own review. Merging keeps this one and archives that one." },
+  ];
+  for (const { review, line } of cases) {
+    const { bar, page } = await renderReview({ review, rpc: { mergeReviews } });
+    fireEvent.click(await bar!.findByRole("button", { name: "Review actions" }));
+    const merge = await bar!.findByRole("button", { name: "Merge into one review" });
+    // Said before you choose it, not only to a screen reader.
+    expect(merge.textContent).toContain(line);
+    expect(merge.getAttribute("aria-description")).toBe(line);
+    fireEvent.click(merge);
+    await waitFor(() => expect(mergeReviews).toHaveBeenLastCalledWith({ targetKey: "pr-42" }));
+    page.lifecycle.unmount(); bar!.lifecycle.unmount();
+  }
+  const { bar } = await renderReview({ review: { ...cases[0]!.review, archivedAt: 1 } });
+  fireEvent.click(await bar!.findByRole("button", { name: "Review actions" }));
+  const menu = within((await bar!.findByRole("button", { name: "Rename…" })).parentElement!);
+  expect(menu.queryByRole("button", { name: "Merge into one review" })).toBeNull();
+});
+
+test("a merge from Review actions that fails says why", async () => {
+  fakeSize(1400, 900);
+  const { bar } = await renderReview({ review: { keptApart: { targetKey: "br-1", id: "api:feat/qa", number: 42 } }, rpc: { mergeReviews: () => ({ ok: false, error: "Nope." }) } });
+  fireEvent.click(await bar!.findByRole("button", { name: "Review actions" }));
+  fireEvent.click(await bar!.findByRole("button", { name: "Merge into one review" }));
+  await waitFor(() => expect(toast.error).toHaveBeenCalledWith("Nope."));
+});
+
+test("after Not this one, a local review's Review actions offers Make it PR #12's review, which the notice offered", async () => {
+  fakeSize(1400, 900);
+  const takePendingPr = vi.fn(() => ({ ok: true }));
+  const local = { kind: "ref", gitRef: "main...feat/qa", url: null };
+  const pending = { number: 12, url: "https://github.com/acme/web/pull/12", why: "older", at: 1 };
+  let { bar, page } = await renderReview({ review: { ...local, prPending: { ...pending, declined: true } }, rpc: { takePendingPr } });
+  fireEvent.click(await bar!.findByRole("button", { name: "Review actions" }));
+  fireEvent.click(await bar!.findByRole("button", { name: "Make it PR #12’s review" }));
+  await waitFor(() => expect(takePendingPr).toHaveBeenCalledWith({ targetKey: "pr-42" }));
+  page.lifecycle.unmount(); bar!.lifecycle.unmount();
+  // Not declined, the notice offers it; GitHub not answering, its Try again.
+  for (const prPending of [pending, { ...pending, why: "error", declined: true }]) {
+    ({ bar, page } = await renderReview({ review: { ...local, prPending } }));
+    fireEvent.click(await bar!.findByRole("button", { name: "Review actions" }));
+    expect(within((await bar!.findByRole("button", { name: "Rename…" })).parentElement!).queryByRole("button", { name: "Make it PR #12’s review" })).toBeNull();
+    page.lifecycle.unmount(); bar!.lifecycle.unmount();
+  }
+});
+
 test("an iPad without a mouse keeps Keyboard shortcuts in Review actions, for its keyboard", async () => {
   fakeSize(1032, 1376);
   const { bar } = await renderReview();

@@ -926,6 +926,8 @@ test("Merge into one review works from either review's page; a PR opened before 
   // Found again, it stays declined.
   expect(await becomePr(t.deps, key, { repo: "acme/api", number: 7 })).toBe("skipped");
   expect((await t.store.getReview(key))?.prPending?.declined).toBe(true);
+  // The page reads it, for Review actions' Make it PR #7's review, which still takes it.
+  expect((await t.harness.behavior.callRpc("getReviewBundle", { targetKey: key }) as any).review.prPending).toMatchObject({ number: 7, why: "older", declined: true });
   expect(await t.harness.behavior.callRpc("takePendingPr", { targetKey: key })).toEqual({ ok: true });
   expect(await t.store.getReview(key)).toMatchObject({ kind: "pr", number: 7, prPending: null });
 });
@@ -971,6 +973,35 @@ test("Keep both, from either review's page: neither offers to merge again, the f
   expect((await t.store.getReview(key))?.prOffer).toBeUndefined();
   expect(await t.store.getReview(prKey)).not.toHaveProperty("mergedInto");
   expect(await t.harness.behavior.callRpc("keepBothReviews", { targetKey: "nothing" })).toMatchObject({ ok: false });
+});
+
+test("after Keep both, either review's page still names the other, for Review actions' Merge into one review, while both are live; the merge still goes", async () => {
+  const s = setup();
+  vi.mocked(runGh).mockImplementation(s.deps.gh.runGh as any);
+  await plugin(s.bb);
+  await run(s, "main");
+  await settled(s);
+  const prKey = targetKey({ kind: "pr", repo: "acme/api", number: 7 });
+  await s.store.saveReview({ targetKey: prKey, kind: "pr", repo: "acme/api", number: 7, url: "https://github.com/acme/api/pull/7", status: "ready", createdAt: 1 });
+  await s.store.upsertDraftComment(prKey, { file: "src/a.ts", line: 2, side: "RIGHT", body: "Theirs" });
+  expect(await becomePr(s.deps, key, { repo: "acme/api", number: 7 })).toBe("offered");
+  const bundle = async (of: string) => (await s.harness.behavior.callRpc("getReviewBundle", { targetKey: of }) as any).review;
+  // Offered, not kept apart: the notice offers it.
+  expect((await bundle(key)).keptApart).toBeUndefined();
+  expect((await bundle(prKey)).keptApart).toBeUndefined();
+  expect(await s.harness.behavior.callRpc("keepBothReviews", { targetKey: key })).toEqual({ ok: true });
+  expect((await bundle(key)).keptApart).toEqual({ targetKey: prKey, id: "api#7", number: 7 });
+  expect((await bundle(prKey)).keptApart).toMatchObject({ targetKey: key, number: 7 });
+  expect((await bundle(prKey)).localReview).toBeUndefined();
+  // Archived, either one: nothing to merge.
+  await s.store.setLifecycle(prKey, { archivedAt: 5 });
+  expect((await bundle(key)).keptApart).toBeUndefined();
+  expect((await bundle(prKey)).keptApart).toBeUndefined();
+  await s.store.setLifecycle(prKey, { archivedAt: null });
+  // Merge into one review from the PR's page: the folder's stays.
+  expect(await s.harness.behavior.callRpc("mergeReviews", { targetKey: prKey })).toEqual({ ok: true, targetKey: key });
+  expect(await s.store.getReview(prKey)).toMatchObject({ mergedInto: key });
+  expect((await bundle(key)).keptApart).toBeUndefined();
 });
 
 test("Make it PR #7's review that finds the PR's own review offers the merge in its place, and Keep both leaves no Make it PR #7's review behind", async () => {

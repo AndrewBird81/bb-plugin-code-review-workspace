@@ -116,6 +116,16 @@ export function register(deps: ServeDeps) {
         if (review && offering) {
           review.localReview = { targetKey: offering.targetKey, id: identityIn(facts, all, offering).id, comments: (await tx.getDraft(offering.targetKey)).comments.length, ...offering.prOffer?.intoPr ? { intoPr: true } : {} };
         }
+        // Kept apart with Keep both: either page names the other, for Review actions' Merge into one review, while
+        // neither is archived. `intoPr`: the PR's review began as another folder's, and stays.
+        const offers = (folder: ReviewMeta) => folder.kind === "ref" ? folder.prOffer?.key ?? folder.feature?.prReview : undefined;
+        const kept = !owned || owned.archivedAt ? undefined : owned.kind === "ref"
+          ? owned.mergeDeclined && offers(owned) === owned.mergeDeclined ? all.find((other) => other.targetKey === owned.mergeDeclined && !other.archivedAt) : undefined
+          : all.find((other) => !other.archivedAt && other.mergeDeclined === targetKey && offers(other) === targetKey);
+        const pr = kept && (owned!.kind === "ref" ? kept : owned!);
+        if (review && kept && pr?.number) {
+          review.keptApart = { targetKey: kept.targetKey, id: identityIn(facts, all, kept).id, number: pr.number, ...pr.feature ? { intoPr: true } : {} };
+        }
         return { review, guide: await tx.getGuide(targetKey),
           patch: revision === knownRevision ? null : await tx.patch(targetKey), revision,
           ...(diffError ? { diffError } : {}) };

@@ -6,6 +6,7 @@ import type { MergeNote, ReviewLifecycle } from "../../src/store";
 import type { Verdict } from "../../src/draft";
 import { useFullscreenPortalContainer } from "../../lib/portal-scope";
 import { reviewIdentity, type Identifiable } from "../../lib/review-identity";
+import type { KeptApart } from "../../lib/review-state";
 import { cn } from "../../lib/utils";
 import { TOUCH_CONTROL } from "../touch";
 import { Button, buttonVariants } from "../ui/button";
@@ -31,6 +32,10 @@ const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 /** "a, b and c". */
 const listed = (parts: string[]) => parts.length > 1 ? `${parts.slice(0, -1).join(", ")} and ${parts.at(-1)}` : parts[0] ?? "";
 const CHOICE: Record<Verdict, string> = { APPROVE: "Approve", REQUEST_CHANGES: "Request changes", COMMENT: "Comment" };
+/** Which review a merge keeps, as its offer says: the folder's, unless the PR's began as another folder's (`intoPr`). */
+const stays = (intoPr: boolean | undefined, onPr: boolean) => (onPr ? intoPr : !intoPr) ? "Merging keeps this one and archives that one." : "Merging keeps that one and archives this one.";
+/** Review actions' Merge into one review after Keep both: the offer's sentence, without what moves, which may have changed. */
+export const keptApartLine = (kept: KeptApart, onPr: boolean) => `${onPr ? "This PR’s branch has a local review." : `PR #${kept.number} has its own review.`} ${stays(kept.intoPr, onPr)}`;
 /** What a merge moves, or moved: "3 comments, the summary and 1 Send". */
 const moved = (note: MergeNote, summary: string) => listed([...note.comments ? [plural(note.comments, "comment")] : [], ...note.summary ? [summary] : [], ...note.sends ? [plural(note.sends, "Send")] : []]);
 
@@ -116,8 +121,6 @@ export function usePrNotices(targetKey: string, review: PrReviewed | null, onCha
         {button("became", "Got it", () => void act("became", () => rpc.call("dismissBecame", { targetKey }), "Couldn’t save that."))}
       </span> });
   }
-  // Which stays, said in the sentence: the folder's review, unless the PR's began as another folder's (`intoPr`).
-  const stays = (intoPr: boolean | undefined, onPr: boolean) => (onPr ? intoPr : !intoPr) ? "Merging keeps this one and archives that one." : "Merging keeps that one and archives this one.";
   if (prOffer && !review.archivedAt && review.mergeDeclined !== prOffer.key) {
     const moves = moved(prOffer.moves, "a summary");
     notices.push({ id: "pr-offer", tone: "info", icon: "GitPullRequest", firstLine: true,
