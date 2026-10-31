@@ -508,6 +508,14 @@ test("a local review hands its comments to a new thread instead of Submit", asyn
   slot.lifecycle.unmount();
 });
 
+test("a folder's review in a GitHub repo says nothing goes to GitHub yet, and that it becomes the PR's once it has one", async () => {
+  const { slot } = await renderWorkspace({ review: folderReview, rpc: { checkFeature: () => ({ state: "current", alsoActive: [], hidden: [], flagged: [] }) } });
+  const view = await finish(slot);
+  expect(view.getByText("Nothing goes to GitHub yet. Once it has a PR, this review becomes the PR’s.")).toBeTruthy();
+  expect(view.queryByText(/stay in this BB installation/)).toBeNull();
+  slot.lifecycle.unmount();
+});
+
 test("a local review's private notes stay in BB under the one heading, with the rest that stays", async () => {
   const { slot } = await renderWorkspace({ review: { kind: "ref", gitRef: "main...x" }, rpc: { getReviewerNotes: () => ({ body: "Check the TTL.", revision: 1 }) } });
   const view = await finish(slot);

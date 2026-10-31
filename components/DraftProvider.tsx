@@ -746,7 +746,8 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
     mode: asking ? "ask" as const : "edit" as const, body, edited, textareaRef: bodyRef,
     change: changeBody, save: () => { void saveSummary(body.trim()); }, askAgent: () => { void askAgent(); }, cancel: () => { closeComposer(); focusSummary(); },
   } : null;
-  const hint = isLocal ? "Local review. Comments and notes stay in this BB installation."
+  // A folder's review in a GitHub repo becomes its PR's once the branch has one; a checkout's never does.
+  const hint = isLocal ? review?.feature?.repo ? "Nothing goes to GitHub yet. Once it has a PR, this review becomes the PR’s." : "Local review. Comments and notes stay in this BB installation."
     : writing ? asking ? "Send or cancel your message to the agent before submitting." : onSummary ? "Save or cancel the summary before submitting." : "Add the comment you’re writing to the draft before submitting."
     : rebuilding ? "The guide is rebuilding for new commits. Submit when it’s ready."
     : staleComments.length ? `The diff changed after these comments were drafted: ${staleComments.map((c) => `${c.file}:${c.line}`).join(", ")}. Edit or remove ${staleComments.length === 1 ? "it" : "them"}, or submit anyway to move ${staleComments.length === 1 ? "it" : "them"} into the summary.`
