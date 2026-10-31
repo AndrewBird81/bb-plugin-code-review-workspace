@@ -76,13 +76,14 @@ its guide is ready. A review the reviewer renamed adds `named "…"`, the name t
 
 A `<review>` is a PR's URL, `owner/repo#n`, a review's id (`api#4512`, `api:branch`, even the id a folder's review
 had before it became its PR's), or its key (`pr-…`, `ref-…`, or `br-…`). A line is its
-number in the new file; add `--side LEFT` for a removed line, numbered in the old file.
+number in the new file; add `--side LEFT` for a removed line, numbered in the old file. `edit` and `delete` take
+`--side LOCAL` for a comment not on GitHub yet, as `list` shows it; only the reviewer adds one.
 
 ```sh
 bb review comment list   <review> [--json]
 bb review comment add    <review> <file>:<line> --code <text> --body <text> [--severity <severity>] [--evidence <text>] [--pre-existing] [--side LEFT|RIGHT]
-bb review comment edit   <review> <file>:<line> --body <text> [--code <text>] [--severity <severity>] [--evidence <text>] [--pre-existing] [--side LEFT|RIGHT]
-bb review comment delete <review> <file>:<line> [--side LEFT|RIGHT]
+bb review comment edit   <review> <file>:<line> --body <text> [--code <text>] [--severity <severity>] [--evidence <text>] [--pre-existing] [--side LEFT|RIGHT|LOCAL]
+bb review comment delete <review> <file>:<line> [--side LEFT|RIGHT|LOCAL]
 ```
 
 - `--code` is the line's text without the diff's `+`, `-`, or space; `add`, and `edit` of a range,

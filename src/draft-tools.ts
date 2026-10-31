@@ -40,6 +40,8 @@ export function register(deps: ServeDeps) {
     line: z.number().int().min(1).max(2_147_483_647).describe("The line's number in the new file (side RIGHT) or the old file (side LEFT)."),
     side: z.enum(["RIGHT", "LEFT"]).optional().describe("RIGHT, the default, for an added or unchanged line; LEFT for a removed line."),
   };
+  // A comment not on GitHub yet, on a line only the folder has, is the reviewer's to add, in Not pushed yet.
+  const existing = { ...location, side: z.enum(["RIGHT", "LEFT", "LOCAL"]).optional().describe("RIGHT, the default, for an added or unchanged line; LEFT for a removed line; LOCAL for a comment not on GitHub yet, as list_draft_comments shows it.") };
   // GitHub takes up to 65,536 characters in a comment or review body.
   const body = z.string().trim().min(1).max(65_000).describe("The comment, in GitHub Markdown.");
   const evidence = z.string().trim().max(600).optional().describe("How you confirmed it, in Markdown, under 600 characters: what you read or ran, with file:line, and repro steps. Only what you actually did. The reviewer sees it folded under the comment; it's never posted to GitHub.");
@@ -76,7 +78,7 @@ export function register(deps: ServeDeps) {
   bb.agents.registerTool({
     name: "edit_draft_comment",
     description: "Replace the text of the draft comment at a file, line, and side in the reviewer's local draft; line is a range's last line. With startLine and code, it also sets the range's first line, for example to fit a suggestion block. Its last line stays; to move a comment, delete it and add it again. Nothing reaches GitHub. Refuses a comment the reviewer wrote, unless they asked for the change.",
-    parameters: z.object({ ...location, ...range, code: z.string().optional().describe("With startLine: the lines' text, one per line, as add_draft_comment takes it."), severity, body, evidence: evidence.describe("Replaces how you confirmed it, under 600 characters; without it, that stays."), introduced: introduced.describe("false when the problem is in code this PR didn't change; true when it's from this PR. Without it, that stays.") }),
+    parameters: z.object({ ...existing, ...range, code: z.string().optional().describe("With startLine: the lines' text, one per line, as add_draft_comment takes it."), severity, body, evidence: evidence.describe("Replaces how you confirmed it, under 600 characters; without it, that stays."), introduced: introduced.describe("false when the problem is in code this PR didn't change; true when it's from this PR. Without it, that stays.") }),
     execute: async (input, { threadId }) => {
       return await reviewersToo(threadId, (tx, targetKey, inChat) => editComment(tx, targetKey, input, threadId, inChat));
     },
@@ -84,7 +86,7 @@ export function register(deps: ServeDeps) {
   bb.agents.registerTool({
     name: "delete_draft_comment",
     description: "Delete the draft comment at a file, line, and side from the reviewer's local draft. Nothing reaches GitHub. Refuses a comment the reviewer wrote, unless they asked for it.",
-    parameters: z.object(location),
+    parameters: z.object(existing),
     execute: async (input, { threadId }) => {
       return await reviewersToo(threadId, (tx, targetKey, inChat) => deleteComment(tx, targetKey, input, threadId, inChat));
     },

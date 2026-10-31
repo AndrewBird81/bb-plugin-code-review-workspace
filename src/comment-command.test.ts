@@ -51,6 +51,15 @@ test("bb review comment adds, lists, edits, and deletes local draft comments, an
   expect(runGh).not.toHaveBeenCalled();
 });
 
+test("bb review comment edits and deletes a comment not on GitHub yet with --side LOCAL, but adds none there", async () => {
+  const { store, cli } = await host();
+  await store.upsertDraftComment(key, { file: "a.ts", line: 2, side: "LOCAL", author: "agent", body: "Folder's" });
+  expect(await cli("add", url, "a.ts:2", "--side", "LOCAL", "--code", "next();", "--body", "x")).toMatchObject({ exitCode: 2, stderr: expect.stringMatching(/^--side is LEFT or RIGHT\./) });
+  expect(await cli("edit", url, "a.ts:2", "--side", "local", "--body", "Reworded")).toMatchObject({ exitCode: 0, stdout: "Updated the draft comment on a.ts:2 (not on GitHub yet)." });
+  expect(await cli("delete", url, "a.ts:2", "--side", "LOCAL")).toMatchObject({ exitCode: 0, stdout: "Deleted the draft comment on a.ts:2 (not on GitHub yet)." });
+  expect((await store.getDraft(key)).comments).toEqual([]);
+});
+
 test("bb review comment and summary find a renamed repository's review by the URL bb review list prints for it (bug bash CLI-2)", async () => {
   const { harness, store, cli } = await host();
   // As the sync leaves it: the old name and key, the PR's new URL.
