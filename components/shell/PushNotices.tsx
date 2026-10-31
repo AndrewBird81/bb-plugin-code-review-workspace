@@ -52,7 +52,7 @@ export function usePrDraftToast(targetKey: string, review: Pick<ReviewLifecycle,
 
 /**
  * The notice for a flagged Push (src/push.ts), plainly, on the review. GitHub isn't at the commit after the push: a
- * warning, with Push again, Open main thread and Got it. The branch has commits that didn't come from Push, a teammate's
+ * warning, with Push again, Main thread ↗ and Got it. The branch has commits that didn't come from Push, a teammate's
  * or CI's as often as a thread's: news, with Update to review them and Got it. `onChanged` reloads the review.
  */
 export function usePushNotices(targetKey: string, review: Pick<ReviewLifecycle, "push"> & { kind?: "pr" | "ref" } | null, onChanged: () => void): Notice[] {
