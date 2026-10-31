@@ -186,8 +186,11 @@ test("only your own PR's threads go with a Send", async () => {
 test("Not pushed yet is the fixer's folder against the PR's head commit, secrets kept out", async () => {
   const p = await ownPr({ over: { mainThread: { threadId: "fresh", environmentId: "env_fix", origin: "fresh", since: 2, branch: "bb/fixes-for-web-12-thr_env_fix" } } });
   const read = await p.rpc("getNotPushed", { targetKey: "pr-1" });
-  expect(read).toMatchObject({ state: "available", base: SHA, branch: "bb/fixes-for-web-12-thr_env_fix", machine: "MaxBook", threadId: "fresh", hidden: [{ path: ".env.local", reason: "secret" }] });
+  expect(read).toMatchObject({ state: "available", base: SHA, onReviewHead: true, branch: "bb/fixes-for-web-12-thr_env_fix", machine: "MaxBook", threadId: "fresh", hidden: [{ path: ".env.local", reason: "secret" }] });
   expect(read.patch).toContain("+const total = 3;");
+  // Once GitHub has newer commits than the review's diff, it's against those, which the review's diff isn't at.
+  await p.store.setLifecycle("pr-1", { latestHeadSha: "9".repeat(40) });
+  expect(await p.rpc("getNotPushed", { targetKey: "pr-1" })).toMatchObject({ state: "available", base: "9".repeat(40), onReviewHead: false });
   expect(read.patch).not.toContain(".env.local");
   expect(p.gitCalls.find((c) => c.method === "files")!.input).toMatchObject({ environmentId: "env_fix", target: { type: "all", mergeBaseBranch: SHA } });
   // With no folder, there's nothing; with its folder gone, it says so.

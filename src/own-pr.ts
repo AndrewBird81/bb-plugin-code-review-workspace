@@ -211,7 +211,7 @@ export async function githubItems(tx: AsyncStore, review: ReviewMeta, ids: reado
 
 /** What Not pushed yet shows: the fixer's folder against the PR's head, or why there's nothing, or it can't be read. */
 export type NotPushed =
-  | { state: "available"; patch: string; base: string; branch: string; machine: string | null; threadId: string | null; hidden: Array<{ path: string; reason: "secret" | "binary" | "large" }>; notice: string | null; environmentId: string; revisions: Record<string, string> }
+  | { state: "available"; patch: string; base: string; onReviewHead: boolean; branch: string; machine: string | null; threadId: string | null; hidden: Array<{ path: string; reason: "secret" | "binary" | "large" }>; notice: string | null; environmentId: string; revisions: Record<string, string> }
   | { state: "none" | "offline" | "gone" | "unavailable"; message: string };
 
 /**
@@ -242,7 +242,7 @@ export async function notPushed(bb: BbPluginApi, review: ReviewMeta): Promise<No
   const read = await readFeatureDiff(bb, { environmentId, machine: machine ?? "Its machine", repo: null, baseRef: sha, workBranch: branch });
   if (read.outcome === "paused") return { state: "unavailable", message: read.message };
   if (read.outcome !== "available") return { state: read.outcome, message: read.message };
-  return { state: "available", patch: read.patch, base: sha, branch, machine, threadId: main?.threadId ?? null, hidden: read.hidden, notice: read.notice, environmentId, revisions: read.revisions };
+  return { state: "available", patch: read.patch, base: sha, onReviewHead: sha === review.headSha, branch, machine, threadId: main?.threadId ?? null, hidden: read.hidden, notice: read.notice, environmentId, revisions: read.revisions };
 }
 
 export function register(deps: ServeDeps) {

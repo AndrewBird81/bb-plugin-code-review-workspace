@@ -1,7 +1,7 @@
 // Not pushed yet, the review's page after its chapters, on a PR whose main thread works in a folder (src/own-pr.ts):
 // what that folder has that the PR's head on GitHub doesn't, committed or not, read when it opens and again on Refresh,
 // in the review's own diff. A new line takes a LOCAL comment there; a removed one is the PR's head's line, which takes
-// a comment in the PR's diff. A local review has no page of its own: its diff is its folder already.
+// a comment in the PR's diff, once the review's diff is at that head. A local review has no page of its own: its diff is its folder already.
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { SelectedLineRange } from "@pierre/diffs";
 import { experimental_useCodeTheme, useRpc } from "@get-bb/plugin-sdk/app";
@@ -42,16 +42,21 @@ export function NotPushedView({ reveal }: { reveal?: { at: CommentLocation; nonc
   // Viewed folds a file while the page shows; it's not the review's, whose files are the PR's.
   const [views, setViews] = useState<Map<string, FileViewFlags>>(() => new Map());
   const toggleViewed = useCallback((file: string, viewed: boolean) => setViews((now) => new Map(now).set(file, { viewed, stale: false })), []);
-  // The PR's diff's new side, which a removed line here is: the line at the PR's head.
+  // The PR's diff's new side, which a removed line here is: the line at the PR's head, when the review's diff is at it,
+  // or else only where that diff has the same line at the same number.
   const onPr = useMemo(() => diffPositions(patch), [patch]);
+  const here = useMemo(() => diffPositions(shown), [shown]);
+  const onReviewHead = read?.state === "available" && read.onReviewHead;
   const draft = useMemo<InlineDraft>(() => ({
     ...localDraft,
     open: (at, start) => {
       if (at.side !== "LEFT") return localDraft.open(at.side === "LOCAL" ? at : { ...at, side: "LOCAL" }, start);
-      if (onPr.get(at.file)?.right.has(at.line)) return followUp(at.file, at.line, "RIGHT");
-      toast.info(onPr.has(at.file) ? "That line isn’t in the PR’s diff. Comment on it in All changes." : "The PR doesn’t change this file, so GitHub takes no comment on it.");
+      const prLine = onPr.get(at.file)?.right.get(at.line);
+      if (prLine !== undefined && (onReviewHead || prLine === here.get(at.file)?.left.get(at.line))) return followUp(at.file, at.line, "RIGHT");
+      toast.info(!onReviewHead ? "The PR has new commits. Update first."
+        : onPr.has(at.file) ? "That line isn’t in the PR’s diff. Comment on it in All changes." : "The PR doesn’t change this file, so GitHub takes no comment on it.");
     },
-  }), [localDraft, onPr, followUp]);
+  }), [localDraft, onPr, here, onReviewHead, followUp]);
   // Picked lines open a comment on them: a range on one side, which the draft checks is in one hunk.
   const pick = useCallback((file: string, range: SelectedLineRange | null) => {
     if (!range || !draft.editable) return;

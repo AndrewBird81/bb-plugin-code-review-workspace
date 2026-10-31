@@ -460,7 +460,9 @@ export const rpcContract = defineRpcContract({
     input: targetKey,
     output: z.union([
       z.object({
-        state: z.literal("available"), patch: z.string(), base: z.string(), branch: z.string(), machine: z.string().nullable(), threadId: z.string().nullable(),
+        state: z.literal("available"), patch: z.string(), base: z.string(), branch: z.string(),
+        /** `base` is the commit the review's diff is at: a removed line here is that diff's new line of its number. */
+        onReviewHead: z.boolean(), machine: z.string().nullable(), threadId: z.string().nullable(),
         hidden: z.array(z.object({ path: z.string(), reason: z.enum(["secret", "binary", "large"]) })), notice: z.string().nullable(),
       }),
       z.object({ state: z.enum(["none", "offline", "gone", "unavailable"]), message: z.string() }),

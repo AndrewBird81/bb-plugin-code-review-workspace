@@ -33,7 +33,7 @@ const review = {
   targetKey: "pr-12", kind: "pr", status: "ready", createdAt: 1, title: "Retry uploads", repo: "acme/web", number: 12, headSha: SHA, url: "https://github.com/acme/web/pull/12",
   author: "me", ownPr: true, projectId: "p1", mainThread: { threadId: "fresh", environmentId: "env_fix", origin: "fresh", since: 1, branch: "bb/fixes-thr_x" },
 };
-const available = { state: "available", patch: folder, base: SHA, branch: "bb/fixes-thr_x", machine: "MaxBook", threadId: "fresh", hidden: [], notice: null };
+const available = { state: "available", patch: folder, base: SHA, onReviewHead: true, branch: "bb/fixes-thr_x", machine: "MaxBook", threadId: "fresh", hidden: [], notice: null };
 
 async function renderReview(rpc: Record<string, unknown> = {}, activeId = "c1", comments: any[] = []) {
   patchReviewState(review.targetKey, { activeId });
@@ -106,6 +106,29 @@ test("a removed line the PR's diff has takes a comment there, at the PR's line; 
   expect(await page.findByRole("textbox", { name: "Draft comment" })).toBeTruthy();
   expect(page.getByText("Writing a comment on src/a.ts:1")).toBeTruthy();
   page.lifecycle.unmount();
+});
+
+test("once the PR has commits the review's diff isn't at, a removed line takes a comment in the PR's diff only where that diff has the same line there; otherwise it says to Update first", async () => {
+  const NEWER = "9".repeat(40);
+  // The PR's newest head has "zz" at line 1, which the review's diff has as "aa"; its line 5 is the same as before.
+  const ahead = "diff --git a/src/a.ts b/src/a.ts\n--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1 +1 @@\n-zz\n+ab\n";
+  const { page } = await renderReview({ getNotPushed: vi.fn(async () => ({ ...available, patch: ahead, base: NEWER, onReviewHead: false })) }, "not-pushed");
+  const file = within(await (await notPushed(page)).findByRole("region", { name: "src/a.ts" }));
+  fireEvent.click(file.getByRole("button", { name: "+ removed line 1" }));
+  expect(toast.info).toHaveBeenCalledWith("The PR has new commits. Update first.");
+  expect(page.getByRole("region", { name: "Not pushed yet" })).toBeTruthy();
+  page.lifecycle.unmount();
+  cleanup();
+  vi.clearAllMocks();
+  // The same line on both sides: the comment goes there.
+  const same = "diff --git a/src/a.ts b/src/a.ts\n--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1 +1 @@\n-aa\n+ab\n";
+  const again = await renderReview({ getNotPushed: vi.fn(async () => ({ ...available, patch: same, base: NEWER, onReviewHead: false })) }, "not-pushed");
+  const sameFile = within(await (await notPushed(again.page)).findByRole("region", { name: "src/a.ts" }));
+  fireEvent.click(sameFile.getByRole("button", { name: "+ removed line 1" }));
+  await waitFor(() => expect(again.page.queryByRole("region", { name: "Not pushed yet" })).toBeNull());
+  expect(again.page.getByText("Writing a comment on src/a.ts:1")).toBeTruthy();
+  expect(toast.info).not.toHaveBeenCalled();
+  again.page.lifecycle.unmount();
 });
 
 test("a LOCAL comment chosen in Comments opens Not pushed yet at its line", async () => {
