@@ -159,6 +159,19 @@ test("T1: a push under another name with no upstream reads that name on GitHub, 
   expect(await s.store.getReview(KEY)).toMatchObject({ kind: "pr", number: 7, head: "feat/nice", feature: { branch: "feat/qa", remoteBranch: "feat/nice" } });
 });
 
+test("T1: a thread that pushes the branch under its own name, without a colon, drops the other name it had pushed it as", async () => {
+  for (const command of ["git push -u origin feat/qa", "git push origin HEAD"]) {
+    const s = await setup();
+    const { feature } = (await s.store.getReview(KEY))!;
+    await s.store.setLifecycle(KEY, { feature: { ...feature!, pushedAs: "feat/nice" } });
+    s.commands.coder = [command];
+    await s.emit("thread.idle", { id: "coder", environmentId: "env1" });
+    expect((await s.store.getReview(KEY))?.feature?.pushedAs, command).toBeUndefined();
+    // Its next read asks GitHub for that name alone.
+    expect(s.reads().map(branchesIn), command).toEqual([["feat/qa"]]);
+  }
+});
+
 test("T1: a thread's push reads nothing while GitHub limits reads or gh isn't signed in, nor within 5 seconds of its last read", async () => {
   const s = await setup();
   s.github.branches["acme/api:feat/qa"] = { sha: "c0ffee", prs: [] };
@@ -188,7 +201,10 @@ test("pushedName: the name a push or a new PR gives the branch on GitHub, never 
   expect(pushedName("git -C ~/src/api push origin part2:refs/heads/feat/nice && gh pr create")).toEqual({ from: "part2", as: "feat/nice" });
   expect(pushedName("gh pr create --head me:feat/nice --fill")).toEqual({ from: null, as: "feat/nice" });
   expect(pushedName("git push https://github.com/acme/api HEAD:feat/x")).toEqual({ from: null, as: "feat/x" });
-  for (const none of ["git push git@github.com:acme/api.git", "git push origin :old", "git push -u origin HEAD", "gh stack push", "npm test"]) expect(pushedName(none)).toBeNull();
+  // Under its own name: the folder's (HEAD), or the branch it names.
+  expect(pushedName("git push -u origin HEAD")).toEqual({ from: null, as: null });
+  expect(pushedName("git push --force-with-lease -o ci.skip origin +refs/heads/feat/qa")).toEqual({ from: "feat/qa", as: "feat/qa" });
+  for (const none of ["git push git@github.com:acme/api.git", "git push origin :old", "git push", "git push -u origin", "git push origin refs/tags/v1", "jj git push --bookmark feat/qa", "gh stack push", "npm test"]) expect(pushedName(none)).toBeNull();
 });
 
 test("forks: a fork's branch finds its PR in the repo it was forked from, never another fork's PR from a branch of the same name", async () => {

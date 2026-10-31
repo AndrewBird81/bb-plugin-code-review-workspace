@@ -42,10 +42,11 @@ const OPENS_PR = /(?:^|[\s;&|"'(])((?:[^\s;&|"'(]*\/)?git(?:\s+-[Cc]\s+\S+|\s+-\
 
 /**
  * The name a command that may have opened a PR gives the branch on GitHub, and the branch it pushes, null for the
- * folder's own (HEAD): `git push origin HEAD:feat/nice`, `gh pr create --head feat/nice`. Null when it names none, as
- * `git push -u origin HEAD` doesn't, or deletes one (`:feat/nice`).
+ * folder's own (HEAD): `git push origin HEAD:feat/nice`, `gh pr create --head feat/nice`. A push of a branch under its
+ * own name, `git push -u origin feat/qa` or `git push origin HEAD`, gives it that name: `as` null for HEAD's. Null when
+ * it names none, as a bare `git push` to the upstream doesn't, or deletes one (`:feat/nice`).
  */
-export function pushedName(command: string): { from: string | null; as: string } | null {
+export function pushedName(command: string): { from: string | null; as: string | null } | null {
   const match = OPENS_PR.exec(command);
   if (!match) return null;
   // Its own words: up to the next command, or the end of a shell's -c "…".
@@ -59,9 +60,14 @@ export function pushedName(command: string): { from: string | null; as: string }
     return head ? { from: null, as: head.replace(/^[^:]*:/, "") } : null;
   }
   // Its last <src>:<dst>, never a remote's URL (https://…, git@github.com:…).
-  const spec = words.slice(words.indexOf("push") + 1).map((word) => /^\+?(@|[^:\s@-][^:\s@]*|):(?:refs\/heads\/)?([^/\s]\S*)$/.exec(word)).filter(Boolean).at(-1);
-  if (!spec?.[1] || !spec[2]) return null;
-  return { from: spec[1] === "HEAD" || spec[1] === "@" ? null : spec[1].replace(/^refs\/heads\//, ""), as: spec[2] };
+  const args = words.slice(words.indexOf("push") + 1);
+  const spec = args.map((word) => /^\+?(@|[^:\s@-][^:\s@]*|):(?:refs\/heads\/)?([^/\s]\S*)$/.exec(word)).filter(Boolean).at(-1);
+  if (spec) return spec[1] && spec[2] ? { from: spec[1] === "HEAD" || spec[1] === "@" ? null : spec[1].replace(/^refs\/heads\//, ""), as: spec[2] } : null;
+  // Its repository, then its refspecs, past its options and their values.
+  const named = args.filter((word, i) => word && !word.startsWith("-") && !/^(-o|--push-option|--repo|--receive-pack|--exec)$/.test(args[i - 1] ?? ""));
+  const own = named.slice(1).at(-1)?.replace(/^\+/, "");
+  if (!own || own.startsWith("refs/") && !own.startsWith("refs/heads/")) return null;
+  return own === "HEAD" || own === "@" ? { from: null, as: null } : { from: own.replace(/^refs\/heads\//, ""), as: own.replace(/^refs\/heads\//, "") };
 }
 
 const PR_NODES = "nodes{ number url createdAt baseRepository{ nameWithOwner } headRepository{ nameWithOwner } }";
@@ -233,7 +239,7 @@ export function register(deps: Deps) {
       const saved = await store.exclusive(async (tx) => {
         const now = await tx.getReview(review.targetKey);
         if (!watched(now)) return false;
-        const pushedAs = name.as === now.feature.branch ? undefined : name.as;
+        const pushedAs = name.as === null || name.as === now.feature.branch ? undefined : name.as;
         if (pushedAs === now.feature.pushedAs) return false;
         await tx.setLifecycle(review.targetKey, { feature: { ...now.feature, pushedAs } });
         return true;
