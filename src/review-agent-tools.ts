@@ -88,6 +88,16 @@ export function register(deps: ServeDeps, { submit }: {
   };
   /** Each open Post form, by its token, to cancel when a yes in chat posts it, or a newer one replaces it. */
   const forms = new Map<string, AbortController>();
+  const startedAt = Date.now();
+  /** A Post form doesn't outlive the plugin: a PR draft said waiting before it started isn't. */
+  async function clearPrDrafts() {
+    const stale = await store.exclusive(async (tx) => {
+      const stale = (await tx.listReviews()).filter((review) => review.prDraft && review.prDraft.at < startedAt);
+      for (const review of stale) await tx.setLifecycle(review.targetKey, { prDraft: null });
+      return stale.map((review) => review.targetKey);
+    });
+    for (const key of stale) changed(key);
+  }
 
   /** The review the agent on `threadId` is for, if it's still one's. */
   const reviewFor = (threadId: string) => store.exclusive(async (tx) => {
@@ -635,6 +645,7 @@ export function register(deps: ServeDeps, { submit }: {
       }), answer);
     },
   });
+  return { clearPrDrafts };
 }
 
 /** The role GitHub needs for a change without text, as github-writes words its refusals. */

@@ -386,6 +386,8 @@ test("once its branch has a PR, the same review becomes the PR's at its head, ke
   await s.store.upsertDraftComment(key, { file: "src/a.ts", line: 3, side: "RIGHT", body: "Keep this", author: "reviewer" } as any);
   // On a file the PR doesn't have.
   await s.store.upsertDraftComment(key, { file: "src/b.ts", line: 1, side: "RIGHT", body: "Not pushed", author: "reviewer" } as any);
+  // The review agent's draft of a PR, waiting in its Post form, is for no PR once the branch has one.
+  await s.store.setLifecycle(key, { prDraft: { at: Date.now(), until: Date.now() + 30 * 60_000 } });
   Object.assign(s.folder, { prBase: "main", pr: { number: 7, url: "https://github.com/acme/api/pull/7", headRefName: "feat/qa" } });
   expect((await checkFeature(s.deps, key)).state).toBe("current");
   const review = (await s.store.getReview(key))!;
@@ -399,7 +401,7 @@ test("once its branch has a PR, the same review becomes the PR's at its head, ke
   expect(await s.store.draftCommentCode(key, { file: "src/b.ts", line: 1, side: "LOCAL" })).toBe("b");
   expect(await prReviewKey(s.store, { repo: "acme/api", number: 7 })).toBe(key);
   // Yours, so Push carries on before the sync has read it, which it does at once; and said, for its notice.
-  expect(review).toMatchObject({ ownPr: true, prPending: null, became: { at: expect.any(Number), number: 7, url: "https://github.com/acme/api/pull/7", from: "api:feat/qa", carried: 2, local: 1, outside: 0 } });
+  expect(review).toMatchObject({ ownPr: true, prPending: null, prDraft: null, became: { at: expect.any(Number), number: 7, url: "https://github.com/acme/api/pull/7", from: "api:feat/qa", carried: 2, local: 1, outside: 0 } });
   expect(s.deps.sync.one).toHaveBeenCalledWith(key, true);
   expect(s.deps.changed).toHaveBeenCalledWith(key);
   await new Promise((resolve) => setTimeout(resolve, 20));

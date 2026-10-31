@@ -1100,6 +1100,14 @@ test("once the review agent's PR draft waits in its Post form, Finish says it's 
   late.slot.lifecycle.unmount();
 });
 
+test("The PR draft is ready goes once its Post form times out, with nothing else changing", async () => {
+  const pushed = { state: "pushed", thenOpenPr: "asked", at: now, threadId: "coder", repo: "acme/web", head: "feat/qa", sha: HEAD };
+  const { slot, part } = await renderPush(pushed, { ...plan({ onGithub: true }), ...sent }, { ...folderReview, prDraft: { at: Date.now(), until: Date.now() + 2000 } });
+  expect(await within(part()).findByText("The PR draft is ready.")).toBeTruthy();
+  await waitFor(() => expect(within(part()).queryByText("The PR draft is ready.")).toBeNull(), { timeout: 5000 });
+  slot.lifecycle.unmount();
+});
+
 test("Push and open PR that couldn't ask the review agent says so only while the branch has no PR, where Open PR is", async () => {
   const failed = { state: "pushed", thenOpenPr: "failed", openPrError: "MaxBook is offline.", at: now, threadId: "coder", repo: "acme/web", head: "feat/qa", sha: HEAD };
   const opened = await renderPush(failed, plan({ onGithub: true, pr: true }));

@@ -164,13 +164,13 @@ function Push({ plan }: { plan: PushPlan | null | undefined }) {
   const [busy, setBusy] = useState<"push" | "anyway" | "update" | "dismiss" | "retry" | null>(null);
   // What went wrong, or that there was nothing to push.
   const [said, setSaid] = useState<{ text: string; error: boolean } | null>(null);
+  const draft = usePrDraftWaiting(review);
   // A local review's folder, or on your PR, the thread fixing it, a fixer's or the folder it became a PR from.
   const target = pushTarget(review);
   if (!sendOn || typeof target === "string") return null;
   const who = target.fixer ? "the fixer" : "the main thread";
   const run = review.push ?? null;
   const sha = run?.sha ? run.sha.slice(0, 7) : "";
-  const draft = prDraftWaiting(review);
   // Push and open PR, unless the agent was asked already, or couldn't be, when Try again asks it again, or its draft waits.
   const both = acts && !!plan?.openable && !plan.pr && run?.thenOpenPr !== "asked" && run?.thenOpenPr !== "failed" && !draft;
   // The agent couldn't be asked to draft the PR, while there's no PR to ask it for.
@@ -311,10 +311,23 @@ function OpenPr({ plan }: { plan: PushPlan | null | undefined }) {
   </Part>;
 }
 
+/** The review agent's PR draft waiting in the Post form in its chat (lib/push.ts prDraftWaiting), read again as the form times out. */
+function usePrDraftWaiting(review: Parameters<typeof prDraftWaiting>[0]) {
+  const draft = prDraftWaiting(review);
+  const until = draft?.until;
+  const [, timedOut] = useState(0);
+  useEffect(() => {
+    if (until === undefined) return;
+    const timer = setTimeout(() => timedOut((n) => n + 1), until - Date.now());
+    return () => clearTimeout(timer);
+  }, [until]);
+  return draft;
+}
+
 /** The review agent's PR draft, waiting in the Post form in its chat: Post PR… opens its tab, where the form is. */
 function PrDraftReady() {
   const { review, panel } = useWorkspace();
-  if (!prDraftWaiting(review)) return null;
+  if (!usePrDraftWaiting(review)) return null;
   return <div role="status" className="flex flex-wrap items-center gap-x-2 gap-y-1.5 text-sm">
     <span className="flex gap-1.5"><Icon name="GitPullRequest" className="mt-0.5 size-4 shrink-0 text-primary" aria-hidden />The PR draft is ready.</span>
     <Button size="sm" className={cn("gap-1.5", TOUCH_CONTROL)} onClick={() => panel.open("agent")}>Post PR…</Button>

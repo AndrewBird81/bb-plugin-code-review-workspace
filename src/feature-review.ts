@@ -556,8 +556,8 @@ async function convertIn(db: Store, review: ReviewMeta & { feature: FeatureRevie
       ...review.feature, prReview: undefined, ...read.headRefName !== review.feature.branch ? { remoteBranch: read.headRefName } : {},
       ...sameChanges(previous, next) ? {} : { guideOlderThanDiff: "pr" as const },
     },
-    // Yours, until the sync reads it, so Push carries on (lib/push.ts pushTarget).
-    ownPr: true, prPending: null, prOffer: null,
+    // Yours, until the sync reads it, so Push carries on (lib/push.ts pushTarget). A PR draft waiting is for no PR now.
+    ownPr: true, prPending: null, prOffer: null, prDraft: null,
     // The PR is open: Push and open PR's intent goes, asked or failed, with Open PR (src/push.ts openPrAfter).
     ...review.push?.thenOpenPr ? { push: withoutOpenPr(review.push) } : {},
     // What the review showed of what the folder has that the PR doesn't: a Push waiting on its commit checks it there.

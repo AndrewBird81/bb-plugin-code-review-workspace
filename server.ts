@@ -314,7 +314,7 @@ function servePlugin(bb: BbPluginApi, { configured, store, interrupted }: Awaite
   patchTools.register(moduleDeps);
   draftTools.register(moduleDeps);
   feedbackTools.register(moduleDeps);
-  reviewAgentTools.register(moduleDeps, { submit: draft.submit });
+  const agentTools = reviewAgentTools.register(moduleDeps, { submit: draft.submit });
   const relays = relaysModule.register(moduleDeps, { submit: draft.submit });
   const events = assistantEvents.register(moduleDeps);
   guideTool.register(moduleDeps);
@@ -402,6 +402,7 @@ function servePlugin(bb: BbPluginApi, { configured, store, interrupted }: Awaite
       if (sharedWithReplaced) configured.readAllAfterNextTurn();
       // What happened to the main threads while the plugin was down: BB doesn't tell its events again.
       await updates.run(() => reports.reconcile(), false).catch((error) => bb.log.warn(`Could not read the main threads again: ${String(error)}`));
+      await updates.run(() => agentTools.clearPrDrafts(), false).catch((error) => bb.log.warn(`Could not clear the PR drafts of Post forms from before the plugin started: ${String(error)}`));
       while (!signal.aborted) {
         await updates.run(() => sync.all(), false).catch(() => {});
         await updates.run(() => watching.poll(), false).catch(() => {});

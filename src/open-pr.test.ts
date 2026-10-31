@@ -14,6 +14,7 @@ import { folderHost, type Folder } from "./env-diff.test-support";
 import { agentChat, MARK_PART } from "./agent-chat.test-support";
 import { sendToAgent } from "./asking";
 import { startPlugin } from "./plugin-store.test-support";
+import { testStore } from "./test-store.test-support";
 import { featureKey, prReviewKey } from "./targets";
 import { prBase } from "./open-pr";
 import { affirms } from "./post-preview";
@@ -123,6 +124,18 @@ test("the PR's draft waiting in the Post form is on the review, for Finish revie
   harness.behavior.cancelInteraction(harness.inspection.pendingInteractions[0]!.id);
   expect(toolFailed(await call)).toBe(true);
   expect((await store.getReview(KEY))?.prDraft).toBeNull();
+});
+
+test("a PR draft said waiting when the plugin stopped, whose Post form went with it, isn't once it starts again", async () => {
+  const { bb, harness } = folderHost({ files: [] });
+  const before = testStore(bb);
+  await before.saveReview({ targetKey: KEY, kind: "ref", gitRef: "feat/qa", title: "Snooze flaky checks", createdAt: 1, status: "ready", projectId: "proj_api" });
+  await before.setLifecycle(KEY, { prDraft: { at: Date.now() - 1, until: Date.now() + 30 * 60_000 } });
+  const store = await startPlugin(bb);
+  const { controller, done } = harness.runService("review-state");
+  await vi.waitFor(async () => expect((await store.getReview(KEY))?.prDraft).toBeNull());
+  controller.abort();
+  await done;
 });
 
 test("a yes for what's no longer the same, as a new title, opens nothing and shows it again", async () => {
