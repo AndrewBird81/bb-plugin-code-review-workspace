@@ -365,14 +365,24 @@ test("after Not this one, a local review's Review actions offers Make it PR #12'
   const takePendingPr = vi.fn(() => ({ ok: true }));
   const local = { kind: "ref", gitRef: "main...feat/qa", url: null };
   const pending = { number: 12, url: "https://github.com/acme/web/pull/12", why: "older", at: 1 };
-  let { bar, page } = await renderReview({ review: { ...local, prPending: { ...pending, declined: true } }, rpc: { takePendingPr } });
-  fireEvent.click(await bar!.findByRole("button", { name: "Review actions" }));
-  fireEvent.click(await bar!.findByRole("button", { name: "Make it PR #12’s review" }));
-  await waitFor(() => expect(takePendingPr).toHaveBeenCalledWith({ targetKey: "pr-42" }));
-  page.lifecycle.unmount(); bar!.lifecycle.unmount();
+  // Its line says why it was held, as the notice did.
+  const lines = [
+    { prPending: { ...pending, declined: true }, line: "This branch has PR #12, opened before this review." },
+    { prPending: { ...pending, why: "branch", head: "part1", declined: true }, line: "PR #12 is from part1, not this branch." },
+  ];
+  for (const { prPending, line } of lines) {
+    const { bar, page } = await renderReview({ review: { ...local, prPending }, rpc: { takePendingPr } });
+    fireEvent.click(await bar!.findByRole("button", { name: "Review actions" }));
+    const take = await bar!.findByRole("button", { name: "Make it PR #12’s review" });
+    expect(take.textContent).toContain(line);
+    expect(take.getAttribute("aria-description")).toBe(line);
+    fireEvent.click(take);
+    await waitFor(() => expect(takePendingPr).toHaveBeenLastCalledWith({ targetKey: "pr-42" }));
+    page.lifecycle.unmount(); bar!.lifecycle.unmount();
+  }
   // Not declined, the notice offers it; GitHub not answering, its Try again.
   for (const prPending of [pending, { ...pending, why: "error", declined: true }]) {
-    ({ bar, page } = await renderReview({ review: { ...local, prPending } }));
+    const { bar, page } = await renderReview({ review: { ...local, prPending } });
     fireEvent.click(await bar!.findByRole("button", { name: "Review actions" }));
     expect(within((await bar!.findByRole("button", { name: "Rename…" })).parentElement!).queryByRole("button", { name: "Make it PR #12’s review" })).toBeNull();
     page.lifecycle.unmount(); bar!.lifecycle.unmount();

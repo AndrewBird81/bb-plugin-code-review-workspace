@@ -167,7 +167,9 @@ export function ReviewMenu({ api, className }: { api: WorkspaceApi; className?: 
   };
   const dismissed: ReviewMenuItem[] = api.review.archivedAt ? [] : [
     ...keptApart ? [{ label: "Merge into one review", icon: "GitMerge", detail: keptApartLine(keptApart, !local), onSelect: call(() => rpc.call("mergeReviews", { targetKey: api.targetKey }), "Couldn’t merge the two reviews.") } satisfies ReviewMenuItem] : [],
-    ...local && prPending?.declined && prPending.why !== "error" ? [{ label: `Make it PR #${prPending.number}’s review`, icon: "GitPullRequest", onSelect: call(() => rpc.call("takePendingPr", { targetKey: api.targetKey }), "Couldn’t make it the PR’s review.") } satisfies ReviewMenuItem] : [],
+    // Why it was held, as its notice said.
+    ...local && prPending?.declined && prPending.why !== "error" ? [{ label: `Make it PR #${prPending.number}’s review`, icon: "GitPullRequest",
+      detail: prPending.why === "branch" && prPending.head ? `PR #${prPending.number} is from ${prPending.head}, not this branch.` : `This branch has PR #${prPending.number}, opened before this review.`, onSelect: call(() => rpc.call("takePendingPr", { targetKey: api.targetKey }), "Couldn’t make it the PR’s review.") } satisfies ReviewMenuItem] : [],
   ];
   const items: ReviewMenuItem[] = [...api.review.archivedAt || local ? [] : [{ label: api.newCommits ? "Update guide" : "Rebuild guide", icon: "ArrowReloadHorizontal", onSelect: () => void api.rebuild() } satisfies ReviewMenuItem], ...dismissed];
   const afterRename: ReviewMenuItem[] = api.review.archivedAt || !local ? [] : [{ label: "Rewrite guide", icon: "Sparkles", agent: true, description: REWRITE_GUIDE, onSelect: () => void api.rebuild() }];
