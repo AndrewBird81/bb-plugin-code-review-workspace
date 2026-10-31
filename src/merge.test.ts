@@ -247,6 +247,8 @@ test("a comment a thread tracks that can't stay where it was, its place taken, g
   expect(draft.comments.map((c) => [c.line, c.body, c.id])).toEqual([[5, "Same", "c2"], [6, "Mine at four", "c5"], [4, "Why two?", "c1"], [1, "Lost", undefined]]);
   expect(draft.body).toBe("Mine\n\nTheirs\n\n- On `a.ts:4` (an earlier diff): Theirs at four");
   expect((await store.getDraft(P)).comments).toEqual([expect.objectContaining({ ...at(4), body: "Theirs at four", id: "c3", state: "sent", sendN: 3 })]);
+  // Its discussion goes on in the summary's, beside the line it went into.
+  expect((await store.listDiscussions(S)).find((d) => d.file === "")?.entries.map((e) => e.body)).toEqual(["About the summary", "On theirs at four"]);
   // Without its repo, its link and key kept: 1.8.1, after a rollback, never posts it.
   const away = (await store.getReview(P))!;
   expect(away).toMatchObject({ targetKey: P, kind: "pr", number: 7, url: "https://github.com/acme/api/pull/7", mergedInto: S });

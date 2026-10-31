@@ -957,8 +957,12 @@ export function storeOn(sql: Sql): Store {
           }
           if (isLocal(c) || there && there.body !== c.body) {
             (isLocal(c) ? toNotes : toSummary).push(c);
-            if (c.id !== undefined) stranded.push({ ...c, ...renumberedSend });
-            await sql.run(`DELETE FROM discussion_entries WHERE target_key=? AND file=? AND line=? AND side=?`, at(from, c));
+            // One a thread tracks, which keeps its id, keeps its discussion too, in this review's summary's.
+            if (c.id !== undefined) {
+              stranded.push({ ...c, ...renumberedSend });
+              await sql.run(`UPDATE discussion_entries SET target_key=?, file=?, line=?, side=?, start_line=NULL WHERE target_key=? AND file=? AND line=? AND side=?`, [...at(into, SUMMARY_AT), ...at(from, c)]);
+              if ((await stopWaitingAt(from, c)).changes) await sql.run(`INSERT INTO discussion_waits (target_key,file,line,side) VALUES (?,?,?,?) ON CONFLICT DO NOTHING`, at(into, SUMMARY_AT));
+            } else await sql.run(`DELETE FROM discussion_entries WHERE target_key=? AND file=? AND line=? AND side=?`, at(from, c));
             continue;
           }
           if (there) {
