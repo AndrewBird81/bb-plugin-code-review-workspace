@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import { parsePrLink } from "../lib/pr-link";
 import { localIdOf, reviewIdentity } from "../lib/review-identity";
-import { placeFacts, reviewPlaces } from "./review-places";
+import { placeFacts, reviewPlaces, type PlaceFacts } from "./review-places";
 import type { ReviewMeta } from "./store";
 import type { AsyncStore } from "./store-queue";
 
@@ -75,9 +75,10 @@ export async function prReviewKey(store: Pick<AsyncStore, "getReview" | "listRev
  * The review `given` names, as every command takes it: its key; a PR's link or owner/repo#n; its id as the review shows
  * it, api#4512 or api:feat; a folder's review's id from before it became its PR's (localIdOf); the id of a review
  * merged into it; or its id on a branch it followed its folder off. One merged into another names that one. Of the reviews an id names, one not archived, then the
- * newest. Null for none.
+ * newest. Null for none. `facts`: bb's facts for local reviews' ids, read before; without them it reads them, so not in
+ * the store's lock.
  */
-export async function reviewNamed(store: AsyncStore, bb: BbPluginApi, given: string): Promise<ReviewMeta | null> {
+export async function reviewNamed(store: AsyncStore, bb: BbPluginApi, given: string, facts?: PlaceFacts): Promise<ReviewMeta | null> {
   const text = given.trim();
   if (!text) return null;
   const all = await store.listReviews();
@@ -86,7 +87,7 @@ export async function reviewNamed(store: AsyncStore, bb: BbPluginApi, given: str
   if (keyed) return merged(keyed);
   const link = parsePrLink(text);
   if (link) return store.getReview(await prReviewKey(store, link));
-  const places = reviewPlaces(await placeFacts(bb, all), all);
+  const places = reviewPlaces(facts ?? await placeFacts(bb, all), all);
   const archived = (review: ReviewMeta) => Number(!!(review.archivedAt || review.userArchivedAt));
   // Each id in turn.
   const ids: Array<(review: ReviewMeta) => Array<string | null>> = [

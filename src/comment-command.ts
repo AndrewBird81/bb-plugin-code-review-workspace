@@ -1,5 +1,6 @@
 import { NOT_OWN_REVIEW } from "./review-command";
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
+import { placeFacts } from "./review-places";
 import { reviewNamed } from "./targets";
 import { addComment, deleteComment, describeComments, editComment, listComments, type DraftResult } from "./draft-comments";
 import { SEVERITIES, type Severity } from "./draft";
@@ -49,6 +50,8 @@ export async function firstGuideRefusal(store: AsyncStore, targetKey: string): P
 /** `bb review comment …`: list and change a review's draft comments. `changed` runs after a successful change.
  * `ownReview`, set when a review's own agent runs it, refuses every other review. */
 export async function runCommentCommand(store: AsyncStore, bb: BbPluginApi, argv: string[], changed: (targetKey: string) => void, ownReview?: string): Promise<CliResult> {
+  // What names a local review by its id, asked of bb before the lock, as every other store call waits on it.
+  const facts = await placeFacts(bb, await store.listReviews());
   return store.exclusive(async (tx) => {
     const [action, ...rest] = argv;
     if (action === "--help" || action === "-h") return { exitCode: 0, stdout: COMMENT_USAGE };
@@ -69,7 +72,7 @@ export async function runCommentCommand(store: AsyncStore, bb: BbPluginApi, argv
     }
     if (positional.length !== (spec.location ? 2 : 1)) return usage(spec.location ? "Give the review and the comment's <file>:<line>." : "Give the review.");
 
-    const named = await reviewNamed(tx, bb, positional[0]);
+    const named = await reviewNamed(tx, bb, positional[0], facts);
     if (ownReview !== undefined && named?.targetKey !== ownReview) return { exitCode: 2, stderr: NOT_OWN_REVIEW };
     if (!named) return { exitCode: 1, stderr: `No saved review for ${positional[0]}. Pass its id, the PR's URL or the review's key.` };
     const key = named.targetKey;

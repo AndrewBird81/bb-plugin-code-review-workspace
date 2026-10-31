@@ -2,6 +2,7 @@ import { NOT_OWN_REVIEW } from "./review-command";
 import { BODY_LIMIT, firstGuideRefusal } from "./comment-command";
 import { verdictPicked, type Verdict } from "./draft";
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
+import { placeFacts } from "./review-places";
 import { reviewNamed } from "./targets";
 import { describeSummary, writeSummary } from "./draft-summary";
 import type { AsyncStore } from "./store-queue";
@@ -25,6 +26,8 @@ const usage = (problem: string): CliResult => ({ exitCode: 2, stderr: `${problem
 /** `bb review summary …`: show or write a review's summary as an agent. `changed` runs after a successful change.
  * `ownReview`, set when a review's own agent runs it, refuses every other review. */
 export async function runSummaryCommand(store: AsyncStore, bb: BbPluginApi, argv: string[], changed: (targetKey: string) => void, ownReview?: string): Promise<CliResult> {
+  // What names a local review by its id, asked of bb before the lock, as every other store call waits on it.
+  const facts = await placeFacts(bb, await store.listReviews());
   return store.exclusive(async (tx) => {
     const positional: string[] = [];
     const values: { body?: string; suggest?: string; json?: string } = {};
@@ -47,7 +50,7 @@ export async function runSummaryCommand(store: AsyncStore, bb: BbPluginApi, argv
     const suggest = values.suggest?.toUpperCase();
     if (suggest !== undefined && !VERDICTS.includes(suggest)) return usage("--suggest is APPROVE, COMMENT, or REQUEST_CHANGES.");
 
-    const named = await reviewNamed(tx, bb, positional[0]);
+    const named = await reviewNamed(tx, bb, positional[0], facts);
     if (ownReview !== undefined && named?.targetKey !== ownReview) return { exitCode: 2, stderr: NOT_OWN_REVIEW };
     if (!named) return { exitCode: 1, stderr: `No saved review for ${positional[0]}. Pass its id, the PR's URL or the review's key.` };
     const key = named.targetKey;
