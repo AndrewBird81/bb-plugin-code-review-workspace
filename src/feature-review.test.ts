@@ -203,11 +203,14 @@ test("a branch switch pauses the review, Update waits, and switching back resume
   expect(computeTurn(resumed).group).toBe("needs");
 });
 
-/** The folder's git, as bb's Git plugin answers: its head, which commits it has, and whether its old branch is still there. */
+/**
+ * The folder's git, as bb's Git plugin answers: its head, which commits it has, whether its old branch is still there,
+ * and whether its base has the branch's commits (merged into it), so none are the head's own since the base.
+ */
 function renaming(s: ReturnType<typeof setup>) {
-  const git = { head: "a1".repeat(20), has: true, oldBranch: "missing" };
+  const git = { head: "a1".repeat(20), has: true, oldBranch: "missing", merged: false };
   s.folder.answers = {
-    workspaceStatus: (input) => ({ outcome: "available", workspace: { checkout: { headSha: git.head }, mergeBase: input.mergeBaseBranch ? { behindCount: git.has ? 0 : 3 } : null } }),
+    workspaceStatus: (input) => ({ outcome: "available", workspace: { checkout: { headSha: git.head }, mergeBase: input.mergeBaseBranch ? { aheadCount: 2, behindCount: git.has ? 0 : 3, commits: input.mergeBaseBranch === "main" && git.merged ? [] : [{ sha: git.head }, { sha: "a1".repeat(20) }] } : null } }),
     branches: (input) => ({ selectedBranch: { name: input.selectedBranch, kind: git.oldBranch } }),
   };
   return git;
@@ -233,6 +236,21 @@ test("a branch renamed in its folder is followed: the same review, its old branc
   expect((await reviewNamed(s.store, s.bb, "api:feat/qa"))?.targetKey).toBe(key);
   await s.store.setLifecycle(key, { followed: null });
   expect((await reviewNamed(s.store, s.bb, "api:feat/qa"))?.targetKey).toBe(key);
+});
+
+test("a branch merged into its base and deleted, then a new one made from the base, isn't a rename: the review pauses, with Follow and New review", async () => {
+  const s = setup();
+  const git = renaming(s);
+  await run(s, "main");
+  await settled(s);
+  await checkFeature(s.deps, key);
+  // gh pr merge --merge --delete-branch, then git switch -c next main: next has the review's last commit, through main.
+  git.merged = true;
+  s.folder.env = { ...s.folder.env, branchName: "next" };
+  git.head = "c3".repeat(20);
+  expect(await checkFeature(s.deps, key)).toMatchObject({ state: "paused", branch: "next" });
+  expect(await s.store.getReview(key)).toMatchObject({ gitRef: "feat/qa", feature: { branch: "feat/qa", pausedOn: "next" } });
+  expect((await s.store.getReview(key))?.followed).toBeUndefined();
 });
 
 test("a branch made from the review's (checkout -b), or one without its last commit, pauses it, with Follow and New review for that branch", async () => {

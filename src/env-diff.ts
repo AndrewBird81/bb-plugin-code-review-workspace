@@ -86,7 +86,7 @@ export function callGit<T>(bb: BbPluginApi, method: string, input: Parameters<Bb
 
 const statusOutput = z.object({ outcome: z.string(), workspace: z.object({
   checkout: z.object({ headSha: z.string().nullable().optional() }).optional(),
-  mergeBase: z.object({ behindCount: z.number().optional() }).nullable().optional(),
+  mergeBase: z.object({ behindCount: z.number().optional(), commits: z.array(z.object({ sha: z.string() })).optional() }).nullable().optional(),
 }).optional() });
 const branchesOutput = z.object({ selectedBranch: z.object({ name: z.string(), kind: z.string() }).nullable() });
 
@@ -94,6 +94,12 @@ const branchesOutput = z.object({ selectedBranch: z.object({ name: z.string(), k
 export async function folderHas(bb: BbPluginApi, environmentId: string, sha: string): Promise<boolean> {
   const read = await callGit(bb, "workspaceStatus", { environmentId, mergeBaseBranch: sha }, statusOutput).catch(() => null);
   return read?.outcome === "available" && read.workspace?.mergeBase?.behindCount === 0;
+}
+
+/** Whether commit `sha` is one of the folder's head's own since `base`, so `base` hasn't it. False when bb can't say. */
+export async function folderHasSince(bb: BbPluginApi, environmentId: string, base: string, sha: string): Promise<boolean> {
+  const read = await callGit(bb, "workspaceStatus", { environmentId, mergeBaseBranch: base }, statusOutput).catch(() => null);
+  return read?.outcome === "available" && !!read.workspace?.mergeBase?.commits?.some((commit) => commit.sha === sha);
 }
 
 /** The folder's head commit; null when bb can't say. */

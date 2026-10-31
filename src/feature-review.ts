@@ -5,7 +5,7 @@
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import { placeOn, reanchorDraft, type FeatureReview, type MainThread, type ReviewLifecycle, type ReviewMeta, type Store } from "./store";
 import type { AsyncStore } from "./store-queue";
-import { diffFilesHead, folderHas, folderHasBranch, folderHead, isNotFound, isSecretPath, readFeatureDiff, readFeatureRevisions, type FeatureDiff, type FolderPr, type HiddenFile } from "./env-diff";
+import { diffFilesHead, folderHas, folderHasBranch, folderHasSince, folderHead, isNotFound, isSecretPath, readFeatureDiff, readFeatureRevisions, type FeatureDiff, type FolderPr, type HiddenFile } from "./env-diff";
 import { featureKey, mergedSurvivor, prReviewKey, targetKey } from "./targets";
 import { beginGuide, guideWriterUnavailable, stopGuide } from "./generate";
 import { pruneDiffs } from "./feedback-view";
@@ -575,9 +575,11 @@ export async function checkFeature(deps: Deps, key: string): Promise<FeatureChec
   }
   if (read.outcome === "paused") {
     const other = read.branch ? reviewOfFolder(await store.listReviews(), feature.environmentId, read.branch)?.targetKey : undefined;
-    // Its branch renamed: the branch it was on is gone, and the one it's on has its last commit. It follows, and says so.
+    // Its branch renamed: the branch it was on is gone, and the one it's on has its last commit, which its base hasn't (a
+    // branch merged into the base and deleted isn't renamed). It follows, and says so.
     if (read.branch && !other && !feature.workBranch && feature.headSha && await folderHasBranch(bb, feature.environmentId, feature.branch) === false
-      && await folderHas(bb, feature.environmentId, feature.headSha) && await followBranch(deps, key, read.branch, true)) return checkFeature(deps, key);
+      && await folderHas(bb, feature.environmentId, feature.headSha) && await folderHasSince(bb, feature.environmentId, feature.baseRef, feature.headSha)
+      && await followBranch(deps, key, read.branch, true)) return checkFeature(deps, key);
     return { ...withOthers, state: "paused", branch: read.branch, ...other ? { branchReview: other } : {} };
   }
   if (read.outcome !== "available") return { ...withOthers, state: read.outcome, message: read.message };
