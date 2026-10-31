@@ -65,10 +65,13 @@ export async function afterMerge(deps: Deps, from: string, into: string): Promis
   deps.changed(from);
 }
 
-/** Merge `from` into `into` now, a guide still being written for `from` stopped first. Returns whether it merged (mergeIn). */
+/**
+ * Merge `from` into `into` now, a guide still being written for `from` stopped first, in one transaction: a failure
+ * leaves both as they were, never merged with no notice or note. Returns whether it merged (mergeIn).
+ */
 export async function mergeReviews(deps: Deps, from: string, into: string): Promise<boolean> {
   if ((await deps.store.getReview(from))?.status === "generating") await stopGuide(deps.bb, deps.store, from);
-  const merged = await deps.store.exclusive((tx) => mergeIn(tx, from, into));
+  const merged = await deps.store.exclusive((tx) => tx.transaction((db) => mergeIn(db, from, into)));
   if (merged) await afterMerge(deps, from, into);
   return merged;
 }

@@ -314,6 +314,17 @@ test("a merge that fails partway changes nothing", async () => {
   expect((await store.getReview(P))?.mergedInto).toBeUndefined();
 });
 
+test("a merge whose note to the agent, or tally, fails after the reviews merged changes nothing: the merge, the notice and the agent's note are one step", async () => {
+  const { bb, store, sql } = await setup();
+  const before = { p: await store.getDraft(P), s: await store.getDraft(S), review: await store.getReview(S) };
+  const dropping: typeof sql = { ...sql, run: (text, params) => /review_lifecycle/.test(text) && JSON.stringify(params).includes("agentPrNote") ? Promise.reject(new Error("Connection terminated unexpectedly")) : sql.run(text, params) };
+  await expect(mergeReviews({ bb, store: queueStore(storeOn(dropping)), changed: vi.fn() }, P, S)).rejects.toThrow("Connection terminated unexpectedly");
+  expect((await store.getReview(P))?.mergedInto).toBeUndefined();
+  expect(await store.getDraft(P)).toEqual(before.p);
+  expect(await store.getDraft(S)).toEqual(before.s);
+  expect(await store.getReview(S)).toEqual(before.review);
+});
+
 test("a review merged into one that was merged in turn names the last: its PR's key, its key and its ids lead there", async () => {
   const { bb } = createFakePluginHost({ pluginId: "code-review-workspace" });
   const store = testStore(bb);
