@@ -231,7 +231,8 @@ test("a local review's Finish review counts the open comments Send would send, w
   const finish = await commands.findByRole("button", { name: "Finish review: 2 comments to send" });
   expect(finish.textContent).toBe("Finish review· 2");
   expect(finish.getAttribute("aria-keyshortcuts")).toBe("s");
-  expect(finish.querySelector("svg")?.getAttribute("data-icon")).toBe("Github");
+  // Nothing goes to GitHub: Send's icon.
+  expect(finish.querySelector("svg")?.getAttribute("data-icon")).toBe("Send");
   fireEvent.click(finish);
   expect(finish.getAttribute("aria-pressed")).toBe("true");
   expect(page.getByRole("complementary", { name: "Comments and Finish review" })).toBeTruthy();

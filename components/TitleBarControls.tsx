@@ -111,7 +111,8 @@ function ReviewControls({ api, placement }: { api: WorkspaceApi; placement: Titl
         </Hint>}
         {(status || localToSend !== null) && <Hint label={keyHint("Finish review", "s", api.shortcuts)} container={container}>
           <Button variant="ghost" size="sm" aria-label={finishLabel} aria-pressed={panel.view === "finish"} aria-controls={controls} aria-keyshortcuts={ariaKeys("s", api.shortcuts)} className={labeled} onClick={() => panel.view === "finish" ? panel.close() : api.openFinish()}>
-            <Icon name="Github" aria-hidden />
+            {/* A local review's goes to the main thread, not GitHub. */}
+            <Icon name={status ? "Github" : "Send"} aria-hidden />
             {/* A band under 720px (full screen on a phone) keeps its room for where you are: the icon and the count. */}
             <span className={cn(placement === "band" && "@max-[720px]/band:hidden")}>{tier === "labeled" ? "Finish review" : "Finish"}</span>
             {tier === "labeled" && status && <span className="font-normal text-subtle-foreground">· {VERDICT_LABEL[status.verdict]}</span>}
