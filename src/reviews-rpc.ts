@@ -110,8 +110,9 @@ export function register(deps: ServeDeps) {
         const review = owned && await decorate(owned, turnOptions((await tx.getPreferences()).preferences), stacks, reviewPlaces(facts, all), await guideTitles(tx, [owned]));
         // Reads of a local review's earlier diff don't count toward its rebuilt one, which the client can't tell apart.
         if (review?.agentReads && review.agentReads.head !== await agentReadsHead(tx, targetKey)) review.agentReads = null;
-        // The PR's own review names the folder's review offering to merge with it (src/merge.ts), and its comments.
-        const offering = all.find((other) => other.kind === "ref" && !other.archivedAt && (other.prOffer?.key ?? other.feature?.prReview) === targetKey);
+        // The PR's own review names the folder's review offering to merge with it (src/merge.ts), and its comments; not
+        // one you kept apart from it.
+        const offering = all.find((other) => other.kind === "ref" && !other.archivedAt && other.mergeDeclined !== targetKey && (other.prOffer?.key ?? other.feature?.prReview) === targetKey);
         if (review && offering) {
           review.localReview = { targetKey: offering.targetKey, id: identityIn(facts, all, offering).id, comments: (await tx.getDraft(offering.targetKey)).comments.length, ...offering.prOffer?.intoPr ? { intoPr: true } : {} };
         }

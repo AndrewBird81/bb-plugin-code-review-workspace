@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test, vi } from "vitest";
-import { cleanup, fireEvent, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import { toast } from "sonner";
 import { defaultPreferences } from "../src/preferences";
@@ -94,36 +94,65 @@ test("a converted review with no merge offers no agent chat", async () => {
   slot.lifecycle.unmount();
 });
 
-test("a folder's review whose PR has a review of its own offers Merge into this review, or PR #4512’s review ↗", async () => {
+test("a folder's review whose PR has a review of its own says which stays, with Merge into one review, PR #4512’s review ↗ and Keep both", async () => {
   const mergeReviews = vi.fn(() => ({ ok: true, targetKey: KEY }));
-  const { slot, rpc } = await renderWorkspace({ ...local, prOffer: { key: "pr-x", number: 4512, url: URL, moves: { comments: 3, summary: true, sends: 0 } } }, { mergeReviews });
-  await slot.findByText("PR #4512 has a review of its own, with 3 comments and a summary.");
-  const offer = notice("PR #4512 has a review of its own");
-  const merge = within(offer).getByRole("button", { name: "Merge into this review" });
-  expect(merge.getAttribute("aria-description")).toBe("Its comments, summary, notes, Sends and viewed files move here. The other review goes to Archive.");
+  const offered = { ...local, prOffer: { key: "pr-x", number: 4512, url: URL, moves: { comments: 3, summary: true, sends: 0 } } };
+  const { slot, rpc } = await renderWorkspace(offered, { mergeReviews });
+  await slot.findByText("PR #4512 has its own review, with 3 comments and a summary. Merging keeps this one and archives that one.");
+  const offer = notice("PR #4512 has its own review");
+  expect(within(offer).getAllByRole("button").map((button) => button.textContent)).toEqual(["Merge into one review", "PR #4512’s review ↗", "Keep both"]);
+  const merge = within(offer).getByRole("button", { name: "Merge into one review" });
   fireEvent.click(within(offer).getByRole("button", { name: "PR #4512’s review" }));
   expect(slot.inspection.navigateCalls).toContainEqual({ method: "toPluginPanel", path: "review", options: { subPath: "pr-x" } });
   fireEvent.click(merge);
   await waitFor(() => expect(mergeReviews).toHaveBeenCalledWith({ targetKey: KEY }));
   await waitFor(() => expect(rpc.getReviewBundle.mock.calls.length).toBeGreaterThan(1));
   slot.lifecycle.unmount();
+  cleanup();
+
+  // Going into the PR's review, which began as another folder's, it says that one stays.
+  const into = await renderWorkspace({ ...offered, prOffer: { ...offered.prOffer, intoPr: true } });
+  await into.slot.findByText("PR #4512 has its own review, with 3 comments and a summary. Merging keeps that one and archives this one.");
+  into.slot.lifecycle.unmount();
+  cleanup();
+
+  // Keep both: no offer, on either review, from then on.
+  const keepBothReviews = vi.fn(() => ({ ok: true }));
+  const keeping = await renderWorkspace(offered, { keepBothReviews });
+  fireEvent.click(within(notice("PR #4512 has its own review")).getByRole("button", { name: "Keep both" }));
+  await waitFor(() => expect(keepBothReviews).toHaveBeenCalledWith({ targetKey: KEY }));
+  keeping.slot.lifecycle.unmount();
+  cleanup();
+  const kept = await renderWorkspace({ ...offered, mergeDeclined: "pr-x" });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  expect(kept.slot.queryByText(/has its own review/)).toBeNull();
+  kept.slot.lifecycle.unmount();
 });
 
-test("the PR's own review names its branch's local review, with Merge the two, or a link named by its id", async () => {
+test("the PR's own review names its branch's local review and which stays, with Merge into one review, Local review ↗ and Keep both", async () => {
   const mergeReviews = vi.fn(() => ({ ok: true, targetKey: "br-2" }));
-  const { slot } = await renderWorkspace({ targetKey: KEY, kind: "pr", repo: "acme/api", number: 4512, url: URL, status: "ready", createdAt: 1, localReview: { targetKey: "br-2", id: "api:snooze-checks", comments: 6 } }, { mergeReviews });
+  const keepBothReviews = vi.fn(() => ({ ok: true }));
+  const pr = { targetKey: KEY, kind: "pr", repo: "acme/api", number: 4512, url: URL, status: "ready", createdAt: 1, localReview: { targetKey: "br-2", id: "api:snooze-checks", comments: 1 } };
+  const { slot } = await renderWorkspace(pr, { mergeReviews, keepBothReviews });
   await slot.findByText(/local review/);
   const offer = notice("This PR’s branch has a local review");
-  expect(offer.textContent).toContain("This PR’s branch has a local review, api:snooze-checks, with 6 comments.");
-  const open = within(offer).getByRole("button", { name: "api:snooze-checks" });
-  expect(open.textContent).toBe("api:snooze-checks ↗");
-  // In monospace, as the sentence names it.
-  expect(within(open).getByText("api:snooze-checks").className).toContain("font-mono");
+  expect(offer.textContent).toContain("This PR’s branch has a local review with 1 comment. Merging keeps that one and archives this one.");
+  expect(within(offer).getAllByRole("button").map((button) => button.textContent)).toEqual(["Merge into one review", "Local review ↗", "Keep both"]);
+  const open = within(offer).getByRole("button", { name: "Local review" });
+  await waitFor(() => { act(() => { open.blur(); open.focus(); }); expect(slot.getByRole("tooltip").textContent).toContain("Go to api:snooze-checks"); });
   fireEvent.click(open);
   expect(slot.inspection.navigateCalls).toContainEqual({ method: "toPluginPanel", path: "review", options: { subPath: "br-2" } });
-  fireEvent.click(within(offer).getByRole("button", { name: "Merge the two" }));
+  fireEvent.click(within(offer).getByRole("button", { name: "Merge into one review" }));
   await waitFor(() => expect(mergeReviews).toHaveBeenCalledWith({ targetKey: KEY }));
+  fireEvent.click(within(offer).getByRole("button", { name: "Keep both" }));
+  await waitFor(() => expect(keepBothReviews).toHaveBeenCalledWith({ targetKey: KEY }));
   slot.lifecycle.unmount();
+  cleanup();
+
+  // The PR's review began as another folder's: this one stays.
+  const into = await renderWorkspace({ ...pr, localReview: { ...pr.localReview, comments: 0, intoPr: true } });
+  await into.slot.findByText("This PR’s branch has a local review. Merging keeps this one and archives that one.");
+  into.slot.lifecycle.unmount();
 });
 
 test("a PR opened before the review waits: Make it PR #12's review, or Not this one; one GitHub didn't answer for, Try again", async () => {

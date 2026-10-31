@@ -17,6 +17,7 @@ export interface PrReviewed {
   archivedAt?: number | null;
   became?: ReviewLifecycle["became"];
   prOffer?: ReviewLifecycle["prOffer"];
+  mergeDeclined?: ReviewLifecycle["mergeDeclined"];
   prPending?: ReviewLifecycle["prPending"];
   mergedFrom?: ReviewLifecycle["mergedFrom"];
   /** From the server, on a PR's own review (src/reviews-rpc.ts). */
@@ -46,9 +47,10 @@ export function becameText(became: NonNullable<ReviewLifecycle["became"]>): stri
 /**
  * A review's notices about its PR (src/feature-review.ts becomePr, src/merge.ts), from what the review stores: it became
  * PR #n, with PR #n ↗ to GitHub, Got it, and after a merge Its agent chat ↗, the other review's; the PR has a review
- * of its own, with Merge into this review and PR #n’s review ↗; on the PR's own review, its branch's local review, with
- * Merge the two and a link named by its id; and a PR it holds, opened before the review, with Make it its review and Not this one, or GitHub didn't
- * answer, with Try again. `onChanged` reloads the review, which opens the one it went into once it's merged away.
+ * of its own, with Merge into one review, PR #n’s review ↗ and Keep both; on the PR's own review, its branch's local review, with Merge into one review, Local
+ * review ↗ and Keep both; and a PR it holds, opened before the review, with Make it its review and Not this one, or
+ * GitHub didn't answer, with Try again. `onChanged` reloads the review, which opens the one it went into once it's
+ * merged away.
  */
 export function usePrNotices(targetKey: string, review: PrReviewed | null, onChanged: () => void): Notice[] {
   const rpc = useRpc<typeof rpcContract>();
@@ -69,17 +71,16 @@ export function usePrNotices(targetKey: string, review: PrReviewed | null, onCha
       setBusy(null);
     }
   };
-  const button = (id: string, label: string, onClick: () => void, { warning, description }: { warning?: boolean; description?: string } = {}) => {
-    const shown = <Button variant="outline" size="sm" className={cn(BUTTON, warning && "border-warning/40")} disabled={!!busy} aria-description={description} onClick={onClick}>{busy === id ? `${label}…` : label}</Button>;
-    return description ? <Hint label={description} container={container}>{shown}</Hint> : shown;
-  };
-  const merge = (label: string, description: string) => button("merge", label, () => void act("merge", () => rpc.call("mergeReviews", { targetKey }), "Couldn’t merge the two reviews."), { description });
-  // A link that goes somewhere is named for where it goes, with ↗; Go to … is its hint. A name that's an id (`code`)
-  // is in monospace, as the notice's sentence says it.
-  const away = (label: string, hint: string, onClick: () => void, code = false) => <Hint label={hint} container={container}>
-    <Button variant="outline" size="sm" className={BUTTON} disabled={!!busy} aria-label={label} onClick={onClick}>{code ? <Code>{label}</Code> : label} ↗</Button>
+  const button = (id: string, label: string, onClick: () => void, { warning, quiet }: { warning?: boolean; quiet?: boolean } = {}) =>
+    <Button variant={quiet ? "ghost" : "outline"} size="sm" className={cn(BUTTON, warning && "border-warning/40")} disabled={!!busy} onClick={onClick}>{busy === id ? `${label}…` : label}</Button>;
+  // The same on both reviews: the notice's sentence says which stays.
+  const merge = button("merge", "Merge into one review", () => void act("merge", () => rpc.call("mergeReviews", { targetKey }), "Couldn’t merge the two reviews."));
+  const keepBoth = button("keep", "Keep both", () => void act("keep", () => rpc.call("keepBothReviews", { targetKey }), "Couldn’t save that."), { quiet: true });
+  // A link that goes somewhere is named for where it goes, with ↗; Go to … is its hint.
+  const away = (label: string, hint: string, onClick: () => void) => <Hint label={hint} container={container}>
+    <Button variant="outline" size="sm" className={BUTTON} disabled={!!busy} aria-label={label} onClick={onClick}>{label} ↗</Button>
   </Hint>;
-  const open = (key: string, name: string, code = false) => away(name, `Go to ${name}`, () => navigate.toPluginPanel("review", { subPath: key }), code);
+  const open = (key: string, name: string, hint = `Go to ${name}`) => away(name, hint, () => navigate.toPluginPanel("review", { subPath: key }));
 
   const notices: Notice[] = [];
   const { became, prOffer, prPending, localReview } = review;
@@ -101,25 +102,25 @@ export function usePrNotices(targetKey: string, review: PrReviewed | null, onCha
         {agent && away("Its agent chat", "Go to the other review’s agent chat", () => navigate.toThread(agent))}
       </span> });
   }
-  if (prOffer && !review.archivedAt) {
+  // Which stays, said in the sentence: the folder's review, unless the PR's began as another folder's (`intoPr`).
+  const stays = (intoPr: boolean | undefined, onPr: boolean) => (onPr ? intoPr : !intoPr) ? "Merging keeps this one and archives that one." : "Merging keeps that one and archives this one.";
+  if (prOffer && !review.archivedAt && review.mergeDeclined !== prOffer.key) {
     const moves = moved(prOffer.moves, "a summary");
     notices.push({ id: "pr-offer", tone: "info", icon: "GitPullRequest", firstLine: true,
-      text: `PR #${prOffer.number} has a review of its own${moves ? `, with ${moves}` : ""}.`,
+      text: `PR #${prOffer.number} has its own review${moves ? `, with ${moves}` : ""}. ${stays(prOffer.intoPr, false)}`,
       action: <span className="flex flex-wrap gap-1">
-        {prOffer.intoPr
-          ? merge("Merge the two", "This review’s comments, summary, notes, Sends and viewed files move there. This one goes to Archive.")
-          : merge("Merge into this review", "Its comments, summary, notes, Sends and viewed files move here. The other review goes to Archive.")}
+        {merge}
         {open(prOffer.key, `PR #${prOffer.number}’s review`)}
+        {keepBoth}
       </span> });
   }
   if (localReview && !review.archivedAt) {
     notices.push({ id: "pr-offer", tone: "info", icon: "GitPullRequest", firstLine: true,
-      text: <>This PR’s branch has a local review, <Code>{localReview.id}</Code>{localReview.comments ? `, with ${plural(localReview.comments, "comment")}` : ""}.</>,
+      text: `This PR’s branch has a local review${localReview.comments ? ` with ${plural(localReview.comments, "comment")}` : ""}. ${stays(localReview.intoPr, true)}`,
       action: <span className="flex flex-wrap gap-1">
-        {localReview.intoPr
-          ? merge("Merge the two", "Its comments, summary, notes, Sends and viewed files move here. It goes to Archive.")
-          : merge("Merge the two", "This review’s comments, summary, notes, Sends and viewed files move into it. This one goes to Archive.")}
-        {open(localReview.targetKey, localReview.id, true)}
+        {merge}
+        {open(localReview.targetKey, "Local review", `Go to ${localReview.id}`)}
+        {keepBoth}
       </span> });
   }
   if (prPending?.why === "older" && !prPending.declined) {

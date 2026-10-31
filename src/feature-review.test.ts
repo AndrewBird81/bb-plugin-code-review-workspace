@@ -800,7 +800,7 @@ test("two folders on one branch: the PR's review that began as the first folder'
   expect(await s.store.getReview(third)).toMatchObject({ kind: "ref", prOffer: { key, intoPr: true } });
 });
 
-test("Merge the two works from either review's page; a PR opened before the review takes Make it PR #7's review, or Not this one", async () => {
+test("Merge into one review works from either review's page; a PR opened before the review takes Make it PR #7's review, or Not this one", async () => {
   const s = setup();
   vi.mocked(runGh).mockImplementation(s.deps.gh.runGh as any);
   await plugin(s.bb);
@@ -810,7 +810,7 @@ test("Merge the two works from either review's page; a PR opened before the revi
   await s.store.saveReview({ targetKey: prKey, kind: "pr", repo: "acme/api", number: 7, url: "https://github.com/acme/api/pull/7", status: "ready", createdAt: 1 });
   await s.store.upsertDraftComment(prKey, { file: "src/a.ts", line: 2, side: "RIGHT", body: "Theirs" });
   expect(await becomePr(s.deps, key, { repo: "acme/api", number: 7 })).toBe("offered");
-  // From the PR's own review's page, Merge the two: the folder's stays.
+  // From the PR's own review's page, Merge into one review: the folder's stays.
   expect(await s.harness.behavior.callRpc("mergeReviews", { targetKey: prKey })).toEqual({ ok: true, targetKey: key });
   expect(await s.store.getReview(prKey)).toMatchObject({ mergedInto: key });
   expect(await s.harness.behavior.callRpc("mergeReviews", { targetKey: key })).toMatchObject({ ok: false, error: "This review has no other review of its PR to merge with. Reload it." });
@@ -830,6 +830,49 @@ test("Merge the two works from either review's page; a PR opened before the revi
   expect((await t.store.getReview(key))?.prPending?.declined).toBe(true);
   expect(await t.harness.behavior.callRpc("takePendingPr", { targetKey: key })).toEqual({ ok: true });
   expect(await t.store.getReview(key)).toMatchObject({ kind: "pr", number: 7, prPending: null });
+});
+
+test("Keep both, from either review's page: neither offers to merge again, the folder's review stays local and the PR's stays the PR's", async () => {
+  const s = setup();
+  vi.mocked(runGh).mockImplementation(s.deps.gh.runGh as any);
+  await plugin(s.bb);
+  await run(s, "main");
+  await settled(s);
+  const prKey = targetKey({ kind: "pr", repo: "acme/api", number: 7 });
+  await s.store.saveReview({ targetKey: prKey, kind: "pr", repo: "acme/api", number: 7, url: "https://github.com/acme/api/pull/7", status: "ready", createdAt: 1 });
+  await s.store.upsertDraftComment(prKey, { file: "src/a.ts", line: 2, side: "RIGHT", body: "Theirs" });
+  expect(await becomePr(s.deps, key, { repo: "acme/api", number: 7 })).toBe("offered");
+  expect(await s.harness.behavior.callRpc("getReviewBundle", { targetKey: prKey })).toMatchObject({ review: { localReview: { targetKey: key } } });
+  // From the PR's own review's page.
+  expect(await s.harness.behavior.callRpc("keepBothReviews", { targetKey: prKey })).toEqual({ ok: true });
+  expect(await s.store.getReview(key)).toMatchObject({ kind: "ref", mergeDeclined: prKey });
+  expect((await s.harness.behavior.callRpc("getReviewBundle", { targetKey: prKey }) as any).review.localReview).toBeUndefined();
+  // Found again, with more of yours on the PR's review or none, it stays apart, its offer as it was.
+  await s.store.upsertDraftComment(prKey, { file: "src/a.ts", line: 3, side: "RIGHT", body: "More" });
+  s.deps.changed.mockClear();
+  expect(await becomePr(s.deps, key, { repo: "acme/api", number: 7 })).toBe("offered");
+  for (const line of [2, 3]) await s.store.deleteDraftComment(prKey, { file: "src/a.ts", line, side: "RIGHT" });
+  expect(await becomePr(s.deps, key, { repo: "acme/api", number: 7 })).toBe("offered");
+  expect(await s.store.getReview(key)).toMatchObject({ kind: "ref", prOffer: { moves: { comments: 1 } } });
+  expect(s.deps.changed).not.toHaveBeenCalled();
+  expect(await prReviewKey(s.store, { repo: "acme/api", number: 7 })).toBe(prKey);
+  expect(await s.store.getReview(prKey)).not.toHaveProperty("mergedInto");
+
+  // A 1.8.0 linked pair, kept from the folder's page: read again, it neither merges nor offers.
+  const t = setup();
+  vi.mocked(runGh).mockImplementation(t.deps.gh.runGh as any);
+  await plugin(t.bb);
+  await run(t, "main");
+  await settled(t);
+  await t.store.saveReview({ targetKey: prKey, kind: "pr", repo: "acme/api", number: 7, url: "https://github.com/acme/api/pull/7", status: "ready", createdAt: 1 });
+  const review = (await t.store.getReview(key))!;
+  await t.store.setLifecycle(key, { feature: { ...review.feature!, prReview: prKey } });
+  expect(await t.harness.behavior.callRpc("keepBothReviews", { targetKey: key })).toEqual({ ok: true });
+  await checkFeature(t.deps, key);
+  expect(await t.store.getReview(key)).toMatchObject({ kind: "ref", mergeDeclined: prKey, feature: { prReview: prKey } });
+  expect((await t.store.getReview(key))?.prOffer).toBeUndefined();
+  expect(await t.store.getReview(prKey)).not.toHaveProperty("mergedInto");
+  expect(await t.harness.behavior.callRpc("keepBothReviews", { targetKey: "nothing" })).toMatchObject({ ok: false });
 });
 
 /** The sync, with your PR acme/api#7 of feat/qa found by its own search, converting through becomePr as the server does. */

@@ -191,6 +191,11 @@ export interface ReviewLifecycle {
    * your click. `intoPr`: that review began as another folder's, and this one goes into it.
    */
   prOffer?: { key: string; number: number; url: string; moves: MergeNote; intoPr?: true } | null;
+  /**
+   * Keep both, on the merge offer: the key of its PR's own review, which this folder's review keeps apart from. Neither
+   * offers to merge again; this one stays local, and the PR's review stays the PR's.
+   */
+  mergeDeclined?: string | null;
   /** Merged into the review `mergedInto` (store.mergeReview), at `mergedAt`: archived, and its page opens that one. */
   mergedInto?: string;
   mergedAt?: number;
@@ -1046,7 +1051,7 @@ export function storeOn(sql: Sql): Store {
           ...(source.submittedAt ?? 0) > (target.submittedAt ?? 0) ? { submittedVerdict: source.submittedVerdict, submittedAt: source.submittedAt, submittedHeadSha: source.submittedHeadSha, submittedReviewId: source.submittedReviewId } : {},
           ...branches.length ? { keptBranches: branches } : {},
           ...target.feature?.prReview ? { feature: { ...target.feature, prReview: undefined } } : {},
-          prOffer: null,
+          prOffer: null, mergeDeclined: null,
           mergedFrom: [...target.mergedFrom ?? [], ...source.mergedFrom ?? [], { key: from, at: now, id, agentThreadId: adopted ? null : agentThreadId }],
         });
 

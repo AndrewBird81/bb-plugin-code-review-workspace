@@ -79,6 +79,7 @@ test("the plugin registers the same RPC methods, tools, CLI subcommands, listene
       "getSinceReview",
       "getSourceThread",
       "includeHidden",
+      "keepBothReviews",
       "listFilterViews",
       "listMachines",
       "listReviews",

@@ -325,7 +325,7 @@ test("a review merged into one that was merged in turn names the last: its PR's 
   expect(await prReviewKey(store, { repo: "acme/api", number: 7 })).toMatch(/^(pr-|br-)/);
 });
 
-// Two triggers, or two windows' Merge the two, can reach the same merge at once.
+// Two triggers, or two windows' Merge into one review, can reach the same merge at once.
 test("merging twice, at once or later, merges once: nothing is copied again, what moved is kept, and the agent is told once", async () => {
   const { store } = await setup();
   await store.setLifecycle(S, { became: { at: 1, number: 7, url: "https://github.com/acme/api/pull/7", from: "api:feat", carried: 2, local: 0, outside: 0 } });

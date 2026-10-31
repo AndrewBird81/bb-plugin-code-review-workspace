@@ -19,6 +19,7 @@ export function openable(review: ReviewMeta | null): FolderReview | string {
   if (review.kind === "pr") return `This review is of ${review.repo ? `${review.repo}#${review.number}` : "a PR"} already, so there’s no PR to open.`;
   if (!review.feature) return "Only a local review of a folder’s branch opens a PR.";
   if (!review.feature.repo) return "This folder’s project has no GitHub repo, so there’s nowhere to open a PR.";
+  if (review.mergeDeclined) return "This branch’s PR has a review of its own already, which you kept apart from this one.";
   if (review.feature.prReview || review.prOffer) return "This branch’s PR has a review of its own already. Merge the two from the notice on this review.";
   return review as FolderReview;
 }

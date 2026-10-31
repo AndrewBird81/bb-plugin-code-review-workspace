@@ -147,7 +147,7 @@ test("Changed leads the rest; Got it quiets a committed secret; each secret is s
   expect(slot.queryByText("config/.env.production looks like a secret and is committed. Check it belongs in the repo.")).toBeNull();
   fireEvent.click(slot.getByRole("button", { name: "6 more notices" }));
   const order = Array.from(document.querySelectorAll<HTMLElement>("[aria-live=polite] > [role]")).map((row) => row.getAttribute("aria-label") ?? row.textContent!.slice(0, 20));
-  expect(order).toEqual(["Folder changed", "config/.env.producti", "PR #7 has a review o", "File not shown", "File not shown", "Files not shown", "Also editing this folder"]);
+  expect(order).toEqual(["Folder changed", "config/.env.producti", "PR #7 has its own re", "File not shown", "File not shown", "Files not shown", "Also editing this folder"]);
   fireEvent.click(within(notice(slot, "config/.env.production looks like a secret and is committed. Check it belongs in the repo.")).getByRole("button", { name: "Got it" }));
   await waitFor(() => expect(dismissFlagged).toHaveBeenCalledWith({ targetKey: KEY, files: ["config/.env.production"] }));
   fireEvent.click(within(notice(slot, ".env.local looks like a secret, so it isn’t shown or sent to agents.")).getByRole("button", { name: "Send .env.local to agents" }));

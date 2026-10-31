@@ -515,10 +515,12 @@ export const rpcContract = defineRpcContract({
   /** Got it on "Now PR #4512": the review stops saying it became its PR's. */
   dismissBecame: { input: targetKey, output: z.object({ ok: z.boolean() }) },
   /**
-   * Merge into this review, or Merge the two: a folder's review that offers to merge with its PR's own review, from
+   * Merge into one review: a folder's review that offers to merge with its PR's own review, from
    * either's page, merges with it (src/merge.ts). `targetKey`: the review that stays.
    */
   mergeReviews: { input: targetKey, output: z.object({ ok: z.boolean(), error: z.string().optional(), targetKey: z.string().optional() }) },
+  /** Keep both, on the merge offer, from either review's page: neither offers to merge again (`mergeDeclined`). */
+  keepBothReviews: { input: targetKey, output: z.object({ ok: z.boolean(), error: z.string().optional() }) },
   /** Make it PR #12's review, or Try again: the local review becomes the PR its branch has that it held (`prPending`). */
   takePendingPr: { input: targetKey, output: z.object({ ok: z.boolean(), error: z.string().optional() }) },
   /** Not this one: the PR held isn't this review's, and it stops asking. */

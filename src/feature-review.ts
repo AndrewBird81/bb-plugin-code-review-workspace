@@ -407,6 +407,8 @@ export async function becomePr(deps: Deps, key: string, pr: { repo: string; numb
    */
   const offerIn = async (tx: AsyncStore, intoPr: boolean) => {
     const [review, theirs] = [featureOf(await tx.getReview(key)), await tx.getReview(prKey)];
+    // Keep both: neither offers again, nor merges on its own.
+    if (review?.mergeDeclined === prKey) return "kept" as const;
     if (!review || !theirs || !await hasUserContent(tx, intoPr ? review : theirs)) return null;
     const offer = { key: prKey, number: pr.number, url, moves: await movesOf(tx, theirs), ...intoPr ? { intoPr: true as const } : {} };
     if (JSON.stringify(review.prOffer) === JSON.stringify(offer) && !review.feature.prReview) return "kept" as const;
@@ -558,8 +560,8 @@ export async function checkFeature(deps: Deps, key: string): Promise<FeatureChec
   const { feature } = review;
   // Once it's a PR's review, the PR says what changed, and its folder what isn't pushed yet.
   if (review.kind !== "ref") return review.kind === "pr" && !feature.folderGone ? checkPrFolder(deps, review, empty) : empty;
-  // A 1.8.0 link to its PR's own review: merged with it now, or offered.
-  const linked = feature.prReview ? await store.getReview(feature.prReview) : null;
+  // A 1.8.0 link to its PR's own review: merged with it now, or offered, unless you kept both.
+  const linked = feature.prReview && feature.prReview !== review.mergeDeclined ? await store.getReview(feature.prReview) : null;
   if (linked?.repo && linked.number && await becomePr(deps, key, { repo: linked.repo, number: linked.number }) !== "skipped") return checkFeature(deps, key);
   const kept = await store.exclusive(async (tx) => {
     const hash = await tx.patchHash(key);
@@ -757,6 +759,13 @@ export async function readForGuide(bb: BbPluginApi, review: ReviewMeta): Promise
   };
 }
 
+/** The folder's review offering to merge with its PR's own review, from either's page: `targetKey`, or the one offering to merge with it. */
+function offeringFolder(reviews: ReviewMeta[], targetKey: string): (ReviewMeta & { feature: FeatureReview }) | null {
+  const offering = (review: ReviewMeta) => review.kind === "ref" && !review.archivedAt && !!(review.prOffer || review.feature?.prReview);
+  return featureOf(reviews.find((review) => review.targetKey === targetKey && offering(review))
+    ?? reviews.find((review) => offering(review) && (review.prOffer?.key ?? review.feature?.prReview) === targetKey) ?? null);
+}
+
 export function register(deps: ServeDeps) {
   const { bb, store } = deps;
 
@@ -829,11 +838,7 @@ export function register(deps: ServeDeps) {
       return { ok: true };
     },
     async mergeReviews({ targetKey }) {
-      // The folder's review that offers: this one, or the one offering to merge with this PR's review.
-      const reviews = await store.listReviews();
-      const offering = (review: ReviewMeta) => review.kind === "ref" && !review.archivedAt && !!(review.prOffer || review.feature?.prReview);
-      const folder = featureOf(reviews.find((review) => review.targetKey === targetKey && offering(review))
-        ?? reviews.find((review) => offering(review) && (review.prOffer?.key ?? review.feature?.prReview) === targetKey) ?? null);
+      const folder = offeringFolder(await store.listReviews(), targetKey);
       const other = folder && await store.getReview(folder.prOffer?.key ?? folder.feature.prReview!);
       if (!folder || !other?.repo || !other.number) return { ok: false, error: "This review has no other review of its PR to merge with. Reload it." };
       const pr = { repo: other.repo, number: other.number };
@@ -845,6 +850,18 @@ export function register(deps: ServeDeps) {
         return { ok: false, error: `Couldn’t merge the two reviews: ${error instanceof Error ? error.message : String(error)}` };
       }
       return { ok: true, targetKey: await prReviewKey(store, pr) };
+    },
+    async keepBothReviews({ targetKey }) {
+      const kept = await store.exclusive(async (tx) => {
+        const folder = offeringFolder(await tx.listReviews(), targetKey);
+        if (!folder) return null;
+        const other = folder.prOffer?.key ?? folder.feature.prReview!;
+        await tx.setLifecycle(folder.targetKey, { mergeDeclined: other });
+        return [folder.targetKey, other];
+      });
+      if (!kept) return { ok: false, error: "This review has no other review of its PR to keep apart from. Reload it." };
+      for (const key of kept) deps.changed(key);
+      return { ok: true };
     },
     async takePendingPr({ targetKey }) {
       const pending = (await store.getReview(targetKey))?.prPending;

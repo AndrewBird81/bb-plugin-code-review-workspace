@@ -63,9 +63,9 @@ export async function readBranches(run: Run, branches: Array<{ repo: string; bra
   });
 }
 
-/** A local review whose branch may get a PR: of a folder that's still there, in a GitHub repo, not archived or offering to merge with its PR's review. */
+/** A local review whose branch may get a PR: of a folder that's still there, in a GitHub repo, not archived, offering to merge with its PR's review or kept apart from it. */
 const watched = (review: ReviewMeta | null): review is Watched => !!review && review.kind === "ref" && !!review.feature?.repo && !review.feature.folderGone
-  && !review.prOffer && !review.archivedAt && !review.userArchivedAt;
+  && !review.prOffer && !review.mergeDeclined && !review.archivedAt && !review.userArchivedAt;
 
 /** The review becomes the newest PR `read` found, if any. Returns whether it found one. */
 export async function becomeFound(deps: Parameters<typeof becomePr>[0], key: string, read: BranchRead): Promise<boolean> {
