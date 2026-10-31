@@ -993,6 +993,27 @@ test("Make it PR #7's review that finds the PR's own review offers the merge in 
   expect(await s.store.getReview(key)).toMatchObject({ kind: "ref", mergeDeclined: prKey, prPending: null });
 });
 
+test("Make it PR #7's review of a PR from another branch, then Keep both: the review's next check doesn't ask again", async () => {
+  // part2 tracks part1, whose PR #7 has its own review with something of yours.
+  const s = setup();
+  vi.mocked(runGh).mockImplementation(s.deps.gh.runGh as any);
+  await plugin(s.bb);
+  await run(s, "main");
+  await settled(s);
+  const prKey = targetKey({ kind: "pr", repo: "acme/api", number: 7 });
+  await s.store.saveReview({ targetKey: prKey, kind: "pr", repo: "acme/api", number: 7, url: "https://github.com/acme/api/pull/7", head: "part1", status: "ready", createdAt: 1 });
+  await s.store.upsertDraftComment(prKey, { file: "src/a.ts", line: 2, side: "RIGHT", body: "Theirs" });
+  expect(await becomePr(s.deps, key, { repo: "acme/api", number: 7 })).toBe("skipped");
+  expect((await s.store.getReview(key))?.prPending).toMatchObject({ why: "branch", head: "part1" });
+  expect(await s.harness.behavior.callRpc("takePendingPr", { targetKey: key })).toEqual({ ok: true });
+  expect(await s.store.getReview(key)).toMatchObject({ kind: "ref", prOffer: { key: prKey }, prPending: null });
+  expect(await s.harness.behavior.callRpc("keepBothReviews", { targetKey: key })).toEqual({ ok: true });
+  s.deps.changed.mockClear();
+  expect(await becomePr(s.deps, key, { repo: "acme/api", number: 7 })).toBe("skipped");
+  expect(await s.store.getReview(key)).toMatchObject({ kind: "ref", mergeDeclined: prKey, prPending: null });
+  expect(s.deps.changed).not.toHaveBeenCalled();
+});
+
 /** The sync, with your PR acme/api#7 of feat/qa found by its own search, converting through becomePr as the server does. */
 function ownPrSync(s: ReturnType<typeof setup>) {
   const pr = { repo: "acme/api", number: 7, title: "Snooze flaky checks for a day", url: "https://github.com/acme/api/pull/7", author: "me", updatedAt: 1, isDraft: false, requested: false, reviewed: false, own: true as const, head: "feat/qa" };
