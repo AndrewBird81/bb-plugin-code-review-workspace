@@ -1,9 +1,22 @@
 // What's out with the thread that fixes a review's comments, counted, and when the review is Ready to re-review: kept
 // on the review (`fixes`, each Send's `readyAt`), so whose turn it is reads it without the draft.
-import type { FixTally, SendEntry, Store } from "./store";
+import type { FixTally, ReviewMeta, SendEntry, Store } from "./store";
+import type { DraftComment } from "./draft";
 import { commentsOut, tallyOf } from "../lib/fixes";
 import { sendKey } from "../lib/send-baseline";
 import type { AssessmentVerdict } from "../lib/feedback";
+
+/**
+ * The review's draft comments, with the tracked comments a merge couldn't place, left on the reviews merged into it
+ * (store.mergeReview): all out with this review's Sends. Each says the review whose draft it's on.
+ */
+export async function draftsOut(tx: Store, review: ReviewMeta): Promise<Array<DraftComment & { on: string }>> {
+  const comments: Array<DraftComment & { on: string }> = [];
+  for (const key of [review.targetKey, ...review.mergedFrom?.map((from) => from.key) ?? []]) {
+    for (const comment of (await tx.getDraft(key)).comments) comments.push({ ...comment, on: key });
+  }
+  return comments;
+}
 
 /**
  * Count what's out with the thread that fixes the review's comments again, with what the review agent's check found of
@@ -14,7 +27,7 @@ import type { AssessmentVerdict } from "../lib/feedback";
 export async function settleFixes(tx: Store, key: string, fire?: "report" | "ready", by?: SendEntry["readyBy"]): Promise<{ ready: boolean; tally: FixTally } | null> {
   const review = await tx.getReview(key);
   if (!review || !review.sends?.length && !review.fixes) return null;
-  const out = commentsOut((await tx.getDraft(key)).comments, review.threadSends);
+  const out = commentsOut(await draftsOut(tx, review), review.threadSends);
   // What the review agent's check found of each, against the Send it's out with.
   const verdicts = new Map<string, AssessmentVerdict>();
   for (const n of new Set(out.map((comment) => comment.sendN))) {

@@ -8,6 +8,7 @@ import { defaultKnobs } from "../lib/knobs";
 import { REVIEW_TABLES, storeOn, type ReviewLifecycle } from "./store";
 import { queueStore } from "./store-queue";
 import { mergeReviews } from "./merge";
+import { assess, describeFeedback } from "./verification";
 import { SUMMARY_AT, type DraftComment } from "./draft";
 import type { FeedbackThread } from "./github/types";
 import { testSql, testStore } from "./test-store.test-support";
@@ -237,19 +238,38 @@ test("a comment a thread tracks, where the review that stays has its own, stays 
 });
 
 // Review 2's case: P's comment at two moves to four, where P's tracked c3 was; at c3's own new place, S's other comment.
-test("a comment a thread tracks that can't stay where it was, its place taken, goes into the summary and stays with its id on the review merged away, where a report on it finds it", async () => {
+test("a comment a thread tracks that can't stay where it was, its place taken, goes into the summary and stays with its id on the review merged away, where a report on it finds it; the tally counts it", async () => {
   const { bb, harness, store } = await setup();
   await store.trackComments(P, [{ at: at(4), id: "c3", state: "sent", sendN: 1 }]);
-  await store.mergeReview(P, S);
+  await mergeReviews({ bb, store, changed: vi.fn() }, P, S);
   const draft = await store.getDraft(S);
   expect(draft.comments.map((c) => [c.line, c.body, c.id])).toEqual([[5, "Same", "c2"], [6, "Mine at four", "c5"], [4, "Why two?", "c1"], [1, "Lost", undefined]]);
   expect(draft.body).toBe("Mine\n\nTheirs\n\n- On `a.ts:4` (an earlier diff): Theirs at four");
   expect((await store.getDraft(P)).comments).toEqual([expect.objectContaining({ ...at(4), body: "Theirs at four", id: "c3", state: "sent", sendN: 3 })]);
+  // Out with the thread: S's c5, P's c1, c2 and c3, and the thread Sends c9 and c8.
+  expect((await store.getReview(S))?.fixes).toEqual({ sent: 6, reported: 0, inferred: 0, checked: 1, fixed: 1 });
 
   const queued = await startPlugin(bb);
+  for (const id of ["c1", "c2", "c5", "c8", "c9"]) expect(await harness.behavior.runCli(["report", id, "done"], {})).toMatchObject({ exitCode: 0 });
+  // Not Ready to re-review while c3 is out.
+  expect((await queued.getReview(S))?.fixes).toMatchObject({ sent: 6, reported: 5 });
+  expect((await queued.getReview(S))?.sends?.every((send) => send.readyAt === undefined)).toBe(true);
   const reported = await harness.behavior.runCli(["report", "c3", "done"], {});
   expect(reported).toMatchObject({ exitCode: 0, stdout: expect.stringMatching(/^Reported c3 done on api#7\./) });
   expect((await queued.getDraft(P)).comments[0]?.claim).toMatchObject({ outcome: "done" });
+  expect((await queued.getReview(S))?.fixes).toMatchObject({ sent: 6, reported: 6 });
+  expect((await queued.getReview(S))?.sends?.every((send) => send.readyAt !== undefined)).toBe(true);
+});
+
+test("Check fixes lists a tracked comment left on the review merged away and records what it found of it, its inferred report there", async () => {
+  const { bb, store } = await setup();
+  await store.trackComments(P, [{ at: at(4), id: "c3", state: "sent", sendN: 1 }]);
+  await mergeReviews({ bb, store, changed: vi.fn() }, P, S);
+  const review = (await store.getReview(S))!;
+  expect(await describeFeedback(store, review)).toMatch(/\[c3\] a\.ts:4 · Send 3 · not reported/);
+  expect((await assess(store, review, { items: [{ id: "c3", verdict: "addressed", evidence: "Fixed in a.ts", claimed: "done" }] }, "agent-s")).ok).toBe(true);
+  expect((await store.getDraft(P)).comments[0]?.claim).toMatchObject({ outcome: "done", inferred: true });
+  expect((await store.getReview(S))?.fixes).toEqual({ sent: 6, reported: 0, inferred: 1, checked: 2, fixed: 2 });
 });
 
 test("a comment not on GitHub yet of the review merged away goes into your notes, from its old id, never the summary Submit posts; tracked, it stays with its id there too", async () => {
