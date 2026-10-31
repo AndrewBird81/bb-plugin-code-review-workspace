@@ -5,7 +5,7 @@ import type { rpcContract } from "../../src/rpc-contract";
 import type { FeatureCheck } from "../../src/feature-review";
 import type { FeatureReview, MainThread } from "../../src/store";
 import { flaggedFileNotice, hiddenFileNotice } from "../../lib/folder-files";
-import { branchLabel, homeShort } from "../../lib/review-identity";
+import { branchLabel, homeShort, localIdOf } from "../../lib/review-identity";
 import { useKnob } from "../../lib/settings";
 import { cn } from "../../lib/utils";
 import { TOUCH_CONTROL } from "../touch";
@@ -19,7 +19,7 @@ import { usePrNotices, type PrReviewed } from "./PrNotices";
 import { useComments } from "../comments/store";
 
 /** The review, as far as its folder's notices read it. */
-interface Reviewed { kind?: "pr" | "ref"; status?: string; feature?: FeatureReview | null; mainThread?: Pick<MainThread, "environmentId"> | null; archivedAt?: number | null; userArchivedAt?: number | null; followed?: { branch: string } | null }
+interface Reviewed { kind?: "pr" | "ref"; status?: string; feature?: FeatureReview | null; mainThread?: Pick<MainThread, "environmentId"> | null; archivedAt?: number | null; userArchivedAt?: number | null; followed?: { branch: string; from: string } | null }
 
 const BUTTON = cn("h-7", TOUCH_CONTROL);
 // A branch's name never breaks across lines.
@@ -58,8 +58,8 @@ function MoreThreads({ threads, onOpen }: { threads: FeatureCheck["alsoActive"];
 
 /**
  * A local review's notices about its folder (src/feature-review.ts checkFeature), the most pressing first: BB removed
- * it; it's on another branch, which pauses the review, with Follow it or a New review for it, or a link to its review; the
- * review followed its renamed branch, with Got it; its machine is offline;
+ * it; it's on another branch, which pauses the review, with New review for it or Follow it instead, or a link to its
+ * review; the review followed its renamed branch, and the id it had, with Got it; its machine is offline;
  * it changed, with Update; its guide is older than what Update last showed, with Rewrite guide; committed files that look like secrets, with Got it; its PR's (PrNotices.tsx),
  * which a PR's review has too; files it keeps out, each secret named on its own button; and the other threads editing
  * it. A PR's review whose folder is still there says what in it isn't on GitHub yet, with Review them (`onNotPushed`), but
@@ -114,9 +114,10 @@ export function useFeatureNotices(targetKey: string, review: (Reviewed & PrRevie
   // On a warning's tint, the button's border takes the tint's colour, so it shows in the dark.
   // `whole`: a label that must never be cut, as a file's name is; `hint`, the hover text; `description`, what it does
   // beyond its label, which is its hint too and its description for screen readers.
-  // `agent`: it starts an agent, so it wears the agent's sparkle.
-  const button = (id: string, label: string, onClick: () => void, { aria, warning, whole, hint, description, agent }: { aria?: string; warning?: boolean; whole?: boolean; hint?: string; description?: string; agent?: boolean } = {}) => {
-    const shown = <Button variant="outline" size="sm" className={cn(BUTTON, !whole && "max-w-64", warning && "border-warning/40")} disabled={!!busy} aria-label={aria} aria-description={description} onClick={onClick}>{agent && <Icon name="Sparkles" className="text-(--ansi-13)" aria-hidden />}<span title={hint} className={cn(!whole && "truncate")}>{busy === id ? `${label}…` : label}</span></Button>;
+  // `agent`: it starts an agent, so it wears the agent's sparkle. `variant`: filled for the one recommended, ghost for a
+  // quiet other choice.
+  const button = (id: string, label: string, onClick: () => void, { aria, warning, whole, hint, description, agent, variant = "outline" }: { aria?: string; warning?: boolean; whole?: boolean; hint?: string; description?: string; agent?: boolean; variant?: "default" | "outline" | "ghost" } = {}) => {
+    const shown = <Button variant={variant} size="sm" className={cn(BUTTON, !whole && "max-w-64", warning && "border-warning/40")} disabled={!!busy} aria-label={aria} aria-description={description} onClick={onClick}>{agent && <Icon name="Sparkles" className="text-(--ansi-13)" aria-hidden />}<span title={hint} className={cn(!whole && "truncate")}>{busy === id ? `${label}…` : label}</span></Button>;
     return description ? <Hint label={description} container={container}>{shown}</Hint> : shown;
   };
   const checkAgain = button("check", "Check again", () => { setBusy("check"); rpc.call("checkFeature", { targetKey }).then((next) => setRead({ targetKey, check: next }), () => {}).finally(() => setBusy(null)); });
@@ -136,25 +137,29 @@ export function useFeatureNotices(targetKey: string, review: (Reviewed & PrRevie
     const other = check.branch ?? "HEAD";
     const short = branchLabel(other);
     const existing = check.branchReview;
-    const start = button("branch", `New review for ${short}`, () => void act("branch", async () => {
+    // A branch made from this one, as a stacked branch is, since a renamed one is followed: a review of its own is
+    // the recommended choice.
+    const start = button("branch", "New review for it", () => void act("branch", async () => {
       const started = await rpc.call("reviewFolderBranch", { targetKey });
       if (started.ok && started.targetKey) navigate.toPluginPanel("review", { subPath: started.targetKey });
       return started;
-    }, "Couldn’t start that branch’s review."), { warning: true });
-    add({ id: "folder-paused", tone: "warning", icon: "GitBranch", label: "Review paused",
-      text: <>Folder is on <Code>{short}</Code>. This review waits for <Code>{branchLabel(feature.branch)}</Code>.</>,
+    }, "Couldn’t start that branch’s review."), { variant: "default" });
+    const stays = <Code>{branchLabel(feature.branch)}</Code>;
+    add({ id: "folder-paused", tone: "info", icon: "GitBranch", label: "Review paused",
+      text: check.branch && !existing ? <>Folder moved to <Code>{short}</Code>, a new branch. This review stays with {stays}.</>
+        : <>Folder is on <Code>{short}</Code>. This review waits for {stays}.</>,
       // A detached HEAD has no branch to review. A fresh thread's worktree's branch isn't the review's to follow.
       ...check.branch ? { action: existing
-        ? button("branch", `${short} review ↗`, () => navigate.toPluginPanel("review", { subPath: existing }), { warning: true, aria: `${short} review`, hint: `Go to the ${short} review` })
+        ? button("branch", `${short} review ↗`, () => navigate.toPluginPanel("review", { subPath: existing }), { aria: `${short} review`, hint: `Go to the ${short} review` })
         : feature.workBranch || !local ? start
         : <span className="flex flex-wrap gap-1">
-          {button("follow", `Follow ${short}`, () => void act("follow", () => rpc.call("followFolderBranch", { targetKey }), "Couldn’t follow that branch."), { warning: true })}
           {start}
+          {button("follow", "Follow it instead", () => void act("follow", () => rpc.call("followFolderBranch", { targetKey }), "Couldn’t follow that branch."), { variant: "ghost" })}
         </span> } : {} });
   }
   if (review.followed && check.state !== "paused") {
     add({ id: "folder-followed", tone: "info", icon: "GitBranch", label: "Branch renamed",
-      text: <>Now following <Code>{branchLabel(review.followed.branch)}</Code>.</>,
+      text: <>Now following <Code>{branchLabel(review.followed.branch)}</Code>. It was <Code>{localIdOf({ targetKey, feature: { ...feature, branch: review.followed.from } })}</Code>, which still opens it.</>,
       action: button("followed", "Got it", () => void act("followed", () => rpc.call("dismissFollowed", { targetKey }), "Couldn’t save that.")) });
   }
   if (check.state === "offline" || check.state === "unavailable") {
