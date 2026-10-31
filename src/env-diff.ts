@@ -96,10 +96,18 @@ export async function folderHas(bb: BbPluginApi, environmentId: string, sha: str
   return read?.outcome === "available" && read.workspace?.mergeBase?.behindCount === 0;
 }
 
-/** Whether commit `sha` is one of the folder's head's own since `base`, so `base` hasn't it. False when bb can't say. */
+/**
+ * Whether commit `sha` is one of the folder's head's own since `base`, so `base` hasn't it, nor `origin/<base>` where the
+ * folder has that, as a local base not fetched since may not. False when bb can't say of `base`.
+ */
 export async function folderHasSince(bb: BbPluginApi, environmentId: string, base: string, sha: string): Promise<boolean> {
-  const read = await callGit(bb, "workspaceStatus", { environmentId, mergeBaseBranch: base }, statusOutput).catch(() => null);
-  return read?.outcome === "available" && !!read.workspace?.mergeBase?.commits?.some((commit) => commit.sha === sha);
+  /** Null when bb has no merge base with `ref`, as for a ref the folder hasn't. */
+  const since = async (ref: string) => {
+    const read = await callGit(bb, "workspaceStatus", { environmentId, mergeBaseBranch: ref }, statusOutput).catch(() => null);
+    const mergeBase = read?.outcome === "available" ? read.workspace?.mergeBase : null;
+    return mergeBase ? !!mergeBase.commits?.some((commit) => commit.sha === sha) : null;
+  };
+  return await since(base) === true && (base.startsWith("origin/") || await since(`origin/${base}`) !== false);
 }
 
 /** The folder's head commit; null when bb can't say. */

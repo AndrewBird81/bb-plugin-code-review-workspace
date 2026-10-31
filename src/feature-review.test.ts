@@ -5,7 +5,7 @@ vi.mock("./gh", async (orig) => ({ ...(await orig<any>()), runGh: vi.fn(async ()
 import { runReviewCommand } from "./review-command";
 import { becomePr, checkFeature, updateFeature } from "./feature-review";
 import { featureKey, prReviewKey, reviewNamed, targetKey } from "./targets";
-import { folderHost, type Folder } from "./env-diff.test-support";
+import { BASE_SHA, folderHost, type Folder } from "./env-diff.test-support";
 import { testSql, testStore } from "./test-store.test-support";
 import { storeOn } from "./store";
 import { queueStore } from "./store-queue";
@@ -207,12 +207,14 @@ test("a branch switch pauses the review, Update waits, and switching back resume
 
 /**
  * The folder's git, as bb's Git plugin answers: its head, which commits it has, whether its old branch is still there,
- * and whether its base has the branch's commits (merged into it), so none are the head's own since the base.
+ * and whether its base has the branch's commits (merged into it), so none are the head's own since the base; and its
+ * base on GitHub, origin/main: the same, or merged where the local base isn't yet.
  */
 function renaming(s: ReturnType<typeof setup>) {
-  const git = { head: "a1".repeat(20), has: true, oldBranch: "missing", merged: false };
+  const git = { head: "a1".repeat(20), has: true, oldBranch: "missing", merged: false, remote: "same" as "same" | "merged" };
+  const merged = (base: string) => base === "main" && git.merged || base === "origin/main" && (git.merged || git.remote === "merged");
   s.folder.answers = {
-    workspaceStatus: (input) => ({ outcome: "available", workspace: { checkout: { headSha: git.head }, mergeBase: input.mergeBaseBranch ? { aheadCount: 2, behindCount: git.has ? 0 : 3, commits: input.mergeBaseBranch === "main" && git.merged ? [] : [{ sha: git.head }, { sha: "a1".repeat(20) }] } : null } }),
+    workspaceStatus: (input) => ({ outcome: "available", workspace: { checkout: { headSha: git.head }, mergeBase: input.mergeBaseBranch ? { aheadCount: 2, behindCount: git.has ? 0 : 3, commits: merged(input.mergeBaseBranch) ? [] : [{ sha: git.head }, { sha: "a1".repeat(20) }] } : null } }),
     branches: (input) => ({ selectedBranch: { name: input.selectedBranch, kind: git.oldBranch } }),
   };
   return git;
@@ -238,6 +240,35 @@ test("a branch renamed in its folder is followed: the same review, its old branc
   expect((await reviewNamed(s.store, s.bb, "api:feat/qa"))?.targetKey).toBe(key);
   await s.store.setLifecycle(key, { followed: null });
   expect((await reviewNamed(s.store, s.bb, "api:feat/qa"))?.targetKey).toBe(key);
+});
+
+test("a branch with no commits of its own, at its base, renamed is followed too: it can't have been merged", async () => {
+  const s = setup();
+  const git = renaming(s);
+  // Its changes not committed: the folder's head is the base's.
+  git.head = BASE_SHA;
+  git.merged = true;
+  await run(s, "main");
+  await settled(s);
+  await checkFeature(s.deps, key);
+  expect((await s.store.getReview(key))?.feature).toMatchObject({ headSha: BASE_SHA, mergeBaseRef: BASE_SHA });
+  s.folder.env = { ...s.folder.env, branchName: "feat/nice" };
+  expect((await checkFeature(s.deps, key)).state).toBe("current");
+  expect(await s.store.getReview(key)).toMatchObject({ gitRef: "feat/nice", followed: { from: "feat/qa", branch: "feat/nice" } });
+});
+
+test("a branch merged on GitHub, its local base not fetched since, then deleted and a new one made from GitHub's base, isn't a rename either", async () => {
+  const s = setup();
+  const git = renaming(s);
+  await run(s, "main");
+  await settled(s);
+  await checkFeature(s.deps, key);
+  // Merged in GitHub's UI; git fetch, git branch -D feat/qa, git switch -c next origin/main: local main is behind.
+  git.remote = "merged";
+  s.folder.env = { ...s.folder.env, branchName: "next" };
+  git.head = "c3".repeat(20);
+  expect(await checkFeature(s.deps, key)).toMatchObject({ state: "paused", branch: "next" });
+  expect((await s.store.getReview(key))?.followed).toBeUndefined();
 });
 
 test("a branch merged into its base and deleted, then a new one made from the base, isn't a rename: the review pauses, with Follow and New review", async () => {
