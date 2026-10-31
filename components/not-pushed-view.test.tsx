@@ -33,15 +33,15 @@ const review = {
   targetKey: "pr-12", kind: "pr", status: "ready", createdAt: 1, title: "Retry uploads", repo: "acme/web", number: 12, headSha: SHA, url: "https://github.com/acme/web/pull/12",
   author: "me", ownPr: true, projectId: "p1", mainThread: { threadId: "fresh", environmentId: "env_fix", origin: "fresh", since: 1, branch: "bb/fixes-thr_x" },
 };
-const available = { state: "available", patch: folder, base: SHA, onReviewHead: true, branch: "bb/fixes-thr_x", machine: "MaxBook", threadId: "fresh", hidden: [], notice: null };
+const available = { state: "available", patch: folder, base: SHA, onReviewHead: true, branch: "bb/fixes-thr_x", machine: "MaxBook", threadId: "fresh", hidden: [], notice: null, views: [] };
 
-async function renderReview(rpc: Record<string, unknown> = {}, activeId = "c1", comments: any[] = []) {
+async function renderReview(rpc: Record<string, unknown> = {}, activeId = "c1", comments: any[] = [], over: Record<string, unknown> = {}) {
   patchReviewState(review.targetKey, { activeId });
   const app = await loadPluginApp(() => import("../app"));
   let stored = { targetKey: review.targetKey, verdict: "COMMENT", body: "", comments };
   const calls = {
     setReviewPresence: () => ({ ok: true }),
-    getReviewBundle: () => ({ review, guide: structuredClone(guide), patch, revision: "r1" }),
+    getReviewBundle: () => ({ review: { ...review, ...over }, guide: structuredClone(guide), patch, revision: "r1" }),
     getChecks: () => ({ bucket: "none", checks: [] }),
     getPreferences: () => ({ preferences: defaultPreferences, revision: 0 }),
     getFileViews: () => ({ views: [] }),
@@ -73,9 +73,10 @@ test("Not pushed yet is a page after the chapters: how many files on which machi
   fireEvent.click(page.getByRole("button", { name: "Not pushed yet" }));
   const view = await notPushed(page);
   expect(await view.findByRole("heading", { name: "1 file on MaxBook isn’t on GitHub yet" })).toBeTruthy();
-  expect(view.getByText(/^Branch/).textContent).toBe("Branch bb/fixes-thr_x · compared with 1f2e3d4");
+  expect(view.getByText(/^Branch/).textContent).toBe("Branch bb/fixes-thr_x · compared with PR #12 (1f2e3d4)");
   expect(view.getByRole("region", { name: "src/a.ts" })).toBeTruthy();
-  expect(page.getByRole("button", { name: "Not pushed yet" }).getAttribute("aria-current")).toBe("page");
+  // Its row in the navigator says how many files, as its heading does.
+  expect(page.getByRole("button", { name: "Not pushed yet · 1 file" }).getAttribute("aria-current")).toBe("page");
   expect(rpc.getNotPushed).toHaveBeenCalledTimes(1);
   fireEvent.click(view.getByRole("button", { name: "Refresh" }));
   await waitFor(() => expect(rpc.getNotPushed).toHaveBeenCalledTimes(2));
@@ -147,4 +148,37 @@ test("a LOCAL comment chosen in Comments opens Not pushed yet at its line", asyn
   expect(within(card).getByText("Retry once more.")).toBeTruthy();
   expect(page.getByRole("navigation", { name: "Breadcrumb" }).textContent).toContain("Not pushed yet");
   page.lifecycle.unmount();
+});
+
+test("Viewed on Not pushed yet is kept for the file's revision there, as the server says it, and Viewed again saves it", async () => {
+  const setNotPushedViewed = vi.fn(() => ({ ok: true }));
+  const { page } = await renderReview({ getNotPushed: vi.fn(async () => ({ ...available, views: [{ file: "src/a.ts", viewed: true, stale: false }] })), setNotPushedViewed });
+  fireEvent.click(page.getByRole("button", { name: /^Not pushed yet/ }));
+  const view = await notPushed(page);
+  const viewed = await view.findByRole("checkbox", { name: /Viewed/ });
+  expect(viewed.getAttribute("aria-checked") ?? String((viewed as HTMLInputElement).checked)).toBe("true");
+  fireEvent.click(viewed);
+  await waitFor(() => expect(setNotPushedViewed).toHaveBeenCalledWith({ targetKey: review.targetKey, file: "src/a.ts", viewed: false }));
+  page.lifecycle.unmount();
+});
+
+test("Not pushed yet ends saying its comments go with Send, not Submit, with Push, which shows how it goes in Finish review, and Finish review", async () => {
+  const push = vi.fn(() => ({ ok: true, delivery: "sent", asked: "commit" }));
+  const { page } = await renderReview({ push }, "not-pushed", [], { head: "retry-uploads" });
+  const view = await notPushed(page);
+  const end = (await view.findByText("Comments here go with Send, not Submit.")).parentElement!;
+  expect(within(end).getAllByRole("button").map((button) => button.textContent)).toEqual(["Push", "Finish review"]);
+  fireEvent.click(within(end).getByRole("button", { name: "Push" }));
+  await waitFor(() => expect(push).toHaveBeenCalledWith({ targetKey: review.targetKey }));
+  expect(await page.findByRole("heading", { name: "Finish review" })).toBeTruthy();
+  page.lifecycle.unmount();
+  cleanup();
+
+  // Without a Push of its own, it's Finish review alone.
+  const none = await renderReview({}, "not-pushed");
+  const alone = (await (await notPushed(none.page)).findByText("Comments here go with Send, not Submit.")).parentElement!;
+  expect(within(alone).getAllByRole("button").map((button) => button.textContent)).toEqual(["Finish review"]);
+  fireEvent.click(within(alone).getByRole("button", { name: "Finish review" }));
+  expect(await none.page.findByRole("heading", { name: "Finish review" })).toBeTruthy();
+  none.page.lifecycle.unmount();
 });

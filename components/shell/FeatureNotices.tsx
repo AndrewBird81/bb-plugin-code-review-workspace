@@ -17,6 +17,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover";
 import { REWRITE_GUIDE, type Notice } from "./ReviewNotices";
 import { usePrNotices, type PrReviewed } from "./PrNotices";
 import { useComments } from "../comments/store";
+import { setNotPushedFiles } from "../../lib/workspace-store";
 
 /** The review, as far as its folder's notices read it. */
 interface Reviewed { kind?: "pr" | "ref"; status?: string; feature?: FeatureReview | null; mainThread?: Pick<MainThread, "environmentId"> | null; archivedAt?: number | null; userArchivedAt?: number | null; followed?: { branch: string; from: string } | null }
@@ -94,6 +95,9 @@ export function useFeatureNotices(targetKey: string, review: (Reviewed & PrRevie
     return () => clearInterval(timer);
   }, [rpc, targetKey, local]);
   const check = attached && read?.targetKey === targetKey ? read.check : null;
+  // A PR's review's folder: the navigator's Not pushed yet row counts what it has, until that page reads it.
+  const notPushed = review?.kind !== "pr" ? null : check?.state === "ahead" ? check.aheadFiles ?? 0 : check?.state === "current" ? 0 : null;
+  useEffect(() => { if (notPushed !== null) setNotPushedFiles(targetKey, notPushed); }, [targetKey, notPushed]);
   if (!check || !review?.feature) return prNotices;
   const { feature } = review;
 
@@ -171,7 +175,7 @@ export function useFeatureNotices(targetKey: string, review: (Reviewed & PrRevie
   if (check.state === "ahead") {
     const n = check.aheadFiles ?? 1;
     add({ id: "folder-ahead", tone: "info", icon: "FileDiff", label: "Not pushed yet",
-      text: `${files(n)} in the folder ${n === 1 ? "isn’t" : "aren’t"} on GitHub yet${localComments ? `, with ${localComments} of your comments` : ""}.`,
+      text: `${files(n)} on ${feature.machine} ${n === 1 ? "isn’t" : "aren’t"} on GitHub yet${localComments ? `, with ${localComments} of your comments` : ""}.`,
       ...onNotPushed ? { action: button("not-pushed", "Review them", onNotPushed) } : {} });
   }
   if (check.state === "changed" && localDiffChanges) {

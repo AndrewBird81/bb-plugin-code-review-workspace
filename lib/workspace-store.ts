@@ -64,6 +64,20 @@ export function useTitleBarMounted(targetKey: string): boolean {
   return useSyncExternalStore(subscribe, () => titleBars.has(targetKey));
 }
 
+// How many files each review's Not pushed yet has, as its page or its folder's check last read them, for the navigator.
+const notPushedFiles = new Map<string, number>();
+
+export function setNotPushedFiles(targetKey: string, count: number) {
+  if (notPushedFiles.get(targetKey) === count) return;
+  notPushedFiles.set(targetKey, count);
+  notify();
+}
+
+/** How many files Not pushed yet has; null until read. */
+export function useNotPushedFiles(targetKey: string): number | null {
+  return useSyncExternalStore(subscribe, () => notPushedFiles.get(targetKey) ?? null);
+}
+
 // How many of each review's comments need you, for the title bar's Comments badge; the comments list reports it.
 const needsYou = new Map<string, number>();
 

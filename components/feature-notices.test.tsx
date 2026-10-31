@@ -253,11 +253,13 @@ test("after Update, a guide written before it says so, after Changed, with Rewri
   }
 });
 
-test("a PR's review whose folder has files not on GitHub yet says how many, with Review them, but not on Not pushed yet's page; paused, it offers only a New review", async () => {
+test("a PR's review whose folder has files not on GitHub yet says how many, on which machine, as the navigator does, with Review them, but not on Not pushed yet's page; paused, it offers only a New review", async () => {
   const pr = { ...local, kind: "pr", repo: "acme/api", number: 7, headSha: "c0ffee", ownPr: true };
   const { slot } = await renderWorkspace({ checkFeature: () => ({ ...nothing, state: "ahead", aheadFiles: 3 }) }, pr);
-  const text = "3 files in the folder aren’t on GitHub yet.";
+  const text = "3 files on MaxBook aren’t on GitHub yet.";
   await slot.findByText(text);
+  // The navigator's row says how many, as the notice does.
+  expect(slot.getByRole("button", { name: "Not pushed yet · 3 files" })).toBeTruthy();
   expect(notice(slot, text).querySelector("svg")?.getAttribute("data-icon")).toBe("FileDiff");
   expect(within(notice(slot, text)).getByRole("button", { name: "Review them" })).toBeTruthy();
   slot.lifecycle.unmount();
@@ -267,7 +269,7 @@ test("a PR's review whose folder has files not on GitHub yet says how many, with
   const getNotPushed = vi.fn(async () => ({ state: "none", message: "Nothing waiting." }));
   const withComments = await renderWorkspace({ checkFeature: () => ({ ...nothing, state: "ahead", aheadFiles: 3 }), getNotPushed,
     getDraft: () => ({ draft: { targetKey: KEY, verdict: "COMMENT", body: "", comments }, stale: [] }) }, pr);
-  const said = "3 files in the folder aren’t on GitHub yet, with 2 of your comments.";
+  const said = "3 files on MaxBook aren’t on GitHub yet, with 2 of your comments.";
   await withComments.slot.findByText(said);
   fireEvent.click(within(notice(withComments.slot, said)).getByRole("button", { name: "Review them" }));
   expect(within(await withComments.slot.findByRole("region", { name: "Not pushed yet" })).getByText("Nothing waiting.")).toBeTruthy();
