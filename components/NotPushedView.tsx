@@ -97,7 +97,7 @@ export function NotPushedView({ reveal }: { reveal?: { at: CommentLocation; nonc
           : read.state !== "available" ? <p className="text-sm text-muted-foreground">{read.message}</p>
           : <>
             <h2 className="text-lg font-semibold text-foreground">{count ? `${files(count)}${read.machine ? ` on ${read.machine}` : ""} ${count === 1 ? "isn’t" : "aren’t"} on GitHub yet` : "Everything here is on GitHub"}</h2>
-            <p className="text-xs text-muted-foreground">Branch <span className="font-mono">{read.branch}</span> · compared with {review.number ? <>PR #{review.number} (<span className="font-mono">{read.base.slice(0, 7)}</span>)</> : <span className="font-mono">{read.base.slice(0, 7)}</span>}</p>
+            <p className="text-xs text-muted-foreground">Branch <span className="font-mono">{read.branch}</span> · compared with {review.number ? <>PR{"\u00a0"}#{review.number} (<span className="font-mono">{read.base.slice(0, 7)}</span>)</> : <span className="font-mono">{read.base.slice(0, 7)}</span>}</p>
           </>}
       </div>
       <Button variant="outline" size="sm" className={cn("h-7 shrink-0 gap-1.5 px-2 text-xs", TOUCH_CONTROL)} aria-disabled={reading || undefined} onClick={() => { if (!reading) load(); }}>

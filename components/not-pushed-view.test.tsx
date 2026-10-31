@@ -73,7 +73,8 @@ test("Not pushed yet is a page after the chapters: how many files on which machi
   fireEvent.click(page.getByRole("button", { name: "Not pushed yet" }));
   const view = await notPushed(page);
   expect(await view.findByRole("heading", { name: "1 file on MaxBook isn’t on GitHub yet" })).toBeTruthy();
-  expect(view.getByText(/^Branch/).textContent).toBe("Branch bb/fixes-thr_x · compared with PR #12 (1f2e3d4)");
+  // "PR #12" never breaks between its words.
+  expect(view.getByText(/^Branch/).textContent).toBe("Branch bb/fixes-thr_x · compared with PR\u00a0#12 (1f2e3d4)");
   expect(view.getByRole("region", { name: "src/a.ts" })).toBeTruthy();
   // Its row in the navigator says how many files, as its heading does.
   expect(page.getByRole("button", { name: "Not pushed yet · 1 file" }).getAttribute("aria-current")).toBe("page");
