@@ -332,6 +332,9 @@ export function register(deps: ServeDeps, { submit }: {
     if (!bb.ui?.requestInput) return `${changedSince}${inChat}`;
     const form = new AbortController();
     forms.set(token, form);
+    // A PR's draft waiting for the reviewer: Finish review says so, with where to post it.
+    const draft = w.kind === "open-pr" ? { at: preview.at, until: preview.at + FORM_TIMEOUT_MS } : null;
+    if (draft) await markPrDraft(review.targetKey, draft);
     try {
       const result = await bb.ui.requestInput({
         threadId, rendererId: POST_PREVIEW_RENDERER, title: preview.shown.title.slice(0, 160), payload: { ...preview.shown },
@@ -355,7 +358,18 @@ export function register(deps: ServeDeps, { submit }: {
       return `${changedSince}The form couldn't open (${error instanceof Error ? error.message : String(error)}). ${inChat}`;
     } finally {
       forms.delete(token);
+      if (draft) await markPrDraft(review.targetKey, null, draft.at);
     }
+  }
+  /** Say the review's PR draft waits in the Post form (ReviewMeta.prDraft), or, with null, that the one shown at `was` closed. */
+  async function markPrDraft(targetKey: string, waiting: { at: number; until: number } | null, was?: number) {
+    const marked = await store.exclusive(async (tx) => {
+      const now = await tx.getReview(targetKey);
+      if (!now || !waiting && now.prDraft?.at !== was) return false;
+      await tx.setLifecycle(targetKey, { prDraft: waiting });
+      return true;
+    }).catch(() => false);
+    if (marked) changed(targetKey);
   }
   /** Keep `preview` as the agent's one waiting post, closing the form of the one it replaces. */
   async function replace(threadId: string, preview: Preview) {

@@ -74,7 +74,7 @@ const MAX_COMMITS = 50;
  * The folder's head commit, and whether it has changes not committed; with `base`, the branch's commits since it, in
  * bb's order, and how many there are. Null when bb can't say.
  */
-async function folderHead(deps: Deps, environmentId: string, base?: string): Promise<{ sha: string | null; dirty: boolean; commits?: { shas: string[]; count: number } } | null> {
+export async function folderHead(deps: Pick<Deps, "bb">, environmentId: string, base?: string): Promise<{ sha: string | null; dirty: boolean; commits?: { shas: string[]; count: number } } | null> {
   const read = await callGit(deps.bb, "workspaceStatus", { environmentId, ...base ? { mergeBaseBranch: base } : {} }, statusOutput).catch(() => null);
   if (read?.outcome !== "available" || !read.workspace) return null;
   const { workingTree, checkout, mergeBase } = read.workspace;

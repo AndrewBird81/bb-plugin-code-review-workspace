@@ -170,6 +170,11 @@ export interface ReviewLifecycle {
   /** Push (src/push.ts): the last one, from your click to GitHub, or a push no one asked for. Null once you said Got it. */
   push?: PushRun | null;
   /**
+   * The review agent's PR draft, waiting in the Post form in its chat (src/review-agent-tools.ts open_pr): shown since
+   * `at`, until the form times out at `until`. Null once it closes, posted or not.
+   */
+  prDraft?: { at: number; until: number } | null;
+  /**
    * On your own PR, what Not pushed yet showed when you last opened it: the folder, and the PR's head it compared with.
    * Its files' revisions are kept beside the snapshots (lib/push.ts NOT_PUSHED): Push checks a fixer's commit against them.
    */

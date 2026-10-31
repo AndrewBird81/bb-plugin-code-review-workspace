@@ -3,6 +3,7 @@
 // review then becomes the PR's (src/feature-review.ts becomePr). The plugin never pushes: a branch that isn't on GitHub
 // yet waits for Push. Finish review's Open PR asks the review agent to draft it.
 import { messageAssistant } from "./agent";
+import { folderHead } from "./push";
 import { becomePr } from "./feature-review";
 import { ghErrorMessage, type runGh } from "./gh";
 import type { GithubWrites, WriteRefusal } from "./github-writes";
@@ -132,7 +133,8 @@ export function register(deps: ServeDeps) {
       return said;
     },
     // What Finish review's Push offers (components/comments/FinishView.tsx): Push and open PR on a local review whose
-    // branch has no PR; Open PR on its own too once the branch is on GitHub; and where GitHub opens one by hand.
+    // branch has no PR; Open PR on its own too once the branch is on GitHub; where GitHub opens one by hand; and
+    // whether the folder has anything GitHub's branch doesn't, a commit or a change, or couldn't be read to say.
     async pushPlan({ targetKey }) {
       const review = openable(await store.getReview(targetKey));
       if (typeof review === "string") return { openable: false, onGithub: false, pr: false };
@@ -142,9 +144,11 @@ export function register(deps: ServeDeps) {
       const path = (name: string) => name.split("/").map(encodeURIComponent).join("/");
       const compare = `https://github.com/${repo}/compare/${base ? `${path(base)}...` : ""}${path(branch)}?expand=1`;
       // Unread, it's offered as it would be: Open PR says what GitHub answers.
-      if ("error" in found) return { openable: true, onGithub: false, pr: false, compare };
+      if ("error" in found) return { openable: true, onGithub: false, pr: false, compare, toPush: true };
       if ("fork" in found) return { openable: false, onGithub: false, pr: false };
-      return { openable: true, onGithub: !("missing" in found), pr: "sha" in found && !!found.pr, compare };
+      if ("missing" in found) return { openable: true, onGithub: false, pr: false, compare, toPush: true };
+      const head = await folderHead(deps, review.feature.environmentId);
+      return { openable: true, onGithub: true, pr: !!found.pr, compare, toPush: !head?.sha || head.dirty || head.sha !== found.sha };
     },
   } satisfies Partial<RpcHandlers>;
   return { handlers };

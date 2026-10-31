@@ -440,9 +440,9 @@ export const rpcContract = defineRpcContract({
   openPr: { input: targetKey, output: z.object({ ok: z.boolean(), error: z.string().optional(), note: z.string().optional() }) },
   /**
    * What Push offers a local review (src/open-pr.ts): whether it can open a PR, whether its branch is on GitHub and has
-   * a PR there, and `compare`, where GitHub opens one by hand.
+   * a PR there, `compare`, where GitHub opens one by hand, and `toPush`, whether the folder has anything to push.
    */
-  pushPlan: { input: targetKey, output: z.object({ openable: z.boolean(), onGithub: z.boolean(), pr: z.boolean(), compare: z.string().optional() }) },
+  pushPlan: { input: targetKey, output: z.object({ openable: z.boolean(), onGithub: z.boolean(), pr: z.boolean(), compare: z.string().optional(), toPush: z.boolean().optional() }) },
   /** The review's Let it push when done: on, a Send leaves out "Don't push until I say", unless it says otherwise. */
   setLetPush: {
     input: z.object({ targetKey: z.string(), letPush: z.boolean() }).strict(),
