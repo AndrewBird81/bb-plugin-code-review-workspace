@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.9.0 — Unreleased
+## 1.9.0 — 2026-10-31
 
 Go between a review and its main thread in a click or a key, with the review agent and the main thread in BB's own side panel, and keep one review from your local changes through the PR: it now notices the PR whoever opens it, draft PRs included, and still reviews what isn't pushed yet. Still **BB 0.48+** (plugin SDK **0.6.79+**) with Node 24+; installs at `^1.0.0` update to 1.9.0. 1.9.0 adds no migration: what it adds to a review is kept with the review's other lifecycle fields. Rolling back to 1.8.1 keeps every review and setting, and 1.8.1 keeps 1.9.0's fields and ignores them. A review merged into another shows in Archive as an archived PR review, empty but for a comment a thread tracks that couldn't move, and its PR's link, `bb review <url>`, opens that one. One that keeps such a comment is saved without its repo, its link kept, so 1.8.1 lists it as `#34`, and its Submit, the review agent's tools and the sync refuse it: that comment never posts. Back on 1.9.0, Archive names it by its link again. A review with comments not on GitHub yet opens, but its draft doesn't load and Submit stops before anything posts, so none lands on a wrong line; back on 1.9.0, it loads again. 1.8.1's prune drops Not pushed yet's snapshot, and those comments keep their code.
 
