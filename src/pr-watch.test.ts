@@ -244,3 +244,14 @@ test("a thread's events in a folder no review watches read the reviews once in a
   await s.emit("thread.idle", { id: "coder", environmentId: "env1" });
   expect(s.list.mock.calls.map(([args]) => (args as { order?: string }).order)).toEqual(["desc", "desc"]);
 });
+
+test("a thread's idle in a new review's folder reads the reviews again, within 5 seconds of a read that didn't have it, so its gh pr create is found at once", async () => {
+  const s = await setup();
+  await s.emit("experimental_thread.events", { id: "elsewhere", environmentId: "env2" });
+  await s.review(OTHER, "env2", "feat/x");
+  s.github.branches["acme/api:feat/x"] = { sha: "c0ffee", prs: [{ number: 8 }] };
+  s.commands.coder2 = ["gh pr create --fill"];
+  s.at(2);
+  await s.emit("thread.idle", { id: "coder2", environmentId: "env2" });
+  expect(s.reads().map(branchesIn)).toEqual([["feat/x"]]);
+});

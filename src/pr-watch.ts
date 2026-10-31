@@ -176,13 +176,14 @@ export function register(deps: Deps) {
 
   /**
    * Read a thread's new commands, when a review watches its folder: one that may have opened a PR checks that review at
-   * once, and a push polls its branch again. One read per thread at a time; never the plugin's own, hidden, threads.
+   * once, and a push polls its branch again. One read per thread at a time; never the plugin's own, hidden, threads. A
+   * thread that stopped (`stopped`) reads the reviews whatever the last read found, so a review started since is seen.
    */
-  function scan(thread: { id: string; environmentId?: string | null; visibility?: string }): Promise<void> {
+  function scan(thread: { id: string; environmentId?: string | null; visibility?: string }, stopped = false): Promise<void> {
     if (thread.visibility === "hidden" || !thread.environmentId) return Promise.resolve();
     const next = (scanning.get(thread.id) ?? Promise.resolve()).then(async () => {
       const now = Date.now();
-      if (now - watchedFolders.at < UNWATCHED_GAP && !watchedFolders.ids.has(thread.environmentId!)) return void cursors.delete(thread.id);
+      if (!stopped && now - watchedFolders.at < UNWATCHED_GAP && !watchedFolders.ids.has(thread.environmentId!)) return void cursors.delete(thread.id);
       const all = (await store.listReviews()).filter(watched);
       watchedFolders = { at: now, ids: new Set(all.map((review) => review.feature.environmentId)) };
       const reviews = all.filter((review) => review.feature.environmentId === thread.environmentId);
@@ -221,8 +222,8 @@ export function register(deps: Deps) {
   // Every thread in a watched folder, not only its review's main thread.
   const events: EventListeners = {
     "experimental_thread.events": [({ thread }) => scan(thread)],
-    "thread.idle": [({ thread }) => scan(thread)],
-    "thread.failed": [({ thread }) => scan(thread)],
+    "thread.idle": [({ thread }) => scan(thread, true)],
+    "thread.failed": [({ thread }) => scan(thread, true)],
   };
   return { handlers, events, poll };
 }
