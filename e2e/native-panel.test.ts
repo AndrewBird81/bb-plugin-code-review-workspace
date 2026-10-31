@@ -111,8 +111,6 @@ test.skipIf(!process.env.BB_E2E_URL || !process.env.BB_E2E_THREAD)("review ⇄ m
     await expect.poll(() => beside.getAttribute("aria-pressed")).toBe("true");
     await page.waitForTimeout(800);
     await page.screenshot({ animations: "disabled", path: `${dir}/watch-main-tab.png` });
-    // Focus, as a tab opens: where it was, on the page.
-    console.log("focus after Watch:", await page.evaluate(() => `${document.activeElement?.tagName} ${document.activeElement?.getAttribute("aria-label") ?? ""}`));
     await hideBbPanel(page);
     // Finish review's Change main thread: the Main thread tab opens with its menu, which stays open as BB focuses the
     // chat box, until a click outside it.
@@ -130,7 +128,6 @@ test.skipIf(!process.env.BB_E2E_URL || !process.env.BB_E2E_THREAD)("review ⇄ m
     await commands.getByRole("button", { name: "Ask agent", exact: true }).click();
     await page.getByRole("region", { name: "Review agent", exact: true }).waitFor();
     await page.waitForTimeout(500);
-    console.log("focus after Ask agent:", await page.evaluate(() => `${document.activeElement?.tagName} ${document.activeElement?.getAttribute("aria-label") ?? ""}`));
     await page.screenshot({ animations: "disabled", path: `${dir}/agent-tab-header.png` });
     await hideBbPanel(page);
     // Main thread ↗ goes to the thread: reviewing to doing, one click; the review keeps its place for the way back.
@@ -152,8 +149,7 @@ test.skipIf(!process.env.BB_E2E_URL || !process.env.BB_E2E_THREAD)("review ⇄ m
     await page.waitForURL(/\/review\/e2e-doing/);
     await page.waitForTimeout(1500);
     const after = await scroller.evaluate((el) => el.scrollTop);
-    console.log("scroll before/after the thread:", before, after);
-    expect(Math.abs(after - before)).toBeLessThan(40);
+    expect(Math.abs(after - before), `the review's scroll, ${before} before the thread and ${after} after it, is where it was`).toBeLessThan(40);
     // And Main thread ↗ again, to its Review tab: the comment, Review ↗, and the agent's first message, there.
     await commands.getByRole("button", { name: "Go to main thread", exact: true }).click();
     await page.waitForURL(new RegExp(main));
