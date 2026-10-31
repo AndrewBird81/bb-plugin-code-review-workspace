@@ -62,7 +62,9 @@ test("i folds every card in the code to a pill that says who, its state, its fir
   expect(draft.textContent).toContain("Agent draft · not submitted · Blocking");
   expect(draft.textContent).toContain("An entry that expires now is still served.");
   // In a review under 440px wide, on any pointer, as on a phone: its state on a line of its own, its first line under it.
+  // From 440px it has room on one line, without a state badge.
   const lines = draft.querySelector("[class~='@max-[440px]/review:flex-col']");
+  expect(lines?.classList.contains("@max-[600px]/review:flex-col")).toBe(false);
   expect(lines?.firstElementChild?.textContent).toBe("Agent draft · not submitted · Blocking");
   const thread = diff().getByRole("group", { name: "GitHub thread on src/a.ts:2, folded" });
   expect(thread.textContent).toContain("@bob");
@@ -153,13 +155,17 @@ test("going to a comment from the list opens its pill", async () => {
   slot.lifecycle.unmount();
 });
 
-test("under 440px wide, a pill's second line keeps its severity whole and cuts only its first line; Not on GitHub yet is beside its state, on the first", async () => {
+test("under 600px wide, a pill with Not on GitHub yet takes two lines, its second keeping its severity whole and cutting only its first line; the badge is beside its state, on the first", async () => {
   const { render } = await import("@testing-library/react");
   const { CommentPill } = await import("./comments/CommentPill");
   const { NotOnGithubBadge } = await import("./InlineDraft");
   const pill = render(<CommentPill frame="" icon={null} who={null} words="Draft · goes with Send" tag="Should fix" stateBadge={<NotOnGithubBadge brief />}
     text="An entry that expires now is still served, and its replacement waits for the next read." name="Draft comment on src/a.ts:2" onShow={() => {}} />);
-  const [first, second] = Array.from(pill.container.querySelector("[class~='@max-[440px]/review:flex-col']")!.children);
+  // On one line from 440 to 600px, its state and badge left its first line no room; on any pointer, as on a phone.
+  const lines = pill.container.querySelector("[class~='@max-[600px]/review:flex-col']")!;
+  expect(lines.classList.contains("@max-[440px]/review:flex-col")).toBe(false);
+  expect(pill.getByRole("group").classList.contains("@max-[600px]/review:h-11")).toBe(true);
+  const [first, second] = Array.from(lines.children);
   // On every width, the badge is whole beside the state, "Not on GitHub" under 440px wide.
   const badge = first!.lastElementChild!;
   expect(badge.textContent).toBe("Not on GitHub yet");

@@ -5,6 +5,30 @@ import { InlineCode } from "../ui/inline-code";
 import { CUT_CODE, plainLine } from "./look";
 
 /**
+ * Where a pill takes two lines, each part's classes, written out for Tailwind: on a phone, and in a review under 440px
+ * wide on any pointer; one with a state badge under 600px, where on one line its state and badge left its first line
+ * no room.
+ */
+const TWO_LINES = {
+  narrow: {
+    tall: "@max-[440px]/review:h-11",
+    lines: "pointer-coarse:@max-[600px]/review:flex-col pointer-coarse:@max-[600px]/review:items-start pointer-coarse:@max-[600px]/review:gap-1 @max-[440px]/review:flex-col @max-[440px]/review:items-start @max-[440px]/review:gap-1",
+    oneLineOnly: "pointer-coarse:@max-[600px]/review:hidden @max-[440px]/review:hidden",
+    second: "pointer-coarse:@max-[600px]/review:flex-none @max-[440px]/review:flex-none",
+    secondOnly: "pointer-coarse:@max-[600px]/review:inline @max-[440px]/review:inline",
+    secondOnlyFlex: "pointer-coarse:@max-[600px]/review:inline-flex @max-[440px]/review:inline-flex",
+  },
+  stateBadge: {
+    tall: "@max-[600px]/review:h-11",
+    lines: "@max-[600px]/review:flex-col @max-[600px]/review:items-start @max-[600px]/review:gap-1",
+    oneLineOnly: "@max-[600px]/review:hidden",
+    second: "@max-[600px]/review:flex-none",
+    secondOnly: "@max-[600px]/review:inline",
+    secondOnlyFlex: "@max-[600px]/review:inline-flex",
+  },
+};
+
+/**
  * A comment in the code folded to one line (Fold comments, `i`): its icon, who, its state or severity, its first line,
  * what's under it ("2 replies · Resolved"), and Show, which opens it in full. 28px tall, 44px on a coarse pointer; its
  * frame keeps the card's: dashed with an edge while it's only in BB, solid on GitHub, muted when private.
@@ -34,25 +58,27 @@ export function CommentPill({ frame, icon, who, words, tag, stateBadge, badge, b
   className?: string;
 }) {
   const first = plainLine(text);
+  const two = TWO_LINES[stateBadge ? "stateBadge" : "narrow"];
   return (
-    <div role="group" aria-label={`${name}, folded`} className={cn("mx-2 my-1 flex h-7 max-w-[min(72ch,calc(100%-1rem))] min-w-0 items-center [contain:inline-size] gap-1.5 rounded-md bg-card font-sans text-xs leading-none whitespace-nowrap text-muted-foreground shadow-xs pointer-coarse:h-11 @max-[440px]/review:h-11", frame, className)}>
+    <div role="group" aria-label={`${name}, folded`} className={cn("mx-2 my-1 flex h-7 max-w-[min(72ch,calc(100%-1rem))] min-w-0 items-center [contain:inline-size] gap-1.5 rounded-md bg-card font-sans text-xs leading-none whitespace-nowrap text-muted-foreground shadow-xs pointer-coarse:h-11", two.tall, frame, className)}>
       <span className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden pl-2">
         {icon}
         {/* On a phone, two lines, as in the list's rows: who and state, then severity and the first line. So too in a
-            review under 440px wide, on any pointer, where state, severity and badge would cut each other on one line. */}
-        <span className="flex min-w-0 flex-1 items-center gap-1.5 pointer-coarse:@max-[600px]/review:flex-col pointer-coarse:@max-[600px]/review:items-start pointer-coarse:@max-[600px]/review:gap-1 @max-[440px]/review:flex-col @max-[440px]/review:items-start @max-[440px]/review:gap-1">
+            review under 440px wide, on any pointer, where state, severity and badge would cut each other on one line
+            (TWO_LINES). */}
+        <span className={cn("flex min-w-0 flex-1 items-center gap-1.5", two.lines)}>
           <span className="flex max-w-full min-w-0 items-center gap-1.5">
             {who && <span className="shrink-0 font-medium text-foreground">{who}</span>}
-            <span className={cn("min-w-0 truncate", CUT_CODE)}><InlineCode text={words} />{tag && <span className="pointer-coarse:@max-[600px]/review:hidden @max-[440px]/review:hidden"> · {tag}</span>}</span>
+            <span className={cn("min-w-0 truncate", CUT_CODE)}><InlineCode text={words} />{tag && <span className={two.oneLineOnly}> · {tag}</span>}</span>
             {stateBadge && <span className="flex shrink-0">{stateBadge}</span>}
-            {badge && <span className="flex shrink-0 pointer-coarse:@max-[600px]/review:hidden @max-[440px]/review:hidden">{badge}</span>}
+            {badge && <span className={cn("flex shrink-0", two.oneLineOnly)}>{badge}</span>}
           </span>
           {/* A step quieter than who: at 80% a light theme's first line fell to about 4:1. Severity and badge stay whole:
               only the comment's first line is cut. */}
-          <span className="flex max-w-full min-w-0 flex-1 items-center gap-1.5 text-foreground/90 pointer-coarse:@max-[600px]/review:flex-none @max-[440px]/review:flex-none">
-            <span aria-hidden className="shrink-0 text-subtle-foreground pointer-coarse:@max-[600px]/review:hidden @max-[440px]/review:hidden">·</span>
-            {tag && <span className="hidden shrink-0 font-medium text-muted-foreground pointer-coarse:@max-[600px]/review:inline @max-[440px]/review:inline">{tag} · </span>}
-            {badge && <span className="hidden shrink-0 pointer-coarse:@max-[600px]/review:inline-flex @max-[440px]/review:inline-flex">{briefBadge ?? badge}</span>}
+          <span className={cn("flex max-w-full min-w-0 flex-1 items-center gap-1.5 text-foreground/90", two.second)}>
+            <span aria-hidden className={cn("shrink-0 text-subtle-foreground", two.oneLineOnly)}>·</span>
+            {tag && <span className={cn("hidden shrink-0 font-medium text-muted-foreground", two.secondOnly)}>{tag} · </span>}
+            {badge && <span className={cn("hidden shrink-0", two.secondOnlyFlex)}>{briefBadge ?? badge}</span>}
             <span className={cn("min-w-0 truncate", CUT_CODE)}><InlineCode text={first} /></span>
           </span>
         </span>
