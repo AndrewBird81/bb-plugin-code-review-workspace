@@ -469,7 +469,8 @@ export interface Store extends AgentCommentStore {
   deleteReview(targetKey: string): Promise<void>;
   /**
    * Run `fn` on this Store in one transaction, rolled back if it throws. `fn` gets the Store itself, not the queue's:
-   * called on a block's tx, the whole of it is one of the block's calls.
+   * called on a block's tx, the whole of it is one of the block's calls. `fn` must use only the store it's given: the
+   * queue's would wait on the block `fn` runs in.
    */
   transaction<T>(fn: (store: Store) => Promise<T>): Promise<T>;
   /**

@@ -190,3 +190,14 @@ test("turns that can't change a guide, as the review-state poll's lifecycle writ
   await store.saveGuide("pr-3", guideOf("New") as never);
   expect(view.guide("pr-3")).toMatchObject({ title: "New", sections: [{ diffs: [{ file: "new.ts" }] }] });
 });
+
+test("a guide's patch saved inside a transaction is read again with its renames, as fresh reads do", async () => {
+  const { store, view, queued } = await views();
+  await queued.saveReview({ targetKey: "ref-1", kind: "ref", status: "ready", createdAt: 1 });
+  await queued.savePatch("ref-1", patchOf(true));
+  await queued.saveGuide("ref-1", guideOf("T") as never);
+  expect(view.guide("ref-1")).toMatchObject({ sections: [{ diffs: [{ file: "new.ts" }] }] });
+  await queued.transaction(async (db) => { await db.savePatch("ref-1", patchOf(false)); });
+  expect(view.guide("ref-1")).toEqual(await store.getGuide("ref-1"));
+  expect(view.guide("ref-1")).toMatchObject({ sections: [{ diffs: [{ file: "old.ts" }] }] });
+});
