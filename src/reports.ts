@@ -10,7 +10,7 @@ import type { ReviewMeta, SendEntry } from "./store";
 import type { AsyncStore } from "./store-queue";
 import { fixesState, reportedText } from "../lib/fixes";
 import { settleFixes } from "./fix-tally";
-import { reviewNamed } from "./targets";
+import { mergedSurvivor, reviewNamed } from "./targets";
 import { identityIn, placeFacts } from "./review-places";
 import { checkFeature } from "./feature-review";
 import { refusedFromAgents } from "./relays";
@@ -56,13 +56,19 @@ const usage = (problem: string, text: string): PluginCliResult => ({ exitCode: 2
 /** A review's own agents check fixes; they don't report them. */
 const NOT_FROM_AGENTS = "A review's own agent can't report on fixes: the thread that fixes the code reports, and the review agent checks.";
 
-/** A comment out with a thread, found by its id: a draft comment's place, or the GitHub thread it is on your own PR. */
-type Found = { review: ReviewMeta; at: CommentLocation; thread?: never } | { review: ReviewMeta; thread: string; at?: never };
+/**
+ * A comment out with a thread, found by its id: a draft comment's place, on the review `on` when a merge left it on the
+ * review merged away (store.mergeReview), or the GitHub thread it is on your own PR.
+ */
+type Found = { review: ReviewMeta; at: CommentLocation; on?: string; thread?: never } | { review: ReviewMeta; thread: string; at?: never };
 
 async function findComment(tx: AsyncStore, id: string): Promise<Found | null> {
-  for (const review of await tx.listReviews()) {
-    if (!review.sends?.length) continue;
+  const reviews = await tx.listReviews();
+  for (const review of reviews) {
+    if (!review.sends?.length && !review.mergedInto) continue;
     const comment = (await tx.getDraft(review.targetKey)).comments.find((c) => c.id === id);
+    // Reported on there, and counted on the review it went into, whose Sends it's out with.
+    if (comment && review.mergedInto) return { review: mergedSurvivor(review, reviews), at: comment, on: review.targetKey };
     if (comment) return { review, at: comment };
     const thread = Object.entries(review.threadSends ?? {}).find(([, sent]) => sent.id === id)?.[0];
     if (thread) return { review, thread };
@@ -137,7 +143,7 @@ export function register(deps: ServeDeps) {
       if (!found) return null;
       const key = found.review.targetKey;
       const wasReady = (found.review.sends ?? []).every((send) => send.readyAt !== undefined);
-      if (found.at) await tx.trackComments(key, [{ at: found.at, claim }]);
+      if (found.at) await tx.trackComments(found.on ?? key, [{ at: found.at, claim }]);
       else {
         const threadSends = found.review.threadSends!;
         await tx.setLifecycle(key, { threadSends: { ...threadSends, [found.thread]: { ...threadSends[found.thread]!, claim } } });

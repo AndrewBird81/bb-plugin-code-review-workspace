@@ -31,7 +31,7 @@ const thread = (id: string): FeedbackThread => ({ id, commentId: 1, reviewId: nu
 
 /** The PR's own review P, with something in every table, and the folder's review S that became the PR's. */
 async function setup({ agentOnBoth = true } = {}) {
-  const { bb } = createFakePluginHost({ pluginId: "code-review-workspace" });
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   const store = testStore(bb);
   const sql = testSql(bb);
   await store.saveReview({ targetKey: P, kind: "pr", repo: "acme/api", number: 7, url: "https://github.com/acme/api/pull/7", status: "ready", createdAt: 1, headSha: "sha-p" });
@@ -97,7 +97,7 @@ async function setup({ agentOnBoth = true } = {}) {
   };
   await store.setLifecycle(P, lifecycleP);
   await store.setLifecycle(S, lifecycleS);
-  return { store, sql, current };
+  return { bb, harness, store, sql, current };
 }
 
 const rows = async (sql: ReturnType<typeof testSql>, table: string, key: string) => (await sql.all<Record<string, unknown>>(`SELECT * FROM ${table} WHERE target_key=?`, [key])).length;
@@ -234,6 +234,36 @@ test("a comment a thread tracks, where the review that stays has its own, stays 
   expect(await rows(sql, "discussion_entries", P)).toBe(0);
   // Out with the thread: S's two, P's two and the thread Sends.
   expect((await store.getReview(S))?.fixes).toEqual({ sent: 6, reported: 0, inferred: 0, checked: 0, fixed: 0 });
+});
+
+// Review 2's case: P's comment at two moves to four, where P's tracked c3 was; at c3's own new place, S's other comment.
+test("a comment a thread tracks that can't stay where it was, its place taken, goes into the summary and stays with its id on the review merged away, where a report on it finds it", async () => {
+  const { bb, harness, store } = await setup();
+  await store.trackComments(P, [{ at: at(4), id: "c3", state: "sent", sendN: 1 }]);
+  await store.mergeReview(P, S);
+  const draft = await store.getDraft(S);
+  expect(draft.comments.map((c) => [c.line, c.body, c.id])).toEqual([[5, "Same", "c2"], [6, "Mine at four", "c5"], [4, "Why two?", "c1"], [1, "Lost", undefined]]);
+  expect(draft.body).toBe("Mine\n\nTheirs\n\n- On `a.ts:4` (an earlier diff): Theirs at four");
+  expect((await store.getDraft(P)).comments).toEqual([expect.objectContaining({ ...at(4), body: "Theirs at four", id: "c3", state: "sent", sendN: 3 })]);
+
+  const queued = await startPlugin(bb);
+  const reported = await harness.behavior.runCli(["report", "c3", "done"], {});
+  expect(reported).toMatchObject({ exitCode: 0, stdout: expect.stringMatching(/^Reported c3 done on api#7\./) });
+  expect((await queued.getDraft(P)).comments[0]?.claim).toMatchObject({ outcome: "done" });
+});
+
+test("a comment not on GitHub yet of the review merged away goes into your notes, from its old id, never the summary Submit posts; tracked, it stays with its id there too", async () => {
+  const { store } = await setup();
+  await store.saveSnapshot(P, "not-pushed", PATCH_P);
+  await store.upsertDraftComment(P, { file: "a.ts", line: 2, side: "LOCAL", body: "Folder's" });
+  await store.upsertDraftComment(P, { file: "a.ts", line: 3, side: "LOCAL", body: "Sent from the folder" });
+  await store.trackComments(P, [{ at: { file: "a.ts", line: 3, side: "LOCAL" }, id: "c4", state: "sent", sendN: 1 }]);
+  await store.mergeReview(P, S);
+  const draft = await store.getDraft(S);
+  expect(draft.comments.some((c) => c.side === "LOCAL")).toBe(false);
+  expect(draft.body).toBe("Mine\n\nTheirs\n\n- On `a.ts:4` (an earlier diff): Theirs at four");
+  expect((await store.getReviewerNotes(S)).body).toBe("S notes\n\nP notes\n\nNot on GitHub yet, from `api#7`:\n- On `a.ts:2` (an earlier diff): Folder's\n- On `a.ts:3` (an earlier diff): Sent from the folder");
+  expect((await store.getDraft(P)).comments).toEqual([expect.objectContaining({ file: "a.ts", line: 3, side: "LOCAL", id: "c4", sendN: 3 })]);
 });
 
 test("a review with no agent of its own takes the other's conversation, which goes on there", async () => {

@@ -476,8 +476,9 @@ export interface Store extends AgentCommentStore {
   /**
    * Merge review `from` into `into`, in one transaction: its comments follow their lines onto `into`'s diff, its Sends
    * number on after `into`'s, and its summary, notes, viewed marks and what it knows of the PR join `into`'s; its
-   * agent's conversation becomes `into`'s when `into` has none (`adopted`). `from` is left archived and empty, pointing
-   * at `into`. Returns what it took; null, changing nothing, when either was merged into a review already.
+   * agent's conversation becomes `into`'s when `into` has none (`adopted`). `from` is left archived and empty, but for
+   * the tracked comments `into` couldn't take, pointing at `into`. Returns what it took; null, changing nothing, when
+   * either was merged into a review already.
    */
   mergeReview(from: string, into: string): Promise<{ moved: MergeNote; adopted: boolean } | null>;
   savePatch(targetKey: string, patch: string): Promise<void>;
@@ -924,11 +925,13 @@ export function storeOn(sql: Sql): Store {
         // Each comment follows its lines onto this diff, with its id, state and Send, its discussion, and the reviewer's
         // edits of it. One lost stays at its place, drafted against an older diff; one where this review has the same
         // text is this review's; one where it has another goes into the summary, its discussion with it. One a thread
-        // tracks stays at its place too, where this review's comment there is another or tracked, so its report finds it.
+        // tracks stays at its place too, where this review's comment there is another or tracked, so its report finds it;
+        // with that place taken too, it stays on the review merged away, with its id, where its report finds it still.
+        // One not on GitHub yet, on the other folder's lines, goes into your notes, never the summary Submit posts.
         const placements = await reanchorDraft(this, from, await this.patch(from), await this.patch(into));
         const [hash, positions] = [await this.patchHash(into), await this.diffPositions(into)];
         const codeAt = (file: string, side: CommentLocation["side"], line: number) => positions.get(file)?.[side === "LEFT" ? "left" : "right"].get(line) ?? null;
-        const toSummary: DraftComment[] = [];
+        const toSummary: DraftComment[] = [], toNotes: DraftComment[] = [], stranded: DraftComment[] = [];
         for (const c of was.comments) {
           const renumberedSend = c.sendN !== undefined ? { sendN: c.sendN + top } : {};
           let place = placements.find(({ at: placed }) => sameLocation(placed, c));
@@ -939,14 +942,16 @@ export function storeOn(sql: Sql): Store {
             comment = { ...c, ...renumberedSend };
             there = undefined;
           }
-          // One on the other folder's lines not pushed yet, which this review's folder doesn't have, goes too.
           if (isLocal(c) || there && there.body !== c.body) {
-            toSummary.push(c);
+            (isLocal(c) ? toNotes : toSummary).push(c);
+            if (c.id !== undefined) stranded.push({ ...c, ...renumberedSend });
             await sql.run(`DELETE FROM discussion_entries WHERE target_key=? AND file=? AND line=? AND side=?`, at(from, c));
             continue;
           }
           if (there) {
-            if (there.id === undefined) for (const key of TRACKING) if (comment[key] !== undefined) Object.assign(there, { [key]: comment[key] });
+            if (there.id === undefined) {
+              for (const key of TRACKING) if (comment[key] !== undefined) Object.assign(there, { [key]: comment[key] });
+            } else if (c.id !== undefined) stranded.push({ ...c, ...renumberedSend });
           } else {
             draft.comments.push(comment);
             const kept = place ? null : await sql.get<{ patch_hash: string; code: string | null; start_code: string | null }>(`SELECT patch_hash, code, start_code FROM draft_comment_revisions WHERE target_key=? AND file=? AND line=? AND side=?`, at(from, c));
@@ -972,10 +977,11 @@ export function storeOn(sql: Sql): Store {
         });
         await sql.run(`UPDATE discussion_entries SET target_key=? WHERE target_key=? AND file=? AND line=? AND side=?`, [into, ...at(from, SUMMARY_AT)]);
         if ((await stopWaitingAt(from, SUMMARY_AT)).changes) await sql.run(`INSERT INTO discussion_waits (target_key,file,line,side) VALUES (?,?,?,?) ON CONFLICT DO NOTHING`, at(into, SUMMARY_AT));
-        const notes = (await this.getReviewerNotes(from)).body;
-        if (notes.trim()) {
+        const id = source.kind !== "pr" && source.feature ? localIdOf({ ...source, feature: source.feature }) : reviewIdentity(source).id;
+        const notes = [(await this.getReviewerNotes(from)).body, ...toNotes.length ? [[`Not on GitHub yet, from \`${id}\`:`, ...toNotes.map((c) => summaryLine(c))].join("\n")] : []];
+        if (notes.some((body) => body.trim())) {
           await sql.run(`INSERT INTO reviewer_notes (target_key,body,revision) VALUES (?,?,1) ON CONFLICT(target_key) DO UPDATE SET body=excluded.body, revision=reviewer_notes.revision+1`,
-            [into, [(await this.getReviewerNotes(into)).body, notes].filter((body) => body.trim()).join("\n\n")]);
+            [into, [(await this.getReviewerNotes(into)).body, ...notes].filter((body) => body.trim()).join("\n\n")]);
         }
         const context = await this.getReviewContext(from);
         if (context) await this.setReviewContext(into, [await this.getReviewContext(into), context].filter(Boolean).join("\n\n"));
@@ -1029,7 +1035,6 @@ export function storeOn(sql: Sql): Store {
           .filter((thread, i, all) => thread.threadId !== mainThread?.threadId && all.findIndex((other) => other.threadId === thread.threadId) === i);
         const pinned = [target.pinnedAt, source.pinnedAt].filter((pin): pin is number => pin != null);
         const branches = [...target.keptBranches ?? [], ...source.keptBranches ?? []].filter((kept, i, all) => all.findIndex((other) => other.branch === kept.branch) === i);
-        const id = source.kind !== "pr" && source.feature ? localIdOf({ ...source, feature: source.feature }) : reviewIdentity(source).id;
         await this.setLifecycle(into, {
           // What the sync knows of the PR, where this review doesn't yet, so nothing it alerted alerts again.
           ...Object.fromEntries(SYNC_OWNED.filter((field) => target[field] == null && source[field] != null).map((field) => [field, source[field]])),
@@ -1045,8 +1050,9 @@ export function storeOn(sql: Sql): Store {
           mergedFrom: [...target.mergedFrom ?? [], ...source.mergedFrom ?? [], { key: from, at: now, id, agentThreadId: adopted ? null : agentThreadId }],
         });
 
-        // What's left of it: archived, empty, so no comment's id is in two reviews, and pointing here.
-        await writeDraft(sql, { targetKey: from, verdict: "COMMENT", body: "", comments: [] });
+        // What's left of it: archived, empty but for the tracked comments this review couldn't take, so no comment's id
+        // is in two reviews, and pointing here.
+        await writeDraft(sql, { targetKey: from, verdict: "COMMENT", body: "", comments: stranded });
         for (const table of ["draft_comment_revisions", "discussion_waits", "file_views", "reviewer_notes", "review_context", "assessment_items", "assessment_runs", "feedback_threads", "feedback_fetches", "reply_drafts"]) {
           await sql.run(`DELETE FROM ${table} WHERE target_key=?`, [from]);
         }
