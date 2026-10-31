@@ -1,6 +1,6 @@
 import { useCallback, useEffect } from "react";
 import { VERDICT_LABEL } from "../src/draft";
-import { useDraftStatus } from "../lib/draft-status";
+import { useDraftStatus, useLocalToSend } from "../lib/draft-status";
 import { useFullscreenPortalContainer } from "../lib/portal-scope";
 import { ariaKeys, keyHint } from "../lib/review-shortcuts";
 import { cn } from "../lib/utils";
@@ -50,6 +50,7 @@ TitleBarControls.displayName = "TitleBarControls";
 
 function ReviewControls({ api, placement }: { api: WorkspaceApi; placement: TitleBarPlacement }) {
   const status = useDraftStatus(api.targetKey);
+  const localToSend = useLocalToSend(api.targetKey);
   const needsYou = useNeedsYou(api.targetKey);
   const container = useFullscreenPortalContainer();
   const { layout, panel } = api;
@@ -61,7 +62,10 @@ function ReviewControls({ api, placement }: { api: WorkspaceApi; placement: Titl
   // A wide pane's title bar has room for every label; a phone held sideways, a narrow pane beside BB's side panel, and
   // the band keep to icons and counts.
   const tier = placement === "band" || layout.mode === "short" || layout.narrowPane ? "icons" : layout.widePane ? "labeled" : "compact";
-  const comments = status?.comments ?? 0;
+  // Finish review's count: what Submit posts, with the verdict; a local review, which submits nothing, what Send would send.
+  const comments = status?.comments ?? localToSend ?? 0;
+  const finishLabel = status ? `Finish review: ${VERDICT_LABEL[status.verdict]}, ${comments} comment${comments === 1 ? "" : "s"}`
+    : comments ? `Finish review: ${comments} comment${comments === 1 ? "" : "s"} to send` : "Finish review";
   const touch = placement === "title" || layout.mode === "short" ? TOUCH_COMPACT : TOUCH_CONTROL;
   const labeled = cn("h-8 gap-1.5 px-2 text-muted-foreground aria-pressed:text-foreground", touch);
   const icon = cn("size-8 px-0 text-muted-foreground aria-pressed:text-foreground", touch);
@@ -102,12 +106,12 @@ function ReviewControls({ api, placement }: { api: WorkspaceApi; placement: Titl
             <Icon name="Columns2" aria-hidden />
           </Button>
         </Hint>}
-        {status && <Hint label={keyHint("Finish review", "s", api.shortcuts)} container={container}>
-          <Button variant="ghost" size="sm" aria-label={`Finish review: ${VERDICT_LABEL[status.verdict]}, ${comments} comment${comments === 1 ? "" : "s"}`} aria-pressed={panel.view === "finish"} aria-controls={controls} aria-keyshortcuts={ariaKeys("s", api.shortcuts)} className={labeled} onClick={() => panel.view === "finish" ? panel.close() : api.openFinish()}>
+        {(status || localToSend !== null) && <Hint label={keyHint("Finish review", "s", api.shortcuts)} container={container}>
+          <Button variant="ghost" size="sm" aria-label={finishLabel} aria-pressed={panel.view === "finish"} aria-controls={controls} aria-keyshortcuts={ariaKeys("s", api.shortcuts)} className={labeled} onClick={() => panel.view === "finish" ? panel.close() : api.openFinish()}>
             <Icon name="Github" aria-hidden />
             {/* A band under 720px (full screen on a phone) keeps its room for where you are: the icon and the count. */}
             <span className={cn(placement === "band" && "@max-[720px]/band:hidden")}>{tier === "labeled" ? "Finish review" : "Finish"}</span>
-            {tier === "labeled" && <span className="font-normal text-subtle-foreground">· {VERDICT_LABEL[status.verdict]}</span>}
+            {tier === "labeled" && status && <span className="font-normal text-subtle-foreground">· {VERDICT_LABEL[status.verdict]}</span>}
             {comments > 0 && <span className="font-normal text-subtle-foreground tabular-nums"><span className={cn(placement === "band" && "@max-[720px]/band:hidden")}>· </span>{comments}</span>}
           </Button>
         </Hint>}

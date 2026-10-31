@@ -14,7 +14,7 @@ import { getHideNits, setHideNits, type PanelView } from "../lib/panel-state";
 import { approveDoubts, type ApproveGuard } from "../lib/approve-guard";
 import { readOf, type AgentCoverage } from "../lib/agent-coverage";
 import { readDraftRecovery, updateDraftRecovery } from "../lib/draft-recovery";
-import { setDraftStatus } from "../lib/draft-status";
+import { setDraftStatus, setLocalToSend } from "../lib/draft-status";
 import { holdReview } from "../lib/review-holds";
 import { useKnob } from "../lib/settings";
 import { useWorkspace } from "../lib/workspace-context";
@@ -681,8 +681,11 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
   useEffect(() => {
     setDraftStatus(targetKey, submittable ? { verdict: draft.verdict, comments: posting.length, local: notOnGithub } : null);
   }, [targetKey, submittable, draft.verdict, posting.length, notOnGithub]);
+  // A local review's Finish review in the top bar counts what Send would send instead: its open comments.
+  const localToSend = loaded && !loadError && isLocal ? draft.comments.filter((comment) => !comment.state || comment.state === "open").length : null;
+  useEffect(() => setLocalToSend(targetKey, localToSend), [targetKey, localToSend]);
   // A new workspace of the review may already show its draft: the status goes with the last one.
-  useEffect(() => holdReview("draft", targetKey, () => setDraftStatus(targetKey, null)), [targetKey]);
+  useEffect(() => holdReview("draft", targetKey, () => { setDraftStatus(targetKey, null); setLocalToSend(targetKey, null); }), [targetKey]);
   // The diff shows the draft's comments and discussions, and the comment box while it's open there.
   const latest = useRef({ openComposer, removeComment, addComment, askAgent, dismissDiscussion, undo, changeBody, closeComposer, dropSummaryEdit, keepOnCurrentDiff, restoreComments, cancelComposer, suggestChange, markPreExisting, setFix });
   latest.current = { openComposer, removeComment, addComment, askAgent, dismissDiscussion, undo, changeBody, closeComposer, dropSummaryEdit, keepOnCurrentDiff, restoreComments, cancelComposer, suggestChange, markPreExisting, setFix };

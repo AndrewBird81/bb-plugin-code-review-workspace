@@ -214,15 +214,44 @@ test("where BB's title bar takes the commands the band doesn't show them; where 
   expect(without.band().getByRole("group", { name: "Review commands" })).toBeTruthy();
 });
 
-test("Submit shows only what can be submitted: a local review and a closed PR have none", async () => {
+test("Submit shows only what can be submitted: a closed PR has none", async () => {
   fakeSize(1400, 900);
-  for (const review of [{ kind: "ref", gitRef: "main...x", url: null }, { prState: "MERGED", archivedAt: 1 }]) {
-    const { bar, page } = await renderReview({ review });
-    const commands = within(await bar!.findByRole("group", { name: "Review commands" }));
-    expect(commands.getByRole("button", { name: "Comments" })).toBeTruthy();
-    expect(commands.queryByRole("button", { name: /^Finish review:/ })).toBeNull();
-    page.lifecycle.unmount(); bar!.lifecycle.unmount();
-  }
+  const { bar } = await renderReview({ review: { prState: "MERGED", archivedAt: 1 } });
+  const commands = within(await bar!.findByRole("group", { name: "Review commands" }));
+  expect(commands.getByRole("button", { name: "Comments" })).toBeTruthy();
+  expect(commands.queryByRole("button", { name: /^Finish review/ })).toBeNull();
+});
+
+test("a local review's Finish review counts the open comments Send would send, with no verdict, as it submits nothing", async () => {
+  fakeSize(1400, 900);
+  const local = { kind: "ref", gitRef: "main...x", url: null };
+  const comments = [{ file: "src/a.ts", line: 1, side: "RIGHT", body: "Here." }, { file: "src/a.ts", line: 2, side: "LOCAL", body: "Not pushed." }, { file: "src/a.ts", line: 3, side: "RIGHT", body: "Sent.", state: "sent" }];
+  let { bar, page } = await renderReview({ review: local, rpc: { getDraft: () => ({ draft: { targetKey: "pr-42", verdict: "COMMENT", body: "", comments }, stale: [] }) } });
+  let commands = within(await bar!.findByRole("group", { name: "Review commands" }));
+  const finish = await commands.findByRole("button", { name: "Finish review: 2 comments to send" });
+  expect(finish.textContent).toBe("Finish review· 2");
+  expect(finish.getAttribute("aria-keyshortcuts")).toBe("s");
+  expect(finish.querySelector("svg")?.getAttribute("data-icon")).toBe("Github");
+  fireEvent.click(finish);
+  expect(finish.getAttribute("aria-pressed")).toBe("true");
+  expect(page.getByRole("complementary", { name: "Comments and Finish review" })).toBeTruthy();
+  page.lifecycle.unmount(); bar!.lifecycle.unmount();
+  // None open: no count.
+  ({ bar, page } = await renderReview({ review: local, rpc: { getDraft: () => ({ draft: { targetKey: "pr-42", verdict: "COMMENT", body: "", comments: [] }, stale: [] }) } }));
+  commands = within(await bar!.findByRole("group", { name: "Review commands" }));
+  expect((await commands.findByRole("button", { name: "Finish review" })).textContent).toBe("Finish review");
+});
+
+test("a local review's Finish review leaves the draft status alone: nothing to submit, as the phone dock reads it", async () => {
+  fakeSize(1400, 900);
+  const { useDraftStatus } = await import("../lib/draft-status");
+  let status: unknown = "unset";
+  const Probe = () => { status = useDraftStatus("pr-42"); return null; };
+  const probe = renderSlot({ component: Probe }, {}, {});
+  const { bar } = await renderReview({ review: { kind: "ref", gitRef: "main...x", url: null } });
+  await within(await bar!.findByRole("group", { name: "Review commands" })).findByRole("button", { name: /^Finish review/ });
+  expect(status).toBeNull();
+  probe.lifecycle.unmount();
 });
 
 test("Comments counts what needs you, opens and closes the panel, and says so pressed", async () => {

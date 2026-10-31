@@ -112,9 +112,15 @@ test.skipIf(!process.env.BB_E2E_URL || !process.env.BB_E2E_THREAD)("review ⇄ m
     await page.waitForTimeout(800);
     await page.screenshot({ animations: "disabled", path: `${dir}/watch-main-tab.png` });
     await hideBbPanel(page);
-    // Finish review's Change main thread: the Main thread tab opens with its menu, which stays open as BB focuses the
-    // chat box, until a click outside it. A local review's title bar has no Finish review button: its key opens it.
+    // Finish review: its key opens it, and the title bar's button, a local review's too, closes and opens it.
+    const finish = commands.getByRole("button", { name: /^Finish review/ });
     await page.keyboard.press("s");
+    await expect.poll(() => finish.getAttribute("aria-pressed"), { message: "s opens Finish review" }).toBe("true");
+    await finish.click();
+    await expect.poll(() => finish.getAttribute("aria-pressed"), { message: "Finish review closes it" }).toBe("false");
+    await finish.click();
+    // Its Change main thread: the Main thread tab opens with its menu, which stays open as BB focuses the chat box,
+    // until a click outside it.
     await page.getByRole("complementary", { name: "Comments and Finish review", exact: true }).getByRole("button", { name: "Change main thread", exact: true }).click();
     const changeMenu = page.getByRole("menu", { name: "Change main thread", exact: true });
     await changeMenu.waitFor();
@@ -123,6 +129,7 @@ test.skipIf(!process.env.BB_E2E_URL || !process.env.BB_E2E_THREAD)("review ⇄ m
     await page.screenshot({ animations: "disabled", path: `${dir}/change-main-thread-menu.png` });
     await tab.locator("[contenteditable=true]").last().click();
     await changeMenu.waitFor({ state: "hidden" });
+    await finish.click();
     await hideBbPanel(page);
     await commands.getByRole("button", { name: "Ask agent", exact: true }).click();
     await page.getByRole("region", { name: "Review agent", exact: true }).waitFor();
