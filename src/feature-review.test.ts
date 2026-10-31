@@ -257,6 +257,23 @@ test("a branch with no commits of its own, at its base, renamed is followed too:
   expect(await s.store.getReview(key)).toMatchObject({ gitRef: "feat/nice", followed: { from: "feat/qa", branch: "feat/nice" } });
 });
 
+test("a branch with no commits of its own when last checked, then committed, merged into its base and deleted in one turn, isn't a rename: the review pauses, with Follow and New review", async () => {
+  const s = setup();
+  const git = renaming(s);
+  git.head = BASE_SHA;
+  git.merged = true;
+  await run(s, "main");
+  await settled(s);
+  await checkFeature(s.deps, key);
+  expect((await s.store.getReview(key))?.feature).toMatchObject({ headSha: BASE_SHA, mergeBaseRef: BASE_SHA });
+  // git commit, git switch main, git merge feat/qa, git branch -d feat/qa, git switch -c next: next has the base's commit too.
+  s.folder.env = { ...s.folder.env, branchName: "next" };
+  git.head = "d4".repeat(20);
+  expect(await checkFeature(s.deps, key)).toMatchObject({ state: "paused", branch: "next" });
+  expect(await s.store.getReview(key)).toMatchObject({ gitRef: "feat/qa", feature: { branch: "feat/qa", pausedOn: "next" } });
+  expect((await s.store.getReview(key))?.followed).toBeUndefined();
+});
+
 test("a branch merged on GitHub, its local base not fetched since, then deleted and a new one made from GitHub's base, isn't a rename either", async () => {
   const s = setup();
   const git = renaming(s);

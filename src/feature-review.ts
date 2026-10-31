@@ -595,10 +595,11 @@ export async function checkFeature(deps: Deps, key: string): Promise<FeatureChec
     const other = read.branch ? reviewOfFolder(await store.listReviews(), feature.environmentId, read.branch)?.targetKey : undefined;
     // Its branch renamed: the branch it was on is gone, and the one it's on has its last commit, which its base hasn't (a
     // branch merged into the base and deleted isn't renamed), or which was its merge base, a branch with no commits of
-    // its own, which can't have been merged. It follows, and says so.
+    // its own, which can't have been merged, while the folder is still at it: a head read before commits made since may
+    // be out of date. It follows, and says so.
     if (read.branch && !other && !feature.workBranch && feature.headSha && await folderHasBranch(bb, feature.environmentId, feature.branch) === false
       && await folderHas(bb, feature.environmentId, feature.headSha)
-      && (feature.headSha === feature.mergeBaseRef || await folderHasSince(bb, feature.environmentId, feature.baseRef, feature.headSha))
+      && (feature.headSha === feature.mergeBaseRef && head === feature.headSha || await folderHasSince(bb, feature.environmentId, feature.baseRef, feature.headSha))
       && await followBranch(deps, key, read.branch, true)) return checkFeature(deps, key);
     return { ...withOthers, state: "paused", branch: read.branch, ...other ? { branchReview: other } : {} };
   }
