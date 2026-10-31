@@ -391,9 +391,10 @@ function prOfBranch(feature: FeatureReview, pr: FolderPr | undefined): { repo: s
  * your click (`clicked` "pr"), as one GitHub didn't answer for waits for the next check (`prPending`). When the PR has
  * a review of its own already, the two merge (src/merge.ts): this one stays, unless the PR's began as another folder's,
  * and the one that goes is merged in at once when it has nothing of yours, else on your click (`clicked` "merge"), which
- * this review offers (`prOffer`). Returns which, or "skipped" when it can't now.
+ * this review offers (`prOffer`). Returns which, or "skipped" when it can't now; to a click on a PR closed or merged
+ * since, "pr-closed" or "pr-merged", with nothing waiting on it after.
  */
-export async function becomePr(deps: Deps, key: string, pr: { repo: string; number: number }, clicked?: "pr" | "merge"): Promise<"converted" | "merged" | "offered" | "skipped"> {
+export async function becomePr(deps: Deps, key: string, pr: { repo: string; number: number }, clicked?: "pr" | "merge"): Promise<"converted" | "merged" | "offered" | "skipped" | "pr-closed" | "pr-merged"> {
   const { bb, store, gh } = deps;
   const prKey = await prReviewKey(store, pr);
   // A guide being written goes on: it's checked against the diff as it is when it's done, the PR's.
@@ -468,7 +469,16 @@ export async function becomePr(deps: Deps, key: string, pr: { repo: string; numb
   if (now.kind !== "ref" || !clicked && waiting?.why === "older" || errorWaits()) return "skipped";
   const snapshot = await readPr();
   if (!snapshot) return "skipped";
-  if (snapshot.pr.state !== undefined && snapshot.pr.state !== "OPEN") return "skipped";
+  if (snapshot.pr.state !== undefined && snapshot.pr.state !== "OPEN") {
+    if (!clicked) return "skipped";
+    const cleared = await store.exclusive(async (tx) => {
+      if ((await tx.getReview(key))?.prPending?.url.toLowerCase() !== url.toLowerCase()) return false;
+      await tx.setLifecycle(key, { prPending: null });
+      return true;
+    });
+    if (cleared) deps.changed(key);
+    return snapshot.pr.state === "MERGED" ? "pr-merged" : "pr-closed";
+  }
   if (notOwn(snapshot.pr.headRefName)) return pending({ number: pr.number, url: snapshot.pr.url, why: "branch", head: snapshot.pr.headRefName, at: Date.now() });
   // A branch used again may have an open PR from before the review: it's this work's only when the folder has its head.
   const opened = Date.parse(snapshot.pr.createdAt ?? "");
@@ -796,6 +806,9 @@ export function heldForBranch(folder: ReviewMeta, pr: ReviewMeta): boolean {
   return !!feature && folder.prOffer?.key !== pr.targetKey && !!pr.head && ![feature.branch, feature.remoteBranch, feature.pushedAs].includes(pr.head);
 }
 
+/** What a click on PR #n closed or merged since says. */
+const prGone = (number: number, became: "pr-closed" | "pr-merged") => `PR #${number} is ${became === "pr-merged" ? "merged" : "closed"}.`;
+
 /** The folder's review offering to merge with its PR's own review, from either's page: `targetKey`, or the one offering to merge with it. */
 function offeringFolder(reviews: ReviewMeta[], targetKey: string): (ReviewMeta & { feature: FeatureReview }) | null {
   const offering = (review: ReviewMeta) => review.kind === "ref" && !review.archivedAt && !!(review.prOffer || review.feature?.prReview);
@@ -881,7 +894,9 @@ export function register(deps: ServeDeps) {
       if (heldForBranch(folder, other)) return { ok: false, error: `PR #${other.number} is from \`${other.head}\`, not this branch. Make it PR #${other.number}’s review first.` };
       const pr = { repo: other.repo, number: other.number };
       try {
-        if (await becomePr(deps, folder.targetKey, pr, "merge") !== "merged") {
+        const became = await becomePr(deps, folder.targetKey, pr, "merge");
+        if (became === "pr-closed" || became === "pr-merged") return { ok: false, error: prGone(pr.number, became) };
+        if (became !== "merged") {
           return { ok: false, error: (await store.getReview(folder.targetKey))?.prPending?.error ?? "Couldn’t merge the two reviews. Try again." };
         }
       } catch (error) {
@@ -911,6 +926,7 @@ export function register(deps: ServeDeps) {
       // Opened before it, or from another branch: your click says it's this review's. GitHub didn't answer: asked again.
       const became = await becomePr(deps, targetKey, { repo: link.repo, number: link.number }, pending.why === "error" ? undefined : "pr").catch(() => "skipped" as const);
       if (became === "converted" || became === "merged" || became === "offered") return { ok: true };
+      if (became === "pr-closed" || became === "pr-merged") return { ok: false, error: prGone(link.number, became) };
       return { ok: false, error: (await store.getReview(targetKey))?.prPending?.error ?? `Couldn’t make it PR #${link.number}’s review. Try again.` };
     },
     async dismissPendingPr({ targetKey }) {

@@ -932,6 +932,24 @@ test("Merge into one review works from either review's page; a PR opened before 
   expect(await t.store.getReview(key)).toMatchObject({ kind: "pr", number: 7, prPending: null });
 });
 
+test("Make it PR #7's review of a PR closed or merged since Not this one says so, and nothing waits on it after", async () => {
+  for (const [state, said] of [["CLOSED", "closed"], ["MERGED", "merged"]]) {
+    const s = setup();
+    vi.mocked(runGh).mockImplementation(s.deps.gh.runGh as any);
+    await plugin(s.bb);
+    await run(s, "main");
+    await settled(s);
+    s.view.createdAt = new Date(Date.now() - 86_400_000).toISOString();
+    expect(await becomePr(s.deps, key, { repo: "acme/api", number: 7 })).toBe("skipped");
+    expect(await s.harness.behavior.callRpc("dismissPendingPr", { targetKey: key })).toEqual({ ok: true });
+    s.view.state = state;
+    s.deps.changed.mockClear();
+    expect(await s.harness.behavior.callRpc("takePendingPr", { targetKey: key })).toEqual({ ok: false, error: `PR #7 is ${said}.` });
+    expect(await s.store.getReview(key)).toMatchObject({ kind: "ref", prPending: null });
+    expect((await s.harness.behavior.callRpc("getReviewBundle", { targetKey: key }) as any).review.prPending).toBeNull();
+  }
+});
+
 test("Keep both, from either review's page: neither offers to merge again, the folder's review stays local and the PR's stays the PR's", async () => {
   const s = setup();
   vi.mocked(runGh).mockImplementation(s.deps.gh.runGh as any);

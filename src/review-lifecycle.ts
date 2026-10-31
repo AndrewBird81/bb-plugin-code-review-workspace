@@ -69,7 +69,7 @@ export interface TurnActions {
   /** The project reviews found on GitHub run in. */
   projectId(): Promise<string | null>;
   /** A folder's review becomes its branch's PR's, merged with the PR's own review or offering to (src/feature-review.ts becomePr). */
-  becomePr(targetKey: string, pr: { repo: string; number: number }): Promise<"converted" | "merged" | "offered" | "skipped">;
+  becomePr(targetKey: string, pr: { repo: string; number: number }): Promise<"converted" | "merged" | "offered" | "skipped" | "pr-closed" | "pr-merged">;
 }
 
 const MINUTE = 60_000;
