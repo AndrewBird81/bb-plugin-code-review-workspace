@@ -731,6 +731,26 @@ test("Not this one on another branch's PR stays: found again, with the branch's 
   expect((await s.store.getReview(prKey))?.mergedInto).toBeUndefined();
 });
 
+test("a PR's review not read yet, with something of yours, has GitHub say the PR's branch first: one from another branch waits for Make it PR #7's review, never offered to merge", async () => {
+  const s = setup();
+  await run(s, "main");
+  await settled(s);
+  s.view.headRefName = "part1";
+  const prKey = targetKey({ kind: "pr", repo: "acme/api", number: 7 });
+  await s.store.saveReview({ targetKey: prKey, kind: "pr", repo: "acme/api", number: 7, url: "https://github.com/acme/api/pull/7", status: "tracked", createdAt: 1 });
+  await s.store.saveReviewerNotes(prKey, "Mine", 0);
+  Object.assign(s.folder, { prBase: "main", pr: { number: 7, url: "https://github.com/acme/api/pull/7", headRefName: "part1", state: "open" } });
+  await checkFeature(s.deps, key);
+  const review = (await s.store.getReview(key))!;
+  expect(review).toMatchObject({ kind: "ref", prPending: { number: 7, why: "branch", head: "part1" } });
+  expect(review.prOffer).toBeUndefined();
+  // Its own branch's PR is offered as before.
+  s.view.headRefName = "feat/qa";
+  await s.store.setLifecycle(key, { prPending: null });
+  expect(await becomePr(s.deps, key, { repo: "acme/api", number: 7 })).toBe("offered");
+  expect(await s.store.getReview(key)).toMatchObject({ kind: "ref", prOffer: { key: prKey } });
+});
+
 test("a PR whose own review has nothing of yours is merged into the folder's at once; one with your comments waits for your click", async () => {
   const s = setup();
   await run(s, "main");
@@ -746,11 +766,11 @@ test("a PR whose own review has nothing of yours is merged into the folder's at 
   expect(await prReviewKey(s.store, { repo: "acme/api", number: 7 })).toBe(key);
   expect(s.deps.changed).toHaveBeenCalledWith(prKey);
 
-  // The PR's review has your comment: the folder's offers to merge, and stays local, reading nothing of GitHub.
+  // The PR's review, read, has your comment: the folder's offers to merge, and stays local, reading nothing of GitHub.
   const t = setup();
   await run(t, "main");
   await settled(t);
-  await t.store.saveReview({ targetKey: prKey, kind: "pr", repo: "acme/api", number: 7, url: "https://github.com/acme/api/pull/7", status: "ready", createdAt: 1 });
+  await t.store.saveReview({ targetKey: prKey, kind: "pr", repo: "acme/api", number: 7, url: "https://github.com/acme/api/pull/7", head: "feat/qa", status: "ready", createdAt: 1 });
   await t.store.upsertDraftComment(prKey, { file: "src/a.ts", line: 2, side: "RIGHT", body: "Theirs" });
   Object.assign(t.folder, { prBase: "main", pr: { number: 7, url: "https://github.com/acme/api/pull/7", headRefName: "feat/qa" } });
   await checkFeature(t.deps, key);

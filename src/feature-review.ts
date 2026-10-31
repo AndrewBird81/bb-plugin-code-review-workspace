@@ -433,7 +433,26 @@ export async function becomePr(deps: Deps, key: string, pr: { repo: string; numb
   const waiting = now.prPending?.url.toLowerCase() === url.toLowerCase() ? now.prPending : null;
   // Not this one stays, whatever the branch was pushed as since: only your click makes it the PR's.
   if (waiting && (!clicked && waiting.declined || waiting.why === "branch" && notOwn(waiting.head))) return "skipped";
+  // One GitHub didn't answer for is read again a minute later, and not while GitHub limits reads or gh is signed out.
+  const errorWaits = () => !clicked && waiting?.why === "error" && (Date.now() - waiting.at < ERROR_RETRY || !!deps.sync && githubWaits(deps.sync.health(), Date.now()));
+  /** The PR as GitHub has it, read once; null when GitHub didn't answer, which the review keeps, to read again. */
+  let read: PrSnapshot | undefined;
+  const readPr = async (): Promise<PrSnapshot | null> => {
+    try {
+      return read ??= await readPrSnapshot(gh.runGh, pr.number, pr.repo);
+    } catch (error) {
+      await pending({ number: pr.number, url, why: "error", error: error instanceof Error ? error.message : String(error), at: Date.now() });
+      return null;
+    }
+  };
   if (notOwn(other?.head)) return pending({ number: pr.number, url, why: "branch", head: other!.head!, at: Date.now() });
+  // The PR's review not read yet has no head: GitHub says the PR's branch before a merge is offered or made.
+  if (other && !other.head && !clicked && now.kind === "ref") {
+    if (errorWaits()) return "skipped";
+    const found = await readPr();
+    if (!found) return "skipped";
+    if (notOwn(found.pr.headRefName)) return pending({ number: pr.number, url: found.pr.url, why: "branch", head: found.pr.headRefName, at: Date.now() });
+  }
   if (other) {
     // Two folders on one branch: the PR's review that began as the other folder's stays, and this one goes into it.
     const intoPr = !!other.feature;
@@ -442,16 +461,9 @@ export async function becomePr(deps: Deps, key: string, pr: { repo: string; numb
     if (offered) return "offered";
     if (intoPr || now.kind === "pr") return await mergeReviews(deps, intoPr ? key : prKey, intoPr ? prKey : key) ? "merged" : "skipped";
   }
-  if (now.kind !== "ref" || !clicked && now.prPending?.why === "older" && now.prPending.url.toLowerCase() === url.toLowerCase()) return "skipped";
-  // One GitHub didn't answer for is read again a minute later, and not while GitHub limits reads or gh is signed out.
-  if (!clicked && now.prPending?.why === "error" && now.prPending.url.toLowerCase() === url.toLowerCase()
-    && (Date.now() - now.prPending.at < ERROR_RETRY || !!deps.sync && githubWaits(deps.sync.health(), Date.now()))) return "skipped";
-  let snapshot: PrSnapshot;
-  try {
-    snapshot = await readPrSnapshot(gh.runGh, pr.number, pr.repo);
-  } catch (error) {
-    return pending({ number: pr.number, url, why: "error", error: error instanceof Error ? error.message : String(error), at: Date.now() });
-  }
+  if (now.kind !== "ref" || !clicked && waiting?.why === "older" || errorWaits()) return "skipped";
+  const snapshot = await readPr();
+  if (!snapshot) return "skipped";
   if (snapshot.pr.state !== undefined && snapshot.pr.state !== "OPEN") return "skipped";
   if (notOwn(snapshot.pr.headRefName)) return pending({ number: pr.number, url: snapshot.pr.url, why: "branch", head: snapshot.pr.headRefName, at: Date.now() });
   // A branch used again may have an open PR from before the review: it's this work's only when the folder has its head.
