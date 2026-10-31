@@ -118,9 +118,15 @@ test("the title bar's commands fit the pane: labeled from 1000px, shorter below,
   // Mid-width, Ask agent, with its key and BB's tab, goes to its icon first (Main thread ↗ keeps its label: below).
   expect(await text(bar)).toEqual(["", "", "Finish· 2"]);
   page.lifecycle.unmount(); bar!.lifecycle.unmount(); restores.splice(0).forEach((restore) => restore());
+  // Finish review too is its icon and count, where "Finish · 2" left BB's crumbs no room.
   fakeSize(844, 390);
   ({ bar, page } = await renderReview());
-  expect(await text(bar)).toEqual(["", "", "Finish· 2"]);
+  expect(await text(bar)).toEqual(["", "", "2"]);
+  page.lifecycle.unmount(); bar!.lifecycle.unmount(); restores.splice(0).forEach((restore) => restore());
+  fakeSize(560, 952, [1440, 1000]);
+  ({ bar, page } = await renderReview());
+  expect(await text(bar)).toEqual(["", "", "2"]);
+  expect(within(bar!.getByRole("group", { name: "Review commands" })).getByRole("button", { name: /^Finish review:/ }).querySelector("svg")?.getAttribute("data-icon")).toBe("Github");
   page.lifecycle.unmount(); bar!.lifecycle.unmount(); restores.splice(0).forEach((restore) => restore());
   // A phone's are its own, in the workspace's dock.
   fakeSize(390, 844);
@@ -241,6 +247,18 @@ test("a local review's Finish review counts the open comments Send would send, w
   ({ bar, page } = await renderReview({ review: local, rpc: { getDraft: () => ({ draft: { targetKey: "pr-42", verdict: "COMMENT", body: "", comments: [] }, stale: [] }) } }));
   commands = within(await bar!.findByRole("group", { name: "Review commands" }));
   expect((await commands.findByRole("button", { name: "Finish review" })).textContent).toBe("Finish review");
+  page.lifecycle.unmount(); bar!.lifecycle.unmount(); restores.splice(0).forEach((restore) => restore());
+  // Beside BB's side panel, its icon and count, its name unchanged; with none open, its icon.
+  fakeSize(560, 952, [1440, 1000]);
+  ({ bar, page } = await renderReview({ review: local, rpc: { getDraft: () => ({ draft: { targetKey: "pr-42", verdict: "COMMENT", body: "", comments }, stale: [] }) } }));
+  commands = within(await bar!.findByRole("group", { name: "Review commands" }));
+  const icons = await commands.findByRole("button", { name: "Finish review: 2 comments to send" });
+  expect(icons.textContent).toBe("2");
+  expect(icons.querySelector("svg")?.getAttribute("data-icon")).toBe("Send");
+  page.lifecycle.unmount(); bar!.lifecycle.unmount();
+  ({ bar, page } = await renderReview({ review: local, rpc: { getDraft: () => ({ draft: { targetKey: "pr-42", verdict: "COMMENT", body: "", comments: [] }, stale: [] }) } }));
+  commands = within(await bar!.findByRole("group", { name: "Review commands" }));
+  expect((await commands.findByRole("button", { name: "Finish review" })).textContent).toBe("");
 });
 
 test("a local review's Finish review leaves the draft status alone: nothing to submit, as the phone dock reads it", async () => {

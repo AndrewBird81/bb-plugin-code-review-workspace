@@ -65,6 +65,9 @@ function ReviewControls({ api, placement }: { api: WorkspaceApi; placement: Titl
   // A wide pane's title bar has room for every label; a phone held sideways, a narrow pane beside BB's side panel, and
   // the band keep to icons and counts.
   const tier = placement === "band" || layout.mode === "short" || layout.narrowPane ? "icons" : layout.widePane ? "labeled" : "compact";
+  // There Finish review is its icon and count too, where "Finish · 1" left BB's crumbs no room; the band keeps its word
+  // over 720px.
+  const finishIcons = placement === "title" && tier === "icons";
   // Finish review's count: what Submit posts, with the verdict; a local review, which submits nothing, what Send would send.
   const comments = status?.comments ?? localToSend ?? 0;
   const finishLabel = status ? `Finish review: ${VERDICT_LABEL[status.verdict]}, ${comments} comment${comments === 1 ? "" : "s"}`
@@ -110,13 +113,13 @@ function ReviewControls({ api, placement }: { api: WorkspaceApi; placement: Titl
           </Button>
         </Hint>}
         {(status || localToSend !== null) && <Hint label={keyHint("Finish review", "s", api.shortcuts)} container={container}>
-          <Button variant="ghost" size="sm" aria-label={finishLabel} aria-pressed={panel.view === "finish"} aria-controls={controls} aria-keyshortcuts={ariaKeys("s", api.shortcuts)} className={labeled} onClick={() => panel.view === "finish" ? panel.close() : api.openFinish()}>
+          <Button variant="ghost" size="sm" aria-label={finishLabel} aria-pressed={panel.view === "finish"} aria-controls={controls} aria-keyshortcuts={ariaKeys("s", api.shortcuts)} className={finishIcons ? cn(icon, comments > 0 && "w-auto gap-1 px-2") : labeled} onClick={() => panel.view === "finish" ? panel.close() : api.openFinish()}>
             {/* A local review's goes to the main thread, not GitHub. */}
             <Icon name={status ? "Github" : "Send"} aria-hidden />
             {/* A band under 720px (full screen on a phone) keeps its room for where you are: the icon and the count. */}
-            <span className={cn(placement === "band" && "@max-[720px]/band:hidden")}>{tier === "labeled" ? "Finish review" : "Finish"}</span>
+            {!finishIcons && <span className={cn(placement === "band" && "@max-[720px]/band:hidden")}>{tier === "labeled" ? "Finish review" : "Finish"}</span>}
             {tier === "labeled" && status && <span className="font-normal text-subtle-foreground">· {VERDICT_LABEL[status.verdict]}</span>}
-            {comments > 0 && <span className="font-normal text-subtle-foreground tabular-nums"><span className={cn(placement === "band" && "@max-[720px]/band:hidden")}>· </span>{comments}</span>}
+            {comments > 0 && <span className="font-normal text-subtle-foreground tabular-nums">{!finishIcons && <span className={cn(placement === "band" && "@max-[720px]/band:hidden")}>· </span>}{comments}</span>}
           </Button>
         </Hint>}
         <ReviewMenu api={api} className={icon} />
