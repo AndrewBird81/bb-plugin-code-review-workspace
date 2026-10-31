@@ -114,6 +114,19 @@ test.skipIf(!process.env.BB_E2E_URL || !process.env.BB_E2E_THREAD)("review ⇄ m
     // Focus, as a tab opens: where it was, on the page.
     console.log("focus after Watch:", await page.evaluate(() => `${document.activeElement?.tagName} ${document.activeElement?.getAttribute("aria-label") ?? ""}`));
     await hideBbPanel(page);
+    // Finish review's Change main thread: the Main thread tab opens with its menu, which stays open as BB focuses the
+    // chat box, until a click outside it.
+    await commands.getByRole("button", { name: /^Finish review:/ }).click();
+    await page.getByRole("complementary", { name: "Comments and Finish review", exact: true }).getByRole("button", { name: "Change main thread", exact: true }).click();
+    const changeMenu = page.getByRole("menu", { name: "Change main thread", exact: true });
+    await changeMenu.waitFor();
+    await page.waitForTimeout(2000);
+    expect(await changeMenu.isVisible(), "Change main thread's menu is still open 2 s after Finish review opened it").toBe(true);
+    await page.screenshot({ animations: "disabled", path: `${dir}/change-main-thread-menu.png` });
+    await tab.locator("[contenteditable=true]").last().click();
+    await changeMenu.waitFor({ state: "hidden" });
+    await commands.getByRole("button", { name: /^Finish review:/ }).click();
+    await hideBbPanel(page);
     await commands.getByRole("button", { name: "Ask agent", exact: true }).click();
     await page.getByRole("region", { name: "Review agent", exact: true }).waitFor();
     await page.waitForTimeout(500);

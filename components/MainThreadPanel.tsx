@@ -1,7 +1,7 @@
 // The Main thread tab in BB's side panel (components/PanelTabs.tsx): the review's main thread, the thread that writes the
 // code and gets your Sends, as BB's own chat beside the diff, its permissions the thread's own; which thread that is, on
 // which machine, Change thread, and Main thread ↗.
-import { useEffect, useState, type KeyboardEvent } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { experimental_useSidebarThreads, ThreadChat, useBbNavigate, useRpc } from "@get-bb/plugin-sdk/app";
 import { toast } from "sonner";
 import type { rpcContract } from "../src/rpc-contract";
@@ -38,9 +38,15 @@ function ChangeMainThread({ current, onChanged }: { current: string | null; onCh
   const { targetKey, review } = useWorkspace();
   const rpc = useRpc<typeof rpcContract>();
   const [open, setOpen] = useState(false);
-  // Asked for from Finish review's Change main thread: the menu opens with the tab.
+  // Asked for from Finish review's Change main thread: the menu opens with the tab. BB then focuses the tab's chat box,
+  // so until a click or tap outside it, focus leaving doesn't close it.
   const takeAsk = useChangeThreadAsked(targetKey);
-  useEffect(() => { if (takeAsk()) setOpen(true); }, [takeAsk]);
+  const asked = useRef(false);
+  useEffect(() => { if (takeAsk()) { asked.current = true; setOpen(true); } }, [takeAsk]);
+  function openChange(next: boolean) {
+    if (!next) asked.current = false;
+    setOpen(next);
+  }
   const [busy, setBusy] = useState<string | null>(null);
   const { threads } = experimental_useSidebarThreads();
   // A PR that sends to fixers has no folder of its own to start one in: a fresh one is a fixer at its head.
@@ -48,23 +54,24 @@ function ChangeMainThread({ current, onChanged }: { current: string | null; onCh
   const choices = threads.filter((thread) => !thread.isHidden && !thread.isArchived
     && (folder ? thread.environment?.id === folder : !!review.projectId && thread.projectId === review.projectId));
   async function choose(threadId: string | null, title: string | null) {
-    if (threadId === current) { setOpen(false); return; }
+    if (threadId === current) { openChange(false); return; }
     setBusy(threadId ?? "fresh");
     try {
       const result = await rpc.call("setMainThread", threadId ? { targetKey, threadId } : { targetKey, fresh: true });
       if (!result.ok) throw new Error(result.error);
-      setOpen(false);
+      openChange(false);
       toast.success(title ? `Your Sends go to ${title} now.` : "Started a fresh thread: your Sends go there now.");
       onChanged();
     } catch (failure) {
       toast.error(failure instanceof Error && failure.message ? failure.message : "Couldn’t change the main thread. Try again.");
     } finally { setBusy(null); }
   }
-  return <Popover open={open} onOpenChange={setOpen}>
+  return <Popover open={open} onOpenChange={openChange}>
     <PopoverTrigger asChild>
       <Button variant="ghost" size="sm" aria-label="Change main thread" className={cn("h-7 shrink-0 px-2 text-xs text-muted-foreground", TOUCH_CONTROL)}>Change thread</Button>
     </PopoverTrigger>
-    <PopoverContent align="end" mobileTitle="Change main thread" className="w-72 p-1">
+    <PopoverContent align="end" mobileTitle="Change main thread" className="w-72 p-1"
+      onFocusOutside={(event) => { if (asked.current) event.preventDefault(); }} onPointerDownOutside={() => { asked.current = false; }}>
       <div role="menu" aria-label="Change main thread" className="flex flex-col">
         <p aria-hidden className="px-2 pb-1 pt-1.5 text-xs font-medium text-muted-foreground">Send to</p>
         {!choices.length && <p className="px-2 py-1.5 text-xs text-muted-foreground">{folder ? "No other thread works in this folder." : "No other thread works in this project."}</p>}

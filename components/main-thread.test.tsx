@@ -182,6 +182,29 @@ test("Finish review's Change main thread opens the tab with its Change thread me
   again.lifecycle.unmount();
 });
 
+test("Change main thread's menu, opened by Finish review, stays open as BB focuses the chat box, until a click outside it", async () => {
+  const { askChangeThread } = await import("../lib/main-thread");
+  askChangeThread("br-1");
+  const slot = await renderTab(folderReview, { getSourceThread: () => MAIN }, [listed("coder", "Build snooze")]);
+  await slot.findByRole("menu", { name: "Change main thread" });
+  // BB's chat box, which the harness doesn't have.
+  const chatBox = document.body.appendChild(document.createElement("textarea"));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  chatBox.focus();
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  expect(slot.queryByRole("menu", { name: "Change main thread" })).toBeTruthy();
+  fireEvent.pointerDown(chatBox);
+  await waitFor(() => expect(slot.queryByRole("menu", { name: "Change main thread" })).toBeNull());
+  // Opened by a click, focus leaving closes it, as any menu.
+  fireEvent.click(slot.getByRole("button", { name: "Change main thread" }));
+  await slot.findByRole("menu", { name: "Change main thread" });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  chatBox.focus();
+  await waitFor(() => expect(slot.queryByRole("menu", { name: "Change main thread" })).toBeNull());
+  chatBox.remove();
+  slot.lifecycle.unmount();
+});
+
 test("an ask of the Main thread tab that BB doesn't open goes, rather than open the menu unasked later", async () => {
   const { askChangeThread } = await import("../lib/main-thread");
   const { bar, page } = await renderReview(folderReview, [1440, 1000]);
