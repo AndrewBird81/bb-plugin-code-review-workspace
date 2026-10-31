@@ -281,7 +281,8 @@ export function createReviewSync(bb: BbPluginApi, store: AsyncStore, run: typeof
     // What GitHub said, recorded in one turn; your threads, when they need reading, in the turn after GitHub answers.
     const read = await store.exclusive(async (tx) => {
       const before = await tx.getReview(key);
-      if (!before || before.prState === "MERGED" && facts.state !== "MERGED") return null;
+      // One merged into another review while GitHub answered stays as the merge left it, in Archive.
+      if (!before || before.mergedInto || before.prState === "MERGED" && facts.state !== "MERGED") return null;
       // What happened before bb first read the PR is history: it shows, but doesn't alert or start work.
       const firstRead = before.watchingSince == null;
       if (firstRead) await tx.setLifecycle(key, { watchingSince: startedAt, watchedHead: facts.headSha });
@@ -309,8 +310,9 @@ export function createReviewSync(bb: BbPluginApi, store: AsyncStore, run: typeof
       try { threads = await github.threads(facts.repo, facts.number, login, facts.author); } catch (error) { warn(error); }
       const gone = await store.exclusive(async (tx) => {
         if (threads) try {
-          // The review may have been deleted while GitHub answered.
-          if (!await tx.getReview(key)) return true;
+          // The review may have been deleted, or merged into another, while GitHub answered.
+          const now = await tx.getReview(key);
+          if (!now || now.mergedInto) return true;
           // Every open review page reads the threads again when told, so it's told only when they changed.
           if (await tx.saveFeedbackThreads(key, threads, facts.updatedAt)) bb.realtime.publish(`feedback:${key}`, { ts: clock() });
         } catch (error) { warn(error); }

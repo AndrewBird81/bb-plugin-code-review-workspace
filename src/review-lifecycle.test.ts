@@ -122,6 +122,33 @@ test("a review merged before the sync kept its PR's labels and times is read onc
   expect(s.github.facts).toHaveBeenCalledTimes(1);
 });
 
+test("a review merged into another while GitHub answers stays in Archive, pointing there: the sync writes nothing to it", async () => {
+  const s = await setup({ reviewed: true });
+  await s.store.saveReview({ targetKey: "br-1", kind: "pr", repo: "acme/web", number: 1, createdAt: 2, status: "ready", projectId: "p1" });
+  const answer = vi.mocked(s.github.facts).getMockImplementation()!;
+  vi.mocked(s.github.facts).mockImplementation(async (...args) => {
+    await s.store.mergeReview("pr-1", "br-1");
+    return answer(...args);
+  });
+  await s.sync.one("pr-1", true);
+  const away = (await s.store.getReview("pr-1"))!;
+  expect(away).toMatchObject({ mergedInto: "br-1", archivedAt: expect.any(Number) });
+  expect(away.prState).toBeUndefined();
+
+  // Merged while GitHub gave its threads: they aren't kept on it.
+  const t = await setup({ reviewed: true, threads: [thread("T1", "open")] });
+  await t.store.saveReview({ targetKey: "br-1", kind: "pr", repo: "acme/web", number: 1, createdAt: 2, status: "ready", projectId: "p1" });
+  const threads = vi.mocked(t.github.threads).getMockImplementation()!;
+  vi.mocked(t.github.threads).mockImplementation(async (...args) => {
+    await t.store.mergeReview("pr-1", "br-1");
+    return threads(...args);
+  });
+  await t.sync.one("pr-1", true);
+  expect(t.github.threads).toHaveBeenCalled();
+  expect(await t.store.listFeedbackThreads("pr-1")).toEqual([]);
+  expect(await t.store.getReview("pr-1")).toMatchObject({ mergedInto: "br-1", archivedAt: expect.any(Number) });
+});
+
 test("sync restores the viewer's approval and keeps a changes-requested verdict through later comments", async () => {
   const { sync, store, pr } = await setup({ pr: { myReviews: [review("APPROVED", T0 - HOUR)] } });
   await sync.all();
