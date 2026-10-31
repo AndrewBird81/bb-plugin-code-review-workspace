@@ -411,8 +411,10 @@ export async function becomePr(deps: Deps, key: string, pr: { repo: string; numb
     if (review?.mergeDeclined === prKey) return "kept" as const;
     if (!review || !theirs || !await hasUserContent(tx, intoPr ? review : theirs)) return null;
     const offer = { key: prKey, number: pr.number, url, moves: await movesOf(tx, theirs), ...intoPr ? { intoPr: true as const } : {} };
-    if (JSON.stringify(review.prOffer) === JSON.stringify(offer) && !review.feature.prReview) return "kept" as const;
-    await tx.setLifecycle(key, { prOffer: offer, feature: { ...review.feature, prReview: undefined } });
+    // The offer says what Make it PR #n's review would: that notice goes.
+    const waited = review.prPending?.url.toLowerCase() === url.toLowerCase();
+    if (JSON.stringify(review.prOffer) === JSON.stringify(offer) && !review.feature.prReview && !waited) return "kept" as const;
+    await tx.setLifecycle(key, { prOffer: offer, feature: { ...review.feature, prReview: undefined }, ...waited ? { prPending: null } : {} });
     return "saved" as const;
   };
   /** Kept as found and not become, once per PR and why, so a check that finds it again changes nothing. */
@@ -880,7 +882,10 @@ export function register(deps: ServeDeps) {
         const folder = offeringFolder(await tx.listReviews(), targetKey);
         if (!folder) return null;
         const other = folder.prOffer?.key ?? folder.feature.prReview!;
-        await tx.setLifecycle(folder.targetKey, { mergeDeclined: other });
+        // Its PR stays the other review's: Make it PR #n's review would do nothing now.
+        const url = folder.prOffer?.url ?? (await tx.getReview(other))?.url;
+        const waited = !!url && folder.prPending?.url.toLowerCase() === url.toLowerCase();
+        await tx.setLifecycle(folder.targetKey, { mergeDeclined: other, ...waited ? { prPending: null } : {} });
         return [folder.targetKey, other];
       });
       if (!kept) return { ok: false, error: "This review has no other review of its PR to keep apart from. Reload it." };

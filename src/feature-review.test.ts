@@ -971,6 +971,26 @@ test("Keep both, from either review's page: neither offers to merge again, the f
   expect(await t.harness.behavior.callRpc("keepBothReviews", { targetKey: "nothing" })).toMatchObject({ ok: false });
 });
 
+test("Make it PR #7's review that finds the PR's own review offers the merge in its place, and Keep both leaves no Make it PR #7's review behind", async () => {
+  const s = setup();
+  vi.mocked(runGh).mockImplementation(s.deps.gh.runGh as any);
+  await plugin(s.bb);
+  await run(s, "main");
+  await settled(s);
+  s.view.createdAt = new Date(Date.now() - 86_400_000).toISOString();
+  expect(await becomePr(s.deps, key, { repo: "acme/api", number: 7 })).toBe("skipped");
+  expect((await s.store.getReview(key))?.prPending).toMatchObject({ why: "older" });
+  const prKey = targetKey({ kind: "pr", repo: "acme/api", number: 7 });
+  await s.store.saveReview({ targetKey: prKey, kind: "pr", repo: "acme/api", number: 7, url: "https://github.com/acme/api/pull/7", head: "feat/qa", status: "ready", createdAt: 1 });
+  await s.store.upsertDraftComment(prKey, { file: "src/a.ts", line: 2, side: "RIGHT", body: "Theirs" });
+  expect(await s.harness.behavior.callRpc("takePendingPr", { targetKey: key })).toEqual({ ok: true });
+  expect(await s.store.getReview(key)).toMatchObject({ kind: "ref", prOffer: { key: prKey }, prPending: null });
+  // An offer and a PR waiting at once, as a review from before this saved them: Keep both ends both.
+  await s.store.setLifecycle(key, { prPending: { number: 7, url: "https://github.com/acme/api/pull/7", why: "older", at: 1 } });
+  expect(await s.harness.behavior.callRpc("keepBothReviews", { targetKey: key })).toEqual({ ok: true });
+  expect(await s.store.getReview(key)).toMatchObject({ kind: "ref", mergeDeclined: prKey, prPending: null });
+});
+
 /** The sync, with your PR acme/api#7 of feat/qa found by its own search, converting through becomePr as the server does. */
 function ownPrSync(s: ReturnType<typeof setup>) {
   const pr = { repo: "acme/api", number: 7, title: "Snooze flaky checks for a day", url: "https://github.com/acme/api/pull/7", author: "me", updatedAt: 1, isDraft: false, requested: false, reviewed: false, own: true as const, head: "feat/qa" };
