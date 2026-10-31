@@ -152,3 +152,19 @@ test("going to a comment from the list opens its pill", async () => {
   expect(diff().getByRole("group", { name: "Draft comment on src/a.ts:2, folded" })).toBeTruthy();
   slot.lifecycle.unmount();
 });
+
+test("under 440px wide, a pill's second line keeps its severity and Not on GitHub yet whole, and cuts only its first line", async () => {
+  const { render } = await import("@testing-library/react");
+  const { CommentPill } = await import("./comments/CommentPill");
+  const { NotOnGithubBadge } = await import("./InlineDraft");
+  const pill = render(<CommentPill frame="" icon={null} who={null} words="Draft · goes with Send" tag="Should fix" badge={<NotOnGithubBadge />}
+    text="An entry that expires now is still served, and its replacement waits for the next read." name="Draft comment on src/a.ts:2" onShow={() => {}} />);
+  const second = pill.container.querySelector("[class~='@max-[440px]/review:flex-col']")!.lastElementChild!;
+  const narrow = Array.from(second.querySelectorAll("[class~='@max-[440px]/review:inline'], [class~='@max-[440px]/review:inline-flex']"));
+  expect(narrow.map((part) => part.textContent)).toEqual(["Should fix · ", "Not on GitHub yet"]);
+  for (const part of narrow) {
+    expect(part.classList.contains("shrink-0"), part.textContent!).toBe(true);
+    expect(part.closest(".truncate"), part.textContent!).toBeNull();
+  }
+  expect(second.querySelector(".truncate")?.textContent).toBe("An entry that expires now is still served, and its replacement waits for the next read.");
+});

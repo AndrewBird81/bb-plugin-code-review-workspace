@@ -44,12 +44,13 @@ export function CommentPill({ frame, icon, who, words, tag, badge, briefBadge, t
             <span className={cn("min-w-0 truncate", CUT_CODE)}><InlineCode text={words} />{tag && <span className="pointer-coarse:@max-[600px]/review:hidden @max-[440px]/review:hidden"> · {tag}</span>}</span>
             {badge && <span className="flex shrink-0 pointer-coarse:@max-[600px]/review:hidden @max-[440px]/review:hidden">{badge}</span>}
           </span>
-          {/* A step quieter than who: at 80% a light theme's first line fell to about 4:1. */}
-          <span className={cn("max-w-full min-w-0 flex-1 truncate text-foreground/90 pointer-coarse:@max-[600px]/review:flex-none @max-[440px]/review:flex-none", CUT_CODE)}>
-            <span aria-hidden className="mr-1.5 text-subtle-foreground pointer-coarse:@max-[600px]/review:hidden @max-[440px]/review:hidden">·</span>
-            {tag && <span className="hidden font-medium text-muted-foreground pointer-coarse:@max-[600px]/review:inline @max-[440px]/review:inline">{tag} · </span>}
-            {badge && <span className="mr-1.5 hidden align-middle pointer-coarse:@max-[600px]/review:inline-flex @max-[440px]/review:inline-flex">{briefBadge ?? badge}</span>}
-            <InlineCode text={first} />
+          {/* A step quieter than who: at 80% a light theme's first line fell to about 4:1. Severity and badge stay whole:
+              only the first line is cut. */}
+          <span className="flex max-w-full min-w-0 flex-1 items-center gap-1.5 text-foreground/90 pointer-coarse:@max-[600px]/review:flex-none @max-[440px]/review:flex-none">
+            <span aria-hidden className="shrink-0 text-subtle-foreground pointer-coarse:@max-[600px]/review:hidden @max-[440px]/review:hidden">·</span>
+            {tag && <span className="hidden shrink-0 font-medium text-muted-foreground pointer-coarse:@max-[600px]/review:inline @max-[440px]/review:inline">{tag} · </span>}
+            {badge && <span className="hidden shrink-0 pointer-coarse:@max-[600px]/review:inline-flex @max-[440px]/review:inline-flex">{briefBadge ?? badge}</span>}
+            <span className={cn("min-w-0 truncate", CUT_CODE)}><InlineCode text={first} /></span>
           </span>
         </span>
         {more && <span className="hidden shrink-0 text-subtle-foreground @min-[520px]/review:inline">{more}</span>}
