@@ -1136,7 +1136,7 @@ test("a 1.8.0 link to another branch's PR's review, kept apart, merges only afte
   expect(await s.harness.behavior.callRpc("keepBothReviews", { targetKey: key })).toEqual({ ok: true });
   expect((await bundle(key)).keptApart).toBeUndefined();
   expect((await bundle(prKey)).keptApart).toBeUndefined();
-  const refused = { ok: false, error: "PR #7 is from `part1`, not this branch. Make it PR #7’s review first." };
+  const refused = { ok: false, error: "PR #7 is from part1, not this branch. Make it PR #7’s review first." };
   expect(await s.harness.behavior.callRpc("mergeReviews", { targetKey: key })).toEqual(refused);
   expect(await s.harness.behavior.callRpc("mergeReviews", { targetKey: prKey })).toEqual(refused);
   expect(await s.store.getReview(key)).toMatchObject({ kind: "ref" });
@@ -1167,7 +1167,7 @@ test("a 1.8.0 link to another branch's PR's review not read yet merges only afte
   expect((await s.store.getReview(prKey))?.head).toBeUndefined();
   // The PR's page offers no merge, and neither page merges.
   expect((await s.harness.behavior.callRpc("getReviewBundle", { targetKey: prKey }) as any).review.localReview).toBeUndefined();
-  const refused = { ok: false, error: "PR #7 is from `part1`, not this branch. Make it PR #7’s review first." };
+  const refused = { ok: false, error: "PR #7 is from part1, not this branch. Make it PR #7’s review first." };
   expect(await s.harness.behavior.callRpc("mergeReviews", { targetKey: prKey })).toEqual(refused);
   expect(await s.harness.behavior.callRpc("mergeReviews", { targetKey: key })).toEqual(refused);
   // Nothing waiting on it, as a review from before this saved it: GitHub's head refuses the click, which then waits.

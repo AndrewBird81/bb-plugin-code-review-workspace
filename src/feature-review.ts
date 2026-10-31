@@ -819,8 +819,8 @@ export function heldForBranch(folder: ReviewMeta, pr: ReviewMeta): boolean {
   return !!feature && folder.prOffer?.key !== pr.targetKey && !!head && !ownBranch(feature, head);
 }
 
-/** What a merge with a PR from another branch says. */
-const notThisBranch = (number: number, head: string) => `PR #${number} is from \`${head}\`, not this branch. Make it PR #${number}’s review first.`;
+/** What a merge with a PR from another branch says, in a toast: plain text, its branch unquoted. */
+const notThisBranch = (number: number, head: string) => `PR #${number} is from ${head}, not this branch. Make it PR #${number}’s review first.`;
 
 /** What a click on PR #n closed or merged since says. */
 const prGone = (number: number, became: "pr-closed" | "pr-merged") => `PR #${number} is ${became === "pr-merged" ? "merged" : "closed"}.`;
