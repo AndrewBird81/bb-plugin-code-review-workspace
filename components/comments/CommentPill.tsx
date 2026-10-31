@@ -9,7 +9,7 @@ import { CUT_CODE, plainLine } from "./look";
  * what's under it ("2 replies · Resolved"), and Show, which opens it in full. 28px tall, 44px on a coarse pointer; its
  * frame keeps the card's: dashed with an edge while it's only in BB, solid on GitHub, muted when private.
  */
-export function CommentPill({ frame, icon, who, words, tag, badge, briefBadge, text, more, name, onShow, className }: {
+export function CommentPill({ frame, icon, who, words, tag, stateBadge, badge, briefBadge, text, more, name, onShow, className }: {
   /** The card's frame classes (look.tsx). */
   frame: string;
   icon: ReactNode;
@@ -18,6 +18,8 @@ export function CommentPill({ frame, icon, who, words, tag, badge, briefBadge, t
   words: string;
   /** Its severity, in words: "Blocking". */
   tag?: string | null;
+  /** What its state is about, as Not on GitHub yet: beside its state on every width, so on two lines its first line keeps the second's room. */
+  stateBadge?: ReactNode;
   /** What waits with it and isn't sent: a thread's reply draft. After its state; on a phone, ahead of its first line. */
   badge?: ReactNode;
   /** The badge as a phone shows it, shorter, so its first line keeps room beside it. */
@@ -42,10 +44,11 @@ export function CommentPill({ frame, icon, who, words, tag, badge, briefBadge, t
           <span className="flex max-w-full min-w-0 items-center gap-1.5">
             {who && <span className="shrink-0 font-medium text-foreground">{who}</span>}
             <span className={cn("min-w-0 truncate", CUT_CODE)}><InlineCode text={words} />{tag && <span className="pointer-coarse:@max-[600px]/review:hidden @max-[440px]/review:hidden"> · {tag}</span>}</span>
+            {stateBadge && <span className="flex shrink-0">{stateBadge}</span>}
             {badge && <span className="flex shrink-0 pointer-coarse:@max-[600px]/review:hidden @max-[440px]/review:hidden">{badge}</span>}
           </span>
           {/* A step quieter than who: at 80% a light theme's first line fell to about 4:1. Severity and badge stay whole:
-              only the first line is cut. */}
+              only the comment's first line is cut. */}
           <span className="flex max-w-full min-w-0 flex-1 items-center gap-1.5 text-foreground/90 pointer-coarse:@max-[600px]/review:flex-none @max-[440px]/review:flex-none">
             <span aria-hidden className="shrink-0 text-subtle-foreground pointer-coarse:@max-[600px]/review:hidden @max-[440px]/review:hidden">·</span>
             {tag && <span className="hidden shrink-0 font-medium text-muted-foreground pointer-coarse:@max-[600px]/review:inline @max-[440px]/review:inline">{tag} · </span>}

@@ -93,10 +93,10 @@ export function usePrNotices(targetKey: string, review: PrReviewed | null, onCha
   const merge = button("merge", "Merge into one review", () => void act("merge", () => rpc.call("mergeReviews", { targetKey }), "Couldn’t merge the two reviews."));
   const keepBoth = button("keep", "Keep both", () => void act("keep", () => rpc.call("keepBothReviews", { targetKey }), "Couldn’t save that."), { quiet: true });
   // A link that goes somewhere is named for where it goes, with ↗; Go to … is its hint.
-  const away = (label: string, hint: string, onClick: () => void) => <Hint label={hint} container={container}>
-    <Button variant="outline" size="sm" className={BUTTON} disabled={!!busy} aria-label={label} onClick={onClick}>{label} ↗</Button>
+  const away = (label: string, hint: string, onClick: () => void, shown: ReactNode = label) => <Hint label={hint} container={container}>
+    <Button variant="outline" size="sm" className={BUTTON} disabled={!!busy} aria-label={label} onClick={onClick}>{shown} ↗</Button>
   </Hint>;
-  const open = (key: string, name: string, hint = `Go to ${name}`) => away(name, hint, () => navigate.toPluginPanel("review", { subPath: key }));
+  const open = (key: string, name: string, hint = `Go to ${name}`, shown?: ReactNode) => away(name, hint, () => navigate.toPluginPanel("review", { subPath: key }), shown);
 
   const notices: Notice[] = [];
   const { became, prOffer, prPending, localReview } = review;
@@ -127,7 +127,8 @@ export function usePrNotices(targetKey: string, review: PrReviewed | null, onCha
       text: `PR #${prOffer.number} has its own review${moves ? `, with ${moves}` : ""}. ${stays(prOffer.intoPr, false)}`,
       action: <span className="flex flex-wrap gap-1">
         {merge}
-        {open(prOffer.key, `PR #${prOffer.number}’s review`)}
+        {/* PR’s review ↗ under 440px wide, as the sentence names the PR, so Keep both stays on the buttons' row. */}
+        {open(prOffer.key, `PR #${prOffer.number}’s review`, undefined, <>PR<span className="@max-[440px]/review:hidden"> #{prOffer.number}</span>’s review</>)}
         {keepBoth}
       </span> });
   }

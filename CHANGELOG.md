@@ -31,7 +31,7 @@
 
 - A local review's title bar has **Finish review** too, as a PR's has, counting the open comments Send would send, with no verdict, where only its key and Comments' foot opened it.
 - **Ask agent** with no file in view, in a conversation that had started, said "Couldn’t add that to the chat." It now opens the chat with its box focused.
-- A folded comment in a review under 440px wide puts its state on a line of its own, its severity, badge and first line under it, as on a phone, where with a mouse they shared one line and cut its state to "Draft · go…".
+- A folded comment in a review under 440px wide puts its state on a line of its own, with **Not on GitHub yet** beside it as "Not on GitHub", and its severity and first line under it, as on a phone, where with a mouse they shared one line and cut its state to "Draft · go…".
 
 ## 1.8.1 — 2026-10-30
 

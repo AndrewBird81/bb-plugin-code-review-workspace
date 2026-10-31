@@ -96,6 +96,14 @@ test("a new line on Not pushed yet takes a LOCAL comment, which shows there", as
   expect(card.getByText("Retry once more.")).toBeTruthy();
   // Marked as the Comments list marks it.
   expect(card.getByText("Not on GitHub yet")).toBeTruthy();
+  // Folded, the mark is beside its state, on its first line, "Not on GitHub" under 440px wide, so its words keep the second.
+  fireEvent.keyDown(document.body, { key: "i" });
+  const pill = await file.findByRole("group", { name: "Draft comment on src/a.ts:1, folded" });
+  const [first, second] = Array.from(pill.querySelector("[class~='@max-[440px]/review:flex-col']")!.children);
+  expect(first!.textContent).toContain("Not on GitHub yet");
+  // Only " yet" gives way there.
+  expect(Array.from(first!.querySelectorAll("[class~='@max-[440px]/review:hidden']")).map((part) => part.textContent)).toEqual([" yet"]);
+  expect(second!.textContent).not.toContain("Not on GitHub");
   page.lifecycle.unmount();
 });
 

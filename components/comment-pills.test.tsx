@@ -153,18 +153,24 @@ test("going to a comment from the list opens its pill", async () => {
   slot.lifecycle.unmount();
 });
 
-test("under 440px wide, a pill's second line keeps its severity and Not on GitHub yet whole, and cuts only its first line", async () => {
+test("under 440px wide, a pill's second line keeps its severity whole and cuts only its first line; Not on GitHub yet is beside its state, on the first", async () => {
   const { render } = await import("@testing-library/react");
   const { CommentPill } = await import("./comments/CommentPill");
   const { NotOnGithubBadge } = await import("./InlineDraft");
-  const pill = render(<CommentPill frame="" icon={null} who={null} words="Draft · goes with Send" tag="Should fix" badge={<NotOnGithubBadge />}
+  const pill = render(<CommentPill frame="" icon={null} who={null} words="Draft · goes with Send" tag="Should fix" stateBadge={<NotOnGithubBadge brief />}
     text="An entry that expires now is still served, and its replacement waits for the next read." name="Draft comment on src/a.ts:2" onShow={() => {}} />);
-  const second = pill.container.querySelector("[class~='@max-[440px]/review:flex-col']")!.lastElementChild!;
-  const narrow = Array.from(second.querySelectorAll("[class~='@max-[440px]/review:inline'], [class~='@max-[440px]/review:inline-flex']"));
-  expect(narrow.map((part) => part.textContent)).toEqual(["Should fix · ", "Not on GitHub yet"]);
+  const [first, second] = Array.from(pill.container.querySelector("[class~='@max-[440px]/review:flex-col']")!.children);
+  // On every width, the badge is whole beside the state, "Not on GitHub" under 440px wide.
+  const badge = first!.lastElementChild!;
+  expect(badge.textContent).toBe("Not on GitHub yet");
+  expect(badge.className).not.toMatch(/hidden/);
+  expect(badge.classList.contains("shrink-0")).toBe(true);
+  expect(badge.querySelector("[class~='@max-[440px]/review:hidden']")?.textContent).toBe(" yet");
+  const narrow = Array.from(second!.querySelectorAll("[class~='@max-[440px]/review:inline'], [class~='@max-[440px]/review:inline-flex']"));
+  expect(narrow.map((part) => part.textContent)).toEqual(["Should fix · "]);
   for (const part of narrow) {
     expect(part.classList.contains("shrink-0"), part.textContent!).toBe(true);
     expect(part.closest(".truncate"), part.textContent!).toBeNull();
   }
-  expect(second.querySelector(".truncate")?.textContent).toBe("An entry that expires now is still served, and its replacement waits for the next read.");
+  expect(second!.querySelector(".truncate")?.textContent).toBe("An entry that expires now is still served, and its replacement waits for the next read.");
 });

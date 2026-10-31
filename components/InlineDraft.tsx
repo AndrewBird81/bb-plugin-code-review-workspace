@@ -142,7 +142,7 @@ export const InlineLocation = memo(function InlineLocation({ at }: { at: Comment
       const status = draftStatus(comment, draftState(comment, draft.stale), facts);
       const check = sentCheck(comment, draft.checks);
       return <div data-draft-at={locationKey(at)}><CommentPill frame={notSubmitted(edge)} icon={<DraftIcon edge={edge} mark={status.mark} />} who={null} words={status.label}
-        badge={(isLocal(comment) || check) && <span className="flex items-center gap-1">{isLocal(comment) && <NotOnGithubBadge />}{check && <CheckBadge check={check} />}</span>}
+        stateBadge={isLocal(comment) && <NotOnGithubBadge brief />} badge={check && <CheckBadge check={check} />}
         tag={comment.severity && SEVERITY_LABEL[comment.severity]} text={comment.body}
         more={talk ? `${talk} message${talk === 1 ? "" : "s"} with the agent` : null} name={`Draft comment on ${where}`} onShow={fold} /></div>;
     }
@@ -226,9 +226,9 @@ export function PreExistingBadge() {
   return <Badge size="sm" icon={<Icon name="History" aria-hidden />} title="In code this PR didn’t change">Pre-existing</Badge>;
 }
 
-/** A LOCAL comment, on a line only in the folder (src/draft.ts isLocal). */
-export function NotOnGithubBadge() {
-  return <Badge size="sm" icon={<Icon name="FileDiff" aria-hidden />} title="On a line only in the folder. It goes with Send, and can’t post until it’s pushed.">Not on GitHub yet</Badge>;
+/** A LOCAL comment, on a line only in the folder (src/draft.ts isLocal). `brief`: "Not on GitHub" under 440px wide, beside a folded comment's state. */
+export function NotOnGithubBadge({ brief = false }: { brief?: boolean }) {
+  return <Badge size="sm" icon={<Icon name="FileDiff" aria-hidden />} title="On a line only in the folder. It goes with Send, and can’t post until it’s pushed.">Not on GitHub{brief ? <span className="@max-[440px]/review:hidden"> yet</span> : " yet"}</Badge>;
 }
 
 /** The comment box's choice of severity. */

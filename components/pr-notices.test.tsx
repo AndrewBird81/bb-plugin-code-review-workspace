@@ -141,6 +141,16 @@ test("a folder's review whose PR has a review of its own says which stays, with 
   kept.slot.lifecycle.unmount();
 });
 
+test("under 440px wide, the merge offer's PR #4512’s review ↗ reads PR’s review ↗, as its sentence names the PR, so Keep both stays on the buttons' row", async () => {
+  const offered = { ...local, prOffer: { key: "pr-x", number: 4512, url: URL, moves: { comments: 3, summary: true, sends: 0 } } };
+  const { slot } = await renderWorkspace(offered);
+  await slot.findByText(/^PR #4512 has its own review/);
+  const link = within(notice("PR #4512 has its own review")).getByRole("button", { name: "PR #4512’s review" });
+  expect(link.textContent).toBe("PR #4512’s review ↗");
+  expect(link.querySelector("[class~='@max-[440px]/review:hidden']")?.textContent).toBe(" #4512");
+  slot.lifecycle.unmount();
+});
+
 test("the PR's own review names its branch's local review and which stays, with Merge into one review, Local review ↗ and Keep both", async () => {
   const mergeReviews = vi.fn(() => ({ ok: true, targetKey: "br-2" }));
   const keepBothReviews = vi.fn(() => ({ ok: true }));
