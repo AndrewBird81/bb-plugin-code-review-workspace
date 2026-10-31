@@ -157,6 +157,7 @@ export function register(deps: ServeDeps, { submit }: {
       if (!given || !text) return { exitCode: 2, stderr: `Give the review and the message.\n${ASK_USAGE}` };
       const review = await reviewNamed(given);
       if (!review) return { exitCode: 1, stderr: `No saved review for ${given}. Pass its id, the PR's URL or the review's key.` };
+      if ("ambiguous" in review) return { exitCode: 1, stderr: review.ambiguous };
       const from = ctx.threadId ?? null;
       const context = from
         ? `Relayed with bb review ask from thread ${from}, one of the reviewer's. Answer that thread with \`bb thread tell ${from}\`.`
@@ -190,6 +191,7 @@ export function register(deps: ServeDeps, { submit }: {
       let failures = 0;
       for (const each of given) {
         const review = await reviewNamed(each);
+        if (review && "ambiguous" in review) { failures++; lines.push(review.ambiguous); continue; }
         const refused = !review ? `${each}: no saved review. Pass its id, the PR's URL or the review's key.`
           : review.kind !== "pr" ? `${named(review)}: a local review has nothing to approve on GitHub.`
           : review.prState === "MERGED" || review.prState === "CLOSED" ? `${named(review)}: the PR is ${review.prState.toLowerCase()}, so there's nothing to approve.`

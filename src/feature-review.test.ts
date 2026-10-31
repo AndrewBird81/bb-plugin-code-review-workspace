@@ -237,9 +237,9 @@ test("a branch renamed in its folder is followed: the same review, its old branc
   expect((await run(s, "main")).stdout).toContain(`Opened the review of ~/src/api on MaxBook: api:feat/nice "Snooze flaky checks" (${key})`);
   expect((await s.store.listReviews()).map((r) => r.targetKey)).toEqual([key]);
   // Its id from before still names it, after Got it too.
-  expect((await reviewNamed(s.store, s.bb, "api:feat/qa"))?.targetKey).toBe(key);
+  expect(await reviewNamed(s.store, s.bb, "api:feat/qa")).toMatchObject({ targetKey: key });
   await s.store.setLifecycle(key, { followed: null });
-  expect((await reviewNamed(s.store, s.bb, "api:feat/qa"))?.targetKey).toBe(key);
+  expect(await reviewNamed(s.store, s.bb, "api:feat/qa")).toMatchObject({ targetKey: key });
 });
 
 test("a branch with no commits of its own, at its base, renamed is followed too: it can't have been merged", async () => {
@@ -331,8 +331,8 @@ test("a branch made from the review's (checkout -b), or one without its last com
   s.folder.env = { ...s.folder.env, branchName: "feat/qa" };
   expect((await run(s, "main")).stdout).toMatch(/^Started a review/);
   expect((await s.store.listReviews()).map((r) => r.targetKey).sort()).toEqual([key, featureKey("env1", "feat/qa", 2)].sort());
-  // The old branch's id is that review's now, not the one that followed off it.
-  expect((await reviewNamed(s.store, s.bb, "api:feat/qa"))?.targetKey).toBe(featureKey("env1", "feat/qa", 2));
+  // The old branch's id names both: that review's now, and the one that followed off it.
+  expect(await reviewNamed(s.store, s.bb, "api:feat/qa")).toEqual({ ambiguous: `\`api:feat/qa\` names 2 reviews: \`api:feat/qa\` in ~/src/api on MaxBook (${featureKey("env1", "feat/qa", 2)}), \`api:feat/nice\` in ~/src/api on MaxBook (${key}). Use one's key or link.` });
   // That one can't follow onto a branch with a review.
   s.folder.env = { ...s.folder.env, branchName: "feat/nice" };
   expect(await s.harness.behavior.callRpc("followFolderBranch", { targetKey: featureKey("env1", "feat/qa", 2) })).toMatchObject({ ok: false });
@@ -583,14 +583,28 @@ test("once it's the PR's, the review answers to its old id as to its new one: bb
   expect(await s.harness.behavior.runCli(["comment", "list", "api:feat/other"])).toMatchObject({ exitCode: 1, stderr: "No saved review for api:feat/other. Pass its id, the PR's URL or the review's key." });
 });
 
-test("of two reviews one old id names, one not archived opens, then the newer", async () => {
+test("of the reviews one id names, one not archived opens, else the newest; two not archived are named back, each with its folder, machine and key, by every command", async () => {
   const s = setup();
-  const review = (targetKey: string, createdAt: number, archivedAt?: number) => s.store.saveReview({ targetKey, kind: "ref", gitRef: "feat/qa", status: "ready", createdAt, ...archivedAt ? { archivedAt } : {} } as any)
-    .then(() => s.store.setLifecycle(targetKey, { feature: { environmentId: "env1", hostId: "host_max", machine: "MaxBook", path: "/Users/me/src/api", branch: "feat/qa", baseRef: "main", repo: "acme/api" }, ...archivedAt ? { archivedAt } : {} }));
-  await review("br-old", 1);
+  await plugin(s.bb);
+  const review = (targetKey: string, createdAt: number, archivedAt?: number, path = "/Users/me/src/api", machine = "MaxBook") => s.store.saveReview({ targetKey, kind: "ref", gitRef: "feat/qa", status: "ready", createdAt })
+    .then(() => s.store.setLifecycle(targetKey, { feature: { environmentId: targetKey, hostId: "host_max", machine, path, branch: "feat/qa", baseRef: "main", repo: "acme/api" }, ...archivedAt ? { archivedAt } : {} }));
+  await review("br-old", 1, 2);
   await review("br-new", 3, 4);
   await review("br-mid", 2);
-  expect((await reviewNamed(s.store, s.bb, "api:feat/qa"))?.targetKey).toBe("br-mid");
+  expect(await reviewNamed(s.store, s.bb, "api:feat/qa")).toMatchObject({ targetKey: "br-mid" });
+  await s.store.setLifecycle("br-mid", { archivedAt: 5 });
+  expect(await reviewNamed(s.store, s.bb, "api:feat/qa")).toMatchObject({ targetKey: "br-new" });
+
+  // Two not archived, in two folders on two machines: neither, silently.
+  await review("br-other", 6, undefined, "/Users/me/src/api-2", "MiniPC");
+  await s.store.setLifecycle("br-mid", { archivedAt: null });
+  const ambiguous = "`api:feat/qa` names 2 reviews: `api:feat/qa (api-2)` in ~/src/api-2 on MiniPC (br-other), `api:feat/qa (api)` in ~/src/api on MaxBook (br-mid). Use one's key or link.";
+  expect(await reviewNamed(s.store, s.bb, "api:feat/qa")).toEqual({ ambiguous });
+  for (const argv of [["api:feat/qa"], ["ready", "api:feat/qa"], ["ask", "api:feat/qa", "Why?"], ["approve", "api:feat/qa"], ["comment", "list", "api:feat/qa"], ["summary", "api:feat/qa"]]) {
+    const result = await s.harness.behavior.runCli(argv, {});
+    expect(result.exitCode, argv.join(" ")).toBe(1);
+    expect(argv[0] === "approve" ? result.stdout + result.stderr : result.stderr, argv.join(" ")).toContain(ambiguous);
+  }
 });
 
 test("bb review on a branch used again once its PR merged, or closed and went to Archive, starts a new review; a closed PR's review still in the list opens", async () => {

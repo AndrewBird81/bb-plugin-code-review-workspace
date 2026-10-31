@@ -133,7 +133,7 @@ bb review comment edit   https://github.com/acme/web/pull/42 src/api.ts:57 --bod
 bb review comment delete https://github.com/acme/web/pull/42 src/api.ts:57
 ```
 
-- A review is named by its PR URL, `owner/repo#n`, its key, or its id, `api#4512` or `api:feat`, as `bb review api:feat` opens it, not as a git ref; the id a folder's review had before it became its PR's still names it, unless that branch has a review of its own now.
+- A review is named by its PR URL, `owner/repo#n`, its key, or its id, `api#4512` or `api:feat`, as `bb review api:feat` opens it, not as a git ref; the id a folder's review had before it became its PR's still names it. Of the reviews an id names, the one not archived is taken, else the newest; when more than one isn't archived, as when that branch has a review of its own now, or two folders' reviews share the id, the command takes none and lists them: "`api:feat` names 2 reviews: `api:feat (api)` in ~/src/api on MaxBook (br-1a2b…), … Use one's key or link."
 - While its guide is being written or rebuilt, these commands leave the draft alone and say to try again once it's ready.
 - Line numbers count in the new file; add `--side LEFT` for a removed line, numbered in the old file.
 - `--code` is that line's text, and `add` refuses a line that doesn't match it or already has a comment.

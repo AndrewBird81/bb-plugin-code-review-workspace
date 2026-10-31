@@ -51,6 +51,7 @@ export async function runSummaryCommand(store: AsyncStore, bb: BbPluginApi, argv
     if (suggest !== undefined && !VERDICTS.includes(suggest)) return usage("--suggest is APPROVE, COMMENT, or REQUEST_CHANGES.");
 
     const named = await reviewNamed(tx, bb, positional[0], facts);
+    if (named && "ambiguous" in named) return { exitCode: 1, stderr: named.ambiguous };
     if (ownReview !== undefined && named?.targetKey !== ownReview) return { exitCode: 2, stderr: NOT_OWN_REVIEW };
     if (!named) return { exitCode: 1, stderr: `No saved review for ${positional[0]}. Pass its id, the PR's URL or the review's key.` };
     const key = named.targetKey;

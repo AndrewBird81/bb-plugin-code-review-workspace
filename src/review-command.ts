@@ -126,6 +126,7 @@ export async function runReviewCommand(deps: Deps, argv: string[], ctx: Ctx, own
   if (ownReview !== undefined && name !== undefined) return { exitCode: 2, stderr: "A review's own agent can't rename the review." };
   // A review's id or key, never a git ref: no branch has a colon in its name. One that became its PR's goes by its old id too.
   const named = !base && parseTarget(input).kind === "ref" ? await reviewNamed(deps.store, deps.bb, input) : null;
+  if (named && "ambiguous" in named) return { exitCode: 1, stderr: named.ambiguous };
   if (named) return openNamed(deps, named, { context, name, inThreads }, ownReview);
   if (!ctx.projectId) return { exitCode: 2, stderr: "Run `bb review` inside a project thread." };
   const target = parseTarget(input, base);

@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import { parsePrLink } from "../lib/pr-link";
-import { localIdOf, reviewIdentity } from "../lib/review-identity";
+import { homeShort, localIdOf, reviewIdentity } from "../lib/review-identity";
 import { placeFacts, reviewPlaces, type PlaceFacts } from "./review-places";
 import type { ReviewMeta } from "./store";
 import type { AsyncStore } from "./store-queue";
@@ -71,14 +71,18 @@ export async function prReviewKey(store: Pick<AsyncStore, "getReview" | "listRev
   });
 }
 
+/** An id that names more than one review not archived: what the command says instead (reviewNamed). */
+export interface AmbiguousName { ambiguous: string }
+
 /**
  * The review `given` names, as every command takes it: its key; a PR's link or owner/repo#n; its id as the review shows
  * it, api#4512 or api:feat; a folder's review's id from before it became its PR's (localIdOf); the id of a review
- * merged into it; or its id on a branch it followed its folder off. One merged into another names that one. Of the reviews an id names, one not archived, then the
- * newest. Null for none. `facts`: bb's facts for local reviews' ids, read before; without them it reads them, so not in
- * the store's lock.
+ * merged into it; or its id on a branch it followed its folder off. One merged into another names that one. Of the
+ * reviews an id names, the one not archived, else the newest; more than one not archived, as the same id in two folders,
+ * or an old id a review has now, is `ambiguous`, never picked. Null for none. `facts`: bb's facts for local reviews' ids,
+ * read before; without them it reads them, so not in the store's lock.
  */
-export async function reviewNamed(store: AsyncStore, bb: BbPluginApi, given: string, facts?: PlaceFacts): Promise<ReviewMeta | null> {
+export async function reviewNamed(store: AsyncStore, bb: BbPluginApi, given: string, facts?: PlaceFacts): Promise<ReviewMeta | AmbiguousName | null> {
   const text = given.trim();
   if (!text) return null;
   const all = await store.listReviews();
@@ -88,17 +92,22 @@ export async function reviewNamed(store: AsyncStore, bb: BbPluginApi, given: str
   const link = parsePrLink(text);
   if (link) return store.getReview(await prReviewKey(store, link));
   const places = reviewPlaces(facts ?? await placeFacts(bb, all), all);
-  const archived = (review: ReviewMeta) => Number(!!(review.archivedAt || review.userArchivedAt));
-  // Each id in turn.
-  const ids: Array<(review: ReviewMeta) => Array<string | null>> = [
-    (review) => [reviewIdentity({ ...review, place: places.get(review.targetKey) }).id],
-    (review) => [review.feature ? localIdOf({ ...review, feature: review.feature }) : null],
-    (review) => review.mergedFrom?.map((from) => from.id) ?? [],
-    (review) => review.feature ? (review.formerBranches ?? []).map((branch) => localIdOf({ ...review, feature: { ...review.feature!, branch } })) : [],
+  const archived = (review: ReviewMeta) => !!(review.archivedAt || review.userArchivedAt);
+  const idNow = (review: ReviewMeta) => reviewIdentity({ ...review, place: places.get(review.targetKey) }).id;
+  // Every id it has had.
+  const ids = (review: ReviewMeta): Array<string | null> => [
+    idNow(review),
+    review.feature ? localIdOf({ ...review, feature: review.feature }) : null,
+    ...review.mergedFrom?.map((from) => from.id) ?? [],
+    ...review.feature ? (review.formerBranches ?? []).map((branch) => localIdOf({ ...review, feature: { ...review.feature!, branch } })) : [],
   ];
-  for (const idOf of ids) {
-    const named = [...new Set(all.filter((review) => idOf(review).some((id) => id?.toLowerCase() === text.toLowerCase())).map(merged))];
-    if (named.length) return named.sort((a, b) => archived(a) - archived(b) || b.createdAt - a.createdAt)[0];
-  }
-  return null;
+  const named = [...new Map(all.filter((review) => ids(review).some((id) => id?.toLowerCase() === text.toLowerCase())).map(merged).map((review) => [review.targetKey, review])).values()]
+    .sort((a, b) => b.createdAt - a.createdAt);
+  const live = named.filter((review) => !archived(review));
+  if (live.length < 2) return live[0] ?? named[0] ?? null;
+  const where = (review: ReviewMeta) => {
+    const { path, machine } = review.feature ?? places.get(review.targetKey) ?? {};
+    return path ? ` in ${homeShort(path)}${machine ? ` on ${machine}` : ""}` : "";
+  };
+  return { ambiguous: `\`${text}\` names ${live.length} reviews: ${live.map((review) => `\`${idNow(review)}\`${where(review)} (${review.targetKey})`).join(", ")}. Use one's key or link.` };
 }

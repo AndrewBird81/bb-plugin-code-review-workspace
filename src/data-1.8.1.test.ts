@@ -89,5 +89,5 @@ test("a review 1.8.1 made its PR's reads its folder for what isn't pushed yet, a
   expect(calls.length).toBeGreaterThan(0);
   const before = localIdOf({ ...converted, feature: converted.feature! });
   expect(before).toBe("web:casey/downloads-21");
-  expect((await reviewNamed(store, bb, before))?.targetKey).toBe(keys.converted);
+  expect(await reviewNamed(store, bb, before)).toMatchObject({ targetKey: keys.converted });
 });

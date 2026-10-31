@@ -337,7 +337,7 @@ test("a review merged into one that was merged in turn names the last: its PR's 
   await store.setLifecycle(prKey, { mergedInto: "br-b", archivedAt: 5 });
   await store.setLifecycle("br-b", { mergedInto: "br-c", archivedAt: 6 });
   expect(await prReviewKey(store, { repo: "acme/api", number: 7 })).toBe("br-c");
-  for (const named of [prKey, "br-b"]) expect((await reviewNamed(store, bb, named))?.targetKey, named).toBe("br-c");
+  for (const named of [prKey, "br-b"]) expect(await reviewNamed(store, bb, named), named).toMatchObject({ targetKey: "br-c" });
   // A merge that points back, which the store never makes, still ends.
   await store.setLifecycle("br-c", { mergedInto: prKey, archivedAt: 7 });
   expect(await prReviewKey(store, { repo: "acme/api", number: 7 })).toMatch(/^(pr-|br-)/);
@@ -382,7 +382,7 @@ test("a review merged away that keeps a tracked comment, its repo cleared: Archi
   expect(row).toMatchObject({ mergedIntoId: "api#7", turn: { group: "archive", reason: "merged-into" } });
   expect(reviewIdentity(row).id).toBe("api#7");
   expect(await harness.behavior.callRpc("getReviewBundle", { targetKey: prKey })).toMatchObject({ review: null, mergedInto: { targetKey: S, id: "api#7" } });
-  for (const named of [prKey, "api#7", "https://github.com/acme/api/pull/7"]) expect((await reviewNamed(store, bb, named))?.targetKey, named).toBe(S);
+  for (const named of [prKey, "api#7", "https://github.com/acme/api/pull/7"]) expect(await reviewNamed(store, bb, named), named).toMatchObject({ targetKey: S });
   expect(await prReviewKey(store, { repo: "acme/api", number: 7 })).toBe(S);
 });
 
@@ -407,7 +407,7 @@ test("what's left of a merged review: its page opens the one it went into, Archi
   const { reviews } = await harness.behavior.callRpc("listReviews", null) as { reviews: any[] };
   expect(reviews.find((review: any) => review.targetKey === prKey)).toMatchObject({ mergedIntoId: "api#7", turn: { group: "archive", reason: "merged-into" } });
   expect(statusWhy(reviews.find((review: any) => review.targetKey === prKey), defaultKnobs)?.text).toBe("Merged into api#7");
-  for (const named of [prKey, "api#7", "https://github.com/acme/api/pull/7"]) expect((await reviewNamed(store, bb, named))?.targetKey, named).toBe(S);
+  for (const named of [prKey, "api#7", "https://github.com/acme/api/pull/7"]) expect(await reviewNamed(store, bb, named), named).toMatchObject({ targetKey: S });
   expect(await prReviewKey(store, { repo: "acme/api", number: 7 })).toBe(S);
 
   const away = "This review was merged into `api#7`. The reviewer continues there.";

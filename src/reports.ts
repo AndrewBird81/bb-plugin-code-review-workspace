@@ -192,7 +192,9 @@ export function register(deps: ServeDeps) {
     if (args[0]) {
       const given = args[0].trim();
       // Or by its id, as the Send's first line names it, which may be the one it had before it became its PR's.
-      review = await reviewNamed(store, bb, given) ?? undefined;
+      const named = await reviewNamed(store, bb, given);
+      if (named && "ambiguous" in named) return { exitCode: 1, stderr: named.ambiguous };
+      review = named ?? undefined;
       if (!review) {
         const out = all.filter((r) => r.sends?.length && fixesState(r));
         const ids = await idsOf(out);
