@@ -120,6 +120,7 @@ test("the plugin registers the same RPC methods, tools, CLI subcommands, listene
       "setFilesViewed",
       "setLetPush",
       "setMainThread",
+      "setNotPushedViewed",
       "setRemovalReason",
       "setReviewPresence",
       "setVerdict",

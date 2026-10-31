@@ -5,6 +5,8 @@ import { usesFixer } from "./fixer";
 
 /** Where a Not pushed yet you opened keeps what it showed, beside the review's snapshots: Push checks a fixer's commit against it. */
 export const NOT_PUSHED = "not-pushed";
+/** A file's Viewed on Not pushed yet, among the review's file views, apart from the same path's in its chapters. */
+export const notPushedView = (path: string) => `${NOT_PUSHED}:${path}`;
 
 /**
  * Where a review's Push goes: GitHub's repo and branch, the folder whose commit goes there, the remote it's pushed to

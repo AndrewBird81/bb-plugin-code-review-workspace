@@ -201,6 +201,22 @@ test("Not pushed yet is the fixer's folder against the PR's head commit, secrets
   noGit();
 });
 
+test("Viewed on Not pushed yet is kept for the file's revision there, apart from the same file's in the chapters, and stale once the folder changed it", async () => {
+  const p = await ownPr({ over: { mainThread: { threadId: "fresh", environmentId: "env_fix", origin: "fresh", since: 2, branch: "bb/fixes-for-web-12-thr_env_fix" } } });
+  expect(await p.rpc("getNotPushed", { targetKey: "pr-1" })).toMatchObject({ state: "available", views: [] });
+  expect(await p.rpc("setNotPushedViewed", { targetKey: "pr-1", file: "src/a.ts", viewed: true })).toEqual({ ok: true });
+  expect((await p.rpc("getNotPushed", { targetKey: "pr-1" })).views).toEqual([{ file: "src/a.ts", viewed: true, stale: false }]);
+  // The chapters' src/a.ts is the PR's, not viewed.
+  expect((await p.rpc("getFileViews", { targetKey: "pr-1" })).views).toEqual([]);
+  // A file the page didn't show has no revision to keep.
+  expect(await p.rpc("setNotPushedViewed", { targetKey: "pr-1", file: "src/b.ts", viewed: true })).toEqual({ ok: false });
+  // Viewed at a revision the folder has since changed.
+  await p.store.setFileViewed("pr-1", "not-pushed:src/a.ts", "100644:8:100644:1");
+  expect((await p.rpc("getNotPushed", { targetKey: "pr-1" })).views).toEqual([{ file: "src/a.ts", viewed: false, stale: true }]);
+  expect(await p.rpc("setNotPushedViewed", { targetKey: "pr-1", file: "src/a.ts", viewed: false })).toEqual({ ok: true });
+  expect((await p.rpc("getNotPushed", { targetKey: "pr-1" })).views).toEqual([]);
+});
+
 test("Not pushed yet on a PR's review with its own folder reads that folder, as its notice counts it, not its main thread's; once BB removes it, the main thread's", async () => {
   const feature = { environmentId: "env_old", hostId: "host_max", machine: "MaxBook", path: "/Users/me/src/web", branch: "retry-uploads", baseRef: "main", repo: "acme/web" };
   const p = await ownPr({ over: { feature, mainThread: { threadId: "fresh", environmentId: "env_fix", origin: "fresh", since: 2, branch: "bb/fixes-for-web-12-thr_env_fix" } } });

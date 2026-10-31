@@ -20,7 +20,7 @@ import type { RpcHandlers, ServeDeps, Subcommands } from "./server-modules";
 import { settleFixes } from "./fix-tally";
 import { forgetBefore, readBefore, rememberBefore, UNDO_FOR_MS } from "./fix-undo";
 import { sendKey } from "../lib/send-baseline";
-import { NOT_PUSHED } from "../lib/push";
+import { NOT_PUSHED, notPushedView } from "../lib/push";
 import type { AssessmentVerdict } from "../lib/feedback";
 
 /** A thread's report as the page read it, which Undo after Remove puts back. */
@@ -310,7 +310,9 @@ export function register(deps: ServeDeps) {
     // Per-file "Viewed" state (viewed/stale computed against the patch)
     async getFileViews({ targetKey }) {
       return store.exclusive(async (tx) => {
-        return { views: computeFileViewState(await tx.getFileViews(targetKey), await tx.fileHashes(targetKey)) };
+        // Not pushed yet's are its own (src/own-pr.ts).
+        const views = (await tx.getFileViews(targetKey)).filter((view) => !view.file.startsWith(notPushedView("")));
+        return { views: computeFileViewState(views, await tx.fileHashes(targetKey)) };
       });
     },
     async setFileViewed({ targetKey, file, viewed }) {

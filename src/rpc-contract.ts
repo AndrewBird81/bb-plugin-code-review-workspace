@@ -465,9 +465,16 @@ export const rpcContract = defineRpcContract({
         /** `base` is the commit the review's diff is at: a removed line here is that diff's new line of its number. */
         onReviewHead: z.boolean(), machine: z.string().nullable(), threadId: z.string().nullable(),
         hidden: z.array(z.object({ path: z.string(), reason: z.enum(["secret", "binary", "large"]) })), notice: z.string().nullable(),
+        /** The files you marked Viewed here: still at the revision you viewed, or changed since (`stale`). */
+        views: z.array(z.object({ file: z.string(), viewed: z.boolean(), stale: z.boolean() })),
       }),
       z.object({ state: z.enum(["none", "offline", "gone", "unavailable"]), message: z.string() }),
     ]),
+  },
+  /** Viewed on Not pushed yet, for the file's revision as the page last read it, apart from the same file's in the chapters. */
+  setNotPushedViewed: {
+    input: z.object({ targetKey: z.string(), file: z.string(), viewed: z.boolean() }).strict(),
+    output: z.object({ ok: z.boolean() }),
   },
   /** Stop showing Branch kept for a fixer's branch, once you've deleted it or chosen to keep it. */
   dismissKeptBranch: {

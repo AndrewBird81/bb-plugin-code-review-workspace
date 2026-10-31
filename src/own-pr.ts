@@ -6,7 +6,7 @@
 // worktree has no upstream. Not pushed yet is what the fixer's folder has that the PR's head doesn't; once bb removes
 // that folder, the review says its branch is kept, with the command to delete it. The plugin runs no git.
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
-import { NOT_PUSHED, pushCommand } from "../lib/push";
+import { NOT_PUSHED, notPushedView, pushCommand } from "../lib/push";
 import { placeOn, type ReviewMeta } from "./store";
 import { isLocal } from "./draft";
 import type { AsyncStore } from "./store-queue";
@@ -256,14 +256,34 @@ export function register(deps: ServeDeps) {
       // What you saw, for Push to check the fixer's commit against (src/push.ts), and for LOCAL comments, which follow
       // their lines from what it showed before.
       const { environmentId, revisions, ...shown } = read;
-      await store.exclusive(async (tx) => {
+      const marks = await store.exclusive(async (tx) => {
         const before = await tx.getSnapshot(targetKey, NOT_PUSHED);
         await tx.saveSnapshot(targetKey, NOT_PUSHED, read.patch);
         if (before !== null && before !== read.patch) await tx.rebaseDraftComments(targetKey, await placeOn(tx, targetKey, (await tx.getDraft(targetKey)).comments.filter(isLocal), before, read.patch));
         await tx.saveSnapshotFiles(targetKey, NOT_PUSHED, { revisions, hidden: read.hidden });
         await tx.setLifecycle(targetKey, { notPushedSeen: { environmentId, base: read.base, at: Date.now() } });
+        return tx.getFileViews(targetKey);
       });
-      return shown;
+      // Viewed, as chapters keep it: for the file's revision when you marked it, stale once the folder changed it.
+      const views = Object.entries(revisions).flatMap(([file, revision]) => {
+        const mark = marks.find((view) => view.file === notPushedView(file));
+        return mark ? [{ file, viewed: mark.hash === revision, stale: mark.hash !== revision }] : [];
+      });
+      return { ...shown, views };
+    },
+    // Viewed on Not pushed yet: for the file's revision as the page last read it.
+    async setNotPushedViewed({ targetKey, file, viewed }) {
+      return store.exclusive(async (tx) => {
+        if (!await tx.getReview(targetKey)) return { ok: false };
+        if (!viewed) {
+          await tx.unsetFileViewed(targetKey, notPushedView(file));
+          return { ok: true };
+        }
+        const revision = (await tx.getSnapshotFiles(targetKey, NOT_PUSHED))?.revisions[file];
+        if (!revision) return { ok: false };
+        await tx.setFileViewed(targetKey, notPushedView(file), revision);
+        return { ok: true };
+      });
     },
     async dismissKeptBranch({ targetKey, branch }) {
       const found = await store.exclusive(async (tx) => {
