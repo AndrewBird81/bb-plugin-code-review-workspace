@@ -38,10 +38,12 @@ export function sentNote(delivery: "sent" | "queued", title: string | null, what
 }
 
 /**
- * What a fixer's Send left out (keptLocal): comments not on GitHub yet, whose lines its PR's head hasn't. The fixer is
- * the main thread then, so no Send takes them until a thread in their folder is.
+ * What a fixer's Send or Fix in a new thread left out (keptLocal): comments not on GitHub yet, whose lines its PR's head
+ * hasn't. No Send takes them until a thread in their folder is the main thread, with Send comments to the main thread on (`sendOn`).
  */
-export const keptLocalNote = (kept: number | undefined) => kept ? ` ${kept === 1 ? "1 isn’t on GitHub yet: change Main thread to a thread in its folder to send it." : `${kept} aren’t on GitHub yet: change Main thread to a thread in their folder to send them.`}` : "";
+export const keptLocalNote = (kept: number | undefined, sendOn = true) => !kept ? "" : sendOn
+  ? ` ${kept === 1 ? "1 isn’t on GitHub yet: change Main thread to a thread in its folder to send it." : `${kept} aren’t on GitHub yet: change Main thread to a thread in their folder to send them.`}`
+  : ` ${kept === 1 ? "1 isn’t on GitHub yet. It stays in the draft: turn on Send comments to the main thread in Settings to send it to a thread in its folder." : `${kept} aren’t on GitHub yet. They stay in the draft: turn on Send comments to the main thread in Settings to send them to a thread in their folder.`}`;
 
 /** The focus goes to a warning's or choice's first button as it opens: the Send that opened it gives way to it. */
 function useFirstButton(): RefObject<HTMLDivElement | null> {

@@ -3,6 +3,7 @@ import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import type { DraftProviderProps } from "./DraftProvider";
+import { defaultPreferences } from "../src/preferences";
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }));
 
@@ -19,11 +20,15 @@ const comments = [
   { file: "src/b.ts", line: 9, side: "LEFT", body: "Keep the check." },
 ];
 
-async function renderTray(rpc: Record<string, unknown>, props: Record<string, unknown>, options: Record<string, unknown> = {}, drafted: readonly unknown[] = comments, body = "") {
+async function renderTray(rpc: Record<string, unknown>, props: Record<string, unknown>, options: Record<string, unknown> = {}, drafted: readonly unknown[] = comments, body = "", knobs?: Partial<typeof defaultPreferences.knobs>) {
   await loadPluginApp(() => import("../app"));
   const DraftTray = await draftTray();
+  const { SettingsContext } = await import("../lib/settings");
   const draft = { targetKey: "k", verdict: "COMMENT", body, comments: drafted };
-  const component = () => <DraftTray targetKey="k" activeChapterId="c1" activeFiles={["src/a.ts"]} reviewRevision="r1" account="reviewer" {...props} />;
+  const Tray = () => <DraftTray targetKey="k" activeChapterId="c1" activeFiles={["src/a.ts"]} reviewRevision="r1" account="reviewer" {...props} />;
+  // Settings as loaded, `knobs` changed.
+  const preferences = { ...defaultPreferences, knobs: { ...defaultPreferences.knobs, ...knobs } };
+  const component = knobs ? () => <SettingsContext.Provider value={{ preferences, settled: Promise.resolve(preferences), fallback: preferences }}><Tray /></SettingsContext.Provider> : Tray;
   const slot = renderSlot({ component }, {}, { rpc: { setReviewPresence: () => ({ ok: true }), getReviewerNotes: () => ({ body: "", revision: 0 }), getDraft: () => ({ draft, stale: [], discussions: [] }), setVerdict: () => ({ draft }), ...rpc } as any, ...options });
   await slot.findByText("Draft saved");
   return slot;
@@ -147,6 +152,16 @@ test("Fix in a new thread that left out a comment not on GitHub yet says how to 
   expect((await within(slot.getByRole("region", { name: "Fix in a new thread" })).findByRole("status")).textContent)
     .toBe("Started a thread: Fixes for web#12 ↗. 1 isn’t on GitHub yet: change Main thread to a thread in its folder to send it.");
   slot.lifecycle.unmount();
+  // With Send comments to the main thread off, there's no Change main thread: it says to turn it on.
+  for (const [keptLocal, note] of [[1, "1 isn’t on GitHub yet. It stays in the draft: turn on Send comments to the main thread in Settings to send it to a thread in its folder."], [2, "2 aren’t on GitHub yet. They stay in the draft: turn on Send comments to the main thread in Settings to send them to a thread in their folder."]] as const) {
+    const starting = vi.fn(async () => ({ ok: true, threadId: "t9", title: "Fixes for web#12", keptLocal }));
+    const sendOff = await renderTray({ startFixThread: starting }, { ownPr: true }, {}, comments, "", { sendToThread: false });
+    fireEvent.click(sendOff.getByRole("button", { name: "Fix in a new thread" }));
+    fireEvent.click(sendOff.getByRole("button", { name: "Start thread" }));
+    expect((await within(sendOff.getByRole("region", { name: "Fix in a new thread" })).findByRole("status")).textContent).toBe(`Started a thread: Fixes for web#12 ↗. ${note}`);
+    sendOff.lifecycle.unmount();
+    cleanup();
+  }
 });
 
 test("a fixer's Send that left out a comment not on GitHub yet counts what went and says where that one goes", async () => {

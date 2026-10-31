@@ -86,6 +86,12 @@ test("Fix in a new thread leaves out a comment not on GitHub yet, as the PR's he
   expect(spawns()[0].prompt).not.toContain("Export it from the index.");
   await expect(start(bb, store, "pr-1", [LOCAL])).rejects.toThrow("Not started: it isn’t on GitHub yet. Change Main thread to a thread in its folder to send it.");
   expect(spawns()).toHaveLength(1);
+  // With Send comments to the main thread off, no Send or Change main thread shows: it says to turn it on.
+  await store.savePreferences({ ...defaultPreferences, knobs: { ...defaultPreferences.knobs, sendToThread: false } }, (await store.getPreferences()).revision);
+  await expect(start(bb, store, "pr-1", [LOCAL])).rejects.toThrow("Not started: it isn’t on GitHub yet. It stays in the draft: turn on Send comments to the main thread in Settings to send it to a thread in its folder.");
+  await store.upsertDraftComment("pr-1", { ...LOCAL, line: 2, body: "And test it." });
+  await expect(start(bb, store, "pr-1", [LOCAL, { ...LOCAL, line: 2 }])).rejects.toThrow("Not started: they aren’t on GitHub yet. They stay in the draft: turn on Send comments to the main thread in Settings to send them to a thread in their folder.");
+  expect(spawns()).toHaveLength(1);
 });
 
 test("a renamed review's fix thread has the name you gave it, and its message names the PR by its title", async () => {
