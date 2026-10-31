@@ -10,7 +10,7 @@ import { localIdOf, reviewIdentity } from "../lib/review-identity";
 import { publishReviewTitle, useReviewTitle } from "../lib/workspace-store";
 import { bandFit, chipWidth } from "./reading/ReaderBar";
 import { ID_CHIP, ReviewIdChip } from "./ReviewIdChip";
-import { middleCut } from "./shell/PhoneDock";
+import { endCut } from "./shell/PhoneDock";
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }));
 vi.mock("@pierre/diffs/react", () => ({ FileDiff: ({ fileDiff }: any) => <pre data-testid="filediff">{fileDiff.additionLines.join("\n")}</pre> }));
@@ -308,11 +308,11 @@ test("a local review goes by one name everywhere: its row, BB's thread list, its
   page.lifecycle.unmount();
 });
 
-test("on a phone, a local review's long id is cut in the middle to the dock's room, both its ends showing, and whole on hover and to a screen reader", async () => {
+test("on a phone, a local review's long id is cut from its end to the dock's room, reading from its start, and whole on hover and to a screen reader", async () => {
   const id = "web:feature/snooze-flaky-checks-on-retries";
   expect(id).toHaveLength(42);
-  expect(middleCut(id, 16)).toBe("web:fe…n-retries");
-  expect(middleCut(id, 42)).toBe(id);
+  expect(endCut(id, 16)).toBe("web:feature/sno…");
+  expect(endCut(id, 42)).toBe(id);
   // About 110px of tab, as at 390px: 16 characters at 6.6px.
   pane(390, { height: 844, phone: true, dockId: 110 });
   patchReviewState("ref-9", { activeId: "c1" });
@@ -322,7 +322,7 @@ test("on a phone, a local review's long id is cut in the middle to the dock's ro
   const shown = tab.querySelector<HTMLElement>("[data-dock-id]")!;
   expect(shown.getAttribute("title")).toBe(id);
   expect(within(shown).getByText(id).className).toBe("sr-only");
-  expect(within(shown).getByText("web:fe…n-retries").getAttribute("aria-hidden")).toBe("true");
+  expect(within(shown).getByText("web:feature/sno…").getAttribute("aria-hidden")).toBe("true");
   slot.lifecycle.unmount();
 });
 

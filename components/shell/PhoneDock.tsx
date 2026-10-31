@@ -52,17 +52,15 @@ function useToastsAbove(dock: HTMLElement | null) {
   }, [dock]);
 }
 
-/** `id` in at most `chars` characters, cut in the middle so both its ends show: web:feat…on-retries. */
-export function middleCut(id: string, chars: number): string {
-  if (id.length <= chars) return id;
-  const tail = Math.ceil((chars - 1) * 0.55);
-  return `${id.slice(0, Math.max(0, chars - 1 - tail))}…${id.slice(id.length - tail)}`;
+/** `id` in at most `chars` characters, cut from the end so it reads from its start: web:feat/snooz…. */
+export function endCut(id: string, chars: number): string {
+  return id.length <= chars ? id : `${id.slice(0, Math.max(0, chars - 1))}…`;
 }
 
 /**
- * The review's id over the chapter. A local review's, often longer than the tab, is cut in the middle to the tab's
- * room, at 11px monospace's 6.6px a character (as the band's chip is sized), so its repository and its branch's end both
- * show; whole on hover and to a screen reader. A PR's is the chip, which never cuts its number.
+ * The review's id over the chapter. A local review's, often longer than the tab, is cut from its end to the tab's room,
+ * at 11px monospace's 6.6px a character (as the band's chip is sized), so its repository and its branch's start show;
+ * whole on hover and to a screen reader. A PR's is the chip, which never cuts its number.
  */
 function DockId({ identity }: { identity: ReviewIdentity }) {
   const [el, setEl] = useState<HTMLSpanElement | null>(null);
@@ -79,7 +77,7 @@ function DockId({ identity }: { identity: ReviewIdentity }) {
   return (
     <span ref={setEl} data-dock-id title={identity.id} className="block w-full overflow-hidden whitespace-nowrap font-mono text-[11px] leading-3.5 text-muted-foreground">
       <span className="sr-only">{identity.id}</span>
-      <span aria-hidden>{middleCut(identity.id, Math.max(1, Math.floor(room / 6.6)))}</span>
+      <span aria-hidden>{endCut(identity.id, Math.max(1, Math.floor(room / 6.6)))}</span>
     </span>
   );
 }
@@ -120,7 +118,8 @@ export function PhoneDock({ hidden }: { hidden: boolean }) {
   const viewed = chapterFiles.filter((file) => files.views.get(file)?.viewed).length;
   // Finish review is part of Comments.
   const comments = panel.view === "comments" || panel.view === "finish";
-  const unsent = status?.comments ?? 0;
+  // What Submit posts and what goes with Send, as the notices count them: comments not on GitHub yet too.
+  const unsent = (status?.comments ?? 0) + (status?.local ?? 0);
   const away = hidden || typing;
   useToastsAbove(away ? null : dock);
   const tab = "h-11 min-w-11 shrink-0 px-0 text-muted-foreground";
