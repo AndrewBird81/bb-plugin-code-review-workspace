@@ -392,7 +392,7 @@ function prOfBranch(feature: FeatureReview, pr: FolderPr | undefined): { repo: s
  * a review of its own already, the two merge (src/merge.ts): this one stays, unless the PR's began as another folder's,
  * and the one that goes is merged in at once when it has nothing of yours, else on your click (`clicked` "merge"), which
  * this review offers (`prOffer`). Returns which, or "skipped" when it can't now; to a click on a PR closed or merged
- * since, "pr-closed" or "pr-merged", with nothing waiting on it after.
+ * since, "pr-closed" or "pr-merged", with nothing waiting on it after, nor, to Merge, offering it.
  */
 export async function becomePr(deps: Deps, key: string, pr: { repo: string; number: number }, clicked?: "pr" | "merge"): Promise<"converted" | "merged" | "offered" | "skipped" | "pr-closed" | "pr-merged"> {
   const { bb, store, gh } = deps;
@@ -473,8 +473,12 @@ export async function becomePr(deps: Deps, key: string, pr: { repo: string; numb
   if (snapshot.pr.state !== undefined && snapshot.pr.state !== "OPEN") {
     if (!clicked) return "skipped";
     const cleared = await store.exclusive(async (tx) => {
-      if ((await tx.getReview(key))?.prPending?.url.toLowerCase() !== url.toLowerCase()) return false;
-      await tx.setLifecycle(key, { prPending: null });
+      const review = await tx.getReview(key);
+      const waited = review?.prPending?.url.toLowerCase() === url.toLowerCase();
+      // Your Merge: its offer goes too, as it can't merge now.
+      const offered = clicked === "merge" && review?.prOffer?.key === prKey;
+      if (!waited && !offered) return false;
+      await tx.setLifecycle(key, { ...waited ? { prPending: null } : {}, ...offered ? { prOffer: null } : {} });
       return true;
     });
     if (cleared) deps.changed(key);

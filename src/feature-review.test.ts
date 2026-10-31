@@ -950,6 +950,31 @@ test("Make it PR #7's review of a PR closed or merged since Not this one says so
   }
 });
 
+test("Merge into one review with a PR closed or merged since says so, and its offer goes, from the notice and from Review actions after Keep both", async () => {
+  for (const [state, said, kept] of [["CLOSED", "closed", false], ["MERGED", "merged", true]] as const) {
+    const s = setup();
+    vi.mocked(runGh).mockImplementation(s.deps.gh.runGh as any);
+    await plugin(s.bb);
+    await run(s, "main");
+    await settled(s);
+    const prKey = targetKey({ kind: "pr", repo: "acme/api", number: 7 });
+    await s.store.saveReview({ targetKey: prKey, kind: "pr", repo: "acme/api", number: 7, url: "https://github.com/acme/api/pull/7", head: "feat/qa", status: "ready", createdAt: 1 });
+    await s.store.upsertDraftComment(prKey, { file: "src/a.ts", line: 2, side: "RIGHT", body: "Theirs" });
+    expect(await becomePr(s.deps, key, { repo: "acme/api", number: 7 })).toBe("offered");
+    if (kept) expect(await s.harness.behavior.callRpc("keepBothReviews", { targetKey: key })).toEqual({ ok: true });
+    s.view.state = state;
+    expect(await s.harness.behavior.callRpc("mergeReviews", { targetKey: key })).toEqual({ ok: false, error: `PR #7 is ${said}.` });
+    expect(await s.store.getReview(key)).toMatchObject({ kind: "ref", prOffer: null });
+    expect(await s.store.getReview(prKey)).not.toHaveProperty("mergedInto");
+    const bundle = async (of: string) => (await s.harness.behavior.callRpc("getReviewBundle", { targetKey: of }) as any).review;
+    for (const review of [await bundle(key), await bundle(prKey)]) {
+      expect(review.prOffer ?? null).toBeNull();
+      expect(review.localReview).toBeUndefined();
+      expect(review.keptApart).toBeUndefined();
+    }
+  }
+});
+
 test("Keep both, from either review's page: neither offers to merge again, the folder's review stays local and the PR's stays the PR's", async () => {
   const s = setup();
   vi.mocked(runGh).mockImplementation(s.deps.gh.runGh as any);
