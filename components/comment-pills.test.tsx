@@ -61,6 +61,9 @@ test("i folds every card in the code to a pill that says who, its state, its fir
   const draft = await diff().findByRole("group", { name: "Draft comment on src/a.ts:2, folded" });
   expect(draft.textContent).toContain("Agent draft · not submitted · Blocking");
   expect(draft.textContent).toContain("An entry that expires now is still served.");
+  // In a review under 440px wide, on any pointer, as on a phone: its state on a line of its own, its first line under it.
+  const lines = draft.querySelector("[class~='@max-[440px]/review:flex-col']");
+  expect(lines?.firstElementChild?.textContent).toBe("Agent draft · not submitted · Blocking");
   const thread = diff().getByRole("group", { name: "GitHub thread on src/a.ts:2, folded" });
   expect(thread.textContent).toContain("@bob");
   expect(thread.textContent).toContain("Resolved");

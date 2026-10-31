@@ -30,6 +30,7 @@
 ### Fixes
 
 - **Ask agent** with no file in view, in a conversation that had started, said "Couldn’t add that to the chat." It now opens the chat with its box focused.
+- A folded comment in a review under 440px wide puts its state on a line of its own, its severity, badge and first line under it, as on a phone, where with a mouse they shared one line and cut its state to "Draft · go…".
 
 ## 1.8.1 — 2026-10-30
 
