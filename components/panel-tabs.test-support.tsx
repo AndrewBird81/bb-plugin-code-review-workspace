@@ -11,5 +11,5 @@ export function renderPanelTab(app: CapturedPluginApp, id: "agent" | "main", sub
 
 /** The tabs the page asked BB's panel to open or toggle, by id, in order. */
 export function panelTabCalls(slot: ReturnType<typeof renderSlot>): string[] {
-  return slot.inspection.experimental_panelCalls.map((call) => call.method === "close" ? "close" : `${call.method}:${call.options.tab.id}`);
+  return slot.inspection.experimental_panelCalls.map((call) => "options" in call ? `${call.method}:${call.options.tab.id}` : "key" in call ? `${call.method}:${call.key}` : call.method);
 }
