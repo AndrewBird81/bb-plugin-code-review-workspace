@@ -2,7 +2,7 @@
 // on author), nobody's (Reviewed), or done (Archive). Pure, so the server and
 // the panel agree; the server attaches its result to every review it returns.
 import type { Verdict } from "../src/draft";
-import type { ReviewLifecycle } from "../src/store";
+import type { PushRun, ReviewLifecycle } from "../src/store";
 import { fixesState, reportedText } from "./fixes";
 
 export type TurnGroup = "needs" | "waiting" | "reviewed" | "archive";
@@ -21,7 +21,9 @@ export type TurnReason =
   | "merged-into"
   | "ready-to-approve"
   // Comments sent to the thread that fixes them: waiting for its reports, or back to you (src/reports.ts).
-  | "fixes-sent" | "fixes-ready" | "fixes-stopped";
+  | "fixes-sent" | "fixes-ready" | "fixes-stopped"
+  // Your approval sent to the main thread, while it covers the code (src/loop.ts sendApproval); a Push under way (src/push.ts).
+  | "approval-sent" | "pushing";
 
 /** Your review threads on the PR, by where each stands. */
 export interface ThreadTally {
@@ -109,8 +111,12 @@ export interface TurnInput {
   prState?: "OPEN" | "CLOSED" | "MERGED";
   archivedAt?: number | null;
   userArchivedAt?: number | null;
-  /** Merged into another review of its PR, which goes on (src/merge.ts). */
+  /** Merged into another review of its PR, which goes on (src/merge.ts), at mergedAt. */
   mergedInto?: string;
+  mergedAt?: number;
+  /** When GitHub merged or closed the PR, as it last said. */
+  prMergedAt?: number | null;
+  prClosedAt?: number | null;
   submittedVerdict?: Verdict | null;
   submittedAt?: number | null;
   submittedHeadSha?: string | null;
@@ -127,13 +133,20 @@ export interface TurnInput {
   ownPr?: boolean | null;
   /** A turn that came from a passing state (feedback handled, looks ready); it holds until you act. */
   heldTurn?: { reason: TurnReason; label: string; signal: string; at: number } | null;
-  /** A local review's folder: on another branch, which pauses it, or removed by bb (src/feature-review.ts). */
-  feature?: { pausedOn?: string | null; folderGone?: boolean } | null;
+  /**
+   * A local review's folder: on another branch, which pauses it, or removed by bb, and how many of its files changed since
+   * the review read it, as last checked (src/feature-review.ts).
+   */
+  feature?: { pausedOn?: string | null; folderGone?: boolean; changedFiles?: number | null } | null;
   /** A relayed approve, merge or close waiting for your click, since `at`. */
   readyToApprove?: { at: number } | null;
   /** The Sends, and the comments still out with the thread that fixes them (lib/fixes.ts). */
   sends?: ReviewLifecycle["sends"];
   fixes?: ReviewLifecycle["fixes"];
+  /** Your approval sent to the main thread, of the diff the review shows: a Send clears it, and so does another diff (src/store.ts). */
+  approvalSent?: { at: number } | null;
+  /** The last Push (src/push.ts), under way while the main thread commits or pushes it. */
+  push?: Pick<PushRun, "state" | "at"> | null;
 }
 
 export interface TurnOptions {
@@ -158,7 +171,10 @@ export interface Turn {
   label: string;
   /** Identifies the event that made it your turn; a new one alerts again. Null when it isn't your turn. */
   signal: string | null;
-  /** When the current state began, for "your turn for 2d". */
+  /**
+   * When the current state began, for "your turn for 2d": the event behind it, as far as the review knows. Where it knows
+   * none, as a Ready local review or a PR found on GitHub as a draft, when the review was started or found.
+   */
   at: number | null;
   /** Whether becoming your turn this way deserves a Needs You alert. */
   notify: boolean;
@@ -199,13 +215,15 @@ export function computeTurn(review: TurnInput, options: TurnOptions = defaultTur
   const make = (group: TurnGroup, reason: TurnReason, label: string, extra: Partial<Turn> = {}): Turn =>
     ({ ...base, group, reason, label, ...extra });
 
-  if (review.mergedInto) return make("archive", "merged-into", "Merged into another review");
-  if (review.prState === "MERGED") return make("archive", "merged", "Merged");
+  if (review.mergedInto) return make("archive", "merged-into", "Merged into another review", { at: review.mergedAt ?? review.archivedAt ?? null });
+  if (review.prState === "MERGED") return make("archive", "merged", "Merged", { at: review.prMergedAt ?? review.archivedAt ?? null });
   // A local review whose folder bb removed, with nothing left open or sent (src/feature-review.ts).
-  if (review.kind === "ref" && review.archivedAt && review.feature?.folderGone) return make("archive", "folder-gone", "Folder removed");
-  if (review.prState === "CLOSED" || review.archivedAt) return make("archive", "closed", "Closed");
+  if (review.kind === "ref" && review.archivedAt && review.feature?.folderGone) return make("archive", "folder-gone", "Folder removed", { at: review.archivedAt });
+  if (review.prState === "CLOSED" || review.archivedAt) return make("archive", "closed", "Closed", { at: (review.prState === "CLOSED" ? review.prClosedAt : null) ?? review.archivedAt ?? null });
   // Deleted, or out of your reach for good; access refused (say, for SSO) may come back.
-  if (review.unreachable?.reason === "not-found" && now - review.unreachable.since >= UNREACHABLE_MS) return make("archive", "unreachable", "Can’t read on GitHub");
+  if (review.unreachable?.reason === "not-found" && now - review.unreachable.since >= UNREACHABLE_MS) {
+    return make("archive", "unreachable", "Can’t read on GitHub", { at: review.unreachable.since + UNREACHABLE_MS });
+  }
   // A relayed approve, merge or close waits for your click, whatever else the review waits on, your own archive too. You
   // asked for it, so it alerts nothing of its own; the turn beneath it alerts as it would, a snooze's end included.
   const ready = review.readyToApprove;
@@ -229,9 +247,9 @@ export function computeTurn(review: TurnInput, options: TurnOptions = defaultTur
 
   // A person asking you again outranks your own archive.
   if (review.userArchivedAt && !(reRequested && after(s.requestedAt, review.userArchivedAt))) {
-    return make("archive", "archived", "Archived");
+    return make("archive", "archived", "Archived", { at: review.userArchivedAt });
   }
-  const turn = reviewerTurn();
+  const turn = heldForYou(reviewerTurn());
   // A failed guide needs you to retry, without losing why it's your turn.
   if (review.status === "error") return { ...turn, group: "needs", label: "Failed", failed: true };
   // Generation shows where the review stands; it doesn't move it.
@@ -248,11 +266,12 @@ export function computeTurn(review: TurnInput, options: TurnOptions = defaultTur
     const stoppedAt = fixes?.send.stopped?.at;
     const fixesStopped = () => make("needs", "fixes-stopped", `Main thread ${fixes!.gone} · ${reportedText(fixes!.tally)}`, { at: stoppedAt! });
     if (review.kind === "ref") {
-      // Its folder gone, its comments still wait on you; on another branch, it waits for its own.
-      if (review.feature?.folderGone) return make("needs", "folder-gone", "Folder removed", { at: review.createdAt ?? null });
+      const back = fixes?.ready && after(readyAt, snoozedAt) ? fixesReady() : unreported && fixes!.gone ? fixesStopped() : null;
+      // Its folder gone, nothing comes of it: it waits on no one, but for comments that came back to you, or whose thread
+      // stopped short. On another branch, it waits for its own.
+      if (review.feature?.folderGone) return back ?? make("waiting", "folder-gone", "Folder removed", { at: review.createdAt ?? null });
       if (review.feature?.pausedOn) return make("waiting", "paused", "Paused", { at: review.createdAt ?? null });
-      if (fixes?.ready && after(readyAt, snoozedAt)) return fixesReady();
-      if (unreported && fixes!.gone) return fixesStopped();
+      if (back) return back;
       // While its thread works on them, a local review waits on it: until it reports the last, or the last unreported
       // comment is yours again.
       if (unreported) return make("waiting", "fixes-sent", reportedText(fixes!.tally), { at: fixes!.send.at });
@@ -264,20 +283,20 @@ export function computeTurn(review: TurnInput, options: TurnOptions = defaultTur
     // Your own PR comes to you when someone's comment waits for your reply, never a bot's. One you started a review of
     // is yours to review until you have; one found on GitHub waits on its reviewers.
     if (review.ownPr) {
-      if (tracked && options.ownPrs === false) return make("archive", "own", "Your PR");
+      if (tracked && options.ownPrs === false) return make("archive", "own", "Your PR", { at: review.createdAt ?? null });
       const fresh = s.newComments;
       if (fresh?.count && after(fresh.at, snoozedAt)) {
         return make("needs", "new-comments", `Your PR · ${newCommentsText(fresh)}`, { signal: `comments:${fresh.at}`, at: fresh.at, notify: true, eventAt: fresh.at });
       }
       if (!reviewed && until) return make("waiting", "snoozed", snoozedLabel, { at: snoozedAt });
       if (!reviewed && !tracked) return make("needs", "own", "Your PR", { at: review.createdAt ?? null });
-      return make("reviewed", "own", updated ? "Your PR · updated" : "Your PR");
+      return make("reviewed", "own", updated ? "Your PR · updated" : "Your PR", { at: lastReviewAt ?? review.createdAt ?? null });
     }
     if (!reviewed) {
-      if (tracked && s.isDraft) return make("waiting", "draft", "Draft");
+      if (tracked && s.isDraft) return make("waiting", "draft", "Draft", { at: review.createdAt ?? null });
       // A PR found on GitHub that no longer asks for you, or only asks a team when you've left those out.
       if (tracked && review.signals && (!s.requestPending || s.requestedVia === "team" && options.teamRequests === false)) {
-        return make("archive", "unrequested", "No longer requested");
+        return make("archive", "unrequested", "No longer requested", { at: review.createdAt ?? null });
       }
       // Only a newer request wakes a snoozed one.
       if (until && !after(s.requestedAt, snoozedAt)) return make("waiting", "snoozed", snoozedLabel, { at: snoozedAt });
@@ -314,9 +333,9 @@ export function computeTurn(review: TurnInput, options: TurnOptions = defaultTur
     if (options.mentions !== false && after(s.mentionAt, lastReviewAt, snoozedAt)) {
       return needs("mentioned", "Mentioned you", `mention:${s.mentionAt}`, s.mentionAt, true);
     }
-    if (s.isDraft) return make(verdict === "APPROVE" ? "reviewed" : "waiting", "draft", "Draft", { updated });
-    if (verdict === "APPROVE") return make("reviewed", "approved", updated ? "Approved · updated" : "Approved");
-    if (verdict === "COMMENT" && !hasThreads) return make("reviewed", "commented", "Commented");
+    if (s.isDraft) return make(verdict === "APPROVE" ? "reviewed" : "waiting", "draft", "Draft", { updated, at: lastReviewAt });
+    if (verdict === "APPROVE") return make("reviewed", "approved", updated ? "Approved · updated" : "Approved", { at: lastReviewAt });
+    if (verdict === "COMMENT" && !hasThreads) return make("reviewed", "commented", "Commented", { at: lastReviewAt });
 
     // A handled or looks-ready turn holds until you act, even if the author pushes again.
     const held = review.heldTurn;
@@ -332,10 +351,46 @@ export function computeTurn(review: TurnInput, options: TurnOptions = defaultTur
       return needs("looks-ready", "Looks ready", `looks-ready:${head}`, assessment.assessedAt, true);
     }
     // A comment review with nothing open isn't waiting on anyone.
-    if (verdict === "COMMENT" && threads!.open + threads!.questions === 0) return make("reviewed", "commented", "Commented");
+    if (verdict === "COMMENT" && threads!.open + threads!.questions === 0) return make("reviewed", "commented", "Commented", { at: lastReviewAt });
     if (snoozedAt && snoozedAt >= (lastReviewAt ?? 0)) return make("waiting", "snoozed", snoozedLabel, { at: snoozedAt, blocking });
     return make("waiting", "waiting", VERDICT_LABEL[verdict], { at: lastReviewAt, blocking });
   }
+
+  /**
+   * What you set going holds the review until something newer is your turn: a Push under way waits on the thread
+   * pushing it; comments out on a PR wait on the thread fixing them, as a local review's do, from a Send after your
+   * last review there; and your approval sent to the main thread is the verdict of a local review or your own PR while
+   * it covers the code (approvalHolds), unless its folder moved off its branch or went.
+   */
+  function heldForYou(turn: Turn): Turn {
+    if (turn.group === "archive") return turn;
+    const yoursSince = (at: number) => turn.group === "needs" && (turn.at ?? 0) > at;
+    const push = review.push;
+    if ((push?.state === "committing" || push?.state === "pushing") && !yoursSince(push.at)) {
+      return make("waiting", "pushing", push.state === "committing" ? "Committing for Push" : "Pushing", { at: push.at, blocking: turn.blocking });
+    }
+    const fixes = fixesState(review);
+    if (review.kind === "pr" && fixes && !fixes.ready && !fixes.gone && fixes.tally.reported < fixes.tally.sent
+      && after(fixes.send.at, lastReviewAt, snoozedAt) && !yoursSince(fixes.send.at)) {
+      return make("waiting", "fixes-sent", reportedText(fixes.tally), { at: fixes.send.at, blocking: turn.blocking });
+    }
+    const approval = review.approvalSent;
+    if (approval && approvalHolds(review) && turn.reason !== "paused" && turn.reason !== "folder-gone" && !yoursSince(approval.at)) {
+      return make("reviewed", "approval-sent", "Approved", { at: approval.at });
+    }
+    return turn;
+  }
+}
+
+/**
+ * Whether your approval sent to the main thread still covers the code (src/loop.ts sendApproval), on a local review or
+ * your own PR, where it's the only approval there is: a Send clears it, and so does another diff (src/store.ts); the
+ * folder changing since, as last checked, or the PR's new commits, end it too.
+ */
+export function approvalHolds(review: TurnInput): boolean {
+  if (!review.approvalSent) return false;
+  if (review.kind === "ref") return !review.feature?.changedFiles;
+  return review.ownPr === true && (review.latestHeadSha ?? review.headSha) === review.headSha;
 }
 
 /** "3 new comments in 2 threads", or "2 new comments" when that's one a thread, as Comments' Needs you counts them. */

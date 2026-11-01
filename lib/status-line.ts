@@ -67,6 +67,10 @@ export function statusWhy(review: ReviewItem, knobs: Pick<Knobs, "localDiffChang
     case "fixes-ready": return review.fixes ? why(`Ready to re-review · ${reportedText(review.fixes)}`, "foreground", "ArrowTurnBackward", { detail: cameBackText(review.fixes, review.sends?.at(-1)?.readyBy) }) : why("Ready to re-review", "foreground", "ArrowTurnBackward");
     case "fixes-stopped": return why(turn.label, "foreground", turn.label.startsWith("Main thread deleted") ? "Trash2" : "Archive", { detail: "It won’t report the rest: check them, or send them to a fresh thread" });
     case "fixes-sent": return why(turn.label, "neutral", "Send", { detail: "Sent to the main thread, which reports on each" });
+    // What you sent the main thread: your approval, which posts nothing to GitHub, and a Push it carries out.
+    case "approval-sent": return why(`You approved${ago(turn.at)}`, "neutral", "Check", { detail: `Sent to ${review.approvalSent?.title ?? "the main thread"}. Nothing went to GitHub.` });
+    case "pushing": return review.push?.state === "pushing" ? why(`Pushing to ${branchLabel(review.push.head)}`, "neutral", "ArrowUp", { detail: "The main thread pushes the commit the review checked" })
+      : why(turn.label, "neutral", "ArrowUp", { detail: "The main thread commits what you reviewed; the review checks it before anything is pushed" });
     // A folder's review says what changed in its folder since it was read, as last checked.
     case "new": return review.kind === "ref" ? review.feature?.changedFiles && knobs.localDiffChanges ? why(`${review.feature.changedFiles} file${review.feature.changedFiles === 1 ? "" : "s"} changed`, "foreground", "FileDiff") : why("Local review", "neutral", "GitBranch")
       : review.status === "tracked" ? why("No guide yet", "neutral") : why("Guide ready", "neutral");

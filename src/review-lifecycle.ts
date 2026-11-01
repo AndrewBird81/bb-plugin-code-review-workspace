@@ -464,7 +464,8 @@ export function createReviewSync(bb: BbPluginApi, store: AsyncStore, run: typeof
      */
     const pushes = async (tx: AsyncStore, review: ReviewMeta) => {
       const s = review.signals ?? {};
-      if (!(actions && preferences.pushChecks !== "off" && reReviewCheckPrompt(preferences) && turn.group === "waiting" && turn.updated && head && head !== review.watchedHead && review.status === "ready"
+      // Never your own PR's: it waits on a thread you sent it to, never on its author.
+      if (!(actions && preferences.pushChecks !== "off" && reReviewCheckPrompt(preferences) && turn.group === "waiting" && turn.updated && review.ownPr !== true && head && head !== review.watchedHead && review.status === "ready"
         && review.autoRunHead !== head && review.assessment?.headSha !== head && ciSettled(s, now) && now - (s.headSeenAt ?? now) >= PUSH_QUIET
         && now - (review.pushCheckTriedAt ?? 0) >= RETRY_PREPARE)) return false;
       // An untrusted author's pushes wait for your click.

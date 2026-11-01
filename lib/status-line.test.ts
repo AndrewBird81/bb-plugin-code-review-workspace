@@ -154,3 +154,14 @@ test("comments sent to fix: how many the main thread reported while it works, th
   expect(statusWhy({ ...pr, verifyingFixes: true }, knobs, now)?.text).toBe("Checking the fixes…");
   expect(statusWhy(pr, knobs, now)?.text).toBe("Checking your feedback…");
 });
+
+test("your approval in the main thread says when you gave it and where it went; a Push under way says what the main thread does", () => {
+  const approved = review(turn("reviewed", "approval-sent", "Approved", { at: now - 2 * HOUR }), { kind: "ref", approvalSent: { at: now - 2 * HOUR, threadId: "coder", title: "Build snooze", revision: "r" } });
+  expect(said(approved)).toEqual(["You approved 2h ago", "neutral", "Check"]);
+  expect(statusWhy(approved, knobs, now)?.detail).toBe("Sent to Build snooze. Nothing went to GitHub.");
+  const push = { at: now - 60_000, threadId: "coder", repo: "acme/web", head: "bb/snooze-thr_a1" };
+  expect(said(review(turn("waiting", "pushing", "Committing for Push"), { kind: "ref", push: { ...push, state: "committing" } }))).toEqual(["Committing for Push", "neutral", "ArrowUp"]);
+  expect(said(review(turn("waiting", "pushing", "Pushing"), { kind: "ref", push: { ...push, state: "pushing", sha: "c0ffee" } }))).toEqual(["Pushing to snooze", "neutral", "ArrowUp"]);
+  // A PR's comments out with the thread fixing them say so as a local review's do.
+  expect(said(review(turn("waiting", "fixes-sent", "1 of 3 reported"), { kind: "pr", ownPr: true, fixes: { sent: 3, reported: 1, inferred: 0, checked: 0, fixed: 0 } }))).toEqual(["1 of 3 reported", "neutral", "Send"]);
+});

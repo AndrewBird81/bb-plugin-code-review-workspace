@@ -1310,21 +1310,21 @@ test("Keep both with one PR's review still finds the branch's next PR, as your P
   expect(await prReviewKey(s.store, { repo: "acme/api", number: 7 })).toBe(key);
 });
 
-test("bb removing the folder: a review that became a PR's goes on; a local one waits for its sent comments, else goes to Archive", async () => {
+test("bb removing the folder: a review that became a PR's goes on; a local one waits on no one for its sent comments, else goes to Archive", async () => {
   const s = setup();
   await plugin(s.bb);
   await run(s, "main");
   await settled(s);
   const removed = (environmentId: string) => s.harness.behavior.emitThreadEvent("experimental_environment.removed", { removal: { environmentId, removedAt: Date.now(), hostId: "host_max", path: "/Users/me/src/api", providerOwnedPath: true } });
 
-  // A local review with a sent comment stays out of Archive, for it.
+  // A local review with a sent comment stays out of Archive, for it, waiting on no one: nothing comes of a removed folder.
   await s.store.upsertDraftComment(key, { file: "src/a.ts", line: 3, side: "RIGHT", body: "Sent", author: "reviewer" } as any);
   await s.store.trackComments(key, [{ at: { file: "src/a.ts", line: 3, side: "RIGHT" }, id: "c1", state: "sent", sendN: 1 }]);
   await removed("env1");
   let review = (await s.store.getReview(key))!;
   expect(review.feature?.folderGone).toBe(true);
   expect(review.archivedAt ?? null).toBeNull();
-  expect(computeTurn(review)).toMatchObject({ group: "needs", reason: "folder-gone", label: "Folder removed" });
+  expect(computeTurn(review)).toMatchObject({ group: "waiting", reason: "folder-gone", label: "Folder removed" });
   expect(await checkFeature(s.deps, key)).toMatchObject({ state: "gone" });
 
   // One with only a resolved comment goes to Archive, as the sync's; never your own archive.
