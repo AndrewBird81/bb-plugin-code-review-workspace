@@ -2,6 +2,7 @@
 // what servePlugin merges: its RPC handlers, its listeners to BB's events, and the bb review subcommands it runs.
 import type { BbPluginApi, PluginAgentToolResult, PluginCliCommandInfo, PluginCliContext, PluginCliResult, PluginRpcHandlers, PluginThreadEventHandler, PluginThreadEventName } from "@get-bb/plugin-sdk";
 import type { rpcContract } from "./rpc-contract";
+import type { publicContract } from "./public-contract";
 import type { releaseRpc } from "./plugin-updates";
 import type { QueuedStore } from "./store-queue";
 import type { ReviewMeta } from "./store";
@@ -41,6 +42,8 @@ export interface ServeDeps {
 
 /** The RPC handlers the modules give, merged into the one object BB registers; the release's own are plugin-updates'. */
 export type RpcHandlers = Omit<PluginRpcHandlers<typeof rpcContract>, keyof typeof releaseRpc>;
+/** The handlers of what other plugins call (src/public-contract.ts), which the modules give apart, as `published`. */
+export type PublicHandlers = PluginRpcHandlers<typeof publicContract>;
 
 type Merged<T extends object[]> = T extends [infer First, ...infer Rest extends object[]] ? First & Merged<Rest> : unknown;
 

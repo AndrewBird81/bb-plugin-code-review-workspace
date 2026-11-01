@@ -27,7 +27,7 @@ import { isLocal, sameLocation } from "./draft";
 import { githubWaits } from "./review-lifecycle";
 import { revisionOf } from "./review-revision";
 import { approvalHolds } from "../lib/turn";
-import type { EventListeners, RpcHandlers, ServeDeps } from "./server-modules";
+import type { EventListeners, PublicHandlers, RpcHandlers, ServeDeps } from "./server-modules";
 
 type Thread = Awaited<ReturnType<BbPluginApi["sdk"]["threads"]["get"]>>;
 type Environment = Awaited<ReturnType<BbPluginApi["sdk"]["environments"]["get"]>>;
@@ -883,25 +883,6 @@ export function register(deps: ServeDeps) {
       deps.changed(targetKey);
       return { ok: true };
     },
-    // Review changes, above a thread's message box: what bb review with no arguments does there, with no output.
-    async reviewThreadChanges({ threadId }) {
-      // A review's agents and guide writers, hidden, may work in the folder's checkout: never a review's main thread,
-      // from their page or their shell (callerFolder).
-      const found = await callerFolder(deps, threadId);
-      if ("stderr" in found) return { ok: false, error: found.stderr };
-      // Its page is a thread you see.
-      if (found.caller.visibility === "hidden") return { ok: false, error: "This thread is one of Code Review Workspace’s agents, so it can’t start a review of its folder. Run it in a thread working on the change." };
-      let started: Awaited<ReturnType<typeof openFolderReview>>;
-      try {
-        started = await openFolderReview(deps, found.folder, found.main);
-      } catch (error) {
-        return { ok: false, error: error instanceof Error ? error.message : String(error) };
-      }
-      if ("error" in started) return { ok: false, error: started.error };
-      void started.run?.();
-      if (started.opened.changed) deps.changed(started.opened.key);
-      return { ok: true, targetKey: started.opened.key };
-    },
     async followFolderBranch({ targetKey }) {
       const review = featureOf(await store.getReview(targetKey));
       if (!review) return { ok: false, error: "This review isn’t of a folder." };
@@ -1009,5 +990,27 @@ export function register(deps: ServeDeps) {
       for (const key of gone) deps.changed(key);
     }],
   };
-  return { handlers, events };
+  // What other plugins call (src/public-contract.ts).
+  const published = {
+    // Review changes, above a thread's message box, and other plugins: what bb review with no arguments does there, with no output.
+    async reviewThreadChanges({ threadId }) {
+      // A review's agents and guide writers, hidden, may work in the folder's checkout: never a review's main thread,
+      // from their page or their shell (callerFolder).
+      const found = await callerFolder(deps, threadId);
+      if ("stderr" in found) return { ok: false, error: found.stderr };
+      // Its page is a thread you see.
+      if (found.caller.visibility === "hidden") return { ok: false, error: "This thread is one of Code Review Workspace’s agents, so it can’t start a review of its folder. Run it in a thread working on the change." };
+      let started: Awaited<ReturnType<typeof openFolderReview>>;
+      try {
+        started = await openFolderReview(deps, found.folder, found.main);
+      } catch (error) {
+        return { ok: false, error: error instanceof Error ? error.message : String(error) };
+      }
+      if ("error" in started) return { ok: false, error: started.error };
+      void started.run?.();
+      if (started.opened.changed) deps.changed(started.opened.key);
+      return { ok: true, targetKey: started.opened.key };
+    },
+  } satisfies Partial<PublicHandlers>;
+  return { handlers, events, published };
 }

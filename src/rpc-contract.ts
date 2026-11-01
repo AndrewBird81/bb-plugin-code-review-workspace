@@ -9,7 +9,7 @@ import { agentChoiceSchema, agentExecutionSchema, knobsSchema, preferencesSchema
 
 // The RPC data plane between the panel (app.tsx) and the backend (server.ts).
 // app.tsx imports the TYPE of this contract only; the backend module never enters the frontend bundle.
-// Other plugins read reviews.v1.status (src/status-contract.ts): nothing here is a contract with them.
+// Other plugins call src/public-contract.ts's methods: nothing here is a contract with them.
 const targetKey = z.object({ targetKey: z.string() }).strict();
 /** A line, as Postgres's integer column holds it; 0 is the summary's place (src/draft.ts SUMMARY_AT). */
 const lineNumber = z.number().int().min(0).max(2_147_483_647);
@@ -536,9 +536,8 @@ export const rpcContract = defineRpcContract({
   /** Not this one: the PR held isn't this review's, and it stops asking. */
   dismissPendingPr: { input: targetKey, output: z.object({ ok: z.boolean() }) },
 
-  // BB's thread pages (src/thread-surfaces.ts): Review changes above a thread's message box, and the Review tab.
-  /** Review changes: the review of the folder the thread works in, at its branch now, started or opened as it is, as bb review with no arguments. */
-  reviewThreadChanges: { input: z.object({ threadId: z.string().min(1) }).strict(), output: z.object({ ok: z.boolean(), error: z.string().optional(), targetKey: z.string().optional() }) },
+  // BB's thread pages (src/thread-surfaces.ts): Review changes above a thread's message box, and the Review tab. Review
+  // changes starts a review with reviewThreadChanges, which other plugins call too (src/public-contract.ts).
   /** The reviews not archived, by the threads and the folder each is linked to; whether Review changes is on; the plugin's own agents' threads. */
   threadLinks: {
     input: z.null(),

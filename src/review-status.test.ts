@@ -16,7 +16,7 @@ import { folderHost } from "./env-diff.test-support";
 import { diffFilesHead } from "./env-diff";
 import { featureKey } from "./targets";
 import { reviewRevision } from "./review-revision";
-import { REVIEW_STATUS, statusContract } from "./status-contract";
+import { REVIEW_STATUS, publicContract } from "./public-contract";
 import type { AsyncStore } from "./store-queue";
 
 const LINES = ["a", "b", "c"];
@@ -302,11 +302,27 @@ test("an approval of an earlier diff, as one kept from before 1.10.0, ends as th
 });
 
 test("the contract publishes to BB's RPC discovery: its schemas are JSON Schema with local references, and waitsOn has four values", () => {
-  const method = statusContract[REVIEW_STATUS];
+  for (const method of Object.values(publicContract)) {
+    const output = JSON.stringify(method.output["~standard"].jsonSchema!.output({ target: "draft-2020-12" }));
+    const input = JSON.stringify(method.input["~standard"].jsonSchema!.input({ target: "draft-2020-12" }));
+    expect(output.length + input.length).toBeLessThan(128 * 1024);
+    expect(output + input).not.toMatch(/"\$ref":"(?!#)/);
+  }
+  const method = publicContract[REVIEW_STATUS];
   const output = method.output["~standard"].jsonSchema!.output({ target: "draft-2020-12" }) as any;
-  const input = method.input["~standard"].jsonSchema!.input({ target: "draft-2020-12" });
-  expect(JSON.stringify(output).length + JSON.stringify(input).length).toBeLessThan(128 * 1024);
-  expect(JSON.stringify(output)).not.toMatch(/"\$ref":"(?!#)/);
   expect(output.properties.reviews.items.properties.waitsOn.enum).toEqual(["user", "agent", "author", "nobody"]);
   expect(method.input["~standard"].validate(null)).toEqual({ value: null });
+});
+
+// Plugins call it by this name, with this input, for this answer, as since 1.8.0: what a change here would break.
+test("reviewThreadChanges keeps its name, takes { threadId } alone, and answers { ok, error, targetKey }, which may gain fields", () => {
+  const method = publicContract.reviewThreadChanges;
+  const schema = (direction: "input" | "output") => {
+    const json = method[direction]["~standard"].jsonSchema![direction]({ target: "draft-2020-12" }) as any;
+    return { required: json.required ?? [], properties: Object.fromEntries(Object.entries(json.properties).map(([key, field]: [string, any]) => [key, { type: field.type, ...field.minLength ? { minLength: field.minLength } : {} }])), additionalProperties: json.additionalProperties };
+  };
+  expect(schema("input")).toEqual({ required: ["threadId"], properties: { threadId: { type: "string", minLength: 1 } }, additionalProperties: false });
+  expect(schema("output")).toEqual({ required: ["ok"], properties: { ok: { type: "boolean" }, error: { type: "string" }, targetKey: { type: "string" } }, additionalProperties: {} });
+  const valid = (input: unknown) => !("issues" in (method.input["~standard"].validate(input) as object));
+  expect([{ threadId: "thr_1" }, { threadId: "" }, {}, { threadId: "thr_1", force: true }, null].map(valid)).toEqual([true, false, false, false, false]);
 });

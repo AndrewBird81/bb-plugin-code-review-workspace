@@ -6,6 +6,7 @@ import { experimental_Icon as HostIcon, experimental_usePluginId, ThreadChat, us
 import type { ExperimentalThreadContextSegmentInput, ExperimentalThreadContextSegmentProps, ExperimentalThreadTabProps } from "@get-bb/plugin-sdk/app";
 import { toast } from "sonner";
 import type { rpcContract } from "../src/rpc-contract";
+import type { publicContract } from "../src/public-contract";
 import type { CommentLocation, Discussion, Draft } from "../src/draft";
 import { buildItems, type CommentItem } from "../lib/comments";
 import { useReviewLinks } from "../lib/review-links";
@@ -83,7 +84,8 @@ function OpenReviewButton({ targetKey, busy, onClick }: { targetKey: string; bus
  * it as it is, a live thread there taking over from an archived main thread. No file count: Changed files has one.
  */
 export function ReviewChangesSegment({ threadId, environment }: ExperimentalThreadContextSegmentProps) {
-  const rpc = useRpc<typeof rpcContract>();
+  // reviewThreadChanges is in the contract other plugins call it by too.
+  const rpc = useRpc<typeof publicContract>();
   const navigate = useBbNavigate();
   const links = useThreadLinks();
   const folder = useFolderStatus(environment?.id ?? null);

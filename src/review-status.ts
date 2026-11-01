@@ -1,10 +1,10 @@
-// reviews.v1.status (src/status-contract.ts): where each review stands, for other plugins, from the turn All reviews,
+// reviews.v1.status (src/public-contract.ts): where each review stands, for other plugins, from the turn All reviews,
 // the alerts and bb review list say (lib/review-status.ts), with what places it: its PR, branch, folder and threads. It
 // reads no diff or guide. When each came to stand as it does is kept on the review (`standing`), here and on the
 // sync's pass over every review (src/review-lifecycle.ts).
 import type { ReviewMeta } from "./store";
 import type { AsyncStore } from "./store-queue";
-import type { ServeDeps } from "./server-modules";
+import type { PublicHandlers, ServeDeps } from "./server-modules";
 import type { Turn } from "../lib/turn";
 import { sinceOf, standingKey, standingOf, type Since } from "../lib/review-status";
 import { reviewIdentity } from "../lib/review-identity";
@@ -12,7 +12,7 @@ import { parsePrLink } from "../lib/pr-link";
 import { placeFacts, reviewPlaces } from "./review-places";
 import { mergedSurvivor } from "./targets";
 import { ownPrOf, ownPrUnread, turnOptions } from "./turn-signals";
-import { REVIEW_STATUS } from "./status-contract";
+import { REVIEW_STATUS } from "./public-contract";
 
 /** When `review` came to stand as `turn` says, as it's to be kept, and whether that's other than what's kept. */
 function sinceFor(review: ReviewMeta, turn: Turn, now: number): { since: Since; changed: boolean } {
@@ -34,7 +34,7 @@ function linkedThreads(review: ReviewMeta): string[] {
 
 export function register(deps: ServeDeps) {
   const { bb, store, sync } = deps;
-  const handlers = {
+  const published = {
     async [REVIEW_STATUS]() {
       const now = Date.now();
       const { all, options } = await store.exclusive(async (tx) => ({ all: await tx.listReviews(), options: turnOptions((await tx.getPreferences()).preferences) }));
@@ -81,6 +81,6 @@ export function register(deps: ServeDeps) {
       }
       return { reviews: rows };
     },
-  };
-  return { handlers };
+  } satisfies Partial<PublicHandlers>;
+  return { published };
 }

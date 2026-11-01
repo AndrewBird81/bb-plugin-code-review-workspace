@@ -38,7 +38,7 @@ import { createConfigureView } from "./src/configure-view";
 import { chooseStorage, openPostgres, unlessAborted } from "./src/storage";
 import { createStorageCommand } from "./src/storage-cli";
 import { migratePg, pgSchemaMigrated } from "./src/db/pg-migrations";
-import { listen, merge, ASSISTANT_TOOLS, ASSISTANT_TOOL_NAMES, ASSISTANT_WRITE_TOOL_NAMES, SUBCOMMANDS, WRITER_TOOL_NAMES, type RpcHandlers, type ServeDeps, type Subcommands } from "./src/server-modules";
+import { listen, merge, ASSISTANT_TOOLS, ASSISTANT_TOOL_NAMES, ASSISTANT_WRITE_TOOL_NAMES, SUBCOMMANDS, WRITER_TOOL_NAMES, type PublicHandlers, type RpcHandlers, type ServeDeps, type Subcommands } from "./src/server-modules";
 import * as settingsRpc from "./src/settings-rpc";
 import * as reviewsRpc from "./src/reviews-rpc";
 import * as githubThreadsRpc from "./src/github-threads-rpc";
@@ -62,7 +62,7 @@ import * as reviewAgentTools from "./src/review-agent-tools";
 import * as relaysModule from "./src/relays";
 import * as threadSurfaces from "./src/thread-surfaces";
 import * as reviewStatus from "./src/review-status";
-import { REVIEW_STATUS, statusContract } from "./src/status-contract";
+import { publicContract } from "./src/public-contract";
 import { createClassifier, fromOwnAgent, ledgerEvents } from "./src/asking";
 
 export { rpcContract } from "./src/rpc-contract";
@@ -331,8 +331,10 @@ function servePlugin(bb: BbPluginApi, { configured, store, interrupted }: Awaite
   const watching = prWatch.register(moduleDeps);
   const stubs = rpcStubs.register();
   const handlers: RpcHandlers = merge(settings.handlers, reviews.handlers, githubThreads.handlers, draft.handlers, assistant.handlers, turn.handlers, feature.handlers, opening.handlers, relays.handlers, sends.handlers, reports.handlers, own.handlers, threadPages.handlers, pushing.handlers, watching.handlers, stubs.handlers);
-  const guarded = Object.fromEntries(Object.entries(handlers).map(([name, handler]) =>
-    [name, (input: unknown) => updates.run(() => (handler as (input: unknown) => unknown)(input))])) as unknown as typeof handlers;
+  const published: PublicHandlers = merge(status.published, feature.published);
+  const guard = <T extends object>(handlers: T): T => Object.fromEntries(Object.entries(handlers).map(([name, handler]) =>
+    [name, (input: unknown) => updates.run(() => (handler as (input: unknown) => unknown)(input))])) as unknown as T;
+  const guarded = guard(handlers);
   bb.rpc.register(rpcContract, {
     ...guarded,
     getReleaseStatus: () => updates.status(),
@@ -341,10 +343,10 @@ function servePlugin(bb: BbPluginApi, { configured, store, interrupted }: Awaite
     setReviewPresence: ({ clientId, open }) => updates.presence(clientId, open),
     applyPluginUpdate: ({ clientId, candidateVersion }) => updates.apply(clientId, candidateVersion),
   });
-  // What other plugins read (docs/plugin-api.md), on its own, so BB's RPC discovery lists it and none of the panel's.
-  bb.rpc.register(statusContract, { [REVIEW_STATUS]: () => updates.run(() => status.handlers[REVIEW_STATUS]()) }, {
+  // What other plugins call (docs/plugin-api.md), on its own, so BB's RPC discovery lists it and none of the panel's.
+  bb.rpc.register(publicContract, guard(published), {
     experimental_discoverable: true,
-    experimental_description: "Where each Code Review Workspace review stands, for other plugins: who it waits on, whether you've approved the code as it is now, and since when.",
+    experimental_description: "Code Review Workspace for other plugins: where each review stands, who it waits on, whether you've approved the code as it is now and since when; and starting a review of a thread's changes.",
   });
   listen(bb, [events.events, feature.events, ledgerEvents(bb), sends.events, reports.events, own.events, pushing.events, watching.events]);
   const subcommands: Subcommands = merge(reviews.commands, draft.commands, relays.commands, reports.commands);

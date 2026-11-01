@@ -325,6 +325,15 @@ test("the plugin registers the same RPC methods, tools, CLI subcommands, listene
   `);
 });
 
+test("BB's RPC discovery lists what other plugins call, reviews.v1.status and reviewThreadChanges, and none of the panel's methods", async () => {
+  const { bb } = createFakePluginHost({ pluginId: "code-review-workspace", agentSkillIds: ["code-review-workspace", "code-review-workspace-generate"] });
+  const register = vi.spyOn(bb.rpc, "register");
+  await startPlugin(bb);
+  const published = register.mock.calls.filter(([, , options]) => options?.experimental_discoverable);
+  expect(published.map(([contract]) => Object.keys(contract).sort())).toEqual([["reviewThreadChanges", "reviews.v1.status"]]);
+  expect(register.mock.calls.flatMap(([contract]) => Object.keys(contract)).filter((name) => name === "reviewThreadChanges")).toHaveLength(1);
+});
+
 test("bb review runs a subcommand by its own name only: a name every object has is a ref to review", async () => {
   const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await startPlugin(bb);
