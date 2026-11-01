@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.10.0 — Unreleased
+## 1.10.0 — 2026-11-01
 
 Other plugins read where each review stands with one call, and the lists say who a review waits on in more cases: comments out from a PR's review, your approval in the main thread, a Push under way, and a removed folder. Still **BB 0.48+** (plugin SDK **0.6.79+**) with Node 24+; installs at `^1.0.0` update to 1.10.0. 1.10.0 adds no migration: when each review came to stand as it does is kept with the review's other lifecycle fields. Rolling back to 1.9.0 keeps every review and setting, and 1.9.0 ignores that field; other plugins' calls of `reviews.v1.status` then answer `unknown_method`. As it starts, 1.10.0 ends an approval sent to a main thread for a diff its review no longer shows, as 1.9.0 kept one after Update, and Finish review offers **Send approval** for that review again, on 1.9.0 too.
 
