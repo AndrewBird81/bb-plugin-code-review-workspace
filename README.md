@@ -238,7 +238,7 @@ What it copies, and what it doesn't: [What carries over from Guided Review](docs
 - [docs/development.md](docs/development.md): building, testing, and the browser regression test.
 - [docs/operations.md](docs/operations.md): updates, how often GitHub is read, and Needs You delivery, for whoever runs the BB server.
 - [docs/devices.md](docs/devices.md): the phone, iPad, and foldable layouts in full.
-- [docs/plugin-api.md](docs/plugin-api.md): `reviews.v1.status`, where each review stands, for other plugins.
+- [docs/plugin-api.md](docs/plugin-api.md): for other plugins, `reviews.v1.status`, where each review stands, and `reviewThreadChanges`, which starts a review of a thread's changes.
 - [DESIGN.md](DESIGN.md): the interface system.
 - [PRODUCT.md](PRODUCT.md): what the plugin is for and its operating limits.
 - [CHANGELOG.md](CHANGELOG.md): release changes.

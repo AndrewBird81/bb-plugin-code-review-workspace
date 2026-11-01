@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.10.1 — Unreleased
+
+Other plugins start a review of a thread's changes through the same contract they read reviews by. Still **BB 0.48+** (plugin SDK **0.6.79+**) with Node 24+; installs at `^1.0.0` update to 1.10.1. 1.10.1 adds no migration, so rolling back to 1.10.0 keeps everything; `reviewThreadChanges` answers the same there, though BB's RPC discovery doesn't list it.
+
+- `reviewThreadChanges`, which **Review changes** above a thread's message box calls, is part of the contract other plugins rely on, [docs/plugin-api.md](docs/plugin-api.md), where it was the panel's own and could change without notice. It keeps its name, takes `{ threadId }` and answers `{ ok, error, targetKey }`, as since 1.8.0; its answer may gain fields. BB's RPC discovery lists it beside `reviews.v1.status`, each field described. Calling it starts a review, so a plugin doesn't probe it: wherever `reviews.v1.status` answers, it does.
+- docs/plugin-api.md says what it starts or opens, what that costs, and why it refuses; and that on Postgres storage `reviews.v1.status` answers `unknown_method` for a moment as Code Review Workspace starts, so a plugin asks again on its next poll rather than remember it.
+
 ## 1.10.0 — 2026-11-01
 
 Other plugins read where each review stands with one call, and the lists say who a review waits on in more cases: comments out from a PR's review, your approval in the main thread, a Push under way, and a removed folder. Still **BB 0.48+** (plugin SDK **0.6.79+**) with Node 24+; installs at `^1.0.0` update to 1.10.0. 1.10.0 adds no migration: when each review came to stand as it does is kept with the review's other lifecycle fields. Rolling back to 1.9.0 keeps every review and setting, and 1.9.0 ignores that field; other plugins' calls of `reviews.v1.status` then answer `unknown_method`. As it starts, 1.10.0 ends an approval sent to a main thread for a diff its review no longer shows, as 1.9.0 kept one after Update, and Finish review offers **Send approval** for that review again, on 1.9.0 too.

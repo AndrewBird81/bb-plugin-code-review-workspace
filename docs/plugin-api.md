@@ -1,6 +1,6 @@
 # Code Review Workspace for other plugins
 
-Another BB plugin reads where each review stands with one call, `reviews.v1.status`: who it waits on, whether you've approved the code as it is now, and since when, with the PR, branch, folder and threads it belongs to. It's the plugin's one contract with other plugins. Every other method it answers, `listReviews` among them, is for its own panel and changes without notice.
+Another BB plugin reads where each review stands with one call, `reviews.v1.status`: who it waits on, whether you've approved the code as it is now, and since when, with the PR, branch, folder and threads it belongs to. It starts a review of a thread's changes with another, `reviewThreadChanges`, as **Review changes** above the thread's message box does. The two are the plugin's one contract with other plugins. Every other method it answers, `listReviews` among them, is for its own panel and changes without notice.
 
 ## Reading it
 
@@ -21,8 +21,25 @@ const { reviews } = await bb.sdk.plugins.callRpc({
 
 Code Review Workspace has it from 1.10.0. Check for the method, not the version:
 
-- Call it. A Code Review Workspace without it answers HTTP 404 with the code `unknown_method`: the SDK's call throws an error whose `status` is 404 and `code` is `"unknown_method"`. Treat that as not supported. One that isn't running answers 503, and one that isn't installed 404 with no code.
+- Call it. A Code Review Workspace without it answers HTTP 404 with the code `unknown_method`: the SDK's call throws an error whose `status` is 404 and `code` is `"unknown_method"`. Treat that as not supported for now. One that isn't running answers 503, and one that isn't installed 404 with no code.
+- On Postgres storage, Code Review Workspace answers `unknown_method` for a moment as it starts, too, until its storage is open. Ask again on your next poll, rather than remember the answer.
 - Or look it up, where your SDK has BB's RPC discovery: `bb.sdk.plugins.experimental_discoverRpc({ pluginId: "code-review-workspace", method: "reviews.v1.status" })` gives one entry, or none.
+
+## Starting a review of a thread's changes
+
+```ts
+const started = await bb.sdk.plugins.callRpc({
+  pluginId: "code-review-workspace",
+  method: "reviewThreadChanges",
+  input: { threadId },
+  outputSchema: z.object({ ok: z.boolean(), error: z.string().optional(), targetKey: z.string().optional() }),
+});
+```
+
+- It does what **Review changes** above the thread's message box does, and `bb review` with no arguments in the thread: it reviews the folder the thread works in, at the branch it's on now, committed, uncommitted and new files alike. A folder and branch has one review, whichever thread asks, and its main thread, which Send goes to, is the top thread working there.
+- With none yet, it starts one, which runs the guide writer on your BB agent provider, as any review does; the review is listed at once, its guide being written. With one, it opens it as it is: back from Archive if you archived it, and with the top thread working there as its main thread if the one it had was archived or deleted. Nothing else changes.
+- `ok` true: `targetKey` is the review's key, as `reviews.v1.status` lists it. `ok` false: `error` says why, in words to show the user, as when the thread has no folder yet, its folder isn't a git repository, isn't on a branch or has no changes, its machine is offline, or the thread is one of Code Review Workspace's own agents or works under one.
+- Calling it starts a review, so don't call it to tell whether it's there. It has taken `{ threadId }` and answered `{ ok, error, targetKey }` since 1.8.0, so wherever `reviews.v1.status` answers, it does. BB's RPC discovery lists it from 1.10.1.
 
 ## Each review
 
@@ -92,5 +109,6 @@ A review that becomes its PR's keeps its `targetKey`: only its `id` and `pr` cha
 ## What stays
 
 - Within v1, a field may be added, never removed or changed in meaning, and `waitsOn` keeps its four values. A change that would break a reader comes as `reviews.v2.status`, beside it.
-- The schemas are in [src/status-contract.ts](../src/status-contract.ts), and published to BB's RPC discovery.
-- Rolling Code Review Workspace back below 1.10.0 removes the method: readers get `unknown_method` again.
+- `reviewThreadChanges` keeps its name, takes `{ threadId }`, and answers `{ ok, error, targetKey }`. Its answer may gain fields, as `reviews.v1.status`'s may. A change that would break a caller comes under a new name, beside it.
+- The schemas are in [src/public-contract.ts](../src/public-contract.ts), and published to BB's RPC discovery.
+- Rolling Code Review Workspace back below 1.10.0 removes `reviews.v1.status`: readers get `unknown_method` again. `reviewThreadChanges` answers as it does from 1.8.0, though discovery doesn't list it before 1.10.1.

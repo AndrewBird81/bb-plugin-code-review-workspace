@@ -845,9 +845,9 @@ The automatic review never starts on a PR already merged or closed. So agents st
 - Reviews of PRs merged or closed for 30 days drop their stored diff to save space; the guide, draft, and notes stay, and opening one reads the diff from GitHub again. Open PRs, local reviews, guides for an earlier head, and drafts with comments keep theirs, but a folder's review archived for 30 days after BB removed its folder, with no comments, drops its diff for good.
 - New reviews use repository-scoped identifiers, preventing equal PR numbers in different repositories from overwriting each other.
 
-### What other plugins read
+### What other plugins read and start
 
-Another BB plugin, such as a board of tickets, reads where each review stands with `reviews.v1.status`: who it waits on (you, a thread working on it, the PR's author, or no one), whether you've approved the code as it is now, and since when, with the PR, branch, folder and threads it belongs to. It says what All reviews says. It's read-only and reads no diff, guide or comment, and like the plugin's other calls, any plugin or agent on the BB server can make it. [docs/plugin-api.md](plugin-api.md) is its contract.
+Another BB plugin, such as a board of tickets, reads where each review stands with `reviews.v1.status`: who it waits on (you, a thread working on it, the PR's author, or no one), whether you've approved the code as it is now, and since when, with the PR, branch, folder and threads it belongs to. It says what All reviews says, and it's read-only: it reads no diff, guide or comment. With `reviewThreadChanges`, the plugin starts or opens the review of a thread's changes, as **Review changes** above the thread's message box does; starting one runs its guide writer on your BB agent provider. Like the plugin's other calls, any plugin or agent on the BB server can make them. [docs/plugin-api.md](plugin-api.md) is their contract.
 
 ## Upgrading from older versions
 
