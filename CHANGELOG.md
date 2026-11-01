@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.10.1 — Unreleased
+## 1.10.1 — 2026-11-01
 
 Other plugins start a review of a thread's changes through the same contract they read reviews by. Still **BB 0.48+** (plugin SDK **0.6.79+**) with Node 24+; installs at `^1.0.0` update to 1.10.1. 1.10.1 adds no migration, so rolling back to 1.10.0 keeps everything; `reviewThreadChanges` answers the same there, though BB's RPC discovery doesn't list it.
 
