@@ -82,6 +82,7 @@ When the guide is ready, the review agent reviews the change and drafts line com
 - **Snooze**, **Pin**, and **Archive** set reviews aside, each with Undo. BB's thread list shows Needs review too.
 - **Rename…** gives a review a name of your own in your lists; its Overview keeps the PR's title under it, and nothing changes on GitHub.
 - With the separate Needs You plugin, you get an alert when a guide is ready or a review becomes your turn.
+- Other BB plugins, such as a board of tickets, read who each review waits on and whether you've approved it with one call, [`reviews.v1.status`](docs/plugin-api.md).
 
 <img src="docs/screenshots/all-reviews-dark.webp" alt="The All reviews list shows four PRs under Needs review, with status lines for Your PR, Checks failing, and Stack 1 of 2 and 2 of 2.">
 
@@ -237,6 +238,7 @@ What it copies, and what it doesn't: [What carries over from Guided Review](docs
 - [docs/development.md](docs/development.md): building, testing, and the browser regression test.
 - [docs/operations.md](docs/operations.md): updates, how often GitHub is read, and Needs You delivery, for whoever runs the BB server.
 - [docs/devices.md](docs/devices.md): the phone, iPad, and foldable layouts in full.
+- [docs/plugin-api.md](docs/plugin-api.md): `reviews.v1.status`, where each review stands, for other plugins.
 - [DESIGN.md](DESIGN.md): the interface system.
 - [PRODUCT.md](PRODUCT.md): what the plugin is for and its operating limits.
 - [CHANGELOG.md](CHANGELOG.md): release changes.

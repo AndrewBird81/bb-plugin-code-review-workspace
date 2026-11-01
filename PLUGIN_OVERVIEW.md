@@ -15,6 +15,7 @@ For reviewers who need to understand a change before they approve it, often one 
 - After new commits, **Since your review** shows only what changed since the commit you reviewed. The review agent checks each of your earlier threads and drafts replies for you to send.
 - Every review leads with its id, `api#4512`, or `api:branch` for local work, in BB's title bar and on every page.
 - Snooze, pin, rename, and archive reviews. Alerts go to the separate Needs You plugin, if you install it.
+- Other plugins, such as a board of tickets, read who each review waits on, and whether you've approved it, with one typed call: [`reviews.v1.status`](https://github.com/AndrewBird81/bb-plugin-code-review-workspace/blob/main/docs/plugin-api.md).
 
 ## Reading the diff
 
