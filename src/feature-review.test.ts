@@ -19,6 +19,7 @@ import { symlinkTarget } from "../lib/folder-files";
 import plugin from "../server";
 import { toolFailed, toolText } from "./fake-host.test-support";
 import { createReviewSync, type GithubReads, type SyncHealth, type TurnActions } from "./review-lifecycle";
+import { reviewRevision } from "./review-revision";
 import { runGh } from "./gh";
 
 afterEach(() => { vi.useRealTimers(); });
@@ -406,6 +407,30 @@ test("once its branch has a PR, the same review becomes the PR's at its head, ke
   expect(s.deps.changed).toHaveBeenCalledWith(key);
   await new Promise((resolve) => setTimeout(resolve, 20));
   expect(s.spawns).toHaveLength(1);
+});
+
+test("your approval in the main thread holds once the review becomes its PR's, when the PR changes the same files the same way, and ends when it doesn't", async () => {
+  const pr = { prBase: "main", pr: { number: 7, url: "https://github.com/acme/api/pull/7", headRefName: "feat/qa" } };
+  // The folder's changes are the PR's.
+  const s = setup();
+  await run(s, "main");
+  await settled(s);
+  const approval = { at: Date.now(), threadId: "main", title: "Snooze flaky checks" };
+  await s.store.setLifecycle(key, { approvalSent: { ...approval, revision: await reviewRevision(s.store, key) } });
+  Object.assign(s.folder, pr);
+  await checkFeature(s.deps, key);
+  const review = (await s.store.getReview(key))!;
+  expect(review).toMatchObject({ kind: "pr", ownPr: true, approvalSent: { ...approval, revision: await reviewRevision(s.store, key) } });
+  expect(computeTurn(review)).toMatchObject({ group: "reviewed", reason: "approval-sent", label: "Approved" });
+
+  // The folder has a file the PR doesn't: the PR isn't what you approved.
+  const t = setup({ files: [{ path: "src/a.ts", body: BODY }, { path: "src/b.ts" }] });
+  await run(t, "main");
+  await settled(t);
+  await t.store.setLifecycle(key, { approvalSent: { ...approval, revision: await reviewRevision(t.store, key) } });
+  Object.assign(t.folder, pr);
+  await checkFeature(t.deps, key);
+  expect(await t.store.getReview(key)).toMatchObject({ kind: "pr", approvalSent: null });
 });
 
 test("comments on lines neither the PR's diff nor the folder's ahead of it has stay on the older diff: open ones wait in Needs you, sent ones with their Sends", async () => {

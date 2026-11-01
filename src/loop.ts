@@ -10,7 +10,7 @@ import { isLocal, sameLocation, type CommentLocation, type DraftComment } from "
 import { newCommentIds, type ReviewLifecycle, type ReviewMeta, type SendEntry, type SnapshotFiles } from "./store";
 import type { AsyncStore } from "./store-queue";
 import { assistantReview, mergedAway } from "./draft-comments";
-import { requireReviewRevision } from "./review-revision";
+import { requireReviewRevision, reviewRevision } from "./review-revision";
 import { isMissingThread } from "./thread-errors";
 import { branchLine, commentText, fenced, fixerExecution, fixerTitle, GUARD, GUARD_BUT_PUSH, header, isOwnChange, onlyLocal, placed, theirPr, where, type Placed } from "./fix-handoff";
 import { homeShort, mainThreadState } from "./feature-review";
@@ -511,6 +511,23 @@ export async function sendApproval(deps: Deps, targetKey: string, revision: stri
   await store.setLifecycle(targetKey, { approvalSent: { at: Date.now(), threadId: went.threadId, title: went.title, revision: revision! } });
   deps.changed(targetKey);
   return { ok: true, delivery: went.delivery, title: went.title, threadId: went.threadId, ...went.recorded ? { recorded: true as const } : {} };
+}
+
+/**
+ * End each approval that no longer covers the diff its review shows, as one kept from before 1.10.0 may not: from then
+ * on, another diff ends one as it's saved (src/store.ts). A diff pruneOldDiffs dropped isn't another. Returns the reviews
+ * whose approval it ended.
+ */
+export async function endOutlivedApprovals(store: AsyncStore): Promise<string[]> {
+  return store.exclusive(async (tx) => {
+    const ended: string[] = [];
+    for (const review of await tx.listReviews()) {
+      if (!review.approvalSent || !await tx.hasPatch(review.targetKey) || review.approvalSent.revision === await reviewRevision(tx, review.targetKey)) continue;
+      await tx.setLifecycle(review.targetKey, { approvalSent: null });
+      ended.push(review.targetKey);
+    }
+    return ended;
+  });
 }
 
 /** Send to `threadId` from now on, one working in the review's folder while it's there: not archived, and not one of this plugin's agents. */

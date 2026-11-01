@@ -376,6 +376,41 @@ test("an approval is for the diff the page shows: not one that changed since, no
   expect((await store.getReview("pr-1"))!.approvalSent).toMatchObject({ threadId: "coder", title: "Retry uploads", revision: current });
 });
 
+test("an approval ends once the review shows another diff or head, as after Update; the same diff saved again keeps it, and so does the prune", async () => {
+  const h = host();
+  const store = await startPlugin(h.bb);
+  await ownPr(store);
+  for (const at of [A3, B2]) await store.deleteDraftComment("pr-1", at);
+  const approve = async () => {
+    expect(await call(h.harness, "sendApprovalToSourceThread", { targetKey: "pr-1", revision: await reviewRevision(store, "pr-1"), force: true })).toMatchObject({ ok: true });
+    expect((await store.getReview("pr-1"))!.approvalSent).toMatchObject({ threadId: "coder" });
+  };
+  const approval = async () => (await store.getReview("pr-1"))!.approvalSent;
+  await approve();
+  // The same diff, and a new title: still the one you approved.
+  await store.savePatch("pr-1", PATCH);
+  await store.saveReview({ ...(await store.getReview("pr-1"))!, title: "Retry uploads again" });
+  expect(await approval()).toMatchObject({ threadId: "coder" });
+  // Dropped by the prune, the diff is read again as it was.
+  await store.dropPatch("pr-1");
+  await store.saveReview({ ...(await store.getReview("pr-1"))!, title: "Retry uploads" });
+  expect(await approval()).toMatchObject({ threadId: "coder" });
+  await store.savePatch("pr-1", PATCH);
+  expect(await approval()).toMatchObject({ threadId: "coder" });
+  // Another diff ends it, and so does another head.
+  await store.savePatch("pr-1", `${PATCH}\n+const d = 5;`);
+  expect(await approval()).toBeNull();
+  await approve();
+  await store.saveReview({ ...(await store.getReview("pr-1"))!, headSha: "fedcba9876543" });
+  expect(await approval()).toBeNull();
+  // A guide that fails to rebuild puts the diff before back: no approval comes back with it.
+  await approve();
+  await store.saveGuide("pr-1", { title: "t", intent: "i", sections: [] } as any);
+  await store.backupGuide("pr-1");
+  await store.savePatch("pr-1", `${PATCH}\n+const e = 6;`);
+  expect(await approval()).toBeNull();
+});
+
 test("a local review's approval names the review, its summary only when you add it", async () => {
   const h = host();
   const store = await startPlugin(h.bb);

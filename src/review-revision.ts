@@ -1,10 +1,15 @@
 import { createHash } from "node:crypto";
 import type { AsyncStore } from "./store-queue";
 
+/** The revision of the diff a review shows: its head commit and its patch's hash. */
+export function revisionOf(headSha: string | null | undefined, patchHash: string): string {
+  return createHash("sha256").update(headSha ?? "").update("\0").update(patchHash).digest("hex");
+}
+
 export async function reviewRevision(store: AsyncStore, targetKey: string): Promise<string> {
   return store.exclusive(async (tx) => {
     const meta = await tx.getReview(targetKey);
-    return createHash("sha256").update(meta?.headSha ?? "").update("\0").update(await tx.patchHash(targetKey)).digest("hex");
+    return revisionOf(meta?.headSha, await tx.patchHash(targetKey));
   });
 }
 export async function requireReviewRevision(store: AsyncStore, targetKey: string, revision?: string) {

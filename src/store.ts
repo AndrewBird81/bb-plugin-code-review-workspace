@@ -18,6 +18,7 @@ import type { AsyncStore } from "./store-queue";
 import { summaryLine, withSummaryLine } from "../lib/move-to-summary";
 import { localIdOf, reviewIdentity } from "../lib/review-identity";
 import { NOT_PUSHED, notPushedView } from "../lib/push";
+import { revisionOf } from "./review-revision";
 
 export interface ReviewLifecycle {
   prState?: "OPEN" | "CLOSED" | "MERGED";
@@ -35,7 +36,10 @@ export interface ReviewLifecycle {
   sourceThreadAt?: number | null;
   /** The draft comments last sent to the source thread, each since when, and the thread's title then. Sending submits nothing. */
   sent?: { at: number; threadId: string; title: string | null; comments: Array<CommentLocation & { at: number; body?: string }> } | null;
-  /** The approval last sent to the source thread with no comments, and the review revision it approved. Sending comments clears it. */
+  /**
+   * The approval last sent to the source thread with no comments, and the review revision it approved. Sending comments
+   * clears it, and so does another diff or head (storeOn's savePatch, saveReview and restoreGuide).
+   */
   approvalSent?: { at: number; threadId: string; title: string | null; revision: string } | null;
   submittedVerdict?: Verdict | null;
   submittedAt?: number | null;
@@ -783,6 +787,16 @@ export function storeOn(sql: Sql): Store {
     await sql.run(`UPDATE patches SET hash=? WHERE target_key=?`, [hash, k]);
     return hash;
   };
+  // An approval sent to the main thread is of the diff the review showed then (src/loop.ts sendApproval): once the review
+  // shows another, or another head, it no longer covers the code, and goes, as comments sent after it clear it. A diff
+  // pruneOldDiffs dropped, which opening the review reads again as it was, is no other.
+  const endOutlivedApproval = async (k: string) => {
+    const row = await sql.get<{ head_sha: string | null; state: string | null }>(`SELECT r.head_sha, l.state FROM reviews r JOIN review_lifecycle l ON l.target_key=r.target_key WHERE r.target_key=?`, [k]);
+    const lifecycle: ReviewLifecycle = JSON.parse(row?.state ?? "{}");
+    if (!row || !lifecycle.approvalSent || !await sql.get(`SELECT 1 FROM patches WHERE target_key=?`, [k])) return;
+    if (lifecycle.approvalSent.revision === revisionOf(row.head_sha, await storedPatchHash(k))) return;
+    await sql.run(`UPDATE review_lifecycle SET state=? WHERE target_key=?`, [JSON.stringify({ ...lifecycle, approvalSent: null }), k]);
+  };
   // Files were once keyed by their old path when renamed; what was saved then moves to the new path when read.
   const renamesOf = async (k: string) => {
     const { entry, patch } = await parsedPatch(k);
@@ -883,6 +897,7 @@ export function storeOn(sql: Sql): Store {
           m.gitRef ?? null, m.url ?? null, m.status, m.createdAt, m.projectId ?? null, m.headSha ?? null, m.cwd ?? null,
         ],
       );
+      await endOutlivedApproval(m.targetKey);
     },
     async getReview(k) {
       const r = await sql.get(`${reviewsWithLifecycle} WHERE r.target_key=?`, [k]);
@@ -1096,6 +1111,7 @@ export function storeOn(sql: Sql): Store {
          ON CONFLICT(target_key) DO UPDATE SET patch=excluded.patch, hash=excluded.hash`,
         [k, stored, patchHash(stored)],
       );
+      await endOutlivedApproval(k);
     },
     patch: patchText,
     async hasPatch(k) {
@@ -1208,6 +1224,7 @@ export function storeOn(sql: Sql): Store {
         await this.savePatch(k, kept.patch);
         await this.saveGuide(k, kept.guide);
         await sql.run(`UPDATE reviews SET head_sha=?, base=?, head=?, git_ref=? WHERE target_key=?`, [kept.headSha, kept.base, kept.head, kept.gitRef, k]);
+        await endOutlivedApproval(k);
         await sql.run(`DELETE FROM guide_backups WHERE target_key=?`, [k]);
         // Unsent comments moved to the replaced diff move back with it.
         await this.rebaseDraftComments(k, await reanchorDraft(this, k, replaced, kept.patch));

@@ -403,6 +403,8 @@ function servePlugin(bb: BbPluginApi, { configured, store, interrupted }: Awaite
       // What happened to the main threads while the plugin was down: BB doesn't tell its events again.
       await updates.run(() => reports.reconcile(), false).catch((error) => bb.log.warn(`Could not read the main threads again: ${String(error)}`));
       await updates.run(() => agentTools.clearPrDrafts(), false).catch((error) => bb.log.warn(`Could not clear the PR drafts of Post forms from before the plugin started: ${String(error)}`));
+      // Approvals of a diff their review no longer shows, as ones kept from before 1.10.0, end.
+      await updates.run(async () => { for (const key of await loop.endOutlivedApprovals(store)) changed(key); }, false).catch((error) => bb.log.warn(`Could not end the approvals of earlier diffs: ${String(error)}`));
       while (!signal.aborted) {
         await updates.run(() => sync.all(), false).catch(() => {});
         await updates.run(() => watching.poll(), false).catch(() => {});

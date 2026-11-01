@@ -25,6 +25,8 @@ import { parsePrLink } from "../lib/pr-link";
 import { NOT_PUSHED } from "../lib/push";
 import { isLocal, sameLocation } from "./draft";
 import { githubWaits } from "./review-lifecycle";
+import { revisionOf } from "./review-revision";
+import { approvalHolds } from "../lib/turn";
 import type { EventListeners, RpcHandlers, ServeDeps } from "./server-modules";
 
 type Thread = Awaited<ReturnType<BbPluginApi["sdk"]["threads"]["get"]>>;
@@ -554,6 +556,8 @@ async function convertIn(db: Store, review: ReviewMeta & { feature: FeatureRevie
   const previous = await db.patch(key);
   // The files the review showed, as it read them: what Push checks a commit against, never the folder as it is now.
   const shown = await db.getSnapshotFiles(key, diffFilesHead(await db.patchHash(key)));
+  // Your approval of the local changes, while it covers them, to keep for the PR's diff if that changes the same.
+  const approval = review.approvalSent && approvalHolds(review) && review.approvalSent.revision === revisionOf(review.headSha, await db.patchHash(key)) ? review.approvalSent : null;
   const next = ensureGitHeaders(snapshot.patch);
   await db.savePatch(key, next);
   // Your name for it stays; the main thread's title gives way to the PR's.
@@ -595,6 +599,9 @@ async function convertIn(db: Store, review: ReviewMeta & { feature: FeatureRevie
       needsYou: outside.filter((comment) => !comment.state || comment.state === "open").length },
     // Its agent, mid-conversation, is told once; never by a turn of its own (src/agent.ts takePrNote).
     ...await db.getAssistantThread(key) ? { agentPrNote: { number: pr.number, url: read.url, from } } : {},
+    // The PR's diff in place of the local one ends your approval of it (store.savePatch), unless it changes the same files
+    // the same way, as when Push pushed what you approved: then it's your approval of the PR.
+    ...approval && sameChanges(previous, next) ? { approvalSent: { ...approval, revision: revisionOf(read.headRefOid, await db.patchHash(key)) } } : {},
     // What gh said of the PR, until the sync reads it (src/start-review.ts recordPrState).
     ...read.state === "OPEN" || read.state === "CLOSED" || read.state === "MERGED" ? { startedPrState: read.state } : {},
   });
