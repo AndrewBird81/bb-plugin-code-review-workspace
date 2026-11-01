@@ -66,6 +66,8 @@ export interface ReviewLifecycle {
   autoRunHead?: string | null;
   /** The group the review was last in, so leaving Needs review clears its alert. */
   turnGroup?: "needs" | "waiting" | "reviewed" | "archive" | null;
+  /** Where the review stood as the plugin last saw it, as other plugins read it (lib/review-status.ts), and since when. */
+  standing?: import("../lib/review-status").Since | null;
   /** An alert waiting for its re-review to be prepared. */
   pendingAlert?: { signal: string; since: number } | null;
   /** The assistant is checking your feedback, since this time. */

@@ -104,6 +104,7 @@ test("the plugin registers the same RPC methods, tools, CLI subcommands, listene
       "resolveThread",
       "reviewFolderBranch",
       "reviewThreadChanges",
+      "reviews.v1.status",
       "rewriteGuide",
       "runSkipped",
       "saveDraftComment",

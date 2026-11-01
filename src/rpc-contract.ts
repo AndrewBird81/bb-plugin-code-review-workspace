@@ -9,6 +9,7 @@ import { agentChoiceSchema, agentExecutionSchema, knobsSchema, preferencesSchema
 
 // The RPC data plane between the panel (app.tsx) and the backend (server.ts).
 // app.tsx imports the TYPE of this contract only; the backend module never enters the frontend bundle.
+// Other plugins read reviews.v1.status (src/status-contract.ts): nothing here is a contract with them.
 const targetKey = z.object({ targetKey: z.string() }).strict();
 /** A line, as Postgres's integer column holds it; 0 is the summary's place (src/draft.ts SUMMARY_AT). */
 const lineNumber = z.number().int().min(0).max(2_147_483_647);

@@ -26,7 +26,7 @@ import { findStacks } from "../lib/stacks";
 import { defaultName } from "../lib/review-name";
 import { diffAt, guideBehind } from "./feedback-view";
 import type { ReviewMeta } from "./store";
-import { turnOptions } from "./turn-signals";
+import { ownPrOf, ownPrUnread, turnOptions } from "./turn-signals";
 import type { RpcHandlers, ServeDeps, Subcommands } from "./server-modules";
 
 export function register(deps: ServeDeps) {
@@ -47,10 +47,6 @@ export function register(deps: ServeDeps) {
     }
     return titles;
   };
-  // Whether you wrote the PR, before the sync has read it: GitHub allows only a Comment review on your own PR.
-  const ownPrUnread = (review: ReviewMeta) => review.kind === "pr" && !!review.author && typeof review.ownPr !== "boolean";
-  const ownPrOf = (review: ReviewMeta, login: string | null): ReviewMeta =>
-    ownPrUnread(review) ? { ...review, ownPr: !!login && login.toLowerCase() === review.author!.toLowerCase() } : review;
   const withOwnPr = async (review: ReviewMeta | null) => review && ownPrUnread(review) ? ownPrOf(review, await sync.login()) : review;
   /** Every review, decorated with one read of the settings and the sync's cached login, without the summaries only the assistant reads. */
   const listed = async () => {

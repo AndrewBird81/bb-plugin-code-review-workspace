@@ -61,6 +61,8 @@ import * as prWatch from "./src/pr-watch";
 import * as reviewAgentTools from "./src/review-agent-tools";
 import * as relaysModule from "./src/relays";
 import * as threadSurfaces from "./src/thread-surfaces";
+import * as reviewStatus from "./src/review-status";
+import { REVIEW_STATUS, statusContract } from "./src/status-contract";
 import { createClassifier, fromOwnAgent, ledgerEvents } from "./src/asking";
 
 export { rpcContract } from "./src/rpc-contract";
@@ -324,6 +326,7 @@ function servePlugin(bb: BbPluginApi, { configured, store, interrupted }: Awaite
   const reports = reportsModule.register(moduleDeps);
   const own = ownPr.register(moduleDeps);
   const threadPages = threadSurfaces.register(moduleDeps);
+  const status = reviewStatus.register(moduleDeps);
   const pushing = pushModule.register(moduleDeps);
   const watching = prWatch.register(moduleDeps);
   const stubs = rpcStubs.register();
@@ -337,6 +340,11 @@ function servePlugin(bb: BbPluginApi, { configured, store, interrupted }: Awaite
     setAutomaticUpdates: ({ enabled }) => updates.setAutomatic(enabled),
     setReviewPresence: ({ clientId, open }) => updates.presence(clientId, open),
     applyPluginUpdate: ({ clientId, candidateVersion }) => updates.apply(clientId, candidateVersion),
+  });
+  // What other plugins read (docs/plugin-api.md), on its own, so BB's RPC discovery lists it and none of the panel's.
+  bb.rpc.register(statusContract, { [REVIEW_STATUS]: () => updates.run(() => status.handlers[REVIEW_STATUS]()) }, {
+    experimental_discoverable: true,
+    experimental_description: "Where each Code Review Workspace review stands, for other plugins: who it waits on, whether you've approved the code as it is now, and since when.",
   });
   listen(bb, [events.events, feature.events, ledgerEvents(bb), sends.events, reports.events, own.events, pushing.events, watching.events]);
   const subcommands: Subcommands = merge(reviews.commands, draft.commands, relays.commands, reports.commands);

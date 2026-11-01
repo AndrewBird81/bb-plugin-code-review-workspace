@@ -12,6 +12,12 @@ export function turnOptions(preferences: ReviewPreferences): TurnOptions {
   return { wakeOnReplies: preferences.wakeOnReplies, pushChecks: preferences.pushChecks, teamRequests: preferences.trackTeamRequests, mentions: preferences.knobs.mentionsWake, ownPrs: preferences.knobs.trackOwnPrs };
 }
 
+/** Whether you wrote the PR, before the sync has read it: GitHub allows only a Comment review on your own PR. */
+export const ownPrUnread = (review: ReviewMeta) => review.kind === "pr" && !!review.author && typeof review.ownPr !== "boolean";
+/** The review with whether you wrote its PR as `login`, yours, says, until the sync has read it. */
+export const ownPrOf = (review: ReviewMeta, login: string | null): ReviewMeta =>
+  ownPrUnread(review) ? { ...review, ownPr: !!login && login.toLowerCase() === review.author!.toLowerCase() } : review;
+
 /** What the sync and the agents keep for the GitHub account reading the PR; another account starts without it. */
 export const READER_STATE: ReviewLifecycle = {
   assessment: null, heldTurn: null, approvedHead: null, approvedAt: null, skippedRun: null, notifiedSignal: null, preparedSignal: null, pendingAlert: null,

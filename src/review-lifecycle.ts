@@ -3,7 +3,8 @@ import type { ReviewMeta } from "./store";
 import { isMissingThread } from "./thread-errors";
 import type { runGh } from "./gh";
 import { baselineOf, ciSettled, computeTurn, type Turn, type TurnOptions, type TurnReason } from "../lib/turn";
-import { alertBody, factsUpdate, threadSignals, turnOptions } from "./turn-signals";
+import { alertBody, factsUpdate, ownPrOf, threadSignals, turnOptions } from "./turn-signals";
+import { noteStanding } from "./review-status";
 import { completionNotifications } from "./completion-notifications";
 import { matchesRepo, reReviewCheckPrompt, type ReviewPreferences } from "./preferences";
 import { mayRunUnattended, skipWhy } from "../lib/trust";
@@ -480,6 +481,9 @@ export function createReviewSync(bb: BbPluginApi, store: AsyncStore, run: typeof
     const regroup = async (tx: AsyncStore, review: ReviewMeta) => {
       if (review.turnGroup === "needs" && turn.group !== "needs") void notifications.dismiss(key).catch((error) => bb.log.warn(`Could not dismiss the Needs You alert of ${key}: ${String(error)}`));
       if (review.turnGroup !== turn.group && await tx.getReview(key)) await tx.setLifecycle(key, { turnGroup: turn.group });
+      // And since when it stands as it does, for other plugins, whose PR it is read as the list reads it (src/review-status.ts).
+      const listed = ownPrOf(review, github.viewer.cachedLogin?.() ?? null);
+      await noteStanding(tx, listed, computeTurn(listed, turnOptions(preferences), now), now);
     };
     // An alert waiting for its re-review, the pushes to check, and the group, in one turn, unless the alert goes first.
     const then = await store.exclusive(async (tx) => {

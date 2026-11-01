@@ -79,6 +79,9 @@ const run = (s: ReturnType<typeof setup>, threadId: string | undefined, argv: st
 const settled = async (s: ReturnType<typeof setup>) => {
   await vi.waitFor(async () => expect((await s.store.getReview(key))?.status).not.toBe("generating"));
   await s.store.setStatus(key, "ready");
+  // A plugin started on the host evaluates the review as its guide ends, through a store queue of its own: once it has,
+  // as it keeps when the review came to stand as it does, its writes no longer race the test's on Postgres.
+  if (s.harness.inspection.registrations.rpcMethods.length) await vi.waitFor(async () => expect((await s.store.getReview(key))?.standing).toBeTruthy());
 };
 
 test("three subagents sharing their thread's id make one review of the folder, addressed to that thread, with no checkout of its own", async () => {
