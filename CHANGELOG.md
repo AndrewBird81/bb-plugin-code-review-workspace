@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.11.0 — Unreleased
+
+See at a glance which reviews are working and which have news, with BB's own thread status icons on their rows. Still **BB 0.48+** (plugin SDK **0.6.79+**) with Node 24+; installs at `^1.0.0` update to 1.11.0. 1.11.0 adds no migration, so rolling back to 1.10.1 keeps everything; the rows lose their icons there.
+
+- A review's row in BB's thread list, in Needs review or pinned, shows its work where BB's rows show a thread's, with BB's own icons: a spinner while its guide is built or its review agent works, the unread dot once the agent is done and you haven't opened the review since, a red ✕ if it failed, and a question mark while it waits on you, as for its Post form. On hover, where there's a mouse, the pin takes its place, as BB's row actions do. Screen readers hear it in the row's description: "Review agent finished".
+- All reviews shows the agent's icon too, before each row's age. A guide being built spins in the row's status line, as before.
+- Opening a review reads its agent, as opening a thread does: the dot goes, and stays gone while the review is open in a window in view, however often the agent finishes.
+- The agent's thread is hidden from BB's list, which leaves it out of what BB tells plugins too, so the plugin reads it from BB, and the rows hear when it starts, ends, fails or asks you. A message to the agent waiting in its queue shows at the list's next read.
+- A review agent that finished before you updated, with nothing read since, shows the dot until you open its review.
+
 ## 1.10.1 — 2026-11-01
 
 Other plugins start a review of a thread's changes through the same contract they read reviews by. Still **BB 0.48+** (plugin SDK **0.6.79+**) with Node 24+; installs at `^1.0.0` update to 1.10.1. 1.10.1 adds no migration, so rolling back to 1.10.0 keeps everything; `reviewThreadChanges` answers the same there, though BB's RPC discovery doesn't list it.
