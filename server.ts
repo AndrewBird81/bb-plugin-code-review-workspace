@@ -49,6 +49,7 @@ import * as patchTools from "./src/patch-tools";
 import * as draftTools from "./src/draft-tools";
 import * as feedbackTools from "./src/feedback-tools";
 import * as assistantEvents from "./src/assistant-events";
+import * as agentStatus from "./src/agent-status";
 import * as guideTool from "./src/guide-tool";
 import * as featureReview from "./src/feature-review";
 import * as openPr from "./src/open-pr";
@@ -319,6 +320,7 @@ function servePlugin(bb: BbPluginApi, { configured, store, interrupted }: Awaite
   const agentTools = reviewAgentTools.register(moduleDeps, { submit: draft.submit });
   const relays = relaysModule.register(moduleDeps, { submit: draft.submit });
   const events = assistantEvents.register(moduleDeps);
+  const agents = agentStatus.register(moduleDeps);
   guideTool.register(moduleDeps);
   const feature = featureReview.register(moduleDeps);
   const opening = openPr.register(moduleDeps);
@@ -330,7 +332,7 @@ function servePlugin(bb: BbPluginApi, { configured, store, interrupted }: Awaite
   const pushing = pushModule.register(moduleDeps);
   const watching = prWatch.register(moduleDeps);
   const stubs = rpcStubs.register();
-  const handlers: RpcHandlers = merge(settings.handlers, reviews.handlers, githubThreads.handlers, draft.handlers, assistant.handlers, turn.handlers, feature.handlers, opening.handlers, relays.handlers, sends.handlers, reports.handlers, own.handlers, threadPages.handlers, pushing.handlers, watching.handlers, stubs.handlers);
+  const handlers: RpcHandlers = merge(settings.handlers, reviews.handlers, githubThreads.handlers, draft.handlers, assistant.handlers, turn.handlers, agents.handlers, feature.handlers, opening.handlers, relays.handlers, sends.handlers, reports.handlers, own.handlers, threadPages.handlers, pushing.handlers, watching.handlers, stubs.handlers);
   const published: PublicHandlers = merge(status.published, feature.published);
   const guard = <T extends object>(handlers: T): T => Object.fromEntries(Object.entries(handlers).map(([name, handler]) =>
     [name, (input: unknown) => updates.run(() => (handler as (input: unknown) => unknown)(input))])) as unknown as T;
@@ -348,7 +350,7 @@ function servePlugin(bb: BbPluginApi, { configured, store, interrupted }: Awaite
     experimental_discoverable: true,
     experimental_description: "Code Review Workspace for other plugins: where each review stands, who it waits on, whether you've approved the code as it is now and since when; and starting a review of a thread's changes.",
   });
-  listen(bb, [events.events, feature.events, ledgerEvents(bb), sends.events, reports.events, own.events, pushing.events, watching.events]);
+  listen(bb, [events.events, agents.events, feature.events, ledgerEvents(bb), sends.events, reports.events, own.events, pushing.events, watching.events]);
   const subcommands: Subcommands = merge(reviews.commands, draft.commands, relays.commands, reports.commands);
 
   // Tools go only to THIS plugin's own spawned threads, by the role each is recorded with: a thread can retitle

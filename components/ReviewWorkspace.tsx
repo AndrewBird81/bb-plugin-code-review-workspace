@@ -16,6 +16,7 @@ import { getCommentsFolded, getGithubThreadsInCode, getHideWhitespace, getNavOpe
 import { NOT_PUSHED_PAGE, OVERVIEW, WorkspaceProvider, type WorkspaceApi } from "../lib/workspace-context";
 import { currentFileOf, publishReviewTitle, setCurrentFile as storeCurrentFile, takeAskedComment, useAskedComment, useCurrentFile, useReviewInUse, useTabShown } from "../lib/workspace-store";
 import { reviewIdentity } from "../lib/review-identity";
+import { useAgentRead } from "../lib/use-agent-read";
 import { NAV_WIDTH, PANEL_WIDTH, READER_MIN, panelDockWidth, useWorkspaceLayout, type LayoutState } from "../lib/workspace-layout";
 import { useKeyboardInset } from "../lib/use-keyboard-inset";
 import { useFold } from "../lib/use-fold";
@@ -442,6 +443,8 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
 
   // Opening the review clears its Needs You alert.
   useEffect(() => { void rpc.call("markSeen", { targetKey }).catch(() => {}); }, [rpc, targetKey]);
+  // And its agent's unread dot, while it shows.
+  useAgentRead(targetKey, !!review?.agentStatus?.unread);
   // Unread, the settings are their defaults: a re-review opens on Settings' default.
   const [preferencesFailed, setPreferencesFailed] = useState(false);
   // The settings as the server last had them, which a layout save goes on from.

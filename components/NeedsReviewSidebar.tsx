@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { toast } from "sonner";
-import { experimental_Icon as HostIcon, experimental_usePluginId, experimental_useSidebarThreads, useBbNavigate, useRealtime, useRealtimeConnectionState, useRpc } from "@get-bb/plugin-sdk/app";
+import { experimental_Icon as HostIcon, experimental_ThreadStatusGlyph as ThreadStatusGlyph, experimental_usePluginId, experimental_useSidebarThreads, useBbNavigate, useRealtime, useRealtimeConnectionState, useRpc } from "@get-bb/plugin-sdk/app";
 import type { rpcContract } from "../src/rpc-contract";
 import { needsOrder, reviewState, type ReviewItem } from "../lib/review-state";
 import { renamedFrom } from "../lib/review-name";
 import { reviewIdentity } from "../lib/review-identity";
+import { reviewIndicator } from "../lib/review-indicator";
 import { statusWhy } from "../lib/status-line";
 import { usePortalScopeProps } from "../lib/portal-scope";
 import { setPaletteCommands, usePaletteCommands } from "../lib/commands";
@@ -227,8 +228,11 @@ export function NeedsReviewSidebar() {
       const where = review.number ? `${identity.repo ?? ""}${identity.idTail}` : review.kind === "ref" ? identity.id : null;
       const why = statusWhy(review, { localDiffChanges })?.text;
       const tooltip = [from, where, why, waited].filter(Boolean).join(" · ") || undefined;
-      // The tooltip reaches neither touch nor a screen reader: the row also says it in words.
-      const describedBy = from || where || why ? `gr-row-why-${isPinned ? "pinned" : "needs"}-${review.targetKey}` : undefined;
+      // The review's work, as BB's rows show a thread's.
+      const status = reviewIndicator(review);
+      // The tooltip reaches neither touch nor a screen reader: the row also says it in words, with the agent's status.
+      const said = [from, where, why, status?.label].filter(Boolean);
+      const describedBy = said.length ? `gr-row-why-${isPinned ? "pinned" : "needs"}-${review.targetKey}` : undefined;
       return <li key={review.targetKey} className="group/row flex h-[var(--bb-sidebar-row-height)] min-w-0 items-center rounded-md text-sm text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground max-md:pointer-coarse:h-[var(--bb-sidebar-row-height-coarse)]">
         <a href={`/plugins/${pluginId}/review/${review.targetKey}`} title={tooltip} aria-describedby={describedBy} onClick={(event) => open(event, review.targetKey)}
           className="flex h-full min-w-0 flex-1 items-center gap-2 rounded-md pl-2 pr-1 outline-none ring-sidebar-ring focus-visible:ring-2">
@@ -242,13 +246,19 @@ export function NeedsReviewSidebar() {
           </span>
           {waited && <span className="shrink-0 text-xs tabular-nums text-subtle-foreground">{waited}</span>}
         </a>
-        {describedBy && <span id={describedBy} className="sr-only">{[from, where, why].filter(Boolean).join(", ")}</span>}
-        {/* Shows on hover where there's a pointer, as BB's row actions do. A touch screen, which can't hover, keeps
-            its rows clear, as BB's own are: the review's menu pins it there. */}
-        <button type="button" aria-label={`${isPinned ? "Unpin" : "Pin"} ${title}`} onClick={() => setPinned(review.targetKey, !isPinned)}
-          className="mr-0.5 inline-flex size-7 shrink-0 items-center justify-center rounded-md text-subtle-foreground outline-none ring-sidebar-ring hover:bg-state-hover hover:text-muted-foreground focus-visible:opacity-100 focus-visible:ring-2 group-hover/row:opacity-100 max-md:pointer-coarse:size-9 [@media(hover:hover)]:opacity-0 [@media(hover:none)]:hidden">
-          <Icon name={isPinned ? "PinOff" : "Pin"} className="size-4" aria-hidden />
-        </button>
+        {describedBy && <span id={describedBy} className="sr-only">{said.join(", ")}</span>}
+        {/* BB's trailing slot: the review's status at rest, and on hover where there's a pointer, the pin in its place, as
+            BB's row actions take its status's. A touch screen, which can't hover, keeps its rows clear but for the status,
+            as BB's own are: the review's menu pins it there. */}
+        <span className={cn("relative mr-0.5 inline-flex size-7 shrink-0 items-center justify-center max-md:pointer-coarse:size-9", !status && "[@media(hover:none)]:hidden")}>
+          {status && <span aria-hidden className="pointer-events-none inline-flex size-4 items-center justify-center text-subtle-foreground group-hover/row:opacity-0 group-has-[button:focus-visible]/row:opacity-0">
+            <ThreadStatusGlyph indicator={status.indicator} />
+          </span>}
+          <button type="button" aria-label={`${isPinned ? "Unpin" : "Pin"} ${title}`} onClick={() => setPinned(review.targetKey, !isPinned)}
+            className="absolute inset-0 inline-flex items-center justify-center rounded-md text-subtle-foreground outline-none ring-sidebar-ring hover:bg-state-hover hover:text-muted-foreground focus-visible:opacity-100 focus-visible:ring-2 group-hover/row:opacity-100 [@media(hover:hover)]:opacity-0 [@media(hover:none)]:hidden">
+            <Icon name={isPinned ? "PinOff" : "Pin"} className="size-4" aria-hidden />
+          </button>
+        </span>
       </li>;
     })}
   </ul>;

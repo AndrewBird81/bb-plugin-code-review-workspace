@@ -57,6 +57,8 @@ test("the first message starts one hidden assistant thread on the chosen agent",
   // Project defaults choose no permission mode, so bb resolves the provider's own.
   expect(spawn).not.toHaveProperty("permissionMode");
   expect(await store.getAssistantThread("pr-1")).toBe("worker");
+  // Its rows and page learn of it, to show its status in BB.
+  expect(harness.inspection.realtimeSignals.map((signal) => signal.channel)).toEqual(expect.arrayContaining(["review:pr-1", "reviews"]));
   await expect(startConversation(bb, store, { targetKey: "pr-1", text: "Again", agent: opus, kind: "ask" })).rejects.toThrow(/already has a conversation/);
   expect(harness.inspection.sdk.callsTo("threads.spawn")).toHaveLength(1);
 });

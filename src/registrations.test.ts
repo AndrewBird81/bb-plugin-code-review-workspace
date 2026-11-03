@@ -92,6 +92,7 @@ test("the plugin registers the same RPC methods, tools, CLI subcommands, listene
       "pinReview",
       "push",
       "pushPlan",
+      "readAgent",
       "refreshFeedback",
       "refreshReviews",
       "removeDraftComment",
@@ -231,13 +232,14 @@ test("the plugin registers the same RPC methods, tools, CLI subcommands, listene
     {
       "experimental_environment.removed": 2,
       "experimental_thread.events": 1,
+      "interaction.pending": 1,
       "message.cancelled": 3,
       "message.dispatched": 3,
-      "thread.active": 1,
+      "thread.active": 2,
       "thread.archived": 2,
       "thread.deleted": 3,
-      "thread.failed": 5,
-      "thread.idle": 5,
+      "thread.failed": 6,
+      "thread.idle": 6,
       "thread.unarchived": 1,
     }
   `);

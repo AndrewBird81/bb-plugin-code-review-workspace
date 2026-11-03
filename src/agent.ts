@@ -269,6 +269,10 @@ async function spawnConversation(bb: BbPluginApi, store: AsyncStore, args: { tar
       ...spawnExecution({ ...args.agent, ...(assistantAgent?.providerId === args.agent.providerId ? { permissionMode: assistantAgent.permissionMode } : {}) }),
     }, { kind: args.kind, ...(args.from === undefined ? {} : { from: args.from }), ...(args.said === undefined ? {} : { said: args.said }), ...(args.inserted ? { inserted: true } : {}) });
     await store.setAssistantThread(args.targetKey, worker.id);
+    // The review's rows and page show this thread's status in BB (src/agent-status.ts) once it's recorded: its first turn
+    // began before, unheard.
+    bb.realtime.publish(`review:${args.targetKey}`, { ts: Date.now() });
+    bb.realtime.publish("reviews", { ts: Date.now() });
     return worker;
   });
   // The legacy worker is superseded; its transcript stays visible above the chat.

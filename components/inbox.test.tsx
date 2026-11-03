@@ -204,6 +204,24 @@ test("a row says a guide waits for its writer's machine while it does, in the st
   slot.lifecycle.unmount();
 });
 
+test("a row shows its review agent's status with BB's glyph before its age; a guide being built spins in its status line alone", async () => {
+  const yours = turn("needs", "requested", "Review requested", { at: now - 3_600_000 });
+  const { slot } = await inbox([
+    { targetKey: "pr-7", kind: "pr", number: 7, repo: "acme/app", title: "Change working", status: "ready", agentStatus: { indicator: "runtime", unread: false }, turn: yours },
+    { targetKey: "pr-8", kind: "pr", number: 8, repo: "acme/app", title: "Change building", status: "generating", turn: yours },
+  ]);
+  const working = (await slot.findByText("Change working")).closest("button")!;
+  const glyph = working.querySelector("[data-thread-status-glyph]")!;
+  expect(glyph.getAttribute("data-thread-status-glyph")).toBe("runtime");
+  // Before the age, so the ages keep their column; named for screen readers.
+  expect(glyph.parentElement!.compareDocumentPosition(within(working).getByText("1h")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(working.textContent).toContain("Review agent working");
+  const building = slot.getByText("Change building").closest("button")!;
+  expect(within(building).getByText("Building guide…")).toBeTruthy();
+  expect(building.querySelector("[data-thread-status-glyph]")).toBeNull();
+  slot.lifecycle.unmount();
+});
+
 test("an author's turn shows its last activity; a request how long it's been yours", async () => {
   const { slot, header } = await inbox([
     { targetKey: "a", title: "Old request", status: "tracked", signals: { requestedAt: now - 800 * DAY }, turn: turn("needs", "requested", "Review requested", { at: now - 800 * DAY }) },

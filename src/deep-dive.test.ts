@@ -71,7 +71,8 @@ test("the deep dive ends with the assistant's turn, and the chapter hears of it"
   expect((await store.getReview("pr-1"))?.deepDive?.chapterId).toBe("parse");
   await idle();
   expect((await store.getReview("pr-1"))?.deepDive).toBeNull();
-  expect(signals("review:pr-1")).toBe(2);
+  // Once for the chapter, and once for the agent's status (src/agent-status.ts).
+  expect(signals("review:pr-1")).toBe(3);
 });
 
 test("a deep dive queued behind other work runs when its message dispatches, and ends if it's deleted from the queue", async () => {

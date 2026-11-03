@@ -8,6 +8,8 @@ import { runReviewCommand } from "./review-command";
 import { NOT_LISTED, runListCommand } from "./list-command";
 import { createPrReview } from "./start-review";
 import { isAssistantAnswering } from "./agent";
+import { agentStatuses } from "./agent-status";
+import type { AgentStatus } from "../lib/review-indicator";
 import { personalProjectId } from "./machines";
 import { identityIn, placeFacts, reviewPlaces } from "./review-places";
 import { reviewIdentity } from "../lib/review-identity";
@@ -34,10 +36,16 @@ export function register(deps: ServeDeps) {
   // Reviews leave the server with whose turn they are, how far your feedback got, and their place in a stack.
   // JSON round-trips drop the literal `undefined` fields rowToMeta leaves, which strict rpc output rejects.
   // A local review with no title of its own goes by its guide's (lib/review-identity.ts): `guideTitles`, by key.
-  const decorate = async (review: ReviewMeta, options: TurnOptions, stacks: ReturnType<typeof findStacks>, places: ReturnType<typeof reviewPlaces>, guideTitles: ReadonlyMap<string, string>) => JSON.parse(JSON.stringify({
+  // `agents`, by key: the review agent's status in BB, which the review's rows show (lib/review-indicator.ts).
+  const decorate = async (review: ReviewMeta, options: TurnOptions, stacks: ReturnType<typeof findStacks>, places: ReturnType<typeof reviewPlaces>, guideTitles: ReadonlyMap<string, string>, agents: ReadonlyMap<string, AgentStatus>) => JSON.parse(JSON.stringify({
     ...review, turn: await sync.turnOf(review, undefined, options), progress: feedbackProgress(review), stack: stacks.get(review.targetKey) ?? null, place: places.get(review.targetKey) ?? null,
-    guideTitle: guideTitles.get(review.targetKey) ?? null,
+    guideTitle: guideTitles.get(review.targetKey) ?? null, agentStatus: agents.get(review.targetKey) ?? null,
   }));
+  /** The status in BB of each review's agent, by key, from `threads` (agents' thread ids by key), read outside the store's turn. */
+  const statusesOf = async (threads: ReadonlyMap<string, string>) => {
+    const statuses = await agentStatuses(bb, [...threads.values()]);
+    return new Map([...threads].flatMap(([key, threadId]) => { const status = statuses.get(threadId); return status ? [[key, status] as const] : []; }));
+  };
   /** The guides' titles of `reviews`' local reviews with no title of their own. */
   const guideTitles = async (tx: Pick<typeof store, "getGuide">, reviews: readonly ReviewMeta[]) => {
     const titles = new Map<string, string>();
@@ -50,10 +58,12 @@ export function register(deps: ServeDeps) {
   const withOwnPr = async (review: ReviewMeta | null) => review && ownPrUnread(review) ? ownPrOf(review, await sync.login()) : review;
   /** Every review, decorated with one read of the settings and the sync's cached login, without the summaries only the assistant reads. */
   const listed = async () => {
-    const { options, all, titles } = await store.exclusive(async (tx) => {
+    const { options, all, titles, threads } = await store.exclusive(async (tx) => {
       const all = await tx.listReviews();
-      return { options: turnOptions((await tx.getPreferences()).preferences), all, titles: await guideTitles(tx, all) };
+      const threads = new Map((await tx.listAssistantThreads()).map((agent) => [agent.targetKey, agent.threadId]));
+      return { options: turnOptions((await tx.getPreferences()).preferences), all, titles: await guideTitles(tx, all), threads };
     });
+    const agents = await statusesOf(threads);
     // The sync reads who you are on its passes; a list load never waits on gh for it.
     const login = all.some(ownPrUnread) ? sync.cachedLogin() : null;
     const reviews = all.map((review) => ownPrOf(review, login));
@@ -62,7 +72,7 @@ export function register(deps: ServeDeps) {
     // Archive says which review one merged into another went to (src/merge.ts).
     const idOf = (key: string) => { const into = reviews.find((review) => review.targetKey === key); return into ? reviewIdentity({ ...into, place: places.get(key) }).id : null; };
     return await Promise.all(reviews.map(async ({ reviewBodies: _bodies, agentReads: _reads, prConversation: _said, ...review }) => ({
-      ...await decorate(review, options, stacks, places, titles), ...review.mergedInto ? { mergedIntoId: idOf(review.mergedInto) } : {},
+      ...await decorate(review, options, stacks, places, titles, agents), ...review.mergedInto ? { mergedIntoId: idOf(review.mergedInto) } : {},
     })));
   };
   /** A review whose diff pruneOldDiffs dropped reads it again when it's opened; returns why it couldn't. */
@@ -95,15 +105,16 @@ export function register(deps: ServeDeps) {
         return { review: null, guide: null, patch: null, revision: "", mergedInto: { targetKey: into.targetKey, id: identityIn(await placeFacts(bb, all), all, into).id } };
       }
       const diffError = await rereadPrunedDiff(targetKey);
-      const { revision, found, listedNow } = await store.exclusive(async (tx) => ({ revision: await reviewRevision(tx, targetKey), found: await tx.getReview(targetKey), listedNow: await tx.listReviews() }));
+      const { revision, found, listedNow, agent } = await store.exclusive(async (tx) => ({ revision: await reviewRevision(tx, targetKey), found: await tx.getReview(targetKey), listedNow: await tx.listReviews(), agent: await tx.getAssistantThread(targetKey) }));
       const owned = await withOwnPr(found);
+      const agents = await statusesOf(new Map(agent ? [[targetKey, agent]] : []));
       // As the list asks it, so the page's id is the list's.
       const facts = await placeFacts(bb, listedNow);
       // What the page shows of it, read in one turn.
       return store.exclusive(async (tx) => {
         const all = await tx.listReviews();
         const stacks = findStacks(all);
-        const review = owned && await decorate(owned, turnOptions((await tx.getPreferences()).preferences), stacks, reviewPlaces(facts, all), await guideTitles(tx, [owned]));
+        const review = owned && await decorate(owned, turnOptions((await tx.getPreferences()).preferences), stacks, reviewPlaces(facts, all), await guideTitles(tx, [owned]), agents);
         // Reads of a local review's earlier diff don't count toward its rebuilt one, which the client can't tell apart.
         if (review?.agentReads && review.agentReads.head !== await agentReadsHead(tx, targetKey)) review.agentReads = null;
         // A folder's review of a branch that isn't the PR's, by any of its names, as one Make it PR #n's review linked: by its branch.

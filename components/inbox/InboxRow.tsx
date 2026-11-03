@@ -1,5 +1,7 @@
 import { useId, useRef, useState } from "react";
+import { experimental_ThreadStatusGlyph as ThreadStatusGlyph } from "@get-bb/plugin-sdk/app";
 import { reviewState, type ReviewItem } from "../../lib/review-state";
+import { reviewIndicator } from "../../lib/review-indicator";
 import { renamedFrom } from "../../lib/review-name";
 import { reviewIdentity } from "../../lib/review-identity";
 import { lastActivity, statusLine } from "../../lib/status-line";
@@ -21,8 +23,9 @@ import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover";
 const MAX_LABELS = 3;
 
 /**
- * A review in the inbox, on two lines: its title (your name for it, with the PR's title on hover), its id,
- * and age (in Needs review, how long it's been your turn; elsewhere, its last activity), then its status line.
+ * A review in the inbox, on two lines: its title (your name for it, with the PR's title on hover), its id, its review
+ * agent's status as BB draws a thread's, and age (in Needs review, how long it's been your turn; elsewhere, its last
+ * activity), then its status line.
  * The whole row opens it. Where there's a fine pointer, hovering shows Snooze, Pin and Archive with Review actions; on
  * touch, Review actions is always there.
  */
@@ -40,6 +43,8 @@ export function InboxRow({ review, pinnable, short = false, onOpen, onChanged }:
   const unattendedAgents = useKnob("unattendedAgents");
   const localDiffChanges = useKnob("localDiffChanges");
   const [snoozeOpen, setSnoozeOpen] = useState(false);
+  // The agent's alone: the status line already spins while the guide is built.
+  const status = reviewIndicator({ agentStatus: review.agentStatus });
   const rowRef = useRef<HTMLDivElement>(null);
   /**
    * Once an action moves the review to another section, the focus that was on the row goes to the next row in its
@@ -89,6 +94,9 @@ export function InboxRow({ review, pinnable, short = false, onOpen, onChanged }:
               {pinnable && review.pinnedAt && <Icon name="Pin" className="ml-1.5 inline size-3.5 align-[-2px] text-muted-foreground" aria-label="Pinned" />}
             </span>
             {where && <span className="hidden shrink-0 text-[11px] text-muted-foreground @min-[720px]/inbox:inline">{where}</span>}
+            {/* Before the age, so the ages keep their column. */}
+            {status && <span aria-hidden className="inline-flex size-4 shrink-0 items-center justify-center self-center text-subtle-foreground"><ThreadStatusGlyph indicator={status.indicator} /></span>}
+            {status?.label && <span className="sr-only">{status.label}</span>}
             {when && <span className="w-7 shrink-0 text-right text-xs tabular-nums text-subtle-foreground">{when}</span>}
           </span>
           {/* Narrow, where the PR is follows its status, which comes first when there's no room for both. The labels end the

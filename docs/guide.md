@@ -384,6 +384,7 @@ Every layout detail, held either way and on foldables such as the iPhone Duo, is
 Rows and the box:
 
 - Each row is two lines: the title (your name for it, once you've [renamed](#rename) it, with the PR's title on hover), repository and number, and age (in Needs review, how long it's been your turn), then why it's yours and only the facts that change whether to open it, such as the PR's size (`+120 −30 · 8 files`, its added lines green and removed red).
+- Before the age, the review agent's status, as BB's thread list shows a thread's: a spinner while it works, a dot once it's done and you haven't opened the review since, a red ✕ if it failed, and a question mark while it waits on you. Opening the review clears the dot.
 - A row starts with its author's GitHub avatar, their initials while it loads or where it can't, and `@author` on hover; a local change shows a branch.
 - A PR's GitHub labels end its second line, under its age, each with a dot of its GitHub color: three at most, then `+2` naming the rest on hover. They hide where the list is narrow.
 - With a mouse, hovering a row shows **Snooze**, **Pin**, and **Archive**; on touch, every row has its **Review actions** (⋯).
@@ -398,6 +399,7 @@ Rows and the box:
 
 BB's thread list shows **Needs review** too, below Pinned and Threads: the same reviews in the same order, with how long each has waited. It collapses like the other groups, and choosing a review opens it.
 
+- A review's row shows its work where BB's rows show a thread's, with BB's own icons: a spinner while its guide is built or its review agent works, a dot once the agent is done and you haven't opened the review since, a red ✕ if it failed, and a question mark while the agent waits on you. Opening the review clears the dot, and keeps it clear while the review is open. A review that isn't in Needs review or pinned isn't in BB's list, so its work shows only in All reviews.
 - **Pin** a review, from its row there (with a mouse) or its **Review actions** menu, to put it in BB's Pinned group after your pinned threads; it stays until you unpin it or it moves to Archive, and the list marks it with a pin.
 - BB has no plugin slot for any of this, so Code Review Workspace adds it to BB's list itself, through BB's app overlays. A BB without app overlays shows neither this group nor the palette commands. If a BB update changes that list, it may not show until Code Review Workspace catches up.
 - To keep BB's list to threads, turn off **Show reviews in the thread list** in Settings; your pins are kept.

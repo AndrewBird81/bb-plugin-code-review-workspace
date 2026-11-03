@@ -596,6 +596,8 @@ export const rpcContract = defineRpcContract({
   },
   /** The reviewer opened the review: clear its Needs You alert. */
   markSeen: { input: targetKey, output: z.object({ ok: z.boolean() }) },
+  /** The review's page shows: mark its agent's thread read in BB, as opening a thread does (src/agent-status.ts). */
+  readAgent: { input: targetKey, output: z.object({ ok: z.boolean() }) },
   /** Generate the guide for a review found on GitHub (status "tracked"). */
   startTrackedReview: { input: targetKey, output: z.object({ ok: z.boolean(), error: z.string().optional() }) },
   /** Start what didn't run on its own because of the PR's author (skippedRun), approving agents on its head. */

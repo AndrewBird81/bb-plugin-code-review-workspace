@@ -87,6 +87,24 @@ test("a row's tooltip says where the PR is, why it's yours and for how long, as 
   slot.lifecycle.unmount();
 });
 
+test("a row shows its review agent's status with BB's glyph where BB's rows show a thread's, giving way to the pin on hover; a guide being built spins", async () => {
+  threadList();
+  const slot = await renderSidebar([{ ...reviews[2], agentStatus: { indicator: "unread-success", unread: true } }, { ...reviews[3], status: "generating" }, reviews[0]]);
+  const row = await within(document.body).findByRole("link", { name: /Direct request/ });
+  const glyph = (name: RegExp) => within(document.body).getByRole("link", { name }).closest("li")!.querySelector("[data-thread-status-glyph]");
+  expect(glyph(/Direct request/)!.getAttribute("data-thread-status-glyph")).toBe("unread-success");
+  // Screen readers hear it in the row's description.
+  expect(within(document.body).getByRole("link", { name: /Direct request/, description: "acme/web#1, Review requested, Review agent finished" })).toBe(row);
+  expect(glyph(/Direct request/)!.parentElement!.className.split(" ")).toContain("group-hover/row:opacity-0");
+  expect(glyph(/Blocks merge/)!.getAttribute("data-thread-status-glyph")).toBe("runtime");
+  expect(glyph(/Team request/)).toBeNull();
+  // On touch, where the pin hides, a row with no status keeps no trailing slot, as before.
+  const slotOf = (name: string) => within(document.body).getByRole("button", { name: `Pin ${name}` }).parentElement!.className.split(" ");
+  expect(slotOf("Team request")).toContain("[@media(hover:none)]:hidden");
+  expect(slotOf("Direct request")).not.toContain("[@media(hover:none)]:hidden");
+  slot.lifecycle.unmount();
+});
+
 test("a row is its name alone, the PR's repository and number in its tooltip; two of one name are told apart by number, branch or folder", async () => {
   threadList();
   const slot = await renderSidebar([reviews[2], { targetKey: "ref-1", kind: "ref", gitRef: "HEAD", title: "Local work", status: "ready", turn: turn("needs", "requested", 1) }]);
