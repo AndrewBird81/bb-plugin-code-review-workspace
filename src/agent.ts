@@ -3,7 +3,7 @@ import type { AgentMessage, ReviewMeta } from "./store";
 import type { Guide } from "./guide";
 import { isMissingThread } from "./thread-errors";
 import { runGh } from "./gh";
-import { agentChoiceSchema, assistantPreferencesPrompt, automaticReviewPrompt, spawnExecution, type AgentExecution, type ReviewPreferences } from "./preferences";
+import { assistantPreferencesPrompt, automaticReviewPrompt, spawnExecution, type AgentExecution, type ReviewPreferences } from "./preferences";
 import { mayRunChecks, mayRunUnattended, skipWhy } from "../lib/trust";
 import { agentPlacement, machineStatus, machineUnavailable } from "./machines";
 import { identityIn, placeFacts } from "./review-places";
@@ -119,7 +119,7 @@ export function onAssistantWaitsEnded(bb: BbPluginApi, listener: (targetKey: str
 /**
  * The review's assistant thread, if it can still take messages. Without one,
  * the reviewer starts a conversation from `defaults`, on `machine` when one is
- * chosen: Settings' agent, else the one last chosen in a review's dock, else the project's default. `legacy` is a transcript kept by plugin versions before conversations
+ * chosen. `legacy` is a transcript kept by plugin versions before conversations
  * moved into bb threads.
  */
 export async function getConversation(bb: BbPluginApi, store: AsyncStore, targetKey: string): Promise<{
@@ -155,22 +155,8 @@ export async function getConversation(bb: BbPluginApi, store: AsyncStore, target
     if (ended.ended) waitsEnded.get(bb)?.(targetKey);
   }
   if (custom) return { threadId: null, legacy, defaults: choice(custom), machine: await machineStatus(bb, custom.hostId) };
-  const last = await lastAgent(bb);
-  if (last) return { threadId: null, legacy, defaults: last, machine: last.hostId ? await machineStatus(bb, last.hostId) : null };
   const project = projectId ? await bb.sdk.projects.defaultExecutionOptions({ projectId }).catch(() => null) : null;
   return { threadId: null, legacy, defaults: project && choice(project), machine: null };
-}
-
-/** The agent the reviewer last started a review's conversation on, which new ones start on when Settings names none. */
-const LAST_AGENT = "last-review-agent";
-
-export async function rememberAgent(bb: BbPluginApi, agent: AgentChoice): Promise<void> {
-  await bb.storage.kv.set(LAST_AGENT, choice(agent));
-}
-
-async function lastAgent(bb: BbPluginApi): Promise<AgentChoice | null> {
-  const parsed = agentChoiceSchema.safeParse(await bb.storage.kv.get<unknown>(LAST_AGENT));
-  return parsed.success ? choice(parsed.data) : null;
 }
 
 function choice(agent: AgentChoice): AgentChoice {
@@ -412,12 +398,12 @@ const SELF_REVIEW = "This is the reviewer's own PR, so this is a self-review. Gi
 
 /**
  * The reasoning level to send at for `wanted` effort: `wanted` when the review agent's level is lower on its provider's
- * ladder, which offers `wanted`; otherwise none, so it's unchanged. The review agent is Settings', else the one last
- * chosen, else the project's default; a conversation on another provider (`providerId`) is at a level unknown here, and stays unchanged.
+ * ladder, which offers `wanted`; otherwise none, so it's unchanged. The review agent is Settings', else the project's
+ * default; a conversation on another provider (`providerId`) is at a level unknown here, and stays unchanged.
  */
 async function raisedLevel(bb: BbPluginApi, store: AsyncStore, targetKey: string, wanted: string, providerId?: string): Promise<string | undefined> {
   const { custom, projectId } = await store.exclusive(async (tx) => ({ custom: (await tx.getPreferences()).preferences.assistantAgent, projectId: (await tx.getReview(targetKey))?.projectId }));
-  const agent = custom ?? await lastAgent(bb) ?? (projectId ? await bb.sdk.projects.defaultExecutionOptions({ projectId }).catch(() => null) : null);
+  const agent = custom ?? (projectId ? await bb.sdk.projects.defaultExecutionOptions({ projectId }).catch(() => null) : null);
   if (!agent || (providerId && agent.providerId !== providerId)) return undefined;
   const providers = await bb.sdk.providers.list().catch(() => []);
   // The picker's levels, lowest first.

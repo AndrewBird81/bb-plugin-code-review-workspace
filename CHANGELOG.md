@@ -2,7 +2,6 @@
 
 ## Unreleased
 
-- A new review's **Ask agent** starts on the agent you last chose there and sent with, and so does its automatic review, where it started on the project's default each time. A **Custom** review agent in Settings still decides; on **Project defaults**, your last choice comes before the project's.
 - All reviews, BB's thread list, and `bb review list` show the newest PR first in each section and part, by when it was opened on GitHub, where Needs review showed the longest-waiting first and the rest the latest activity first. A local review goes by when it was added. **Blocks merge** still comes first, and the parts keep their order. The next review offered after Finish review is still the one that's waited longest. The sync now keeps when each PR opened, and reads a merged PR once more for it.
 
 ## 1.11.0 — 2026-11-03

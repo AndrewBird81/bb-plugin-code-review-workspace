@@ -766,7 +766,7 @@ The review agent learns from what you remove.
 - Custom also chooses the **Machine**: the BB server or another enrolled machine, such as your laptop. The pickers then list that machine's providers, models, and permission limit, and the agent runs in its Personal workspace with the agent configuration installed there; within the chosen permission mode, it can reach that machine's files and credentials.
 - If the machine is offline or removed, building, updating, or rebuilding a guide, `bb review`, and a new review agent conversation fail at once and say why.
 - Guide-writer changes apply to new guides and to guides you update or rebuild.
-- The **Review agent** setting seeds the agent picker for a new conversation. On **Project defaults**, the agent you last chose in a review's **Ask agent** and sent with seeds it instead, for every review and for the automatic review, until you choose another; **Custom** always wins. Within a conversation, change the model and effort per message as in any BB chat. A conversation keeps its provider and machine; to switch, start a **New conversation**.
+- The **Review agent** setting seeds the agent picker for a new conversation; within a conversation, change the model and effort per message as in any BB chat. A conversation keeps its provider and machine; to switch, start a **New conversation**.
 - If BB can't start a custom agent (for example, its provider was disabled), the review agent shows the error; failed generation records it in the plugin log.
 
 ## Data and access

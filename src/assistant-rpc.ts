@@ -1,5 +1,5 @@
 // The review assistant's conversation, and starting a new thread to fix comments; Send is the loop's (src/loop.ts).
-import { endAssistantWaits, getConversation, newConversation, rememberAgent, startConversation } from "./agent";
+import { endAssistantWaits, getConversation, newConversation, startConversation } from "./agent";
 import { noteInserted } from "./asking";
 import { startFixThread } from "./fix-handoff";
 import { clearAsks } from "./asks";
@@ -16,8 +16,6 @@ export function register(deps: ServeDeps) {
     async startConversation({ targetKey, text, typed, inserted, agent }) {
       const yours = text === typed || text.startsWith(`${typed}\n\n`);
       const started = await startConversation(bb, store, { targetKey, text, agent, kind: "ask", said: yours ? typed : "", inserted: inserted || text !== typed });
-      // The next review's conversation, and its automatic runs, start on it.
-      await rememberAgent(bb, agent);
       // Its other views, as the review's tab when it started on a thread's page, show the chat.
       bb.realtime.publish(`conversation:${targetKey}`, {});
       return started;
