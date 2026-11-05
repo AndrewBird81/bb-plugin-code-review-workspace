@@ -1,7 +1,7 @@
 import { test, expect, onTestFinished, vi } from "vitest";
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
 import type { BbPluginApi, PluginAgentConfigurationContext } from "@get-bb/plugin-sdk";
-import { assistantInstructions, getConversation, messageAssistant, newConversation, refreshAssistants, startAutomaticReview, startConversation } from "./agent";
+import { assistantInstructions, getConversation, messageAssistant, newConversation, refreshAssistants, rememberAgent, startAutomaticReview, startConversation } from "./agent";
 import { defaultPreferences } from "./preferences";
 import { generateGuide } from "./generate";
 import plugin from "../server";
@@ -86,6 +86,33 @@ test("a legacy conversation stays visible, reaches the agent as hidden history, 
   // Archived, it can still run commands: as a former assistant, only on its own review (71-review-security F4).
   expect(await formerWorkerReview(bb, "legacy-worker")).toBe("pr-1");
   expect((await getConversation(bb, store, "pr-1")).legacy.map((message) => message.text)).toEqual(["Earlier question", "Earlier answer"]);
+});
+
+test("a new conversation starts on Settings' agent, else the one last chosen in a review's dock, else the project's default", async () => {
+  const projectDefaults = { providerId: "codex", model: "gpt-6-astra", reasoningLevel: "low", permissionMode: "auto" };
+  const { bb, store } = await host({}, { defaultExecutionOptions: async () => projectDefaults });
+  expect((await getConversation(bb, store, "pr-1")).defaults).toEqual({ providerId: "codex", model: "gpt-6-astra", reasoningLevel: "low" });
+  await rememberAgent(bb, { ...opus, hostId: "host-1" });
+  expect(await getConversation(bb, store, "pr-1")).toMatchObject({ defaults: { ...opus, hostId: "host-1" } });
+  await store.savePreferences({ ...defaultPreferences, assistantAgent: { providerId: "claude-code", model: "sonnet", reasoningLevel: "medium", permissionMode: "full" } }, 0);
+  expect((await getConversation(bb, store, "pr-1")).defaults).toEqual({ providerId: "claude-code", model: "sonnet", reasoningLevel: "medium" });
+});
+
+test("a remembered agent that doesn't read as one leaves the project's default", async () => {
+  const { bb, store } = await host({}, { defaultExecutionOptions: async () => ({ providerId: "codex", model: "gpt-6", reasoningLevel: "low", permissionMode: "auto" }) });
+  await bb.storage.kv.set("last-review-agent", { providerId: "", model: 3 });
+  expect((await getConversation(bb, store, "pr-1")).defaults).toEqual({ providerId: "codex", model: "gpt-6", reasoningLevel: "low" });
+});
+
+test("starting a review's conversation from its dock remembers the agent, for the next review and its automatic runs", async () => {
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: { threads: {
+    spawn: async () => ({ id: "worker" }), get: async () => ({ archivedAt: null, deletedAt: null, status: "idle" }),
+  }, projects: { defaultExecutionOptions: async () => ({ providerId: "codex", model: "gpt-6", reasoningLevel: "low", permissionMode: "auto" }) } } });
+  await plugin(bb);
+  const store = testStore(bb);
+  for (const targetKey of ["pr-1", "pr-2"]) await store.saveReview({ targetKey, kind: "pr", status: "ready", createdAt: 1, projectId: "p1" });
+  await harness.behavior.callRpc("startConversation", { targetKey: "pr-1", text: "Why?", typed: "Why?", inserted: false, agent: opus });
+  expect(await harness.behavior.callRpc("getConversation", { targetKey: "pr-2" })).toMatchObject({ threadId: null, defaults: opus });
 });
 
 test("a live thread continues; otherwise the conversation starts from the Settings or project default", async () => {

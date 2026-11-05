@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- A new review's **Ask agent** starts on the agent you last chose there and sent with, and so does its automatic review, where it started on the project's default each time. A **Custom** review agent in Settings still decides; on **Project defaults**, your last choice comes before the project's.
+
 ## 1.11.0 — 2026-11-03
 
 See at a glance which reviews are working and which have news, with BB's own thread status icons on their rows. Still **BB 0.48+** (plugin SDK **0.6.79+**) with Node 24+; installs at `^1.0.0` update to 1.11.0. 1.11.0 adds no migration, so rolling back to 1.10.1 keeps everything; the rows lose their icons there.
