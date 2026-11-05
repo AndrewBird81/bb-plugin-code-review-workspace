@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { toast } from "sonner";
 import { experimental_Icon as HostIcon, experimental_ThreadStatusGlyph as ThreadStatusGlyph, experimental_usePluginId, experimental_useSidebarThreads, useBbNavigate, useRealtime, useRealtimeConnectionState, useRpc } from "@get-bb/plugin-sdk/app";
 import type { rpcContract } from "../src/rpc-contract";
-import { needsOrder, reviewState, type ReviewItem } from "../lib/review-state";
+import { needsListOrder, reviewState, type ReviewItem } from "../lib/review-state";
 import { renamedFrom } from "../lib/review-name";
 import { reviewIdentity } from "../lib/review-identity";
 import { reviewIndicator } from "../lib/review-indicator";
@@ -141,7 +141,7 @@ function useSidebarReviews(enabled: boolean) {
   return useMemo(() => ({
     // Archive takes a review out of Pinned; unarchiving puts it back.
     pinned: reviews.filter((review) => review.pinnedAt && reviewState(review).group !== "archive").sort((a, b) => a.pinnedAt! - b.pinnedAt!),
-    needs: reviews.filter((review) => !review.pinnedAt && reviewState(review).group === "needs").sort(needsOrder),
+    needs: reviews.filter((review) => !review.pinnedAt && reviewState(review).group === "needs").sort(needsListOrder),
     setPinned,
   }), [reviews, setPinned]);
 }

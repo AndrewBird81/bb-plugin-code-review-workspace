@@ -37,7 +37,20 @@ export function needsGroup(review: ReviewItem): NeedsGroup {
   return BACK_TO_YOU.has(reason) || baselineOf(review).at !== null ? "back" : "new";
 }
 
-/** Needs review: Blocks merge first, then Back to you, New and Team requests, each longest waiting first. */
+/** When the PR was opened on GitHub; for a local review, or a PR the sync hasn't read that of yet, when the review was added. */
+export function openedAt(review: ReviewItem): number {
+  return review.prCreatedAt ?? review.createdAt ?? 0;
+}
+
+/** The lists' order: the newest PR first. */
+export const newestFirst = (a: ReviewItem, b: ReviewItem) => openedAt(b) - openedAt(a);
+
+/** Needs review as the lists show it: Blocks merge first, then its parts in needsOrder's order, each newest first. */
+export function needsListOrder(a: ReviewItem, b: ReviewItem): number {
+  return Number(reviewState(b).blocking) - Number(reviewState(a).blocking) || NEEDS_RANK[needsGroup(a)] - NEEDS_RANK[needsGroup(b)] || newestFirst(a, b);
+}
+
+/** The next review to take: Blocks merge first, then Back to you, New and Team requests, each longest waiting first. */
 export function needsOrder(a: ReviewItem, b: ReviewItem): number {
   const ta = reviewState(a), tb = reviewState(b);
   return Number(tb.blocking) - Number(ta.blocking)

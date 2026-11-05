@@ -49,6 +49,8 @@ export interface PrFacts {
   updatedAt: number;
   /** When the PR's title or description was last edited; null for never. */
   editedAt?: number | null;
+  /** When the PR was opened. */
+  createdAt?: number | null;
   mergedAt?: number | null;
   closedAt?: number | null;
   /** The PR's labels, with GitHub's hex color without its #. */

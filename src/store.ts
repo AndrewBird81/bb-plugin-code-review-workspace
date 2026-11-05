@@ -134,7 +134,8 @@ export interface ReviewLifecycle {
   prLabels?: Array<{ name: string; color: string }>;
   prTeams?: string[];
   prReviewers?: string[];
-  /** When GitHub last updated, merged, or closed the PR, as it last said; null for not merged or closed. */
+  /** When the PR was opened, and when GitHub last updated, merged, or closed it, as it last said; null for not merged or closed. */
+  prCreatedAt?: number | null;
   prUpdatedAt?: number | null;
   prMergedAt?: number | null;
   prClosedAt?: number | null;

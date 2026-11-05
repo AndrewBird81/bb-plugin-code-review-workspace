@@ -6,10 +6,9 @@ import type { SyncHealth } from "../../src/review-lifecycle";
 import { forgetReviews } from "../../lib/panel-state";
 import { parsePrLink } from "../../lib/pr-link";
 import { matchesFilters, readViews, sameFilters, savedActiveView, savedFilters, saveFilters, saveActiveView, type Filter, type FilterView } from "../../lib/review-filters";
-import { needsGroup, needsOrder, reviewState, type NeedsGroup, type ReviewItem } from "../../lib/review-state";
+import { needsGroup, needsListOrder, newestFirst, reviewState, type NeedsGroup, type ReviewItem } from "../../lib/review-state";
 import { useKnob } from "../../lib/settings";
 import { withStacks } from "../../lib/stacks";
-import { lastActivity } from "../../lib/status-line";
 import { TITLE_BAR_WAIT_MS } from "../../lib/title-bar";
 import type { TurnGroup } from "../../lib/turn";
 import { cn } from "../../lib/utils";
@@ -284,9 +283,8 @@ export function Inbox() {
       : reviews.filter((review) => (!searching || matchesFilter(review, query)) && matchesFilters(review, filters, now));
     const groups: Record<TurnGroup, ReviewItem[]> = { needs: [], waiting: [], reviewed: [], archive: [] };
     for (const review of found) groups[reviewState(review).group].push(review);
-    groups.needs.sort(needsOrder);
-    // The rest: the latest activity first.
-    for (const group of ["waiting", "reviewed", "archive"] as const) groups[group].sort((a, b) => (lastActivity(b) ?? 0) - (lastActivity(a) ?? 0));
+    groups.needs.sort(needsListOrder);
+    for (const group of ["waiting", "reviewed", "archive"] as const) groups[group].sort(newestFirst);
     return groups;
   }, [reviews, query, link?.url, searching, filters, minute]);
   // Filters open the sections, as words do, to show what they found; one you close stays closed until they change.
