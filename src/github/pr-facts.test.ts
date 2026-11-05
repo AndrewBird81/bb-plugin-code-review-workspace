@@ -196,9 +196,9 @@ test("editedAt reads when the PR's text was last edited", () => {
   expect(one(pr()).editedAt).toBeNull();
 });
 
-test("labels, reviewers, requested teams, and merge and close times are read for the list's filters", () => {
+test("labels, reviewers, requested teams, and open, merge and close times are read for the list's filters and order", () => {
   const facts = one(pr({
-    mergedAt: "2026-10-03T00:00:00Z", closedAt: "2026-10-03T00:00:00Z",
+    createdAt: "2026-09-20T00:00:00Z", mergedAt: "2026-10-03T00:00:00Z", closedAt: "2026-10-03T00:00:00Z",
     labels: { nodes: [{ name: "bug", color: "d73a4a" }, null] },
     reviewRequests: { nodes: [{ requestedReviewer: user("bob") }, { requestedReviewer: user("me") }, { requestedReviewer: team("acme", "live-dev") }] },
     latestOpinionatedReviews: { nodes: [{ state: "APPROVED", author: user("carol") }, { state: "APPROVED", author: user("bob") }, { state: "COMMENTED", author: { __typename: "Bot", login: "ci" } }] },
@@ -206,8 +206,9 @@ test("labels, reviewers, requested teams, and merge and close times are read for
   expect(facts.labels).toEqual([{ name: "bug", color: "d73a4a" }]);
   expect(facts.reviewers).toEqual(["bob", "carol"]);
   expect(facts.reviewTeams).toEqual(["acme/live-dev"]);
-  expect([facts.mergedAt, facts.closedAt]).toEqual([Date.parse("2026-10-03T00:00:00Z"), Date.parse("2026-10-03T00:00:00Z")]);
-  expect(one(pr())).toMatchObject({ labels: [], reviewers: [], reviewTeams: [], mergedAt: null, closedAt: null });
+  expect([facts.createdAt, facts.mergedAt, facts.closedAt]).toEqual([Date.parse("2026-09-20T00:00:00Z"), Date.parse("2026-10-03T00:00:00Z"), Date.parse("2026-10-03T00:00:00Z")]);
+  expect(one(pr())).toMatchObject({ labels: [], reviewers: [], reviewTeams: [], createdAt: null, mergedAt: null, closedAt: null });
+  expect(prFactsQuery([ref(1)]).query).toContain("isDraft createdAt updatedAt");
   expect(prFactsQuery([ref(1)]).query).toContain("labels(first:20){nodes{name color}}");
 });
 

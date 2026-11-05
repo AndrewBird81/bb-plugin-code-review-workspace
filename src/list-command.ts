@@ -1,5 +1,4 @@
-import { lastActivity } from "../lib/status-line";
-import { GUIDE_STOPPED, needsOrder, reviewState, type ReviewItem } from "../lib/review-state";
+import { GUIDE_STOPPED, needsListOrder, newestFirst, reviewState, type ReviewItem } from "../lib/review-state";
 import { defaultName, renamedFrom, reviewName } from "../lib/review-name";
 import { withStacks } from "../lib/stacks";
 import { reviewIdentity } from "../lib/review-identity";
@@ -31,8 +30,8 @@ export function runListCommand(reviews: ReviewItem[], argv: string[], agents: Re
   }
   const groups: Record<TurnGroup, ReviewItem[]> = { needs: [], waiting: [], reviewed: [], archive: [] };
   for (const review of reviews) groups[reviewState(review).group].push(review);
-  groups.needs.sort(needsOrder);
-  for (const group of ["waiting", "reviewed", "archive"] as const) groups[group].sort((a, b) => (lastActivity(b) ?? 0) - (lastActivity(a) ?? 0));
+  groups.needs.sort(needsListOrder);
+  for (const group of ["waiting", "reviewed", "archive"] as const) groups[group].sort(newestFirst);
   // Each stack's reviews together, bottom first, where its first one is in the section.
   const rows = (Object.keys(groups) as TurnGroup[]).flatMap((group) => withStacks(groups[group]).flat().map((review) => ({
     key: review.targetKey,

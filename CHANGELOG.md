@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- All reviews, BB's thread list, and `bb review list` show the newest PR first in each section and part, by when it was opened on GitHub, where Needs review showed the longest-waiting first and the rest the latest activity first. A local review goes by when it was added. **Blocks merge** still comes first, and the parts keep their order. The next review offered after Finish review is still the one that's waited longest. The sync now keeps when each PR opened, and reads a merged PR once more for it.
+
 ## 1.11.0 — 2026-11-03
 
 See at a glance which reviews are working and which have news, with BB's own thread status icons on their rows. Still **BB 0.48+** (plugin SDK **0.6.79+**) with Node 24+; installs at `^1.0.0` update to 1.11.0. 1.11.0 adds no migration, so rolling back to 1.10.1 keeps everything; the rows lose their icons there.

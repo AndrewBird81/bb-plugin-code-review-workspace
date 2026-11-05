@@ -68,15 +68,17 @@ test("Needs review puts blocking reviews first, then what came back to you, new 
   slot.lifecycle.unmount();
 });
 
-test("Waiting on author lists the most recent activity first; with no one waiting it hides", async () => {
+test("Waiting on author lists the newest PR first, by when GitHub says it opened, else when it was added; with no one waiting it hides", async () => {
   const { slot, open, titles } = await list([
-    { targetKey: "a", title: "Change Quiet", status: "ready", turn: turn("waiting", "waiting", "Changes requested", { at: now - 5 * DAY }) },
-    { targetKey: "b", title: "Change Pushed", status: "ready", signals: { headSeenAt: now - DAY }, turn: turn("waiting", "waiting", "Changes requested", { at: now - 6 * DAY }) },
-    { targetKey: "c", title: "Change Snoozed", status: "ready", turn: turn("waiting", "snoozed", "Snoozed until the author responds", { at: now - 2 * DAY }) },
+    // Activity no longer orders the list: the oldest PR is the one pushed to most lately.
+    { targetKey: "a", title: "Change Old", status: "ready", createdAt: now - DAY, prCreatedAt: now - 30 * DAY, signals: { headSeenAt: now - DAY }, turn: turn("waiting", "waiting", "Changes requested", { at: now - DAY }) },
+    { targetKey: "b", title: "Change New", status: "ready", createdAt: now - 9 * DAY, prCreatedAt: now - 2 * DAY, turn: turn("waiting", "waiting", "Changes requested", { at: now - 6 * DAY }) },
+    // Not read since the sync began keeping when a PR opened: when it was added stands in.
+    { targetKey: "c", title: "Change Unread", status: "ready", createdAt: now - 5 * DAY, turn: turn("waiting", "snoozed", "Snoozed until the author responds", { at: now - 2 * DAY }) },
   ]);
   await open(/^Waiting on author/);
-  await slot.findByText("Change Quiet");
-  expect(titles()).toEqual(["Change Pushed", "Change Snoozed", "Change Quiet"]);
+  await slot.findByText("Change Old");
+  expect(titles()).toEqual(["Change New", "Change Unread", "Change Old"]);
   expect(slot.queryByRole("heading", { name: /^Team requests/ })).toBeNull();
   slot.lifecycle.unmount();
 

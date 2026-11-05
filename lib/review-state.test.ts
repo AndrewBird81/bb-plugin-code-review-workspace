@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 import type { Turn } from "./turn";
-import { needsGroup, needsOrder, type ReviewItem } from "./review-state";
+import { needsGroup, needsListOrder, needsOrder, newestFirst, openedAt, type ReviewItem } from "./review-state";
 
 const DAY = 86_400_000;
 const now = Date.now();
@@ -23,7 +23,7 @@ test("Needs review is in three parts: what came back to you, first reviews, and 
   expect(needsGroup(review("i", turn("requested", 1, { failed: true })))).toBe("new");
 });
 
-test("Needs review puts Blocks merge first, then Back to you, New and Team requests, each longest waiting first", () => {
+test("the next review is Blocks merge first, then Back to you, New and Team requests, each longest waiting first", () => {
   const reviews = [
     review("team-old", turn("team-requested", now - 9 * DAY)),
     review("new-recent", turn("requested", now - DAY)),
@@ -34,4 +34,24 @@ test("Needs review puts Blocks merge first, then Back to you, New and Team reque
     review("unstamped", { ...turn("new", 0), at: null }, { createdAt: now - 3 * DAY }),
   ];
   expect(reviews.sort(needsOrder).map((r) => r.targetKey)).toEqual(["blocking", "back-old", "back-recent", "new-old", "unstamped", "new-recent", "team-old"]);
+});
+
+test("the lists show Blocks merge first, then Back to you, New and Team requests, each newest PR first", () => {
+  const reviews = [
+    review("team-old", turn("team-requested", now - DAY), { prCreatedAt: now - 9 * DAY }),
+    review("team-new", turn("team-requested", now - 9 * DAY), { prCreatedAt: now - DAY }),
+    review("new-old", turn("requested", now - DAY), { prCreatedAt: now - 20 * DAY }),
+    review("new-new", turn("requested", now - 5 * DAY), { prCreatedAt: now - 2 * DAY }),
+    review("back-old", turn("question", now - 60_000), { prCreatedAt: now - 40 * DAY }),
+    review("blocking", turn("re-requested", now - 30_000, { blocking: true }), { prCreatedAt: now - 99 * DAY }),
+    review("back-new", turn("re-requested", now - 2 * DAY), { prCreatedAt: now - 3 * DAY }),
+  ];
+  expect(reviews.sort(needsListOrder).map((r) => r.targetKey)).toEqual(["blocking", "back-new", "back-old", "new-new", "new-old", "team-new", "team-old"]);
+});
+
+test("a PR's age is when GitHub says it opened; a local review's, or a PR's the sync hasn't read that of, when it was added", () => {
+  expect(openedAt({ targetKey: "a", prCreatedAt: 5, createdAt: 9 })).toBe(5);
+  expect(openedAt({ targetKey: "b", createdAt: 9 })).toBe(9);
+  expect(openedAt({ targetKey: "c" })).toBe(0);
+  expect([{ targetKey: "a", prCreatedAt: 5 }, { targetKey: "b", createdAt: 9 }, { targetKey: "c", prCreatedAt: 7 }].sort(newestFirst).map((r) => r.targetKey)).toEqual(["b", "c", "a"]);
 });

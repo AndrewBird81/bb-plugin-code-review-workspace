@@ -102,14 +102,14 @@ test("a review started on a merged PR is still read by the sync once, which take
 // close times never had them, and All reviews' filters missed it.
 test("a review merged before the sync kept its PR's labels and times is read once more for them, without alerting, unarchiving, or starting work", async () => {
   const s = await setup({ reviewed: true, pr: {
-    state: "MERGED", mergedAt: T0 - 2 * HOUR, closedAt: T0 - 2 * HOUR, labels: [{ name: "bug", color: "d73a4a" }], reviewTeams: ["acme/live-dev"], reviewers: ["bob"],
+    state: "MERGED", createdAt: T0 - 5 * HOUR, mergedAt: T0 - 2 * HOUR, closedAt: T0 - 2 * HOUR, labels: [{ name: "bug", color: "d73a4a" }], reviewTeams: ["acme/live-dev"], reviewers: ["bob"],
     requests: [{ at: T0 - HOUR, by: "bob", via: "user" }], requestPending: { via: "user" },
   } });
   await s.store.setLifecycle("pr-1", { prState: "MERGED", archivedAt: T0 - 2 * HOUR, userArchivedAt: T0 - HOUR, watchingSince: T0 - 10 * HOUR, reviewer: "me" });
   await s.sync.all();
   const merged = (await s.store.getReview("pr-1"))!;
   expect(merged).toMatchObject({
-    prMergedAt: T0 - 2 * HOUR, prClosedAt: T0 - 2 * HOUR, prLabels: [{ name: "bug", color: "d73a4a" }], prTeams: ["acme/live-dev"], prReviewers: ["bob"],
+    prCreatedAt: T0 - 5 * HOUR, prMergedAt: T0 - 2 * HOUR, prClosedAt: T0 - 2 * HOUR, prLabels: [{ name: "bug", color: "d73a4a" }], prTeams: ["acme/live-dev"], prReviewers: ["bob"],
     archivedAt: T0 - 2 * HOUR, userArchivedAt: T0 - HOUR,
   });
   expect(matchesFilter(merged, { field: "merged", days: 1 }, T0)).toBe(true);
@@ -118,6 +118,15 @@ test("a review merged before the sync kept its PR's labels and times is read onc
   expect(s.actions.prepare).not.toHaveBeenCalled();
   expect(s.actions.autoStart).not.toHaveBeenCalled();
   // Once read, it isn't read again, even by Refresh.
+  await s.sync.all(true);
+  expect(s.github.facts).toHaveBeenCalledTimes(1);
+});
+
+test("a merged review that kept its merge time, but not when its PR opened, is read once more for it, for the lists' order", async () => {
+  const s = await setup({ reviewed: true, pr: { state: "MERGED", createdAt: T0 - 5 * HOUR, mergedAt: T0 - 2 * HOUR, closedAt: T0 - 2 * HOUR } });
+  await s.store.setLifecycle("pr-1", { prState: "MERGED", prMergedAt: T0 - 2 * HOUR, archivedAt: T0 - 2 * HOUR, watchingSince: T0 - 10 * HOUR, reviewer: "me" });
+  await s.sync.all();
+  expect(await s.store.getReview("pr-1")).toMatchObject({ prCreatedAt: T0 - 5 * HOUR, prMergedAt: T0 - 2 * HOUR, archivedAt: T0 - 2 * HOUR });
   await s.sync.all(true);
   expect(s.github.facts).toHaveBeenCalledTimes(1);
 });

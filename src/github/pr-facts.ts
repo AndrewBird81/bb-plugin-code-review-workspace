@@ -6,7 +6,7 @@ export const BATCH_SIZE = 10;
 
 const REVIEWER = "__typename ... on User{login} ... on Team{slug organization{login}}";
 const FRAGMENT = `fragment F on PullRequest{
-  number state isDraft updatedAt lastEditedAt mergedAt closedAt title url baseRefName headRefName headRefOid isCrossRepository headRepositoryOwner{login} author{login} authorAssociation additions deletions changedFiles
+  number state isDraft createdAt updatedAt lastEditedAt mergedAt closedAt title url baseRefName headRefName headRefOid isCrossRepository headRepositoryOwner{login} author{login} authorAssociation additions deletions changedFiles
   labels(first:20){nodes{name color}}
   baseRef{associatedPullRequests(states:OPEN,first:1){nodes{number title url}}} baseRepository{defaultBranchRef{name}}
   commits(last:100){nodes{commit{oid}}}
@@ -205,6 +205,7 @@ function normalize(pr: any, ref: PrRef, viewer: string, teams: ReadonlySet<strin
     headForkOwner: pr.isCrossRepository ? pr.headRepositoryOwner?.login ?? "" : null,
     updatedAt: time(pr.updatedAt),
     editedAt: pr.lastEditedAt ? time(pr.lastEditedAt) : null,
+    createdAt: pr.createdAt ? time(pr.createdAt) : null,
     mergedAt: pr.mergedAt ? time(pr.mergedAt) : null,
     closedAt: pr.closedAt ? time(pr.closedAt) : null,
     labels: (pr.labels?.nodes ?? []).filter((l: any) => l?.name).map((l: any) => ({ name: l.name as string, color: (l.color as string | undefined) ?? "" })),
