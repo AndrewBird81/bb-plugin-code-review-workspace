@@ -66,7 +66,9 @@ export function AgentPicker({ role, targetKey, disabled, onChange, className }: 
   const base = useMemo(() => !loaded ? undefined : custom ? choiceOf(custom) : defaults === undefined ? undefined : defaults ?? UNSET_AGENT, [loaded, custom, defaults]);
   // A pick you made stays yours when Settings change; left alone, it follows them.
   const agent = picked ?? base;
-  useEffect(() => { onChange(picked && base && !sameAgent(picked, base) ? picked : null); }, [picked, base, onChange]);
+  // A pick goes out unless it's the default; while the default is read, as after Settings changed to Project defaults,
+  // the pick it shows is what starts.
+  useEffect(() => { onChange(picked && !(base && sameAgent(picked, base)) ? picked : null); }, [picked, base, onChange]);
   if (!agent) return <p role="status" className={cn("px-2.5 py-1.5 text-xs text-muted-foreground", className)}>Loading the {label.toLowerCase()}…</p>;
   const hostId = agent.hostId;
   // A machine that's gone, as one removed since Settings chose it, can't run it: the choice shows so you can pick another.

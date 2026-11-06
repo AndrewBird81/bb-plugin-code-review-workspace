@@ -199,6 +199,30 @@ test("a guide writer setting changed while the page is open shows at once and is
   slot.lifecycle.unmount();
 });
 
+test("a pick made before the guide writer setting changes to Project defaults is what builds while those defaults are read", async () => {
+  let guideAgent: Record<string, unknown> | null = { providerId: "claude-code", model: "opus", reasoningLevel: "high", permissionMode: "accept-edits" };
+  let answer!: (result: unknown) => void;
+  const getAgentDefaults = vi.fn((_input: unknown) => new Promise((resolve) => { answer = resolve; }));
+  const startTrackedReview = vi.fn((_input: unknown) => ({ ok: false, error: "Not now." }));
+  const slot = await reviewPage({ status: "tracked" }, {
+    getPreferences: () => ({ preferences: { ...defaultPreferences, guideAgent }, revision: 3 }),
+    listMachines: () => ({ machines: [{ hostId: "server", name: "Server", connected: true, server: true }] }), getAgentDefaults, startTrackedReview,
+  });
+  const section = within(await slot.findByRole("region", { name: "Tracked pull request" }));
+  const picker = await findPicker(within(await section.findByRole("group", { name: "Guide writer" })));
+  fireEvent.change(within(picker).getByRole("textbox", { name: "Model" }), { target: { value: "haiku" } });
+  fireEvent.click(within(picker).getByRole("button", { name: "Apply execution selection" }));
+  guideAgent = null;
+  await slot.emitRealtime("preferences", {});
+  await waitFor(() => expect(getAgentDefaults).toHaveBeenCalled());
+  expect((within(picker).getByRole("textbox", { name: "Model" }) as HTMLInputElement).value).toBe("haiku");
+  fireEvent.click(section.getByRole("button", { name: "Build the guide" }));
+  await waitFor(() => expect(startTrackedReview).toHaveBeenCalledTimes(1));
+  expect(startTrackedReview.mock.calls[0]![0]).toEqual({ targetKey: "pr-42", agent: { providerId: "claude-code", model: "haiku", reasoningLevel: "high" } });
+  answer({ defaults: { providerId: "codex", model: "gpt-6", reasoningLevel: "low", permissionMode: "auto", serviceTier: "default" } });
+  slot.lifecycle.unmount();
+});
+
 test("while its guide is built, a review shows its title, its menu, and the agent at work", async () => {
   const slot = await reviewPage({ status: "generating" });
   const building = await slot.findByRole("status", { name: "Building the guide" });
