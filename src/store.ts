@@ -505,9 +505,9 @@ export interface Store extends AgentCommentStore {
   /**
    * Merge review `from` into `into`, in one transaction: its comments follow their lines onto `into`'s diff, its Sends
    * number on after `into`'s, and its summary, notes, viewed marks and what it knows of the PR join `into`'s; its
-   * agent's conversation becomes `into`'s when `into` has none (`adopted`). `from` is left archived and empty, but for
-   * the tracked comments `into` couldn't take, pointing at `into`. Returns what it took; null, changing nothing, when
-   * either was merged into a review already.
+   * agent's conversation becomes `into`'s when `into` has none (`adopted`), with the review agent picked for it. `from`
+   * is left archived and empty, but for the tracked comments `into` couldn't take, pointing at `into`. Returns what it
+   * took; null, changing nothing, when either was merged into a review already.
    */
   mergeReview(from: string, into: string): Promise<{ moved: MergeNote; adopted: boolean } | null>;
   savePatch(targetKey: string, patch: string): Promise<void>;
@@ -1066,6 +1066,9 @@ export function storeOn(sql: Sql): Store {
         const agentThreadId = await this.getAssistantThread(from);
         const adopted = !!agentThreadId && !await this.getAssistantThread(into);
         if (adopted) await sql.run(`UPDATE assistant_threads SET target_key=? WHERE target_key=?`, [into, from]);
+        // An adopted conversation brings the review agent picked for it, over this review's own pick, so its next
+        // conversation starts on the agent of the one that went on here; with none picked, this review keeps its own.
+        const reviewAgent = adopted && source.reviewAgent ? { reviewAgent: source.reviewAgent } : {};
 
         // Thread Sends from both: the later Send's.
         const sends = [...target.sends ?? [], ...(source.sends ?? []).map((send) => ({ ...send, n: send.n + top }))];
@@ -1091,7 +1094,7 @@ export function storeOn(sql: Sql): Store {
           ...(source.submittedAt ?? 0) > (target.submittedAt ?? 0) ? { submittedVerdict: source.submittedVerdict, submittedAt: source.submittedAt, submittedHeadSha: source.submittedHeadSha, submittedReviewId: source.submittedReviewId } : {},
           ...branches.length ? { keptBranches: branches } : {},
           ...target.feature?.prReview ? { feature: { ...target.feature, prReview: undefined } } : {},
-          prOffer: null, mergeDeclined: null,
+          prOffer: null, mergeDeclined: null, ...reviewAgent,
           mergedFrom: [...target.mergedFrom ?? [], ...source.mergedFrom ?? [], { key: from, at: now, id, agentThreadId: adopted ? null : agentThreadId }],
         });
 

@@ -599,6 +599,31 @@ test("with no review agent in Settings, a pasted PR's picker starts at the proje
   slot.lifecycle.unmount();
 });
 
+test("a review agent setting changed while All reviews is open shows in a pasted PR's picker, and is what the review starts on", async () => {
+  let assistantAgent = { providerId: "claude-code", model: "opus", reasoningLevel: "high", permissionMode: "full" };
+  const { slot, calls } = await inbox([{ targetKey: "a", title: "A change", status: "ready" }], {
+    getPreferences: () => ({ preferences: { ...defaultPreferences, assistantAgent }, revision: 3 }),
+    listMachines: () => ({ machines: [{ hostId: "server", name: "Server", connected: true, server: true }] }),
+    startReview: () => ({ ok: false, error: "Not now." }),
+  });
+  await slot.findByText("A change");
+  const find = slot.getByRole("searchbox", { name: "Find a review, or paste a PR link" });
+  fireEvent.change(find, { target: { value: "acme/web#7" } });
+  const picker = await findPicker(within(await slot.findByRole("group", { name: "Review agent" })));
+  expect((within(picker).getByRole("textbox", { name: "Model" }) as HTMLInputElement).value).toBe("opus");
+  assistantAgent = { ...assistantAgent, model: "sonnet" };
+  await slot.emitRealtime("preferences", {});
+  await waitFor(() => expect((within(picker).getByRole("textbox", { name: "Model" }) as HTMLInputElement).value).toBe("sonnet"));
+  fireEvent.submit(find);
+  await slot.findByRole("alert");
+  expect(calls("startReview")).toEqual([{ input: "https://github.com/acme/web/pull/7" }]);
+  // Another PR's picker starts at the setting as it is now, too.
+  fireEvent.change(find, { target: { value: "acme/web#8" } });
+  const next = await findPicker(within(await slot.findByRole("group", { name: "Review agent" })));
+  expect((within(next).getByRole("textbox", { name: "Model" }) as HTMLInputElement).value).toBe("sonnet");
+  slot.lifecycle.unmount();
+});
+
 test("focused and empty, the box says how to review a local branch; / focuses it", async () => {
   const { slot } = await inbox([{ targetKey: "a", title: "A change", status: "ready" }]);
   await slot.findByText("A change");

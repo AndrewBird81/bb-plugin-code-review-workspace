@@ -99,11 +99,12 @@ export async function guideWriterUnavailable(bb: BbPluginApi, store: AsyncStore)
  * The writer's permission mode on the project's defaults. Not the project's, as its tools need no shell or edits:
  * accept-edits where the project's provider runs in it, else auto, whose approvals bb reviews itself, so the hidden
  * writer waits on no one. Unset, so the project's own, when the provider runs in neither or can't be read.
- * Pass `known` when the defaults are already read.
+ * Pass `known` when the defaults are already read, and `hostId` for a writer on another machine than the server, whose
+ * providers are that machine's.
  */
-export async function guideWriterMode(bb: BbPluginApi, projectId: string, known?: { providerId: string }): Promise<{ permissionMode?: "accept-edits" | "auto"; executionInputSources?: { permissionMode: "explicit" } }> {
+export async function guideWriterMode(bb: BbPluginApi, projectId: string, known?: { providerId: string }, hostId?: string): Promise<{ permissionMode?: "accept-edits" | "auto"; executionInputSources?: { permissionMode: "explicit" } }> {
   try {
-    const [defaults, providers] = await Promise.all([known ?? bb.sdk.projects.defaultExecutionOptions({ projectId }), bb.sdk.providers.list()]);
+    const [defaults, providers] = await Promise.all([known ?? bb.sdk.projects.defaultExecutionOptions({ projectId }), bb.sdk.providers.list(hostId ? { hostId } : undefined)]);
     const modes = providers.find((provider) => provider.id === defaults?.providerId)?.capabilities.permissionModes ?? [];
     const mode = (["accept-edits", "auto"] as const).find((candidate) => modes.includes(candidate));
     return mode ? { permissionMode: mode, executionInputSources: { permissionMode: "explicit" } } : {};
@@ -121,14 +122,14 @@ export interface GuideOptions { notify?: boolean; unattended?: boolean; agent?: 
 
 /**
  * The guide writer a build spawns on: the one picked for it, else Settings', else the project's defaults. A pick on
- * Settings' provider keeps Settings' permission mode; on another, it runs at the lowest one its provider runs in, as the
- * project's defaults do (guideWriterMode).
+ * Settings' provider keeps Settings' permission mode; on another, it runs at the lowest one its provider runs in on the
+ * picked machine, as the project's defaults do (guideWriterMode).
  */
 async function guideWriter(bb: BbPluginApi, preferences: ReviewPreferences, projectId: string, picked: AgentChoice | undefined) {
   const placement = await agentPlacement(bb, picked ?? preferences.guideAgent, projectId);
   if (!picked) return { placement, execution: preferences.guideAgent ? spawnExecution(preferences.guideAgent) : await guideWriterMode(bb, projectId) };
   const permissionMode = preferences.guideAgent?.providerId === picked.providerId ? preferences.guideAgent.permissionMode
-    : (await guideWriterMode(bb, projectId, { providerId: picked.providerId })).permissionMode;
+    : (await guideWriterMode(bb, projectId, { providerId: picked.providerId }, picked.hostId)).permissionMode;
   return { placement, execution: spawnExecution({ ...picked, ...(permissionMode ? { permissionMode } : {}) }) };
 }
 

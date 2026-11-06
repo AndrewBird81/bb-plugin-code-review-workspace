@@ -353,10 +353,10 @@ describe("a guide writer picked as a review's guide is built", () => {
           ? { providerId: "claude-code", model: "haiku", reasoningLevel: "medium", permissionMode: "full", serviceTier: "default" }
           : { providerId: "codex", model: "gpt-6", reasoningLevel: "medium", permissionMode: "full", serviceTier: "default" },
       },
-      providers: { list: async () => [
-        { id: "claude-code", available: true, capabilities: { permissionModes: ["accept-edits", "auto", "full"] } },
-        { id: "codex", available: true, capabilities: { permissionModes: ["auto", "full"] } },
-      ] },
+      // Each machine's own providers: Codex runs on the laptop alone.
+      providers: { list: async (input?: { hostId?: string }) => input?.hostId === "host_maxbook"
+        ? [{ id: "codex", available: true, capabilities: { permissionModes: ["auto", "full"] } }]
+        : [{ id: "claude-code", available: true, capabilities: { permissionModes: ["accept-edits", "auto", "full"] } }] },
       hosts: { get: async ({ hostId }: { hostId: string }) => machines.find((m) => m.id === hostId) ?? Promise.reject(Object.assign(new Error("HTTP 404"), { status: 404 })) },
     } as any });
     store = await startPlugin(bb);
@@ -384,10 +384,12 @@ describe("a guide writer picked as a review's guide is built", () => {
       title: expect.stringMatching(/^Generate guide: /), visibility: "hidden",
       projectId: "proj_personal", environment: { type: "host", hostId: "host_maxbook", workspace: { type: "personal" } },
       providerId: "codex", model: "gpt-6", reasoningLevel: "low", serviceTier: "fast",
-      // Not Settings' mode, which is for Settings' provider: the lowest the picked provider runs in.
+      // Not Settings' mode, which is for Settings' provider: the lowest the picked provider runs in, on the picked
+      // machine, whose providers the server's don't list.
       permissionMode: "auto",
       executionInputSources: { providerId: "explicit", model: "explicit", reasoningLevel: "explicit", serviceTier: "explicit", permissionMode: "explicit" },
     });
+    expect(harness.inspection.sdk.callsTo("providers.list")).toContainEqual([{ hostId: "host_maxbook" }]);
     expect(await store.getPreferences()).toEqual(before);
     // Nothing of the pick is kept: the next build is Settings' writer's again.
     await vi.waitFor(async () => expect((await store.getReview(key))?.status).toBe("ready"));
