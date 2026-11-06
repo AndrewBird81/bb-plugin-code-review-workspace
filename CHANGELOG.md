@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+Choose the review agent as you start a review. Still **BB 0.48+** (plugin SDK **0.6.79+**) with Node 24+. It adds no migration: the agent you pick is kept with the review's other lifecycle fields, so rolling back to 1.11.0 keeps everything, and 1.11.0 starts that review's next conversation on the **Review agent** setting.
+
+- A PR link pasted into **All reviews** shows **Review agent** under **Review**: BB's own provider and model picker, starting at the **Review agent** setting, else the agent, model, and effort BB remembers for your personal project, as the review would get. Where BB has more than one machine, it has a machine choice too, and the picker lists that machine's providers.
+- Pick another, and the review's agent starts on exactly that provider, model, effort, service tier, and machine: its automatic review, and any conversation it starts later, as after **New conversation**. Settings stay as they are, and other reviews keep them. Settings' permission mode comes along when you keep its provider; on another, the provider's own default. Left as it is, nothing is sent, and the review falls back as before.
+- A pick on a machine that's offline or removed stops the review before the PR is read, saying so, as the guide writer's machine does.
+- The guide writer is the **Guide writer agent** setting's, as before. `bb review`, **Review changes** above a thread's message box, and starting a stack's PR from its review take no pick: they start on the setting.
+
 ## 1.11.0 — 2026-11-03
 
 See at a glance which reviews are working and which have news, with BB's own thread status icons on their rows. Still **BB 0.48+** (plugin SDK **0.6.79+**) with Node 24+; installs at `^1.0.0` update to 1.11.0. 1.11.0 adds no migration, so rolling back to 1.10.1 keeps everything; the rows lose their icons there.
