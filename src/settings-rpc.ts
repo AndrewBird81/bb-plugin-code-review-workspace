@@ -35,10 +35,10 @@ export function register(deps: ServeDeps) {
       if (refresh) void refreshAssistants(bb, store).catch((error) => bb.log.warn(`Could not restart the idle review assistants: ${String(error)}`));
       return result;
     },
-    async getAgentDefaults() {
-      // Panel-started reviews run in the personal project (see startReview).
+    async getAgentDefaults(input) {
+      // A review's agents run in its project; panel-started reviews in the personal project (see startReview).
       try {
-        const projectId = await personalProjectId(bb);
+        const projectId = (input && (await store.getReview(input.targetKey))?.projectId) || await personalProjectId(bb);
         const d = projectId ? await bb.sdk.projects.defaultExecutionOptions({ projectId }) : null;
         // A custom guide writer starts at the mode it runs at on the defaults.
         const { permissionMode: writerMode } = projectId && d ? await guideWriterMode(bb, projectId, d) : {};

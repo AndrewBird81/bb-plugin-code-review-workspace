@@ -17,13 +17,20 @@ import { PrTitle, StackLinks, UnreviewedParent } from "./ReviewHeader";
 import { kindLook, StatusLine } from "./ReviewStatus";
 import { useThreadListReviews } from "./NeedsReviewSidebar";
 import { TOUCH_CONTROL } from "./touch";
+import { AgentPicker } from "./AgentPicker";
+import type { AgentChoice } from "../src/agent";
 
-/** A PR found on GitHub with no guide yet: the page bar with its menu, where the PR stands, and Build the guide. */
+/**
+ * A PR found on GitHub with no guide yet: the page bar with its menu, where the PR stands, and Build the guide, with the
+ * guide writer to build it on, for this build alone.
+ */
 export const TrackedReview = memo(function TrackedReview({ review, onBack }: { review: ReviewItem; onBack: () => void }) {
   const rpc = useRpc<typeof rpcContract>();
   const navigate = useBbNavigate();
   const pinnable = useThreadListReviews() === true;
   const [starting, setStarting] = useState(false);
+  /** The guide writer picked for this build; null builds on Settings' as before. */
+  const [writer, setWriter] = useState<AgentChoice | null>(null);
   const unattendedAgents = useKnob("unattendedAgents");
   const localDiffChanges = useKnob("localDiffChanges");
   const kind = kindLook(review);
@@ -34,7 +41,7 @@ export const TrackedReview = memo(function TrackedReview({ review, onBack }: { r
   async function build() {
     setStarting(true);
     try {
-      const result = await rpc.call("startTrackedReview", { targetKey: review.targetKey });
+      const result = await rpc.call("startTrackedReview", { targetKey: review.targetKey, ...(writer ? { agent: writer } : {}) });
       // On success the review's realtime update shows the guide being built.
       if (!result.ok) toast.error(result.error ?? "Couldn’t build the guide.");
     } catch (error) {
@@ -69,6 +76,7 @@ export const TrackedReview = memo(function TrackedReview({ review, onBack }: { r
             <h2 className="text-base font-semibold text-foreground">No guide yet</h2>
             <p className="text-sm text-muted-foreground">Building one takes a few minutes. Nothing reaches GitHub until you submit, send a reply, or resolve a thread.</p>
           </div>
+          <AgentPicker role="guide" targetKey={review.targetKey} disabled={starting} onChange={setWriter} className="justify-center" />
           <div className="flex flex-wrap justify-center gap-2">
             <Button disabled={starting} className={TOUCH_CONTROL} onClick={() => void build()}>
               <Icon name={starting ? "Loading" : "Sparkles"} className={starting ? "animate-spin motion-reduce:animate-none" : undefined} aria-hidden />

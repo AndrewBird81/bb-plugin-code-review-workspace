@@ -1,7 +1,8 @@
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import { reanchorDraft, type ReviewMeta } from "./store";
 import { ensureGitHeaders } from "./patch";
-import { beginGuide, guideWriterUnavailable } from "./generate";
+import { beginGuide, guideWriterUnavailable, type GuideOptions } from "./generate";
+import { machineUnavailable } from "./machines";
 import { gitDiffArgs } from "./gh";
 import { readPrSnapshot } from "./pr-snapshot";
 import { pruneDiffs } from "./feedback-view";
@@ -18,8 +19,11 @@ interface Deps {
 
 const rerunning = new WeakMap<BbPluginApi, Set<string>>();
 
-/** Re-read the target and regenerate its guide. `notify: false` leaves alerts to the turn that asked for it. */
-export async function rerunReview(deps: Deps, targetKey: string, options: { notify?: boolean; unattended?: boolean } = {}): Promise<{ ok: boolean; error?: string }> {
+/**
+ * Re-read the target and regenerate its guide. `notify: false` leaves alerts to the turn that asked for it; `agent`, the
+ * guide writer picked for this build in place of Settings'.
+ */
+export async function rerunReview(deps: Deps, targetKey: string, options: GuideOptions = {}): Promise<{ ok: boolean; error?: string }> {
   // A re-review already reading the target starts the guide for both callers.
   const running = rerunning.get(deps.bb) ?? new Set<string>();
   rerunning.set(deps.bb, running);
@@ -32,10 +36,10 @@ export async function rerunReview(deps: Deps, targetKey: string, options: { noti
   }
 }
 
-async function rerun(deps: Deps, targetKey: string, options: { notify?: boolean; unattended?: boolean }): Promise<{ ok: boolean; error?: string }> {
+async function rerun(deps: Deps, targetKey: string, options: GuideOptions): Promise<{ ok: boolean; error?: string }> {
   const m = await deps.store.getReview(targetKey);
   if (!m || !m.projectId) return { ok: false, error: "Unknown review or missing project." };
-  const unavailable = await guideWriterUnavailable(deps.bb, deps.store);
+  const unavailable = options.agent ? await machineUnavailable(deps.bb, options.agent, "guide writer", "here") : await guideWriterUnavailable(deps.bb, deps.store);
   if (unavailable) return { ok: false, error: unavailable };
 
   let patch = "";
@@ -97,7 +101,7 @@ async function rerun(deps: Deps, targetKey: string, options: { notify?: boolean;
  * fails and moving the draft comments. It begins the guide (beginGuide), so call it last in the block, and start the
  * run it returns once the block has ended.
  */
-export async function rebuildReview(deps: Pick<Deps, "bb" | "store">, tx: AsyncStore, m: ReviewMeta & { projectId: string }, patch: string, options: { notify?: boolean; unattended?: boolean } = {}): Promise<() => Promise<void>> {
+export async function rebuildReview(deps: Pick<Deps, "bb" | "store">, tx: AsyncStore, m: ReviewMeta & { projectId: string }, patch: string, options: GuideOptions = {}): Promise<() => Promise<void>> {
   const targetKey = m.targetKey;
   const previous = await tx.patch(targetKey);
   // If the new guide fails, the current one comes back.

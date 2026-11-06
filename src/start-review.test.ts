@@ -46,6 +46,7 @@ import plugin from "../server";
 import type { AsyncStore } from "./store-queue";
 import { getConversation, newConversation } from "./agent";
 import { startPlugin } from "./plugin-store.test-support";
+import { rerunReview } from "./rereview";
 
 const key = targetKey({ kind: "pr", number: 7, repo: "acme/web" });
 
@@ -325,5 +326,111 @@ describe("a review agent picked as the review starts", () => {
     expect(await harness.behavior.callRpc("startReview", { input: "https://github.com/acme/web/pull/7", agent: picked })).toEqual({ ok: true, targetKey: key });
     expect((await store.getReview(key))?.reviewAgent).toEqual(picked);
     await expect(harness.behavior.callRpc("startReview", { input: "https://github.com/acme/web/pull/7", agent: { ...picked, permissionMode: "full" } })).rejects.toThrow();
+  });
+});
+
+describe("a guide writer picked as a review's guide is built", () => {
+  const machines = [
+    { id: "host_server", name: "bb-server-0", status: "connected", type: "persistent", lifecycle: { phase: "active" } },
+    { id: "host_maxbook", name: "MaxBook", status: "connected", type: "persistent", lifecycle: { phase: "active" } },
+    { id: "host_old", name: "FloMac Original", status: "disconnected", type: "persistent", lifecycle: { phase: "active" } },
+  ];
+  const settingsWriter = { providerId: "claude-code", model: "opus", reasoningLevel: "high", permissionMode: "accept-edits" } as const;
+  const picked = { hostId: "host_maxbook", providerId: "codex", model: "gpt-6", reasoningLevel: "low", serviceTier: "fast" };
+
+  /** The plugin, on a host whose guide writer submits its guide once it's waited on, with a tracked PR in project p1. */
+  async function host(guideAgent: typeof settingsWriter | null = settingsWriter) {
+    let store: AsyncStore;
+    const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: {
+      threads: {
+        spawn: async ({ title }: { title: string }) => ({ id: title.startsWith("Generate guide") ? "writer" : "agent" }),
+        wait: async ({ threadId }: { threadId: string }) => { if (threadId === "writer") await store.saveGuide(key, { title: "G", intent: "I", sections: [], unplacedFiles: [] }); },
+        archive: async () => {}, stop: async () => {}, get: async () => ({ archivedAt: null, deletedAt: null, status: "idle" }),
+      },
+      projects: {
+        list: async () => [{ id: "p1", kind: "standard" }, { id: "proj_personal", kind: "personal" }],
+        defaultExecutionOptions: async ({ projectId }: { projectId: string }) => projectId === "p1"
+          ? { providerId: "claude-code", model: "haiku", reasoningLevel: "medium", permissionMode: "full", serviceTier: "default" }
+          : { providerId: "codex", model: "gpt-6", reasoningLevel: "medium", permissionMode: "full", serviceTier: "default" },
+      },
+      providers: { list: async () => [
+        { id: "claude-code", available: true, capabilities: { permissionModes: ["accept-edits", "auto", "full"] } },
+        { id: "codex", available: true, capabilities: { permissionModes: ["auto", "full"] } },
+      ] },
+      hosts: { get: async ({ hostId }: { hostId: string }) => machines.find((m) => m.id === hostId) ?? Promise.reject(Object.assign(new Error("HTTP 404"), { status: 404 })) },
+    } as any });
+    store = await startPlugin(bb);
+    await store.savePreferences({ ...defaultPreferences, guideAgent }, (await store.getPreferences()).revision);
+    await store.saveReview({ targetKey: key, kind: "pr", number: 7, repo: "acme/web", status: "tracked", createdAt: 1, projectId: "p1" });
+    const writer = async () => {
+      await vi.waitFor(() => expect(harness.inspection.sdk.callsTo("threads.spawn").length).toBeGreaterThan(0));
+      return harness.inspection.sdk.callsTo("threads.spawn")[0]![0] as any;
+    };
+    return { bb, harness, store, writer };
+  }
+
+  test("with no pick, Build the guide spawns Settings' guide writer, as before", async () => {
+    const { harness, writer } = await host();
+    expect(await harness.behavior.callRpc("startTrackedReview", { targetKey: key })).toEqual({ ok: true });
+    expect(await writer()).toMatchObject({ title: expect.stringMatching(/^Generate guide: /), projectId: "p1", environment: { type: "project-default" },
+      providerId: "claude-code", model: "opus", reasoningLevel: "high", permissionMode: "accept-edits" });
+  });
+
+  test("a pick builds the guide on its provider, model, effort, tier and machine, for that build alone, and leaves Settings as they were", async () => {
+    const { bb, harness, store, writer } = await host();
+    const before = await store.getPreferences();
+    expect(await harness.behavior.callRpc("startTrackedReview", { targetKey: key, agent: picked })).toEqual({ ok: true });
+    expect(await writer()).toMatchObject({
+      title: expect.stringMatching(/^Generate guide: /), visibility: "hidden",
+      projectId: "proj_personal", environment: { type: "host", hostId: "host_maxbook", workspace: { type: "personal" } },
+      providerId: "codex", model: "gpt-6", reasoningLevel: "low", serviceTier: "fast",
+      // Not Settings' mode, which is for Settings' provider: the lowest the picked provider runs in.
+      permissionMode: "auto",
+      executionInputSources: { providerId: "explicit", model: "explicit", reasoningLevel: "explicit", serviceTier: "explicit", permissionMode: "explicit" },
+    });
+    expect(await store.getPreferences()).toEqual(before);
+    // Nothing of the pick is kept: the next build is Settings' writer's again.
+    await vi.waitFor(async () => expect((await store.getReview(key))?.status).toBe("ready"));
+    expect((await store.getReview(key))?.reviewAgent).toBeUndefined();
+    await rerunReview({ bb, store, gh }, key);
+    await vi.waitFor(() => expect(harness.inspection.sdk.callsTo("threads.spawn").filter(([args]) => (args as any).title.startsWith("Generate guide"))).toHaveLength(2));
+    const rebuilt = harness.inspection.sdk.callsTo("threads.spawn").map(([args]) => args as any).filter((args) => args.title.startsWith("Generate guide"))[1];
+    expect(rebuilt).toMatchObject({ projectId: "p1", environment: { type: "project-default" }, providerId: "claude-code", model: "opus", permissionMode: "accept-edits" });
+  });
+
+  test("a pick on the provider Settings chose keeps Settings' permission mode", async () => {
+    const { harness, writer } = await host();
+    await harness.behavior.callRpc("startTrackedReview", { targetKey: key, agent: { providerId: "claude-code", model: "sonnet", reasoningLevel: "medium" } });
+    expect(await writer()).toMatchObject({ projectId: "p1", environment: { type: "project-default" }, providerId: "claude-code", model: "sonnet", reasoningLevel: "medium", permissionMode: "accept-edits" });
+  });
+
+  test("a pick over the project's defaults runs at the lowest permission mode its provider runs in, as the defaults do", async () => {
+    const { harness, writer } = await host(null);
+    await harness.behavior.callRpc("startTrackedReview", { targetKey: key, agent: { providerId: "claude-code", model: "sonnet", reasoningLevel: "low" } });
+    expect(await writer()).toMatchObject({ projectId: "p1", environment: { type: "project-default" }, providerId: "claude-code", model: "sonnet", reasoningLevel: "low", permissionMode: "accept-edits" });
+  });
+
+  test("a pick on an offline machine stops the build before the PR is read", async () => {
+    const { harness, store } = await host();
+    vi.mocked(gh.runGh).mockClear();
+    expect(await harness.behavior.callRpc("startTrackedReview", { targetKey: key, agent: { ...picked, hostId: "host_old" } }))
+      .toEqual({ ok: false, error: "FloMac Original is offline. Wake it, or choose another machine for the guide writer here." });
+    expect(gh.runGh).not.toHaveBeenCalled();
+    expect(harness.inspection.sdk.callsTo("threads.spawn")).toEqual([]);
+    expect((await store.getReview(key))?.status).toBe("tracked");
+  });
+
+  test("Try again on a failed guide passes the pick through, and a pick with a permission mode is refused", async () => {
+    const { harness, store, writer } = await host();
+    await store.saveReview({ targetKey: key, kind: "pr", number: 7, repo: "acme/web", status: "error", createdAt: 1, projectId: "p1" });
+    expect(await harness.behavior.callRpc("rereview", { targetKey: key, agent: picked })).toEqual({ ok: true });
+    expect(await writer()).toMatchObject({ environment: { type: "host", hostId: "host_maxbook" }, providerId: "codex", model: "gpt-6" });
+    await expect(harness.behavior.callRpc("startTrackedReview", { targetKey: key, agent: { ...picked, permissionMode: "full" } })).rejects.toThrow();
+  });
+
+  test("the picker's defaults are those of the project the review's agents run in", async () => {
+    const { harness } = await host(null);
+    expect(await harness.behavior.callRpc("getAgentDefaults", { targetKey: key })).toMatchObject({ defaults: { providerId: "claude-code", model: "haiku" } });
+    expect(await harness.behavior.callRpc("getAgentDefaults", null)).toMatchObject({ defaults: { providerId: "codex", model: "gpt-6" } });
   });
 });

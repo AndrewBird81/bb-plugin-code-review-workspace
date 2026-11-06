@@ -1,6 +1,6 @@
 // Whose turn a review is, and your feedback on a PR: snoozing and seeing a review, starting what didn't run on its own,
 // checking and replying to your feedback, the suggested verdict, and what changed since your review.
-import { isAssistantAnswering, startAutomaticReview } from "./agent";
+import { isAssistantAnswering, startAutomaticReview, type AgentChoice } from "./agent";
 import { commentsKey } from "./draft";
 import { ghReplyThreadArgs, runGh } from "./gh";
 import { PAGE_BUDGET_MS, refusalText } from "./github-writes";
@@ -47,11 +47,11 @@ export function register(deps: ServeDeps) {
         await notifications.dismiss(targetKey);
         return { ok: true };
       },
-      async startTrackedReview({ targetKey }: { targetKey: string }) {
+      async startTrackedReview({ targetKey, agent }: { targetKey: string; agent?: AgentChoice }) {
         const review = await store.getReview(targetKey);
         if (!review) return { ok: false, error: "This review no longer exists." };
         if (review.status === "generating") return { ok: true };
-        const result = await rerunReview(deps, targetKey);
+        const result = await rerunReview(deps, targetKey, agent ? { agent } : {});
         changed(targetKey);
         return result;
       },

@@ -1,7 +1,7 @@
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import { completionNotifications } from "./completion-notifications";
 import { defaultPreferences, guidePreferencesPrompt, reReviewCheckPrompt, spawnExecution, type ReviewPreferences } from "./preferences";
-import { refreshAssistants, skipRun, startAutomaticReview } from "./agent";
+import { refreshAssistants, skipRun, startAutomaticReview, type AgentChoice } from "./agent";
 import { agentPlacement, machineUnavailable } from "./machines";
 import { startVerification } from "./verification";
 import { baselineOf } from "./feedback-view";
@@ -112,6 +112,26 @@ export async function guideWriterMode(bb: BbPluginApi, projectId: string, known?
   }
 }
 
+/**
+ * How a guide build starts. notify: false leaves the Needs You alert to the turn that started it. unattended: started with
+ * no click from you, so it doesn't approve agents on the PR's head. agent: the guide writer picked for this build alone,
+ * in place of Settings'.
+ */
+export interface GuideOptions { notify?: boolean; unattended?: boolean; agent?: AgentChoice }
+
+/**
+ * The guide writer a build spawns on: the one picked for it, else Settings', else the project's defaults. A pick on
+ * Settings' provider keeps Settings' permission mode; on another, it runs at the lowest one its provider runs in, as the
+ * project's defaults do (guideWriterMode).
+ */
+async function guideWriter(bb: BbPluginApi, preferences: ReviewPreferences, projectId: string, picked: AgentChoice | undefined) {
+  const placement = await agentPlacement(bb, picked ?? preferences.guideAgent, projectId);
+  if (!picked) return { placement, execution: preferences.guideAgent ? spawnExecution(preferences.guideAgent) : await guideWriterMode(bb, projectId) };
+  const permissionMode = preferences.guideAgent?.providerId === picked.providerId ? preferences.guideAgent.permissionMode
+    : (await guideWriterMode(bb, projectId, { providerId: picked.providerId })).permissionMode;
+  return { placement, execution: spawnExecution({ ...picked, ...(permissionMode ? { permissionMode } : {}) }) };
+}
+
 export function buildGenerationPrompt(targetKey: string, generationId?: string, preferences: ReviewPreferences = defaultPreferences, earlier?: { guide: Guide | null; reviewed: boolean }): string {
   // The "Other files" chapter is the plugin's, made from unplaced files; kept, it would come back as a second one.
   const chapters = earlier?.guide?.sections.filter((s) => !s.id.startsWith("other-files")).map((s) => `- ${s.id}: ${s.title} (${s.diffs.map((d) => d.hunks ? `${d.file} hunks ${d.hunks.join(", ")}` : d.file).join(", ")})`) ?? [];
@@ -138,8 +158,7 @@ export async function generateGuide(
   store: AsyncStore,
   targetKey: string,
   projectId: string,
-  /** unattended: started with no click from you, so it doesn't approve agents on the PR's head. */
-  options: { notify?: boolean; unattended?: boolean } = {},
+  options: GuideOptions = {},
 ): Promise<void> {
   // A reload disposed the store before the start's turn came; the next factory finds nothing begun.
   const run = await store.exclusive((tx) => beginGuide(bb, tx, store, targetKey, projectId, options)).catch(() => null);
@@ -158,8 +177,7 @@ export async function beginGuide(
   store: AsyncStore,
   targetKey: string,
   projectId: string,
-  /** unattended: started with no click from you, so it doesn't approve agents on the PR's head. */
-  options: { notify?: boolean; unattended?: boolean } = {},
+  options: GuideOptions = {},
 ): Promise<() => Promise<void>> {
   let generationId: string | undefined;
   let workerId: string | undefined;
@@ -212,8 +230,7 @@ export async function beginGuide(
       if ("error" in begun) throw begun.error;
       const { preferences, earlier } = begun;
       const title = `${GUIDE_WORKER_TITLE}${targetKey}`;
-      const placement = await agentPlacement(bb, preferences.guideAgent, projectId);
-      const execution = preferences.guideAgent ? spawnExecution(preferences.guideAgent) : await guideWriterMode(bb, projectId);
+      const { placement, execution } = await guideWriter(bb, preferences, projectId, options.agent);
       const id = generationId!;
       const worker = await spawningFor(bb, title, targetKey, async () => {
         const worker = await bb.sdk.threads.spawn({
