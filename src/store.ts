@@ -2,7 +2,7 @@ import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import { renameOverviewChapter, type Guide } from "./guide";
 import { diffSide, isLocal, rangeOf, sameLocation, SUMMARY_AT, type Claim, type CommentLocation, type Discussion, type DiscussionEntry, type Draft, type DraftComment, type GithubReviewComment, type Severity, type Verdict } from "./draft";
 import { createHash, randomUUID } from "node:crypto";
-import { preferencesSchema, readPreferences, savedKnobs, unknownKnobs, type PreferencesRecord, type ReviewPreferences, type ReviewerNotesRecord } from "./preferences";
+import { preferencesSchema, readPreferences, savedKnobs, unknownKnobs, type AgentExecution, type PreferencesRecord, type ReviewPreferences, type ReviewerNotesRecord } from "./preferences";
 import type { AssessmentSummary, TurnSignals } from "../lib/turn";
 import type { AssessmentItem, AssessmentRun, ReplyDraft } from "../lib/feedback";
 import type { FeedbackThread, PrConversationItem } from "./github/types";
@@ -173,6 +173,11 @@ export interface ReviewLifecycle {
   flaggedSeen?: string[];
   /** What the review agent did on GitHub or sent, oldest first: the last 100 (setLifecycle drops the rest). */
   activity?: ActivityEntry[];
+  /**
+   * The review agent chosen for this review as it was started, which its conversations start on in place of Settings'
+   * (src/agent.ts getConversation). Absent or null: Settings' review agent, else the project's defaults.
+   */
+  reviewAgent?: Omit<AgentExecution, "permissionMode"> | null;
   /** Push (src/push.ts): the last one, from your click to GitHub, or a push no one asked for. Null once you said Got it. */
   push?: PushRun | null;
   /**

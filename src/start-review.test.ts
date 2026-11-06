@@ -1,4 +1,4 @@
-import { test, expect, vi } from "vitest";
+import { describe, test, expect, vi } from "vitest";
 import { failingCall, testStore } from "./test-store.test-support";
 
 vi.mock("./gh", async (orig) => {
@@ -31,6 +31,12 @@ vi.mock("./gh", async (orig) => {
   };
 });
 
+// startPlugin finds the store the plugin queues its calls through.
+vi.mock("./store-queue", async (original) => {
+  const actual = await original<typeof import("./store-queue")>();
+  return { ...actual, queueStore: vi.fn(actual.queueStore) };
+});
+
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
 import { createPrReview } from "./start-review";
 import { defaultPreferences } from "./preferences";
@@ -38,6 +44,8 @@ import * as gh from "./gh";
 import { targetKey } from "./targets";
 import plugin from "../server";
 import type { AsyncStore } from "./store-queue";
+import { getConversation, newConversation } from "./agent";
+import { startPlugin } from "./plugin-store.test-support";
 
 const key = targetKey({ kind: "pr", number: 7, repo: "acme/web" });
 
@@ -227,4 +235,95 @@ test("a start whose diff fails to save leaves no review generating, and starting
   expect(await store.getReview(key)).toBeNull();
   expect(await createPrReview({ bb, store, gh }, { input: "https://github.com/acme/web/pull/7", projectId: "p1" })).toEqual({ ok: true, targetKey: key });
   expect(await store.patch(key)).toContain("diff --git a/a.ts");
+});
+
+describe("a review agent picked as the review starts", () => {
+  const machines = [
+    { id: "host_server", name: "bb-server-0", status: "connected", type: "persistent", lifecycle: { phase: "active" } },
+    { id: "host_maxbook", name: "MaxBook", status: "connected", type: "persistent", lifecycle: { phase: "active" } },
+    { id: "host_old", name: "FloMac Original", status: "disconnected", type: "persistent", lifecycle: { phase: "active" } },
+  ];
+  const settingsAgent = { providerId: "claude-code", model: "opus", reasoningLevel: "high", permissionMode: "full" } as const;
+  const picked = { hostId: "host_maxbook", providerId: "codex", model: "gpt-6", reasoningLevel: "low", serviceTier: "fast" };
+
+  /** A host whose guide writer submits its guide as soon as it's waited on, so the review agent starts after it. */
+  async function host() {
+    let store: AsyncStore;
+    const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: {
+      threads: {
+        spawn: async ({ title }: { title: string }) => ({ id: title.startsWith("Generate guide") ? "writer" : "agent" }),
+        wait: async ({ threadId }: { threadId: string }) => { if (threadId === "writer") await store.saveGuide(key, { title: "G", intent: "I", sections: [], unplacedFiles: [] }); },
+        archive: async () => {}, stop: async () => {}, get: async () => ({ archivedAt: null, deletedAt: null, status: "idle" }),
+      },
+      projects: { list: async () => [{ id: "p1", kind: "standard" }, { id: "proj_personal", kind: "personal" }] },
+      hosts: { get: async ({ hostId }: { hostId: string }) => machines.find((m) => m.id === hostId) ?? Promise.reject(Object.assign(new Error("HTTP 404"), { status: 404 })) },
+    } as any });
+    store = testStore(bb);
+    await store.savePreferences({ ...defaultPreferences, assistantAgent: settingsAgent }, 0);
+    const spawned = async () => {
+      await vi.waitFor(() => expect(harness.inspection.sdk.callsTo("threads.spawn")).toHaveLength(2));
+      return harness.inspection.sdk.callsTo("threads.spawn").map(([args]) => args as any);
+    };
+    return { bb, store, spawned };
+  }
+
+  test("with no pick, the review agent is Settings', on the machine and permissions Settings give it", async () => {
+    const { bb, store, spawned } = await host();
+    expect(await createPrReview({ bb, store, gh }, { input: "https://github.com/acme/web/pull/7", projectId: "p1" })).toEqual({ ok: true, targetKey: key });
+    expect((await store.getReview(key))?.reviewAgent).toBeUndefined();
+    const [, agent] = await spawned();
+    expect(agent).toMatchObject({ title: expect.stringMatching(/^Review agent: /), projectId: "p1", environment: { type: "project-default" }, providerId: "claude-code", model: "opus", reasoningLevel: "high", permissionMode: "full" });
+  });
+
+  test("a pick starts the review agent on its provider, model, effort, tier and machine, and leaves Settings as they were", async () => {
+    const { bb, store, spawned } = await host();
+    const before = await store.getPreferences();
+    expect(await createPrReview({ bb, store, gh }, { input: "https://github.com/acme/web/pull/7", projectId: "p1", agent: picked })).toEqual({ ok: true, targetKey: key });
+    expect((await store.getReview(key))?.reviewAgent).toEqual(picked);
+    const [writer, agent] = await spawned();
+    // The guide writer is Settings', untouched by the pick.
+    expect(writer).toMatchObject({ title: expect.stringMatching(/^Generate guide: /), projectId: "p1", environment: { type: "project-default" } });
+    expect(agent).toMatchObject({
+      title: expect.stringMatching(/^Review agent: /),
+      projectId: "proj_personal", environment: { type: "host", hostId: "host_maxbook", workspace: { type: "personal" } },
+      providerId: "codex", model: "gpt-6", reasoningLevel: "low", serviceTier: "fast",
+      executionInputSources: { providerId: "explicit", model: "explicit", reasoningLevel: "explicit", serviceTier: "explicit" },
+    });
+    // Settings' permission mode is for its own provider.
+    expect(agent).not.toHaveProperty("permissionMode");
+    expect(await store.getPreferences()).toEqual(before);
+    // Its next conversation starts on the pick too; another review's, on Settings'.
+    await newConversation(bb, store, key);
+    expect((await getConversation(bb, store, key)).defaults).toEqual(picked);
+    await store.saveReview({ targetKey: "pr-other", kind: "pr", status: "ready", createdAt: 1, projectId: "p1" });
+    expect((await getConversation(bb, store, "pr-other")).defaults).toEqual({ providerId: "claude-code", model: "opus", reasoningLevel: "high" });
+  });
+
+  test("a pick on the provider Settings chose keeps Settings' permission mode", async () => {
+    const { bb, store, spawned } = await host();
+    await createPrReview({ bb, store, gh }, { input: "https://github.com/acme/web/pull/7", projectId: "p1", agent: { providerId: "claude-code", model: "sonnet", reasoningLevel: "medium" } });
+    const [, agent] = await spawned();
+    expect(agent).toMatchObject({ projectId: "p1", environment: { type: "project-default" }, providerId: "claude-code", model: "sonnet", reasoningLevel: "medium", permissionMode: "full" });
+  });
+
+  test("a pick on an offline machine stops the review before the PR is fetched", async () => {
+    const { bb, store } = await host();
+    vi.mocked(gh.runGh).mockClear();
+    expect(await createPrReview({ bb, store, gh }, { input: "https://github.com/acme/web/pull/7", projectId: "p1", agent: { ...picked, hostId: "host_old" } }))
+      .toEqual({ ok: false, error: "FloMac Original is offline. Wake it, or choose another machine for the review agent here." });
+    expect(gh.runGh).not.toHaveBeenCalled();
+    expect(await store.getReview(key)).toBeNull();
+  });
+
+  test("startReview passes the pick through, and refuses one that isn't an agent selection", async () => {
+    const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: {
+      threads: { spawn: async () => ({ id: "writer" }), wait: async () => {}, archive: async () => {}, stop: async () => {} },
+      projects: { list: async () => [{ id: "proj_personal", kind: "personal" }] },
+      hosts: { get: async ({ hostId }: { hostId: string }) => machines.find((m) => m.id === hostId) },
+    } as any });
+    const store = await startPlugin(bb);
+    expect(await harness.behavior.callRpc("startReview", { input: "https://github.com/acme/web/pull/7", agent: picked })).toEqual({ ok: true, targetKey: key });
+    expect((await store.getReview(key))?.reviewAgent).toEqual(picked);
+    await expect(harness.behavior.callRpc("startReview", { input: "https://github.com/acme/web/pull/7", agent: { ...picked, permissionMode: "full" } })).rejects.toThrow();
+  });
 });

@@ -6,6 +6,8 @@ import { beginGuide, guideWriterUnavailable } from "./generate";
 import { readPrSnapshot } from "./pr-snapshot";
 import { rebuildReview, upToDate } from "./rereview";
 import type { AsyncStore } from "./store-queue";
+import type { AgentChoice } from "./agent";
+import { machineUnavailable } from "./machines";
 
 interface Deps {
   bb: BbPluginApi;
@@ -25,10 +27,11 @@ export async function recordPrState(store: AsyncStore, targetKey: string, state:
 // full GitHub PR URL into the panel instead of running `bb review` in a
 // terminal. Only a PR's URL or owner/repo#n is accepted here — a bare PR number or local
 // git ref needs a project-scoped cwd/branch that the nav panel doesn't have,
-// so those still route through the CLI.
+// so those still route through the CLI. `agent` is the review agent picked for this review: it's kept with the review,
+// which starts its conversations on it in place of Settings' (src/agent.ts getConversation), and Settings stay as they are.
 export async function createPrReview(
   deps: Deps,
-  args: { input: string; projectId: string },
+  args: { input: string; projectId: string; agent?: AgentChoice },
 ): Promise<{ ok: boolean; error?: string; targetKey?: string }> {
   const target = parseTarget(args.input);
   if (target.kind !== "pr" || !target.repo) {
@@ -39,7 +42,8 @@ export async function createPrReview(
     };
   }
 
-  const unavailable = await guideWriterUnavailable(deps.bb, deps.store);
+  const unavailable = await guideWriterUnavailable(deps.bb, deps.store)
+    ?? (args.agent ? await machineUnavailable(deps.bb, args.agent, "review agent", "here") : null);
   if (unavailable) return { ok: false, error: unavailable };
 
   let snapshot: Awaited<ReturnType<typeof readPrSnapshot>>;
@@ -89,6 +93,7 @@ export async function createPrReview(
       // An existing review rebuilds as Re-review does, keeping its guide and comments.
       if (existing) {
         await recordPrState(tx, key, pr.state);
+        if (args.agent) await tx.setLifecycle(key, { reviewAgent: args.agent });
         run = await rebuildReview(deps, tx, meta, patch);
         return { key, told: true };
       }
@@ -96,6 +101,7 @@ export async function createPrReview(
       await tx.savePatch(key, ensureGitHeaders(patch));
       await tx.saveReview(meta);
       await recordPrState(tx, key, pr.state);
+      if (args.agent) await tx.setLifecycle(key, { reviewAgent: args.agent });
       // Starting a PR again brings it back into discovery after a delete.
       await tx.unignoreDiscovery(key);
       // The panel refetches on the realtime signal.

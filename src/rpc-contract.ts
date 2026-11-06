@@ -160,9 +160,10 @@ export const rpcContract = defineRpcContract({
     output: z.object({ body: z.string(), revision: z.number().int() }),
   },
 
-  // Panel: start a review by pasting a GitHub PR URL
+  // Panel: start a review by pasting a GitHub PR URL. agent: the review agent picked for this review, in place of
+  // Settings' (src/store.ts reviewAgent); absent, Settings' as before.
   startReview: {
-    input: z.object({ input: z.string().min(1) }).strict(),
+    input: z.object({ input: z.string().min(1), agent: agentChoiceSchema.optional() }).strict(),
     output: z.object({ ok: z.boolean(), error: z.string().optional(), targetKey: z.string().optional() }),
   },
 

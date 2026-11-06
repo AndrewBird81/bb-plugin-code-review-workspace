@@ -146,7 +146,7 @@ export function register(deps: ServeDeps) {
     // Panel: start a review by pasting a GitHub PR URL. The nav panel isn't
     // project-scoped, so the frontend can't reliably supply a projectId —
     // resolve one server-side (prefer the personal project, else the first).
-    async startReview({ input }) {
+    async startReview({ input, agent }) {
       let projectId: string | undefined;
       try {
         projectId = await personalProjectId(bb);
@@ -154,7 +154,7 @@ export function register(deps: ServeDeps) {
         return { ok: false, error: "Couldn't resolve a project to run generation." };
       }
       if (!projectId) return { ok: false, error: "No project available to run generation." };
-      return createPrReview(deps, { input, projectId });
+      return createPrReview(deps, { input, projectId, ...(agent ? { agent } : {}) });
     },
 
     // Read
