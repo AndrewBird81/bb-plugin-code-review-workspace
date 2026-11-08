@@ -172,6 +172,8 @@ test("the plugin registers the same RPC methods, tools, CLI subcommands, listene
   `);
   // What agents read of each tool, word for word.
   expect(registered.agentTools.map(({ name, description, instructions, presentation, inputSchema }) => ({ name, description, instructions, presentation, inputSchema }))).toMatchSnapshot();
+  // The PR's author reads what posts, and never the guide.
+  for (const name of ["add_draft_comment", "set_review_summary"]) expect(registered.agentTools.find((tool) => tool.name === name)?.instructions).toContain("never sees the guide");
   const { run: _run, ...cli } = registered.cli!;
   expect(cli).toMatchInlineSnapshot(`
     {
