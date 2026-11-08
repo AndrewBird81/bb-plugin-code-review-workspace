@@ -14,6 +14,7 @@ One review of a PR and your local changes to it: a thread on the branch of a PR 
 - The agent answers each question you ask in a discussion, and after an edit says in a sentence what it changed, where it could skip a reply before.
 - A discussion with the agent ends with **Reply**, as a GitHub thread does: under a line, in Comments, and under the summary. **Ask agent** sat above it, among the comment's actions, so it didn't look like you could go on. Reply's box opens in its place, and the focus comes back to Reply once you send or leave it; Ask agent shows until there's a discussion.
 - "The agent didn’t reply here." links to the agent's chat as **Open its chat**, which said Ask agent and read like Reply.
+- **Dig deeper** says what it found once it's done, where the button was: each What to verify item marked holds ✓, problem ⚠ or not verified ?, with the agent's one-line note, its one line overall, the comments it added, each showing its line, and **Agent’s reply**, which opens its chat. It stays until you **Dig deeper again**, and says so when the agent stopped before it finished. The review agent reports it with a new tool, `report_deep_dive`.
 
 ## 1.11.0 — 2026-11-03
 

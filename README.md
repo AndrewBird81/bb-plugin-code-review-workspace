@@ -26,7 +26,7 @@ An agent writes a guide to the change: what it does and why, then chapters in re
 
 - **Start here** lists the one to three riskiest lines, each a click from the code.
 - **Requirements** checks what the PR's description and linked issues ask for against the diff: covered, partial, missing, or unclear, with evidence.
-- Medium- and high-risk chapters say what to verify. **Dig deeper** asks the agent for a closer pass over one.
+- Medium- and high-risk chapters say what to verify. **Dig deeper** asks the agent for a closer pass over one, then marks each item checked and lists the comments it added.
 - Lockfiles, generated files, and diffs over 1,500 changed lines start folded. The reading-time estimate skips lockfiles and generated files.
 
 <img src="docs/screenshots/overview-dark.webp" alt="A review Overview lists what the PR does and why, three Start here hotspots, requirements scored 2 of 4 covered, a failing CI check, and chapters with High risk badges.">

@@ -5,6 +5,7 @@ import { addComment, assistantReview, deleteComment, editComment, mergedAway, re
 import { SEVERITIES, SUMMARY_AT } from "./draft";
 import { describeDraft, writeSummary } from "./draft-summary";
 import { describeRemovals, removalWarning } from "./learning";
+import { noteDeepDiveComment, reportDeepDive } from "./deep-dive";
 import type { AsyncStore } from "./store-queue";
 import { failed, type ServeDeps } from "./server-modules";
 
@@ -72,7 +73,10 @@ export function register(deps: ServeDeps) {
     }),
     execute: async (input, { threadId }) => await assistantDraft(threadId, true, async (tx, targetKey) => {
       const added = await addComment(tx, targetKey, input);
-      return added.ok ? { ok: true, text: added.text + await removalWarning(tx, targetKey, input) } : added;
+      if (!added.ok) return added;
+      // A comment from a Dig deeper is listed on its chapter.
+      await noteDeepDiveComment(tx, targetKey, threadId, { file: input.file, line: input.line, side: input.side ?? "RIGHT" });
+      return { ok: true, text: added.text + await removalWarning(tx, targetKey, input) };
     }),
   });
   bb.agents.registerTool({
@@ -115,5 +119,17 @@ export function register(deps: ServeDeps) {
       summary ? await replyInDiscussion(tx, targetKey, { ...SUMMARY_AT, body })
       : file === undefined || line === undefined ? { ok: false, error: "Give the discussion's file and line, or summary: true for the review summary's discussion." }
       : await replyInDiscussion(tx, targetKey, { file, line, side, body })),
+  });
+  bb.agents.registerTool({
+    name: "report_deep_dive",
+    description: "Report what a Dig deeper on a chapter found, after any comments: a verdict on each of its What to verify items, in order, and one line overall. The reviewer sees it on the chapter, with the comments you added. Only in the turn that carries a Dig deeper; nothing reaches GitHub.",
+    parameters: z.object({
+      summary: z.string().trim().min(1).max(300).describe("One line overall: what you found, or that the chapter holds up."),
+      checks: z.array(z.object({
+        verdict: z.enum(["holds", "problem", "unverified"]).describe("holds: you confirmed it; problem: you found one, and commented on it; unverified: you couldn't tell."),
+        note: z.string().trim().min(1).max(300).describe("One line: what you read or ran, with file:line."),
+      })).max(3).describe("One verdict for each What to verify item, in the order the message gave them."),
+    }),
+    execute: async (input, { threadId }) => await assistantDraft(threadId, false, (tx, targetKey) => reportDeepDive(tx, targetKey, threadId, input)),
   });
 }

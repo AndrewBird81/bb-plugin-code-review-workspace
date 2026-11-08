@@ -4,6 +4,8 @@ import { cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import { defaultPreferences } from "../src/preferences";
 import { getReviewState, patchReviewState } from "../lib/panel-state";
+import { deepDiveOutcome } from "./ChapterIntro";
+import { panelTabCalls } from "./panel-tabs.test-support";
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }));
 vi.mock("@pierre/diffs/react", () => ({ FileDiff: ({ fileDiff }: any) => <pre>{fileDiff.additionLines.join("\n")}</pre> }));
@@ -153,6 +155,45 @@ test("What to verify ends with Dig deeper on medium- and high-risk chapters, whi
   const back = within(await slot.findByRole("region", { name: "Parsing" }));
   expect(back.queryByText("The agent is digging into this chapter…")).toBeNull();
   expect(back.getByRole("button", { name: "Dig deeper" })).toBeTruthy();
+  slot.lifecycle.unmount();
+}, 15_000);
+
+test("once Dig deeper is done, the chapter says what it found: each check's verdict, its comments, and the agent's reply", async () => {
+  const comment = { file: "src/a.ts", line: 1, side: "RIGHT", author: "agent", severity: "should-fix", body: "Skips no empty row." };
+  const deepDiveResults = { c1: { at: 1, title: "Parsing", comments: [{ file: "src/a.ts", line: 1, side: "RIGHT" }], report: {
+    summary: "An empty row isn't skipped.",
+    checks: [{ verdict: "problem", note: "src/a.ts:1 reads it." }, { verdict: "holds", note: "Kept in `row`." }],
+  } } };
+  const slot = await renderWorkspace(guide, { review: () => ({ deepDiveResults }), rpc: {
+    getDraft: () => ({ draft: { targetKey: "pr-42", verdict: "COMMENT", body: "", comments: [comment] }, stale: [] }),
+  } });
+  await slot.findByText("aa");
+  const intro = within(slot.getByRole("region", { name: "Parsing" }));
+  const found = within(intro.getByRole("group", { name: "What Dig deeper found" }));
+  expect(found.getByText(/^Dig deeper:/).textContent).toBe("Dig deeper: Found a problem in 1 of 2 checks · 1 comment added");
+  found.getByText("An empty row isn't skipped.");
+  const items = within(intro.getByRole("list", { name: "What to verify" })).getAllByRole("listitem");
+  expect(items.map((item) => [item.querySelector("[aria-label]")?.getAttribute("aria-label"), item.textContent])).toEqual([
+    ["Problem", "Check that an empty row is skipped.src/a.ts:1 reads it."],
+    ["Holds", "Check that tenant is kept.Kept in row."],
+  ]);
+  await found.findByRole("button", { name: "Should fix · a.ts:1" });
+  fireEvent.click(found.getByRole("button", { name: "Agent’s reply" }));
+  await waitFor(() => expect(panelTabCalls(slot)).toContain("openTab:agent"));
+  expect(intro.getByRole("button", { name: "Dig deeper again" })).toBeTruthy();
+  slot.lifecycle.unmount();
+}, 15_000);
+
+test("what Dig deeper found shows only on the chapter it dug into, and says when the agent stopped early", async () => {
+  expect(deepDiveOutcome({ at: 1, title: "x", comments: [], failed: true })).toBe("The agent stopped before it finished · no comments added");
+  expect(deepDiveOutcome({ at: 1, title: "x", comments: [] })).toBe("Finished · no comments added");
+  expect(deepDiveOutcome({ at: 1, title: "x", comments: [], report: { summary: "s", checks: [{ verdict: "holds", note: "n" }, { verdict: "unverified", note: "n" }] } })).toBe("Couldn’t verify 1 of 2 checks · no comments added");
+  expect(deepDiveOutcome({ at: 1, title: "x", comments: [], report: { summary: "s", checks: [{ verdict: "holds", note: "n" }] } })).toBe("The check holds · no comments added");
+  // A rebuilt guide's chapter with the same id isn't the one dug into.
+  const slot = await renderWorkspace(guide, { review: () => ({ deepDiveResults: { c1: { at: 1, title: "Old parsing", comments: [] } } }) });
+  await slot.findByText("aa");
+  expect(slot.queryByRole("group", { name: "What Dig deeper found" })).toBeNull();
+  expect(slot.getByRole("button", { name: "Dig deeper" })).toBeTruthy();
   slot.lifecycle.unmount();
 }, 15_000);
 

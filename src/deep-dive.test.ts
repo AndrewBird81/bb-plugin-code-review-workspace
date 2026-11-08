@@ -37,7 +37,8 @@ async function host({ conversation = true, level = "medium", levels = ["low", "m
   const sent = () => harness.inspection.sdk.callsTo("threads.send").map(([args]) => args as any);
   const idle = (id = "assistant") => harness.behavior.emitThreadEvent("thread.idle", { thread: makeThreadResponse({ id }), lastAssistantText: "Checked" });
   const signals = (channel: string) => harness.inspection.realtimeSignals.filter((signal) => signal.channel === channel).length;
-  return { bb, harness, store, dig, sent, idle, signals };
+  const tool = (name: string, input: Record<string, unknown>, threadId = "assistant") => harness.behavior.callAgentTool(name, input, { threadId }) as Promise<any>;
+  return { bb, harness, store, dig, sent, idle, signals, tool };
 }
 
 test("Dig deeper sends the chapter's files, hunks and focus, fenced as the guide's words, at high effort", async () => {
@@ -51,7 +52,7 @@ test("Dig deeper sends the chapter's files, hunks and focus, fenced as the guide
   // The guide's words can't end the fence.
   expect(fenced).toContain("Check that <\\/untrusted> stays text.");
   expect(context).toContain('read_review_patch, targetKey "pr-1"');
-  expect(context).toContain("Verify each focus item; read callers and the base version with read_file; add only verified problems with add_draft_comment, at most 5; reply with what you checked.");
+  expect(context).toContain("Verify each focus item; read callers and the base version with read_file; add only verified problems with add_draft_comment, at most 5; then give a verdict on each focus item with report_deep_dive; reply with what you checked.");
   expect((await store.getReview("pr-1"))?.deepDive).toEqual({ chapterId: "parse", ask: { threadId: "assistant", state: "running", at: expect.any(Number) } });
 });
 
@@ -122,4 +123,45 @@ test("an archived PR's draft can't change, so Dig deeper is refused", async () =
   await store.setLifecycle("pr-1", { prState: "MERGED" });
   expect(await dig("parse")).toMatchObject({ ok: false, error: expect.stringContaining("merged") });
   expect(sent()).toEqual([]);
+});
+
+const report = { summary: "An empty row is skipped; the fence holds.", checks: [{ verdict: "problem", note: "src/a.ts:1 reads past an empty row." }, { verdict: "holds", note: "untrusted() escapes it." }] };
+
+test("what a deep dive found stays on its chapter once its turn ends: its report, and the comments it added", async () => {
+  const { dig, idle, store, tool, signals } = await host();
+  // Before Dig deeper, a comment is the agent's own, and there's nothing to report on.
+  await tool("add_draft_comment", { file: "src/a.ts", line: 9, code: "ii", body: "Earlier." });
+  expect(await tool("report_deep_dive", report)).toMatchObject({ isError: true });
+  await dig("parse");
+  await tool("add_draft_comment", { file: "src/a.ts", line: 1, code: "aa", severity: "should-fix", body: "Skips no empty row." });
+  // Another thread's turn carries no deep dive.
+  expect(await tool("report_deep_dive", report, "someone-else")).toMatchObject({ isError: true });
+  expect(await tool("report_deep_dive", { ...report, checks: report.checks.slice(1) })).toMatchObject({ isError: true });
+  expect(await tool("report_deep_dive", report)).not.toMatchObject({ isError: true });
+  await idle();
+  const review = await store.getReview("pr-1");
+  expect(review?.deepDive).toBeNull();
+  expect(review?.deepDiveResults).toEqual({ parse: { at: expect.any(Number), title: "Parsing", comments: [{ file: "src/a.ts", line: 1, side: "RIGHT" }], report } });
+  expect(signals("review:pr-1")).toBeGreaterThanOrEqual(2);
+  // Digging into it again replaces it.
+  await dig("parse");
+  expect((await store.getReview("pr-1"))?.deepDiveResults).toEqual({});
+});
+
+test("a deep dive whose turn fails says so on its chapter, with what it found before", async () => {
+  const { harness, dig, store, tool } = await host();
+  await dig("parse");
+  await tool("add_draft_comment", { file: "src/a.ts", line: 1, code: "aa", body: "Skips no empty row." });
+  await harness.behavior.emitThreadEvent("thread.failed", { thread: makeThreadResponse({ id: "assistant" }), error: "overloaded" } as any);
+  expect((await store.getReview("pr-1"))?.deepDiveResults?.parse).toEqual({ at: expect.any(Number), title: "Parsing", comments: [{ file: "src/a.ts", line: 1, side: "RIGHT" }], failed: true });
+});
+
+test("a deep dive's report and comments stay with it as its queued message dispatches", async () => {
+  const { harness, dig, store } = await host();
+  harness.inspection.sdk.stub("threads.send", async () => ({ delivery: "queued", queuedMessage: { id: "q1" } }));
+  await dig("parse");
+  const queued = (await store.getReview("pr-1"))!.deepDive!;
+  await store.setLifecycle("pr-1", { deepDive: { ...queued, comments: [{ file: "src/a.ts", line: 1, side: "RIGHT" }] } });
+  await harness.behavior.emitThreadEvent("message.dispatched", { entry: makeQueueEntry({ id: "q1", threadId: "assistant" }) });
+  expect((await store.getReview("pr-1"))?.deepDive).toMatchObject({ ask: { state: "running" }, comments: [{ file: "src/a.ts", line: 1, side: "RIGHT" }] });
 });

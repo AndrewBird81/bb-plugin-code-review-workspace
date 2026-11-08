@@ -26,7 +26,10 @@ export async function setAsk(store: AsyncStore, targetKey: string, at: AskAt, as
     if (isDeepDive(at)) {
       // Withdrawing one chapter's leaves another's be.
       if (!ask && (await tx.getReview(targetKey))?.deepDive?.chapterId !== at.deepDive) return;
-      return await tx.setLifecycle(targetKey, { deepDive: ask && { chapterId: at.deepDive, ask } });
+      // Its comments and report so far stay as its message is queued and dispatched; a new dig starts without them.
+      const current = (await tx.getReview(targetKey))?.deepDive;
+      const kept = ask && ask.state !== "sending" && current?.chapterId === at.deepDive ? { comments: current.comments, report: current.report } : {};
+      return await tx.setLifecycle(targetKey, { deepDive: ask && { ...kept, chapterId: at.deepDive, ask } });
     }
     if (isSummary(at)) return await tx.setLifecycle(targetKey, { summaryAsk: ask });
     const others = ((await tx.getReview(targetKey))?.commentAsks ?? []).filter((entry) => !sameLocation(entry, at));
