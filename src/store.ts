@@ -147,7 +147,7 @@ export interface ReviewLifecycle {
    * once the review becomes a PR, for Not pushed yet.
    */
   feature?: FeatureReview | null;
-  /** The thread a Send goes to: the top thread working in the folder, or a fixer. Null for none yet. */
+  /** The thread a Send goes to: the thread that started the folder's review, or a fixer. Null for none yet. */
   mainThread?: MainThread | null;
   /** The threads that were the main thread before `mainThread`, oldest first. */
   implementers?: MainThread[];

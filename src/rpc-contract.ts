@@ -365,7 +365,7 @@ export const rpcContract = defineRpcContract({
     input: z.object({ targetKey: z.string(), comments: z.array(z.object(location).strict()).min(1), force: z.boolean().optional() }).strict(),
     output: z.union([z.object({ ok: z.literal(true), threadId: z.string(), title: z.string(), keptLocal: z.number().int().optional() }), sendWarning]),
   },
-  // The review's main thread, which its Sends go to (src/loop.ts): the top thread in its folder, or the thread `bb review`
+  // The review's main thread, which its Sends go to (src/loop.ts): the thread that started it in its folder, or the thread `bb review`
   // ran in, and the machine it works on when that's known.
   getSourceThread: {
     input: targetKey,

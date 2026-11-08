@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- A sub-thread's review goes to that sub-thread. `bb review` with no arguments, or **Review changes** above its message box, makes the thread you see that asked the review's main thread, even where an orchestrator works in the same folder: its comments, Send now, **Main thread ↗** and the review's name are the sub-thread's, and the orchestrator no longer relays them. A hidden subagent's call still goes to the nearest thread you see working in that folder, and a thread working under one of the plugin's agents still can't start a review. A review an orchestrator already has keeps it; **Change thread** on its Main thread tab moves it to the sub-thread.
+
 ## 1.11.0 — 2026-11-03
 
 See at a glance which reviews are working and which have news, with BB's own thread status icons on their rows. Still **BB 0.48+** (plugin SDK **0.6.79+**) with Node 24+; installs at `^1.0.0` update to 1.11.0. 1.11.0 adds no migration, so rolling back to 1.10.1 keeps everything; the rows lose their icons there.

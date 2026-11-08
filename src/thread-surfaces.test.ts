@@ -41,11 +41,11 @@ async function setup(env: Record<string, unknown> = {}) {
 }
 const key = featureKey("env1", "feat/qa");
 
-test("Review changes starts the folder's review as bb review does, addressed to the top thread there; clicked again, it only opens it", async () => {
+test("Review changes starts the folder's review as bb review does, addressed to the thread that clicked it; clicked again, it only opens it", async () => {
   const s = await setup();
   expect(await s.call("reviewThreadChanges", { threadId: "sub" })).toEqual({ ok: true, targetKey: key });
   const listed = await s.call("threadLinks", null);
-  expect(listed.reviews).toEqual([{ targetKey: key, createdAt: expect.any(Number), main: "main", threads: ["main"], folder: { environmentId: "env1", branch: "feat/qa", paused: false } }]);
+  expect(listed.reviews).toEqual([{ targetKey: key, createdAt: expect.any(Number), main: "sub", threads: ["sub"], folder: { environmentId: "env1", branch: "feat/qa", paused: false } }]);
   await expect.poll(() => s.spawns.length).toBe(1);
   const reads = s.calls.length;
   expect(await s.call("reviewThreadChanges", { threadId: "main" })).toEqual({ ok: true, targetKey: key });
@@ -147,7 +147,7 @@ test("a thread a review agent started, in its folder, leads to that agent: neith
   await recordFormerWorker(s.bb, "other", "pr-x", "assistant");
   expect(await s.call("reviewThreadChanges", { threadId: "other" })).toMatchObject({ ok: false });
   expect((await s.call("threadLinks", null)).agents).toEqual(expect.arrayContaining(["agent", "other"]));
-  // The thread leading the folder still can.
+  // A thread of yours working in the folder still can.
   expect(await s.harness.behavior.runCli([], { threadId: "sub", projectId: "proj_api", cwd: "/Users/me/src/api" })).toMatchObject({ exitCode: 0 });
 });
 

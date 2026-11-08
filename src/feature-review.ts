@@ -1,5 +1,5 @@
 // A feature review: a local review of a folder and branch, one however many threads work there, addressed to its main
-// thread, the top thread working in that folder. `bb review` with no arguments starts it, or opens it as it is. Its page
+// thread, the thread that started it there. `bb review` with no arguments starts it, or opens it as it is. Its page
 // checks the folder (changed, on another branch, its machine offline, other threads there); once its branch has a PR
 // the same review becomes that PR's; and bb removing the folder ends it, unless comments wait on it.
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
@@ -60,22 +60,27 @@ async function threadGone(bb: BbPluginApi, threadId: string): Promise<{ gone: bo
 }
 
 /**
- * The thread a folder's comments go to: the highest of `caller` and its ancestors that still works in its folder. A
- * subagent bb spawned, or one sharing its parent's thread, finds the thread that leads the work; an orchestrator in
- * another folder is passed over. Each step reads one thread (threads.get, not experimental_listAncestors, which older
- * BBs lack); a parent BB no longer has ends the walk, and any other failure throws, as the leader can't be told.
+ * The thread a folder's comments go to, `main`: `caller`, when you see it, as a sub-thread working on its own feature
+ * does, even in its parent's folder; a hidden one gives way to the nearest of its ancestors you see that still works in
+ * its folder, passing over one in another folder. `top` is the highest of them working there, which may be one of this
+ * plugin's agents a thread works under. Each step reads one thread (threads.get, not experimental_listAncestors, which
+ * older BBs lack); a parent BB no longer has ends the walk, and any other failure throws, as neither can be told.
  */
-export async function mainThreadOf(bb: BbPluginApi, caller: Thread): Promise<Thread> {
+export async function mainThreadOf(bb: BbPluginApi, caller: Thread): Promise<{ main: Thread; top: Thread }> {
   let main = caller;
+  let top = caller;
   let at = caller;
   // A cycle, which BB shouldn't make, ends here too.
   for (let depth = 0; at.parentThreadId && depth < 50; depth++) {
     const parent = await threadOf(bb, at.parentThreadId);
     if (!parent) break;
-    if (parent.environmentId === caller.environmentId && live(parent)) main = parent;
+    if (parent.environmentId === caller.environmentId && live(parent)) {
+      if (main.visibility === "hidden") main = parent;
+      top = parent;
+    }
     at = parent;
   }
-  return main;
+  return { main, top };
 }
 
 /** What a folder's review needs to know of it: bb's environment, its machine's name, and its project's GitHub repo. */
@@ -244,7 +249,7 @@ interface FeatureCommand { name?: string; context?: string; inThreads: boolean }
 interface Ctx { projectId?: string; threadId?: string; cwd?: string }
 
 /**
- * The folder `threadId` works in and the top thread working there, as `bb review` with no arguments finds them, or why
+ * The folder `threadId` works in and the thread its review goes to, as `bb review` with no arguments finds them, or why
  * not: neither may be one of the plugin's own threads, as a thread a review agent started would lead to its agent.
  */
 async function callerFolder(deps: Deps, threadId: string): Promise<{ caller: Thread; folder: Folder; main: Thread | null } | { exitCode: number; stderr: string }> {
@@ -263,14 +268,14 @@ async function callerFolder(deps: Deps, threadId: string): Promise<{ caller: Thr
   const folder = await folderOf(bb, caller.environmentId);
   if ("error" in folder) return { exitCode: 1, stderr: folder.error };
   // Unknown, it starts no review, and an existing one keeps its main thread.
-  const main = await mainThreadOf(bb, caller).catch(() => null);
-  if (main && await pluginThread(deps, main, true)) return { exitCode: 2, stderr: agents };
-  return { caller, folder, main };
+  const found = await mainThreadOf(bb, caller).catch(() => null);
+  if (found && (await pluginThread(deps, found.main, true) || await pluginThread(deps, found.top, true))) return { exitCode: 2, stderr: agents };
+  return { caller, folder, main: found?.main ?? null };
 }
 
 /**
  * `bb review` with no arguments: the review of the folder the calling thread works in, at its branch now, started or
- * opened as it is, addressed to the top thread working there. `ownReview`: a review's own agent ran it, which may not.
+ * opened as it is, addressed to the calling thread, or its main thread as before. `ownReview`: a review's own agent ran it, which may not.
  */
 export async function runFeatureCommand(deps: Deps, command: FeatureCommand, ctx: Ctx, ownReview?: string) {
   const { bb, store } = deps;
@@ -302,7 +307,7 @@ export async function runFeatureCommand(deps: Deps, command: FeatureCommand, ctx
       : `Opened the review of ${where}: ${which}, as it was; nothing was rebuilt. ${open} to review it.`,
     replaced ? `Its main thread is now ${thread}, in place of ${replaced.title ? JSON.stringify(replaced.title) : replaced.threadId}, which is archived or deleted. Comments sent from the review go there.`
       : !main ? `Its main thread is ${thread}, as before: BB couldn’t say which thread leads the work here now. Comments sent from the review go there.`
-      : `Its main thread is ${thread}, the top thread working in this folder. Comments sent from the review go there.`,
+      : `Its main thread is ${thread}${to.threadId === main.id ? "" : ", as before"}. Comments sent from the review go there.`,
   ];
   // A subagent in a worktree of its own shares its parent's thread, whose folder this reviews.
   const cwd = ctx.cwd?.replace(/\/+$/, "");
