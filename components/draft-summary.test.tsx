@@ -109,7 +109,7 @@ test("Ask agent on the summary talks in its discussion, and Undo puts the agent'
   let draft = draftOf({ body: "Long summary.", bodyAuthor: "agent" });
   const discussion = (extra: Record<string, unknown> = {}) => ({ ...SUMMARY_AT, waiting: false, entries: [
     { author: "reviewer", kind: "message", body: "Shorter, please.", createdAt: 1 },
-    { author: "agent", kind: "edited", body: "Short.", createdAt: 2 },
+    { author: "agent", kind: "edited", body: "Short.", before: "Long summary.", createdAt: 2 },
     { author: "agent", kind: "message", body: "Cut it down.", createdAt: 3 },
   ], ...extra });
   const askAgent = vi.fn(() => { draft = { ...draft, body: "Short." }; return { draft, stale: [], discussions: [discussion({ undoable: true })] }; });
@@ -121,11 +121,19 @@ test("Ask agent on the summary talks in its discussion, and Undo puts the agent'
   });
   const slot = await renderTray("ask", { getDraft: () => ({ draft }), askAgent, undoAgentChange });
   fireEvent.click(summary(slot).getByRole("button", { name: "Ask agent about the review summary" }));
+  expect(summary(slot).getByText("Goes to the agent, not GitHub. It sees the summary and the draft comments.")).toBeTruthy();
   fireEvent.change(summary(slot).getByRole("textbox", { name: "Message to agent" }), { target: { value: "Shorter, please." } });
   fireEvent.click(summary(slot).getByRole("button", { name: "Send to agent" }));
   await waitFor(() => expect(askAgent).toHaveBeenCalledWith({ targetKey: "ask", file: "", line: 0, side: "RIGHT", body: "Shorter, please.", inserted: false }));
   await summary(slot).findByText("Agent edited the summary.");
   expect(summary(slot).getByText("Short.")).toBeTruthy();
+  // Show changes strikes what the edit took out and marks what it put in.
+  fireEvent.click(summary(slot).getByRole("button", { name: "Show changes" }));
+  const changes = summary(slot).getByLabelText("Changes");
+  expect(Array.from(changes.querySelectorAll("del")).map((el) => el.textContent)).toEqual(["Long summary"]);
+  expect(Array.from(changes.querySelectorAll("ins")).map((el) => el.textContent)).toEqual(["Short"]);
+  fireEvent.click(summary(slot).getByRole("button", { name: "Hide changes" }));
+  expect(summary(slot).queryByLabelText("Changes")).toBeNull();
   fireEvent.click(summary(slot).getByRole("button", { name: "Undo" }));
   await waitFor(() => expect(undoAgentChange).toHaveBeenCalledWith({ targetKey: "ask", file: "", line: 0, side: "RIGHT" }));
   await summary(slot).findByText("You undid that change.");

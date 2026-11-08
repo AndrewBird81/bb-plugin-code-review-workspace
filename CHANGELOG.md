@@ -9,6 +9,9 @@ One review of a PR and your local changes to it: a thread on the branch of a PR 
 - **Push** works there, from the folder, and says first "This is @dana's PR: Push puts the commit on their branch, `feat/qa`. Push anyway to go on.", with **Push anyway** and Cancel. A head in someone's fork goes to that fork's remote.
 - The review agent is told the folder joined the review, where its instructions said a PR's review with a folder began as it. The skill agents in your threads read says to run `bb review` there for you to see their local changes to a PR. `reviewThreadChanges` answers `joined: true` when the folder joined.
 - A sub-thread's review goes to that sub-thread. `bb review` with no arguments, or **Review changes** above its message box, makes the thread you see that asked the review's main thread, even where an orchestrator works in the same folder: its comments, Send now, **Main thread ↗** and the review's name are the sub-thread's, and the orchestrator no longer relays them. A hidden subagent's call still goes to the nearest thread you see working in that folder, and a thread working under one of the plugin's agents still can't start a review. A review an orchestrator already has keeps it; **Change thread** on its Main thread tab moves it to the sub-thread.
+- **Ask agent** on a comment or the summary says what the agent gets with your words: "It sees this comment and line 192.", "It sees lines 1–2.", or "It sees the summary and the draft comments."
+- "Agent edited the comment." and "Agent edited the summary." have **Show changes**, which strikes the words the edit took out and marks the ones it put in.
+- The agent answers each question you ask in a discussion, and after an edit says in a sentence what it changed, where it could skip a reply before.
 
 ## 1.11.0 — 2026-11-03
 

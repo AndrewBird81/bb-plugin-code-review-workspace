@@ -216,6 +216,28 @@ test("Undo under a line puts back the agent's latest change there, except while 
   expect(within(screen.getByRole("region", { name: "Discussion with agent on src/a.ts:2" })).queryByRole("button", { name: "Undo" })).toBeNull();
 });
 
+test("Show changes under the agent's edit marks the words it took out and put in; a change with no text before it has none", () => {
+  const at = { file: "src/a.ts", line: 2, side: "RIGHT" as const };
+  const discussion = { ...at, waiting: false, entries: [
+    { author: "reviewer" as const, kind: "message" as const, body: "Plain English?", createdAt: 1 },
+    { author: "agent" as const, kind: "edited" as const, body: "A path with .. gets through.", before: "Rooted paths silently collapse upward traversal.", createdAt: 2 },
+    { author: "agent" as const, kind: "removed" as const, body: "", createdAt: 3 },
+  ] };
+  renderWithDraft({ comments: [comment], discussions: [discussion] });
+  const thread = screen.getByRole("region", { name: "Discussion with agent on src/a.ts:2" });
+  const show = within(thread).getByRole("button", { name: "Show changes" });
+  expect(show.getAttribute("aria-expanded")).toBe("false");
+  fireEvent.click(show);
+  const changes = within(thread).getByLabelText("Changes");
+  expect(changes.querySelectorAll("del").length).toBeGreaterThan(0);
+  expect(changes.querySelectorAll("ins").length).toBeGreaterThan(0);
+  // Read without its struck words, it's the new text; without its inserted ones, the old.
+  const without = (tag: string) => Array.from(changes.childNodes).filter((node) => node.nodeName.toLowerCase() !== tag).map((node) => node.textContent).join("");
+  expect(without("del")).toBe("A path with .. gets through.");
+  expect(without("ins")).toBe("Rooted paths silently collapse upward traversal.");
+  expect(within(thread).getByRole("button", { name: "Hide changes" }).getAttribute("aria-expanded")).toBe("true");
+});
+
 test("Undo under a line waits while the panel's box edits that comment", () => {
   const at = { file: "src/a.ts", line: 2, side: "RIGHT" as const };
   const discussion = { ...at, waiting: false, undoable: true, entries: [{ author: "agent" as const, kind: "edited" as const, body: comment.body, createdAt: 2 }] };

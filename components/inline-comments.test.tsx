@@ -407,6 +407,8 @@ test("asking the agent about its comment opens a box under it, and the agent ans
   // The box sits under the comment, which stays.
   expect(box.closest("[data-draft-at]")).toBe(diff().getByRole("article", { name: "Draft comment on src/a.ts:2" }).closest("[data-draft-at]"));
   expect(panel().getByText("Writing to the agent about src/a.ts:2")).toBeTruthy();
+  // The box says what the agent gets besides your words.
+  expect(diff().getByText("Goes to the agent, not GitHub. It sees this comment and line 2.")).toBeTruthy();
   fireEvent.change(box, { target: { value: "It is, in a.test.ts." } });
   fireEvent.click(diff().getByRole("button", { name: "Send to agent" }));
   await waitFor(() => expect(askAgent).toHaveBeenCalledWith({ targetKey: "ask", file: "src/a.ts", line: 2, side: "RIGHT", body: "It is, in a.test.ts.", inserted: false }));
@@ -468,6 +470,7 @@ test("asking about selected lines opens a message box at the last line, and quot
   fireEvent.click(slot.getByRole("button", { name: "Ask about selected lines" }));
   const box = await within(slot.getByTestId("filediff")).findByRole("textbox", { name: "Message to agent" });
   expect(box.closest("[data-draft-at]")?.getAttribute("data-draft-at")).toBe("src/a.ts:2:RIGHT");
+  expect(slot.getByText("Goes to the agent, not GitHub. It sees lines 1–2.")).toBeTruthy();
   fireEvent.change(box, { target: { value: "Why both?" } });
   fireEvent.click(slot.getByRole("button", { name: "Send to agent" }));
   await waitFor(() => expect(askAgent).toHaveBeenCalledWith({ targetKey: "lines", file: "src/a.ts", line: 2, side: "RIGHT", startLine: 1, body: "Why both?", inserted: false }));

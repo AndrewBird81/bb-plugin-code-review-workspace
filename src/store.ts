@@ -1,6 +1,6 @@
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import { renameOverviewChapter, type Guide } from "./guide";
-import { diffSide, isLocal, rangeOf, sameLocation, SUMMARY_AT, type Claim, type CommentLocation, type Discussion, type DiscussionEntry, type Draft, type DraftComment, type GithubReviewComment, type Severity, type Verdict } from "./draft";
+import { diffSide, isLocal, isSummary, postedBody, rangeOf, sameLocation, SUMMARY_AT, type Claim, type CommentLocation, type Discussion, type DiscussionEntry, type Draft, type DraftComment, type GithubReviewComment, type Severity, type Verdict } from "./draft";
 import { createHash, randomUUID } from "node:crypto";
 import { preferencesSchema, readPreferences, savedKnobs, unknownKnobs, type PreferencesRecord, type ReviewPreferences, type ReviewerNotesRecord } from "./preferences";
 import type { AssessmentSummary, TurnSignals } from "../lib/turn";
@@ -1364,13 +1364,16 @@ export function storeOn(sql: Sql): Store {
       await followRenames(k);
       const waiting = await sql.all<CommentLocation>(`SELECT file, line, side FROM discussion_waits WHERE target_key=? ORDER BY file, line, side`, [k]);
       const discussions: Discussion[] = [];
-      const entries = await sql.all<{ file: string; line: number; side: CommentLocation["side"]; author: DiscussionEntry["author"]; kind: DiscussionEntry["kind"]; body: string; start_line: number | null; created_at: number }>(
-        `SELECT file, line, side, author, kind, body, start_line, created_at FROM discussion_entries WHERE target_key=? ORDER BY id`, [k]);
+      const entries = await sql.all<{ file: string; line: number; side: CommentLocation["side"]; author: DiscussionEntry["author"]; kind: DiscussionEntry["kind"]; body: string; start_line: number | null; created_at: number; previous: string | null }>(
+        `SELECT file, line, side, author, kind, body, start_line, created_at, previous FROM discussion_entries WHERE target_key=? ORDER BY id`, [k]);
       for (const row of entries) {
         const location: CommentLocation = { file: row.file, line: row.line, side: row.side };
         let discussion = discussions.find((d) => sameLocation(d, location));
         if (!discussion) discussions.push(discussion = { ...location, entries: [], waiting: waiting.some((w) => sameLocation(w, location)) });
-        discussion.entries.push({ author: row.author, kind: row.kind, body: row.body, createdAt: row.created_at });
+        // An edit's text before it, labeled as the entry's is: a comment's severity, not the summary's.
+        const previous = row.kind === "edited" && row.previous ? JSON.parse(row.previous) as PreviousState : null;
+        const before = previous && (isSummary(location) ? previous.body : postedBody(previous));
+        discussion.entries.push({ author: row.author, kind: row.kind, body: row.body, ...(before ? { before } : {}), createdAt: row.created_at });
         if (row.start_line != null && discussion.startLine === undefined) discussion.startLine = row.start_line;
       }
       return discussions;
