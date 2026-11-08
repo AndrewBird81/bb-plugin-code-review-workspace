@@ -6,6 +6,7 @@ import { SUMMARY_AT, VERDICT_LABEL, verdictPicked, type Verdict } from "../../sr
 import type { CommentFilter, CommentItem } from "../../lib/comments";
 import { rushedDoubt, unviewedDoubt } from "../../lib/approve-guard";
 import { readOf } from "../../lib/agent-coverage";
+import { summaryLines, type SummaryLine } from "../../lib/summary-lines";
 import { readDraftRecovery } from "../../lib/draft-recovery";
 import { useKnob } from "../../lib/settings";
 import { needsOrder, reviewState, type ReviewItem } from "../../lib/review-state";
@@ -71,6 +72,13 @@ export function FinishView({ shown, revision }: {
   };
   // It didn't go: there's no receipt to show.
   useEffect(() => { if (d.status.error) setSent(null); }, [d.status.error]);
+  const files = useMemo(() => api.sections.flatMap((section) => section.diffs.map((diff) => diff.file)), [api.sections]);
+  const cited = useMemo(() => summaryLines(d.draft.body, files, items), [d.draft.body, files, items]);
+  // As a row in Comments opens its comment: in its chapter, or the whole diff for a file no chapter shows.
+  const openLine = ({ file, line, item }: SummaryLine) => {
+    if (item?.at && item.chapterId !== null) api.reveal({ file: item.at.file, line: item.at.line ?? line, side: item.at.side });
+    else api.showLocation(file, line, item?.at?.side ?? "RIGHT");
+  };
   const openList = (filter: CommentFilter, id: string | null = null) => {
     updateComments(targetKey, { filter, expanded: id });
     api.panel.open("comments");
@@ -96,7 +104,7 @@ export function FinishView({ shown, revision }: {
             {d.submittedVerdict && <LastReview />}
             <span role="status" className={cn("flex items-center gap-1.5 text-xs", d.status.error ? "text-destructive-text" : "text-muted-foreground")}>{d.status.error ? <Icon name="AlertCircle" className="size-3.5 shrink-0" aria-hidden /> : d.status.saving ? <Icon name="Loading" className="size-3.5 animate-spin motion-reduce:animate-none" aria-hidden /> : <Icon name="CircleCheck" className="size-3.5 text-diff-added" aria-hidden />}{d.status.error ?? (d.status.saving ? "Saving…" : "Draft saved")}</span>
             <Part title={isPr ? "Summary · posted with your verdict" : "Summary"}>
-              <SummaryCard cardRef={d.summaryRef} draft={d.draft} discussion={d.summaryDiscussion} editable={d.editable} busy={d.busy} writing={d.writing && !d.onSummary} composer={d.summaryComposer} isLocal={d.isLocal} chat={d.chat}
+              <SummaryCard cardRef={d.summaryRef} draft={d.draft} discussion={d.summaryDiscussion} editable={d.editable} busy={d.busy} writing={d.writing && !d.onSummary} composer={d.summaryComposer} isLocal={d.isLocal} chat={d.chat} lines={cited} onOpenLine={openLine}
                 changedWhileEditing={d.onSummary && !d.asking && d.summaryBase.current !== null && d.summaryBase.current !== d.draft.body}
                 onEdit={() => d.openComposer(SUMMARY_AT, false)} onAsk={() => d.openComposer(SUMMARY_AT, false, true)} onRemove={() => void d.saveSummary("", d.revisionRef.current)}
                 onUndo={() => void d.undo(SUMMARY_AT)} onRequest={(text) => void d.requestSummary(text)} />

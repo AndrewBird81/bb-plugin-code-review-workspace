@@ -331,3 +331,18 @@ test("summary text kept from before this update waits for the box, then opens in
   expect(JSON.parse(sessionStorage.getItem("code-review-workspace:draft-recovery:kept")!)).toEqual({ composer: expect.objectContaining({ body: "An unsaved summary", summary: true }) });
   slot.lifecycle.unmount();
 });
+
+// A point only the summary raised read as if the walkthrough had missed it (ted-2026-11-03 06).
+test("the summary's cited lines open in the code, and say which no comment raises", async () => {
+  const body = "- Should fix at `src/a.ts:2`.\n- `findSegment` fails fast (`src/a.ts:30`).";
+  const draft = draftOf({ body, bodyAuthor: "agent", comments: [{ ...comment, severity: "should-fix", author: "agent" }] });
+  const onShowComment = vi.fn();
+  const showLocation = vi.fn();
+  const slot = await renderTray("cited", { getDraft: () => ({ draft }) }, { onShowComment, workspace: { showLocation } });
+  const cited = within(await summary(slot).findByRole("list", { name: "Lines the summary cites" }));
+  fireEvent.click(cited.getByRole("button", { name: "Show src/a.ts:2, Should fix comment" }));
+  expect(onShowComment).toHaveBeenCalledWith({ file: "src/a.ts", line: 2, side: "RIGHT" });
+  fireEvent.click(cited.getByRole("button", { name: "Show src/a.ts:30, not in your comments" }));
+  expect(showLocation).toHaveBeenCalledWith("src/a.ts", 30, "RIGHT");
+  slot.lifecycle.unmount();
+});
