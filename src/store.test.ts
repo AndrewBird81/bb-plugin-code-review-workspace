@@ -90,6 +90,7 @@ test("deleteReview clears every per-review table and leaves other reviews intact
     await s.saveGuide(key, { title: "T", intent: "I", sections: [], unplacedFiles: [] });
     await s.upsertDraftComment(key, { file: "a.ts", line: 1, side: "RIGHT", body: "x" });
     await s.setFileViewed(key, "a.ts", "hash");
+    await s.addChapterOpenTime(key, "c1", 60_000);
     await s.setAssistantThread(key, `th-${key}`);
     // Legacy conversation rows, from before conversations moved into bb threads.
     await testSql(bb).run(`INSERT INTO agent_threads (target_key,thread_id,created_at) VALUES (?,?,1)`, [key, `legacy-${key}`]);

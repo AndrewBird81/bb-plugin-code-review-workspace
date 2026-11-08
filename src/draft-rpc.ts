@@ -307,12 +307,12 @@ export function register(deps: ServeDeps) {
       return { ok, ...(error ? { error } : {}), ...(url ? { url } : {}), ...(warning ? { warning } : {}), ...(warnings ? { warnings } : {}), ...(offers ? { offers } : {}), ...(newCommits ? { newCommits } : {}) };
     },
 
-    // Per-file "Viewed" state (viewed/stale computed against the patch)
+    // Per-file "Viewed" state (viewed/stale computed against the patch), and each chapter's reading
     async getFileViews({ targetKey }) {
       return store.exclusive(async (tx) => {
         // Not pushed yet's are its own (src/own-pr.ts).
         const views = (await tx.getFileViews(targetKey)).filter((view) => !view.file.startsWith(notPushedView("")));
-        return { views: computeFileViewState(views, await tx.fileHashes(targetKey)) };
+        return { views: computeFileViewState(views, await tx.fileHashes(targetKey)), chapters: await tx.getChapterReads(targetKey) };
       });
     },
     async setFileViewed({ targetKey, file, viewed }) {
@@ -344,6 +344,18 @@ export function register(deps: ServeDeps) {
         const replaced = (await tx.getFileViews(targetKey)).filter((view) => hashes.has(view.file));
         for (const [file, hash] of hashes) await tx.setFileViewed(targetKey, file, hash);
         return { ok: hashes.size === new Set(files).size, previous: replaced };
+      });
+    },
+    async addChapterOpenTime({ targetKey, chapterId, ms }) {
+      return store.exclusive(async (tx) => {
+        if (!await tx.getReview(targetKey)) return { ok: false };
+        return { ok: true, openMs: await tx.addChapterOpenTime(targetKey, chapterId, ms) };
+      });
+    },
+    async setChapterFine({ targetKey, chapterId }) {
+      return store.exclusive(async (tx) => {
+        if (!await tx.getReview(targetKey)) return { ok: false };
+        return { ok: true, fineAt: await tx.setChapterFine(targetKey, chapterId) };
       });
     },
   } satisfies Partial<RpcHandlers>;

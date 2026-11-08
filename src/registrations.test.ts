@@ -28,6 +28,7 @@ test("the plugin registers the same RPC methods, tools, CLI subcommands, listene
 
   expect([...registered.rpcMethods].sort()).toMatchInlineSnapshot(`
     [
+      "addChapterOpenTime",
       "applyPluginUpdate",
       "approveReady",
       "archiveReview",
@@ -118,6 +119,7 @@ test("the plugin registers the same RPC methods, tools, CLI subcommands, listene
       "sendNow",
       "sendToSourceThread",
       "setAutomaticUpdates",
+      "setChapterFine",
       "setFileViewed",
       "setFilesViewed",
       "setLetPush",

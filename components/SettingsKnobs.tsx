@@ -1,4 +1,4 @@
-import { useId } from "react";
+import { useId, type ReactNode } from "react";
 import { KNOB_RANGES, type KnobId, type Knobs } from "../lib/knobs";
 import type { ReviewPreferences } from "../lib/review-preferences";
 import { Input } from "./ui/input";
@@ -11,7 +11,8 @@ interface KnobControlEntry {
   id: KnobId;
   section: "notifications" | "guide" | "assistant" | "turn" | "reading" | "comments" | "trust";
   label: string;
-  description: string;
+  /** A number's may go without, under its group's (PaceGroup). */
+  description?: string;
   /** A dependent, indented and disabled while this is false. */
   enabledWhen?: (preferences: ReviewPreferences) => boolean;
   /** A number's unit, after its input. */
@@ -51,8 +52,10 @@ export const KNOB_CONTROLS: readonly KnobControlEntry[] = [
   { id: "askAboutSelection", section: "comments", label: "Ask agent about selected text", description: "Selecting text in the code offers Ask agent about selection. Off, it only selects the text; selected lines still offer Comment and Ask agent." },
   { id: "removalReasons", section: "assistant", label: "Ask why you remove an agent’s comment", description: "Comment removed offers Why?: Wrong, Intended, Already known, or Not worth it. The agent sees your reasons, and Suggest instruction changes uses them. Off, removals are counted as before." },
   { id: "moveToSummary", section: "comments", label: "Move comments on an older diff into the summary", description: "A comment whose lines left the diff offers Move to summary, which adds it to your summary as a line and removes the comment. Off, you edit or remove it." },
-  { id: "approveGuard", section: "comments", label: "Check before you approve", description: "With Approve picked, Finish review flags unviewed files in high-risk chapters, and chapters marked viewed faster than anyone reads, and Submit asks once more." },
-  { id: "approveGuardPace", section: "comments", label: "Flag chapters read faster than", unit: "lines an hour", description: "Medium- and high-risk chapters of 50 lines or more, marked viewed faster than this.", enabledWhen: (preferences) => preferences.knobs.approveGuard },
+  { id: "approveGuard", section: "comments", label: "Check before you approve", description: "With Approve picked, Finish review lists what you may have missed, and Submit asks once more about files you haven’t viewed, in high-risk chapters or flagged. A chapter read faster than the paces below says so, on the chapter too." },
+  { id: "approveGuardPace", section: "comments", label: "Code and config", unit: "lines an hour", enabledWhen: (preferences) => preferences.knobs.approveGuard },
+  { id: "approveGuardTestsPace", section: "comments", label: "Tests", unit: "lines an hour", enabledWhen: (preferences) => preferences.knobs.approveGuard },
+  { id: "approveGuardDocsPace", section: "comments", label: "Docs", unit: "lines an hour", enabledWhen: (preferences) => preferences.knobs.approveGuard },
   { id: "preExistingFindings", section: "comments", label: "Keep pre-existing problems apart", description: "The agent marks problems the PR didn’t introduce. They show a Pre-existing badge, don’t count against Approve, and post with “Pre-existing:” in front. Off, they’re like any comment." },
   { id: "agentCoverage", section: "comments", label: "Show what the agent checked", description: "Finish review says how many files the agent read through Code Review Workspace and what it says it didn’t check, and asks once more when it suggests Approve without reading every file." },
   { id: "testWeakening", section: "reading", label: "Flag weakened tests", description: "A test file whose diff removes assertions or skips tests gets a chip saying so, and the agents are asked to check it, and to look for missed registrations and re-implemented helpers. Off, no chip and no extra checks." },
@@ -76,10 +79,29 @@ function readNumber(id: NumberKnob, text: string): number | null {
   return Number.isInteger(value) && value >= min && value <= max ? value : null;
 }
 
-/** One knob's control: a checkbox row, or a number in a sentence. A dependent indents, and is disabled while its parent is off. */
-export function KnobControl({ id, record, onChange, numberText, onNumberText }: {
+/**
+ * Check before you approve's paces, under one heading and what they're for, as a dependent of it: a chapter read faster
+ * reads as read quickly (lib/approve-guard.ts).
+ */
+export function PaceGroup({ enabled, children }: { enabled: boolean; children: ReactNode }) {
+  const ids = useId();
+  const dim = enabled ? "" : DISABLED_TEXT;
+  return <div role="group" aria-labelledby={`${ids}-label`} aria-describedby={`${ids}-description`} className="ml-6 space-y-2">
+    <div className={`space-y-1 ${dim}`}>
+      <p id={`${ids}-label`} className="text-sm font-medium">Reading pace</p>
+      <p id={`${ids}-description`} className="text-xs text-muted-foreground">A medium- or high-risk chapter that takes 6 minutes or more at these paces, marked viewed faster, reads as read quickly until it’s been open long enough or you say it’s fine. Lockfiles and generated files never count.</p>
+    </div>
+    {children}
+  </div>;
+}
+
+/**
+ * One knob's control: a checkbox row, or a number in a sentence. A dependent indents, and is disabled while its parent is
+ * off. `labelClassName`: numbers in a column give their labels one width, so their boxes line up.
+ */
+export function KnobControl({ id, record, onChange, numberText, onNumberText, labelClassName = "" }: {
   id: KnobId; record: ReviewPreferences; onChange<K extends KnobId>(id: K, value: Knobs[K]): void;
-  numberText: KnobNumberText; onNumberText(id: NumberKnob, text: string | undefined): void;
+  numberText: KnobNumberText; onNumberText(id: NumberKnob, text: string | undefined): void; labelClassName?: string;
 }) {
   const control = KNOB_CONTROLS.find((entry) => entry.id === id)!;
   const enabled = control.enabledWhen?.(record) ?? true;
@@ -92,11 +114,11 @@ export function KnobControl({ id, record, onChange, numberText, onNumberText }: 
     const text = numberText[numberId];
     return <div className={`space-y-1 ${control.enabledWhen ? "ml-6" : ""}`}>
       <p className="flex flex-wrap items-center gap-2 text-sm font-medium">
-        <span id={`${ids}-label`} className={dim}>{control.label}</span>
+        <span id={`${ids}-label`} className={`${dim} ${labelClassName}`}>{control.label}</span>
         {/* The number and its unit wrap together, so the unit never sits alone on a line. */}
         <span className="inline-flex items-center gap-2 whitespace-nowrap">
           <Input type="number" inputMode="numeric" min={min} max={max} className="h-8 w-20 tabular-nums" disabled={!enabled}
-            aria-labelledby={`${ids}-label ${ids}-unit`} aria-describedby={`${ids}-description ${ids}-error`} aria-invalid={text !== undefined}
+            aria-labelledby={`${ids}-label ${ids}-unit`} aria-describedby={control.description ? `${ids}-description ${ids}-error` : `${ids}-error`} aria-invalid={text !== undefined}
             value={text ?? String(value)}
             onChange={(event) => {
               const next = readNumber(numberId, event.target.value);
@@ -106,7 +128,7 @@ export function KnobControl({ id, record, onChange, numberText, onNumberText }: 
           <span id={`${ids}-unit`} className={dim}>{control.unit}</span>
         </span>
       </p>
-      <span id={`${ids}-description`} className={`block text-xs text-muted-foreground ${dim}`}>{control.description}</span>
+      {control.description && <span id={`${ids}-description`} className={`block text-xs text-muted-foreground ${dim}`}>{control.description}</span>}
       <span id={`${ids}-error`} className="block text-xs text-destructive-text">{text !== undefined ? `Use a whole number from ${min.toLocaleString("en-US")} to ${max.toLocaleString("en-US")}.` : ""}</span>
     </div>;
   }

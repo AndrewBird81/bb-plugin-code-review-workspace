@@ -483,6 +483,13 @@ export interface FileView {
   viewedAt: number;
 }
 
+/** A chapter's reading: how long it showed in a window in view, and when you said its quick read was fine, if you did. */
+export interface ChapterRead {
+  chapterId: string;
+  openMs: number;
+  fineAt: number | null;
+}
+
 export interface AgentMessageContext {
   file?: string;
   startLine?: number;
@@ -622,6 +629,12 @@ export interface Store extends AgentCommentStore {
   /** `viewedAt`, when Undo puts back a view as it was; otherwise now. */
   setFileViewed(targetKey: string, file: string, hash: string, viewedAt?: number): Promise<void>;
   unsetFileViewed(targetKey: string, file: string): Promise<void>;
+  // How long each of the guide's chapters showed, and when its quick read was said to be fine (lib/chapter-reads.ts).
+  getChapterReads(targetKey: string): Promise<ChapterRead[]>;
+  /** Adds `ms` to the time the chapter showed, and returns its total. */
+  addChapterOpenTime(targetKey: string, chapterId: string, ms: number): Promise<number>;
+  /** You said the chapter's quick read is fine, now; returns when. */
+  setChapterFine(targetKey: string, chapterId: string): Promise<number>;
   // Legacy review-agent worker and plugin-stored chat log, read-only since
   // conversations moved into bb threads.
   getAgentThread(targetKey: string): Promise<string | null>;
@@ -774,6 +787,11 @@ export const SQLITE_MIGRATIONS: readonly string[] = [
     `ALTER TABLE agent_comment_changes ADD COLUMN reason TEXT`,
     // Saved views of All reviews' filters (lib/review-filters.ts), their filters as JSON.
     `CREATE TABLE IF NOT EXISTS filter_views (id TEXT PRIMARY KEY, name TEXT NOT NULL, filters TEXT NOT NULL, created_at INTEGER NOT NULL)`,
+    // How long each of a guide's chapters showed in a window in view, and when the reviewer said its quick read was fine
+    // (lib/chapter-reads.ts).
+    `CREATE TABLE IF NOT EXISTS chapter_reads (
+      target_key TEXT NOT NULL, chapter_id TEXT NOT NULL, open_ms INTEGER NOT NULL, fine_at INTEGER,
+      PRIMARY KEY (target_key, chapter_id))`,
 ];
 
 /** The plugin's SQLite database, a former install brought in and SQLITE_MIGRATIONS applied, as the Store opens it. */
@@ -970,7 +988,8 @@ export function storeOn(sql: Sql): Store {
     },
     async mergeReview(from, into) {
       // Each of REVIEW_TABLES: its reviews, patches, guides, guide_backups, generations, agent_threads and agent_messages
-      // stay with `from`, and its snapshots at commits too; the rest moves, or joins `into`'s.
+      // stay with `from`, and its snapshots at commits too, and its chapter_reads, of its guide's chapters; the rest
+      // moves, or joins `into`'s.
       return sql.transaction(async () => {
         const source = await this.getReview(from), target = await this.getReview(into);
         if (!source || !target || from === into) throw new Error("Review not found.");
@@ -1457,6 +1476,27 @@ export function storeOn(sql: Sql): Store {
     async unsetFileViewed(k, file) {
       await sql.run(`DELETE FROM file_views WHERE target_key=? AND file=?`, [k, file]);
     },
+    async getChapterReads(k) {
+      return (await sql.all<{ chapter_id: string; open_ms: number; fine_at: number | null }>(`SELECT chapter_id, open_ms, fine_at FROM chapter_reads WHERE target_key=? ORDER BY chapter_id`, [k]))
+        .map((r) => ({ chapterId: r.chapter_id, openMs: r.open_ms, fineAt: r.fine_at }));
+    },
+    async addChapterOpenTime(k, chapterId, ms) {
+      await sql.run(
+        `INSERT INTO chapter_reads (target_key,chapter_id,open_ms) VALUES (?,?,?)
+         ON CONFLICT(target_key,chapter_id) DO UPDATE SET open_ms=chapter_reads.open_ms+excluded.open_ms`,
+        [k, chapterId, ms],
+      );
+      return (await sql.get<{ open_ms: number }>(`SELECT open_ms FROM chapter_reads WHERE target_key=? AND chapter_id=?`, [k, chapterId]))!.open_ms;
+    },
+    async setChapterFine(k, chapterId) {
+      const at = Date.now();
+      await sql.run(
+        `INSERT INTO chapter_reads (target_key,chapter_id,open_ms,fine_at) VALUES (?,?,0,?)
+         ON CONFLICT(target_key,chapter_id) DO UPDATE SET fine_at=excluded.fine_at`,
+        [k, chapterId, at],
+      );
+      return at;
+    },
     async getAgentThread(k) {
       return (await sql.get<{ thread_id: string }>(`SELECT thread_id FROM agent_threads WHERE target_key=?`, [k]))?.thread_id ?? null;
     },
@@ -1739,7 +1779,7 @@ export const REVIEW_TABLES = [
   "reviews", "patches", "guides", "drafts", "file_views", "agent_threads", "agent_messages",
   "generations", "draft_comment_revisions", "review_lifecycle", "reviewer_notes", "assistant_threads", "review_context",
   "discussion_entries", "discussion_waits", "review_snapshots", "feedback_threads", "feedback_fetches",
-  "assessment_items", "assessment_runs", "reply_drafts", "guide_backups", "agent_comment_changes",
+  "assessment_items", "assessment_runs", "reply_drafts", "guide_backups", "agent_comment_changes", "chapter_reads",
 ] as const;
 
 type Placement = { at: CommentLocation; line: number; startLine?: number; side?: "RIGHT" | "LOCAL" };

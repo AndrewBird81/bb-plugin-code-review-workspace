@@ -73,7 +73,8 @@ import { splitPatchByFile } from "../src/patch";
 import { chosenPaths } from "../src/classify";
 import { revealedComment } from "../lib/comments-fold";
 import { chapterAt, droppedNear, filePart, fitHunks, hunksIn } from "../src/hunks";
-import { approveGuard } from "../lib/approve-guard";
+import { approveGuard, fileFlags, quickToast, riskiest, type QuickRead } from "../lib/approve-guard";
+import { useChapterReads } from "../lib/chapter-reads";
 import { agentCoverage } from "../lib/agent-coverage";
 import { useKnob, useSettings } from "../lib/settings";
 import { ReviewLinksContext, useReviewLinks } from "../lib/review-links";
@@ -519,16 +520,26 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     }
   }, [rpc, targetKey]);
 
-  // Only the latest refresh applies: marks made while an older one was out would come undone.
+  // How long each chapter shows here, while Check before you approve is on, and its It's fine, which come with the views.
+  const guardOn = useKnob("approveGuard");
+  const reads = useChapterReads(targetKey, guardOn && activeId && activeId !== OVERVIEW && activeId !== NOT_PUSHED_PAGE ? activeId : null);
+  const readsReceived = reads.received;
+  // Only the latest refresh applies: marks made while an older one was out would come undone. Returns what it read.
   const loadViews = useCallback(async () => {
     const id = ++viewsRequest.current;
     try {
-      const { views } = await rpc.call("getFileViews", { targetKey });
-      if (id === viewsRequest.current) setViews((shown) => newViews(shown, viewMap(views)));
+      const { views, chapters } = await rpc.call("getFileViews", { targetKey });
+      const read = viewMap(views);
+      if (id === viewsRequest.current) {
+        setViews((shown) => newViews(shown, read));
+        readsReceived(chapters);
+      }
+      return read;
     } catch {
       // Non-fatal — the diff just won't show viewed state.
+      return null;
     }
-  }, [rpc, targetKey]);
+  }, [rpc, targetKey, readsReceived]);
 
   const load = useCallback(async () => {
     const id = ++request.current;
@@ -577,7 +588,10 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
       }
       setPatch(patch);
       if (diffError) setLoadError(diffError);
-      if (viewsRes && viewsId === viewsRequest.current) setViews((shown) => newViews(shown, viewMap(viewsRes.views)));
+      if (viewsRes && viewsId === viewsRequest.current) {
+        setViews((shown) => newViews(shown, viewMap(viewsRes.views)));
+        readsReceived(viewsRes.chapters);
+      }
       if (generatedRes) setGenerated((current) => current.size === generatedRes.files.length && generatedRes.files.every((file) => current.has(file)) ? current : new Set(generatedRes.files));
       const chapters = guide?.sections ? withOtherFiles(fitHunks(guide.sections, patch), patch) : [];
       if (!chapters.length) return;
@@ -612,7 +626,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
       clearTimeout(settingsWait);
       if (id === request.current) setLoading(false);
     }
-  }, [rpc, targetKey, checkAccess]);
+  }, [rpc, targetKey, checkAccess, readsReceived]);
 
   useEffect(() => {
     void load();
@@ -708,11 +722,29 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   const chosenFiles = useMemo(() => chosenPaths(splitPatchByFile(patch)), [patch]);
   const readLines = useMemo(() => readingLines([...lines.keys()], lines, generated, chosenFiles), [lines, generated, chosenFiles]);
   const chapterLines = useMemo(() => chapterReadingLines(sections, patch, lines, generated, chosenFiles), [sections, patch, lines, generated, chosenFiles]);
-  // What Finish review asks about when you approve.
-  const guardOn = useKnob("approveGuard");
-  const pace = useKnob("approveGuardPace");
-  const guard = useMemo(() => guardOn ? approveGuard(sections, views, patch, lines, generated, pace, chosenFiles) : undefined,
-    [sections, views, patch, lines, generated, guardOn, pace, chosenFiles]);
+  // What Finish review asks about when you approve, and the chapters that say they were read quickly.
+  const codePace = useKnob("approveGuardPace"), testsPace = useKnob("approveGuardTestsPace"), docsPace = useKnob("approveGuardDocsPace");
+  const weakTests = useKnob("testWeakening"), lockfileHosts = useKnob("lockfileDigest");
+  const flags = useMemo(() => guardOn ? fileFlags(patch, { generated, chosen: chosenFiles, weakTests, lockfiles: lockfileHosts }) : undefined,
+    [guardOn, patch, generated, chosenFiles, weakTests, lockfileHosts]);
+  const guardOptions = useMemo(() => ({ generated, chosen: chosenFiles, pace: { code: codePace, tests: testsPace, docs: docsPace }, flags, fine: reads.fine }),
+    [generated, chosenFiles, codePace, testsPace, docsPace, flags, reads.fine]);
+  const guard = useMemo(() => guardOn ? approveGuard(sections, views, patch, lines, { ...guardOptions, opened: reads.opened }) : undefined,
+    [sections, views, patch, lines, guardOn, guardOptions, reads.opened]);
+  // The chapters a mark just finished that read quickly: the marks as the server keeps them, against the views before.
+  const openedNow = reads.openedNow;
+  const newlyQuick = useCallback((before: ReadonlyMap<string, FileViewFlags>, after: ReadonlyMap<string, FileViewFlags> | null): QuickRead[] => {
+    if (!guardOn || !after) return [];
+    const options = { ...guardOptions, opened: openedNow() };
+    const was = new Set(approveGuard(sections, before, patch, lines, options).rushed.map((chapter) => chapter.id));
+    return approveGuard(sections, after, patch, lines, options).rushed.filter((chapter) => !was.has(chapter.id));
+  }, [guardOn, guardOptions, openedNow, sections, patch, lines]);
+  // Back to it: the chapter, its files open to read again. Set once selectChapter is.
+  const backToChapter = useRef((_id: string) => {});
+  const markFine = reads.markFine;
+  const chapterFine = useCallback((chapter: QuickRead) => {
+    void markFine(chapter.id).then((ok) => { if (!ok) toast.error(`Couldn’t save It’s fine for chapter ${chapter.number}.`); });
+  }, [markFine]);
   // Whether a chapter's file changed since, and so shows narrowed.
   const texts = useMemo(() => new Map(splitPatchByFile(patch).map((f) => [f.path, f.text])), [patch]);
   const changedIn = useCallback((diff: any) => {
@@ -1013,9 +1045,16 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
       };
       rpc
         .call("setFileViewed", { targetKey, file, viewed })
-        .then(({ ok }) => { if (ok) void loadViews(); else failed(); }, failed);
+        .then(({ ok }) => {
+          if (!ok) return failed();
+          // The last file of a chapter read quickly says so.
+          void loadViews().then((read) => {
+            const quick = viewed ? newlyQuick(views, read) : [];
+            if (quick.length) toast.info(quickToast(quick), { action: { label: "Back to it", onClick: () => backToChapter.current(riskiest(quick).id) } });
+          });
+        }, failed);
     },
-    [views, rpc, targetKey, loadViews],
+    [views, rpc, targetKey, loadViews, newlyQuick],
   );
 
   // A chapter's files not viewed yet, marked at once. Undo puts each back as it was, changed since you viewed it too. A
@@ -1062,13 +1101,15 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
       toast.error("Couldn’t mark the chapter viewed.");
       void loadViews();
     };
-    marked.then(({ ok }) => {
+    // A chapter it finishes that read quickly says so, with Back to it.
+    marked.then(async ({ ok }) => {
       if (!ok) return failed();
-      void loadViews();
+      const quick = newlyQuick(views, await loadViews());
       const message = `Marked ${todo.length} file${todo.length === 1 ? "" : "s"} viewed`;
-      toast.success(message, { description: continuing.length ? leftOut : undefined, action: { label: "Undo", onClick: undo } });
+      const description = [continuing.length ? leftOut : "", quick.length ? quickToast(quick) : ""].filter(Boolean).join(" ") || undefined;
+      toast.success(message, { description, action: { label: "Undo", onClick: undo }, ...quick.length ? { cancel: { label: "Back to it", onClick: () => backToChapter.current(riskiest(quick).id) } } : {} });
     }, failed);
-  }, [sections, views, rpc, targetKey, loadViews]);
+  }, [sections, views, rpc, targetKey, loadViews, newlyQuick]);
   const foldAllFiles = useCallback((folded: boolean) => setFoldAll({ folded, nonce: Date.now() }), []);
 
   // A new chapter opens at its top, unless you're jumping to a place in it.
@@ -1092,6 +1133,10 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     setActiveId(id);
     closeOverlays();
   }, [activeId, sections, closeOverlays]);
+  backToChapter.current = (id: string) => {
+    selectChapter(id);
+    foldAllFiles(false);
+  };
 
   const registerFileEl = useCallback((file: string, el: HTMLElement | null) => {
     if (el) fileEls.current.set(file, el);
@@ -1626,7 +1671,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
           <div ref={(el) => { scrollBox.current = el; setScrollEl(el); }} data-review-code tabIndex={-1} onScroll={onScroll} onWheel={scrolledByYou} onTouchMove={scrolledByYou} onPointerDown={unpin} className={cn("min-h-0 flex-1 overflow-y-auto px-4 outline-none before:block before:h-4 before:content-['']", commentStep ? "pb-24" : "pb-6")}>
             {activeId === NOT_PUSHED_PAGE ? <NotPushedView reveal={localReveal} /> : activeSection ? (
               <>
-              <ChapterIntro key={activeSection.id} collapsedByDefault={layout.mode === "short"} brief={layout.mode !== "tablet"} index={activeIndex} total={sections.length} title={activeSection.title} overview={activeSection.overview} risk={activeSection.risk} focus={activeSection.focus} lines={chapterLines.get(activeSection.id) ?? 0} switchSlot={setSwitchSlot} />
+              <ChapterIntro key={activeSection.id} collapsedByDefault={layout.mode === "short"} brief={layout.mode !== "tablet"} index={activeIndex} total={sections.length} title={activeSection.title} overview={activeSection.overview} risk={activeSection.risk} focus={activeSection.focus} lines={chapterLines.get(activeSection.id) ?? 0} quick={guard?.rushed.find((chapter) => chapter.id === activeSection.id)} onFine={chapterFine} switchSlot={setSwitchSlot} />
               <CheckFailuresContext.Provider value={checkFailures}>
               <DiffThreadsContext.Provider value={showThreads ? diffThreads : null}>
               <DiffViewer

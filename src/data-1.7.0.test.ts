@@ -36,9 +36,9 @@ test("every Store read of reviews 1.7.0 wrote gives what 1.7.0's gave, but the k
   await harness.dispose();
   const reads = JSON.parse((await dumpDatabase(join(dir, "data.db"))).reads);
   const read170 = JSON.parse(fixture("reads.json"));
-  // 1.7.0's settings turned Code owners off; 1.8.0's switches read on.
+  // 1.7.0's settings turned Code owners off; 1.8.0's switches read on, and 1.12.0's paces at their defaults.
   expect(read170.global.getPreferences.preferences.knobs.codeOwners).toBe(false);
-  read170.global.getPreferences.preferences.knobs = { ...read170.global.getPreferences.preferences.knobs, reviewAgentActs: true, reviewChangesLine: true, trackOwnPrs: true };
+  read170.global.getPreferences.preferences.knobs = { ...read170.global.getPreferences.preferences.knobs, reviewAgentActs: true, reviewChangesLine: true, trackOwnPrs: true, approveGuardTestsPace: 2000, approveGuardDocsPace: 2000 };
   expect(reads).toEqual(read170);
 });
 

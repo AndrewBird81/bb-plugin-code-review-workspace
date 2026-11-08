@@ -321,11 +321,13 @@ export const rpcContract = defineRpcContract({
     }),
   },
 
-  // Per-file "Viewed" state
+  // Per-file "Viewed" state, and how long each chapter showed and when its quick read was said to be fine
+  // (lib/chapter-reads.ts), which a server before 1.12.0 doesn't send.
   getFileViews: {
     input: targetKey,
     output: z.object({
       views: z.array(z.object({ file: z.string(), viewed: z.boolean(), stale: z.boolean(), viewedAt: z.number() })),
+      chapters: z.array(z.object({ chapterId: z.string(), openMs: z.number(), fineAt: z.number().nullable() })).optional(),
     }),
   },
   setFileViewed: {
@@ -337,6 +339,17 @@ export const rpcContract = defineRpcContract({
   setFilesViewed: {
     input: z.object({ targetKey: z.string(), files: z.array(z.string()), viewed: z.boolean().optional(), previous: z.array(fileView).optional() }).strict(),
     output: z.object({ ok: z.boolean(), previous: z.array(fileView).optional() }),
+  },
+  // Time a chapter showed in a window in view, added to what it had: a minute or so at a time, never more than an hour.
+  // Returns its total.
+  addChapterOpenTime: {
+    input: z.object({ targetKey: z.string(), chapterId: z.string().min(1), ms: z.number().int().min(1).max(3_600_000) }).strict(),
+    output: z.object({ ok: z.boolean(), openMs: z.number().optional() }),
+  },
+  // It's fine: the chapter's quick read, as it's marked now. Returns when, by the server's clock, which marks files viewed.
+  setChapterFine: {
+    input: z.object({ targetKey: z.string(), chapterId: z.string().min(1) }).strict(),
+    output: z.object({ ok: z.boolean(), fineAt: epochMs.optional() }),
   },
 
   // Review assistant: one hidden bb thread per review, shown with ThreadChat

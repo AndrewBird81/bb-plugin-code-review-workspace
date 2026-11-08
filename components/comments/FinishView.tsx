@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import type { rpcContract } from "../../src/rpc-contract";
 import { SUMMARY_AT, VERDICT_LABEL, verdictPicked, type Verdict } from "../../src/draft";
 import type { CommentFilter, CommentItem } from "../../lib/comments";
-import { rushedDoubt, unviewedDoubt } from "../../lib/approve-guard";
+import { flaggedDoubt, quickRead, riskiest, unviewedDoubt } from "../../lib/approve-guard";
 import { readOf } from "../../lib/agent-coverage";
 import { summaryLines, type SummaryLine } from "../../lib/summary-lines";
 import { settled } from "../../lib/feedback";
@@ -124,6 +124,7 @@ export function FinishView({ shown, revision }: {
                 onUndo={() => void d.undo(SUMMARY_AT)} onRequest={(text) => void d.requestSummary(text)} />
             </Part>
             {isPr && <Verdicts revision={revision} />}
+            {isPr && <BeforeYouApprove />}
             {isPr ? <GoesToGitHub items={items} replyDrafts={items.filter((item) => item.kind === "thread" && item.replyDraft).length} onList={openList} />
               : <Part title="Stays in BB"><p className="text-sm text-muted-foreground">{d.hint}</p>{notes.show && <PrivateNotes targetKey={targetKey} />}</Part>}
             {(d.isLocal || d.ownPr || api.mainThread) && <FixHandoff targetKey={targetKey} comments={d.sortedComments} revision={revision} />}
@@ -455,13 +456,48 @@ function Unchecked({ items }: { items: readonly string[] }) {
   </div>;
 }
 
-/** One line of what goes to GitHub, or of what holds it back, with where to see it or fix it. */
-function Row({ icon, tone = "neutral", children, action }: { icon: ReactNode; tone?: "neutral" | "warning"; children: ReactNode; action?: ReactNode }) {
-  return <li className={cn("flex min-h-11 items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm", tone === "warning" ? "border border-warning/30 bg-warning/10 text-warning-text" : notSubmitted("yours"), tone === "neutral" && "border-l-primary/60 bg-card")}>
+/**
+ * One line of what goes to GitHub, of what holds it back, or of what to look at before you approve, with where to see it
+ * or fix it. `plain`: worth a look, nothing to settle.
+ */
+function Row({ icon, tone = "neutral", children, action }: { icon: ReactNode; tone?: "neutral" | "warning" | "plain"; children: ReactNode; action?: ReactNode }) {
+  return <li className={cn("flex min-h-11 items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm", tone === "warning" ? "border border-warning/30 bg-warning/10 text-warning-text" : tone === "plain" ? "border border-border bg-card" : notSubmitted("yours"), tone === "neutral" && "border-l-primary/60 bg-card")}>
     {icon}
     <div className="min-w-0 flex-1">{children}</div>
     {action}
   </li>;
+}
+
+/** A row's fix: Show, Write it. `name`, where the label alone wouldn't say which. */
+const fix = (label: string, onClick: () => void, name?: string) =>
+  <Button variant="outline" size="sm" aria-label={name} className={cn("h-7 shrink-0 px-2 text-xs", TOUCH_CONTROL)} onClick={onClick}>{label}</Button>;
+
+/**
+ * Before you approve: files you haven't viewed, in high-risk chapters or flagged, which Submit asks about once more; and
+ * the chapters read quickly, one plain row with the riskiest one's first thing to check, which it doesn't ask about.
+ */
+function BeforeYouApprove() {
+  const d = useDraft();
+  const { showLocation, go, files } = useWorkspace();
+  if (!d.approval) return null;
+  const { unviewed, flagged, rushed } = d.approval;
+  const first = rushed.length ? riskiest(rushed) : null;
+  return (
+    <Part title="Before you approve">
+      <ul className="space-y-1.5">
+        {unviewed.length > 0 && <Row tone="warning" icon={<Icon name="EyeOff" className="size-4 shrink-0" aria-hidden />} action={fix("Show", () => showLocation(unviewed[0], null, "RIGHT"), "Show the high-risk files not viewed")}>
+          {unviewedDoubt(unviewed)}
+        </Row>}
+        {flagged.length > 0 && <Row tone="warning" icon={<Icon name="AlertTriangle" className="size-4 shrink-0" aria-hidden />} action={fix("Show", () => showLocation(flagged[0].file, null, "RIGHT"), "Show the flagged files not viewed")}>
+          {flaggedDoubt(flagged)}
+        </Row>}
+        {first && <Row tone="plain" icon={<Icon name="Clock" className="size-4 shrink-0 text-muted-foreground" aria-hidden />} action={fix("Show", () => { go(first.id); files.foldAll(false); }, `Show chapter ${first.number}`)}>
+          <p>{quickRead(rushed)}</p>
+          {first.focus && <p className="text-xs text-muted-foreground">Chapter {first.number}: <InlineCode text={first.focus} /></p>}
+        </Row>}
+      </ul>
+    </Part>
+  );
 }
 
 /**
@@ -480,7 +516,6 @@ function GoesToGitHub({ items, replyDrafts, onList }: { items: readonly CommentI
   const movable = useKnob("moveToSummary") && d.editable;
   const blocking = items.find((item) => item.kind === "draft" && item.posts && d.blocks(item.comment));
   const link = (label: string, onClick: () => void) => <Button variant="ghost" size="sm" aria-label={label} className={cn("size-8 shrink-0 px-0 text-muted-foreground", TOUCH_CONTROL)} onClick={onClick}><Icon name="ChevronRight" aria-hidden /></Button>;
-  const fix = (label: string, onClick: () => void) => <Button variant="outline" size="sm" className={cn("h-7 shrink-0 px-2 text-xs", TOUCH_CONTROL)} onClick={onClick}>{label}</Button>;
   return (
     <Part title="Goes to GitHub">
       <ul className="space-y-1.5">
@@ -504,10 +539,6 @@ function GoesToGitHub({ items, replyDrafts, onList }: { items: readonly CommentI
         {d.approvingBlocked && <Row tone="warning" icon={<Icon name="AlertTriangle" className="size-4 shrink-0" aria-hidden />} action={blocking && fix("Show", () => onList("not-submitted", blocking.id))}>
           Approving with {plural(d.blockingCount, "blocking comment")}.
         </Row>}
-        {d.approval && d.approval.unviewed.length > 0 && <Row tone="warning" icon={<Icon name="EyeOff" className="size-4 shrink-0" aria-hidden />} action={fix("Show", () => showLocation(d.approval!.unviewed[0], null, "RIGHT"))}>
-          {unviewedDoubt(d.approval.unviewed)}
-        </Row>}
-        {d.approval?.rushed.map((chapter) => <Row key={chapter.id} tone="warning" icon={<Icon name="Clock" className="size-4 shrink-0" aria-hidden />}>{rushedDoubt(chapter)}</Row>)}
         {d.unreadApproval && <Row tone="warning" icon={<Icon name="EyeOff" className="size-4 shrink-0" aria-hidden />} action={fix("Show", () => showLocation(d.unreadApproval!.unread[0], null, "RIGHT"))}>
           The agent suggests Approve but read {readOf(d.unreadApproval)}
         </Row>}

@@ -6,10 +6,10 @@ import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import { defaultKnobs, KNOB_RANGES, type Knobs } from "../lib/knobs";
 import { defaultPreferences } from "../lib/review-preferences";
 
-/** Every toggle off, and the pace at its minimum. */
+/** Every toggle off, and the paces at their minimum. */
 export const allKnobsOff: Knobs = {
   ...Object.fromEntries(Object.entries(defaultKnobs).map(([id, value]) => [id, typeof value === "boolean" ? false : value])) as unknown as Knobs,
-  approveGuardPace: KNOB_RANGES.approveGuardPace.min,
+  approveGuardPace: KNOB_RANGES.approveGuardPace.min, approveGuardTestsPace: KNOB_RANGES.approveGuardTestsPace.min, approveGuardDocsPace: KNOB_RANGES.approveGuardDocsPace.min,
 };
 
 const patch = "diff --git a/src/a.ts b/src/a.ts\n--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1,2 +1,2 @@\n one\n-two\n+TWO\n"
