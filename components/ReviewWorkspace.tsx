@@ -153,6 +153,8 @@ const SETTINGS_WAIT_MS = 1000;
 const FEEDBACK_FIRST = new Set<TurnReason>(["re-requested", "handled", "looks-ready", "question", "mentioned"]);
 /** No file's owners: what the code shows with Settings' Code owners off. */
 const NO_OWNERS: ReadonlyMap<string, FileOwners> = new Map();
+/** The files a comparison found changed. */
+const changedFiles = (files: Iterable<FileInterdiff>) => [...files].filter((file) => file.status !== "unchanged").map((file) => file.file);
 
 export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { targetKey: string }) {
   const rpc = useRpc<typeof rpcContract>();
@@ -215,6 +217,8 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   // What changed since what the diff compares with, or why that couldn't be read, with the comparison it's for.
   const [sinceRead, setSinceRead] = useState<{ key: string; files: Map<string, FileInterdiff> } | null>(null);
   const [sinceFailed, setSinceFailed] = useState<{ key: string; error: string } | null>(null);
+  // On a re-review, the files changed since your review, whatever the diff compares with; null when that couldn't be read.
+  const [changedRead, setChangedRead] = useState<{ key: string; files: string[] | null } | null>(null);
   // Whether the band has room for the compare select: where it hasn't, the diff says what it shows, and switches it.
   const [compareShown, setCompareShown] = useState(true);
   // What you chose to compare with, as you left the review: a commit picked, or your last review, narrowed or not.
@@ -857,10 +861,25 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     return () => cancelAnimationFrame(frame);
   }, [opening, rootEl]);
   const reviewFiles: string[] = useMemo(() => [...new Set<string>(sections.flatMap((s: any) => s.diffs.map((d: any) => d.file)))], [sections]);
-  // What the agent read through Code Review Workspace, beside its verdict in Finish review.
+  // What the agent read through Code Review Workspace, beside its verdict in Finish review. On a re-review, of the files
+  // changed since your review, which its check reads, once they're known; every file if they can't be read.
   const coverageOn = useKnob("agentCoverage");
-  const coverage = useMemo(() => coverageOn ? agentCoverage(reviewFiles, review?.agentReads, review?.headSha, generated, chosenFiles) : undefined,
-    [coverageOn, reviewFiles, review?.agentReads, review?.headSha, generated, chosenFiles]);
+  const changedKey = rereview ? `${baselineSha}..${head}` : null;
+  // The diff's own comparison, while it's with your review; read apart while it's with a commit you picked.
+  const ownComparison = !!changedKey && changedKey === sinceKey;
+  useEffect(() => {
+    if (!coverageOn || !changedKey || ownComparison) return;
+    let cancelled = false;
+    const done = (files: string[] | null) => { if (!cancelled) setChangedRead({ key: changedKey, files }); };
+    rpc.call("getSinceReview", { targetKey }).then((result) => done(result.error || !result.baseline ? null : changedFiles(result.files as FileInterdiff[])), () => done(null));
+    return () => { cancelled = true; };
+  }, [rpc, targetKey, coverageOn, changedKey, ownComparison]);
+  const changed = useMemo(() => !changedKey ? null
+    : ownComparison ? since ? changedFiles(since.values()) : sinceError ? null : undefined
+    : changedRead?.key === changedKey ? changedRead.files : undefined, [changedKey, ownComparison, since, sinceError, changedRead]);
+  const coverage = useMemo(() => !coverageOn || changed === undefined ? undefined
+    : agentCoverage(changed ? reviewFiles.filter((file) => changed.includes(file)) : reviewFiles, review?.agentReads, review?.headSha, generated, chosenFiles, !!changed),
+    [coverageOn, changed, reviewFiles, review?.agentReads, review?.headSha, generated, chosenFiles]);
 
   // Restore the saved scroll position once the page it was saved on shows. The diff draws its files a moment later, so
   // it follows them down until it gets there, for a few seconds, or until you scroll or tap yourself. Meanwhile the

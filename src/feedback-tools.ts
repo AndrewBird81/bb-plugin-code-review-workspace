@@ -33,7 +33,7 @@ export function register(deps: ServeDeps) {
   bb.agents.registerTool({
     name: "list_feedback",
     description: "List the reviewer's feedback on this PR: each review thread they started (id, location, their comment, replies, resolved/outdated state, any earlier verdict) and their review summaries. Also the comments they sent to the main thread to fix (c12), each with its Send and what the thread reported. On their own PR: everyone's threads, and others' review summaries and comments on the PR.",
-    instructions: "When a review comes back to the reviewer, check whether each piece of their feedback was properly addressed: list_feedback, then read_changes_since_review (with send, for a sent comment's Send), then read_file where you need context. Judge the fix itself, not just whether the lines changed: a renamed variable doesn't fix a race. Record every thread, each sent comment by its id, and each distinct ask in the summaries as \"summary:<n>\" with a title, with assess_feedback: addressed, partial, not_addressed, disputed (the author argues against it; say why in the evidence), or unclear. Then suggest a verdict and a short summary the reviewer could submit, with assess_feedback: they go into the reviewer's draft, where the reviewer picks the verdict. A summary the reviewer wrote stays theirs, and yours waits in Finish review. Draft a reply with draft_thread_reply only on open threads where one adds something, such as what's still missing, or \"Fixed in abc123, thanks.\" On the reviewer's own PR, list_feedback has everyone's threads, and others' review summaries and comments on the PR, with what the thread that fixed each reported: draft each thread's reply from its report with draft_thread_reply, and for a review summary or comment, suggest the reply in your message.",
+    instructions: "When a review comes back to the reviewer, check whether each piece of their feedback was properly addressed: list_feedback, then read_changes_since_review (with send, for a sent comment's Send), then read_file where you need context. Judge the fix itself, not just whether the lines changed: a renamed variable doesn't fix a race. Record every thread, each sent comment by its id, and each distinct ask in the summaries as \"summary:<n>\" with a title, with assess_feedback: addressed, partial, not_addressed, disputed (the author argues against it; say why in the evidence), unclear, or deferred (the author, the PR or the reviewer says it's done later, such as in a follow-up PR; quote where in the evidence). Then suggest a verdict and a short summary the reviewer could submit, with assess_feedback (Approve only while every blocking item is addressed or deferred): they go into the reviewer's draft, where the reviewer picks the verdict. A summary the reviewer wrote stays theirs, and yours waits in Finish review. Draft a reply with draft_thread_reply only on open threads where one adds something, such as what's still missing, or \"Fixed in abc123, thanks.\" On the reviewer's own PR, list_feedback has everyone's threads, and others' review summaries and comments on the PR, with what the thread that fixed each reported: draft each thread's reply from its report with draft_thread_reply, and for a review summary or comment, suggest the reply in your message.",
     parameters: z.object({}),
     async execute(_input, { threadId }) {
       const review = await assistantReviewOf(threadId);
@@ -60,8 +60,15 @@ export function register(deps: ServeDeps) {
         catch (error) { return failed(error instanceof Error ? error.message : "Couldn't compare with the Send."); }
       }
       if (!review || review.kind !== "pr") return failed("There's no PR review to compare.");
-      try { return await changesSinceReview(store, runGh, review, file); }
+      let since: Awaited<ReturnType<typeof changesSinceReview>>;
+      try { since = await changesSinceReview(store, runGh, review, file); }
       catch (error) { return failed(error instanceof Error ? error.message : "Couldn't compare with the reviewer's last review."); }
+      // What changed in a file since your review, shown whole, is what a re-review reads of it.
+      if (since.read.length) await store.exclusive(async (tx) => {
+        const changed = new Set(changedFiles(await tx.patch(review.targetKey)));
+        await recordAgentReads(tx, threadId, review.targetKey, since.read.filter((path) => changed.has(path)));
+      });
+      return since.text;
     },
   });
   bb.agents.registerTool({
@@ -130,7 +137,7 @@ export function register(deps: ServeDeps) {
     parameters: z.object({
       items: z.array(z.object({
         id: z.string().min(1),
-        verdict: z.enum(["addressed", "partial", "not_addressed", "disputed", "unclear"]),
+        verdict: z.enum(["addressed", "partial", "not_addressed", "disputed", "unclear", "deferred"]),
         evidence: z.string().trim().min(1).describe("One line: what changed, or what's missing."),
         title: z.string().optional().describe("For a summary ask: the ask, briefly."),
         file: z.string().optional().describe("Where the evidence is, in the current diff."),

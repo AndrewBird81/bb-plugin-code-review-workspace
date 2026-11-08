@@ -83,7 +83,9 @@ test("the compare select's label says what the diff shows; its menu lists your r
   expect(rpc.getPrCommits).toHaveBeenCalledWith({ targetKey: "pr-42" });
   fireEvent.click(menu.getByRole("menuitemradio", { name: /^Invalidate on write/ }));
   await slot.findByRole("button", { name: "Show changes: Since c2bbbbb, 1 commit ago" });
-  expect(rpc.getSinceReview).toHaveBeenLastCalledWith({ targetKey: "pr-42", from: "c2bbbbb" });
+  expect(rpc.getSinceReview).toHaveBeenCalledWith({ targetKey: "pr-42", from: "c2bbbbb" });
+  // Finish review still counts the agent's reads against what changed since your review, read apart.
+  expect(rpc.getSinceReview).toHaveBeenLastCalledWith({ targetKey: "pr-42" });
   // Picking narrows the diff to what changed since.
   await waitFor(() => expect(slot.container.querySelector('[data-file="src/b.ts"]')).toBeNull());
   expect(slot.getByText("1 file unchanged since c2bbbbb")).toBeTruthy();

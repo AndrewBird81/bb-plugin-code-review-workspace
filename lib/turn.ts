@@ -99,6 +99,8 @@ export interface AssessmentSummary {
   notAddressed: number;
   disputed: number;
   unclear: number;
+  /** Missing from a check saved before the verdict existed. */
+  deferred?: number;
   assessedAt: number;
 }
 

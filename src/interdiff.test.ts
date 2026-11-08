@@ -1,5 +1,5 @@
 import { test, expect } from "vitest";
-import { interdiff, describeInterdiff } from "./interdiff";
+import { interdiff, describeInterdiff, describeInterdiffRead } from "./interdiff";
 import { diffPositions } from "./review-positions";
 import { splitPatchByFile } from "./patch";
 
@@ -246,6 +246,23 @@ test("describeInterdiff: one file's changes cut at the cap point to read_file fo
   const text = describeInterdiff([{ file: "src/big.ts", status: "changed", newLines: [], newDeletions: [], patch: big, dropped: "" }], { file: "src/big.ts" });
   expect(text).toContain('[Truncated at 60000 characters. Use read_file with ref "current" to read the rest of src/big.ts as it is now.]');
   expect(text).not.toContain("Ask for one file's changes since your review by its path to see it in full.");
+});
+
+test("describeInterdiffRead: the files whose changes it shows whole, leaving out the one a cut ends in and those after", () => {
+  const files = [
+    { file: "src/a.ts", status: "changed" as const, newLines: [], newDeletions: [], patch: "@@ -1 +1 @@\n+a", dropped: "" },
+    { file: "src/same.ts", status: "unchanged" as const, newLines: [], newDeletions: [], patch: "", dropped: "" },
+    { file: "src/b.ts", status: "added" as const, newLines: [], newDeletions: [], patch: `@@ -0,0 +1 @@\n+${"b".repeat(300)}`, dropped: "" },
+    { file: "src/c.ts", status: "changed" as const, newLines: [], newDeletions: [], patch: "@@ -1 +1 @@\n+c", dropped: "" },
+  ];
+  const whole = describeInterdiffRead(files);
+  expect(whole.text).toBe(describeInterdiff(files));
+  expect(whole.whole).toEqual(["src/a.ts", "src/b.ts", "src/c.ts"]);
+  const cut = describeInterdiffRead(files, { maxChars: 200 });
+  expect(cut.text).toContain("[Truncated at 200 characters.");
+  expect(cut.whole).toEqual(["src/a.ts"]);
+  expect(describeInterdiffRead(files, { file: "src/c.ts" }).whole).toEqual(["src/c.ts"]);
+  expect(describeInterdiffRead(files, { file: "src/same.ts" }).whole).toEqual([]);
 });
 
 test("a blank context line written as an empty line still counts", () => {

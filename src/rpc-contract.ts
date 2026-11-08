@@ -99,7 +99,7 @@ const draftOutput = z.object({
   stale: z.array(z.object(location)),
   discussions: z.array(discussion),
   // What the review agent's check found of each sent comment, by its id, against the Send that last carried it.
-  checks: z.record(z.string(), z.object({ verdict: z.enum(["addressed", "partial", "not_addressed", "disputed", "unclear"]), evidence: z.string() })).optional(),
+  checks: z.record(z.string(), z.object({ verdict: z.enum(["addressed", "partial", "not_addressed", "disputed", "unclear", "deferred"]), evidence: z.string() })).optional(),
 });
 
 export const rpcContract = defineRpcContract({

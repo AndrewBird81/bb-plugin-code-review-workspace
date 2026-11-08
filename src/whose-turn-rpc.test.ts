@@ -137,6 +137,8 @@ test("the assistant lists your feedback, reads what changed, and records its che
   const changes = await tool("read_changes_since_review", {});
   expect(changes).toContain("Invalidate on write");
   expect(changes).toContain("+invalidate(key);");
+  // What changed in a file since your review, shown whole, is what the agent read of it at this head.
+  expect((await store.getReview("pr-1"))?.agentReads).toEqual({ head: "sha2", files: ["a.ts"] });
   expect(await tool("read_file", { path: "a.ts" })).toContain("    1  line one");
 
   const bad = await tool("assess_feedback", { items: [{ id: "nope", verdict: "addressed", evidence: "x" }] });
@@ -169,12 +171,16 @@ test("the suggested verdict and what's left fill the draft, bound to the display
   expect((await call("getFeedback", { targetKey: "pr-1" })).feedback.suggestionInDraft).toBe(true);
   const remaining = await call("useSuggestedVerdict", { targetKey: "pr-1", revision, mode: "remaining" });
   expect(remaining.draft.body).toContain("Can this return stale data after a write? (`a.ts:2`) — Only the write path invalidates");
+  // What's left, listed at your ask, is your summary, not the agent's.
+  expect(remaining.draft).toMatchObject({ verdict: "REQUEST_CHANGES", verdictChosen: true });
+  expect(remaining.draft).not.toHaveProperty("bodyAuthor");
+  expect(remaining.draft).not.toHaveProperty("written");
 });
 
 test("a check's suggested summary goes into the draft, but never over the reviewer's own", async () => {
   const { tool, call, store, harness } = await setup();
   const drafts = () => harness.inspection.realtimeSignals.filter((signal) => signal.channel === "draft:pr-1").length;
-  const item = { id: "t1", verdict: "partial", evidence: "Only the write path invalidates" };
+  const item = { id: "t1", verdict: "addressed", evidence: "Both paths invalidate" };
   expect(await tool("assess_feedback", { items: [item], suggestedVerdict: "APPROVE" })).toContain("1 item");
   expect(await store.getDraft("pr-1")).toEqual({ targetKey: "pr-1", verdict: "COMMENT", body: "", comments: [], suggestedVerdict: "APPROVE" });
   expect(drafts()).toBe(1);
@@ -371,11 +377,33 @@ test("a queued check deleted from the queue stops the wait for it", async () => 
 test("a non-blocking thread is checked, but left out of what's addressed and of what's left, and listed with its label", async () => {
   const { tool, call, store } = await setup();
   await store.saveFeedbackThreads("pr-1", [thread("t1", "answered"), { ...thread("t2", "open"), body: "**Nit:** name it `cacheKey`" }], 1);
-  const ok = await tool("assess_feedback", { items: [{ id: "t1", verdict: "addressed", evidence: "Invalidated" }, { id: "t2", verdict: "not_addressed", evidence: "Still `key`" }] });
+  // An open nit doesn't hold back an Approve.
+  const ok = await tool("assess_feedback", { items: [{ id: "t1", verdict: "addressed", evidence: "Invalidated" }, { id: "t2", verdict: "not_addressed", evidence: "Still `key`" }], suggestedVerdict: "APPROVE" });
   expect(ok).toContain("1 of 1 addressed");
   expect((await store.getReview("pr-1"))?.assessment).toMatchObject({ total: 1, addressed: 1, notAddressed: 0 });
   const { feedback } = await call("getFeedback", { targetKey: "pr-1" });
   expect(feedback.items.map((i: any) => [i.id, i.label ?? null, i.nonBlocking ?? false])).toEqual([["t1", null, false], ["t2", "Nit", true]]);
   // Nothing blocking is left, so Request what's left has nothing to ask.
+  expect(await call("useSuggestedVerdict", { targetKey: "pr-1", revision: await reviewRevision(store, "pr-1"), mode: "remaining" })).toEqual({ ok: false, error: "Nothing is left open. Consider approving." });
+});
+
+test("the check can't suggest Approve beside blocking feedback it leaves open; deferred, quoted, is settled, and Request what's left skips it", async () => {
+  const { tool, call, store } = await setup();
+  const ttl = { id: "summary:1", title: "Document the TTL", verdict: "addressed", evidence: "README has it" };
+  const open = await tool("assess_feedback", { items: [{ id: "t1", verdict: "not_addressed", evidence: "Fixtures not from staging" }, ttl], suggestedVerdict: "APPROVE", suggestedBody: "Nothing outstanding." });
+  expect(open).toMatchObject({ isError: true, content: [{ text: expect.stringContaining("You suggested Approve, but 1 blocking item is still open: t1 (not_addressed).") }] });
+  // Nothing was recorded: no verdicts, no suggestion, no summary.
+  expect(await store.getDraft("pr-1")).toEqual({ targetKey: "pr-1", verdict: "COMMENT", body: "", comments: [] });
+  expect((await call("getFeedback", { targetKey: "pr-1" })).feedback.run).toBeNull();
+
+  // An item checked earlier at this head counts too.
+  await tool("assess_feedback", { items: [{ id: "t1", verdict: "unclear", evidence: "Can't tell from the diff" }] });
+  expect(await tool("assess_feedback", { items: [ttl], suggestedVerdict: "APPROVE" })).toMatchObject({ isError: true, content: [{ text: expect.stringContaining("t1 (unclear)") }] });
+
+  const deferred = await tool("assess_feedback", { items: [{ id: "t1", verdict: "deferred", evidence: "Author: \"staging fixtures come in the next PR\"" }, ttl], suggestedVerdict: "APPROVE" });
+  expect(deferred).toContain("Recorded 2 items for sha2: 1 of 2 addressed.");
+  expect(deferred).not.toContain("no verdict yet");
+  expect(await store.getDraft("pr-1")).toMatchObject({ suggestedVerdict: "APPROVE" });
+  expect((await store.getReview("pr-1"))?.assessment).toMatchObject({ total: 2, addressed: 1, deferred: 1 });
   expect(await call("useSuggestedVerdict", { targetKey: "pr-1", revision: await reviewRevision(store, "pr-1"), mode: "remaining" })).toEqual({ ok: false, error: "Nothing is left open. Consider approving." });
 });

@@ -232,6 +232,10 @@ test("a clicked Check now asks the review agent as you; the check infers what th
   // An unknown id is still refused, naming what it takes.
   expect(toolText(await h.harness.behavior.callAgentTool("assess_feedback", { items: [{ id: "t1", verdict: "addressed", evidence: "x" }] }, { threadId: "agent" })))
     .toContain("Unknown item ids: t1. Use the sent comments' ids from list_feedback (c12).");
+  // Deferred is for feedback on a PR: a sent comment the main thread put off is disputed, and nothing is recorded.
+  expect(toolText(await h.harness.behavior.callAgentTool("assess_feedback", { items: [{ id: "c3", verdict: "deferred", evidence: "Later." }, { id: "c4", verdict: "addressed", evidence: "Done." }] }, { threadId: "agent" })))
+    .toContain("deferred is for the reviewer's feedback on the PR, not a sent comment: c3. For one the main thread put off, use disputed and say so in the evidence. Nothing was recorded.");
+  expect((await store.getAssessment("ref-1", "send:1")).items.map(({ id }) => id)).toEqual(["c1", "c2", "c3"]);
 });
 
 test("Check now with nothing out, or the re-review check off, says so and asks nothing", async () => {
