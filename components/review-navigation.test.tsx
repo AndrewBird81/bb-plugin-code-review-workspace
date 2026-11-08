@@ -163,6 +163,38 @@ test("the last chapter ends on Finish review, marking the chapter viewed if you 
   slot.lifecycle.unmount();
 }, 15_000);
 
+test("while Finish review shows, the last chapter's end leaves finishing to it: no Finish review, and Mark viewed outlined", async () => {
+  patchReviewState("pr-42", { activeId: "c2" });
+  // The views as the server keeps them, as marks save them.
+  const viewed = new Set<string>();
+  const { slot, rpc } = await renderWorkspace({ rpc: {
+    getFileViews: vi.fn(() => ({ views: [...viewed].map((file) => ({ file, viewed: true, stale: false })) })),
+    setFilesViewed: vi.fn(({ files }: { files: string[] }) => { for (const file of files) viewed.add(file); return { ok: true, previous: [] }; }),
+  } });
+  await slot.findByText("bb");
+  const main = within(slot.getByRole("main"));
+  const open = main.getByRole("button", { name: "Finish review" });
+  open.focus();
+  fireEvent.click(open);
+  await waitFor(() => expect(finishing(slot)).toBe(true));
+  // The button goes, and the summary takes the focus it had.
+  await waitFor(() => expect(document.activeElement?.getAttribute("aria-label")).toBe("Review summary"));
+  // Submit is the one filled button: nothing here reads as a step after it.
+  expect(main.queryByRole("button", { name: "Finish review" })).toBeNull();
+  expect(main.queryByRole("button", { name: "Mark viewed and finish" })).toBeNull();
+  const mark = main.getByRole("button", { name: "Mark viewed" });
+  expect(mark.className).not.toContain("bg-primary");
+  fireEvent.click(mark);
+  expect(rpc.setFilesViewed).toHaveBeenCalledWith({ targetKey: "pr-42", files: ["src/b.ts", "src/c.ts"] });
+  await waitFor(() => expect(main.queryByRole("button", { name: "Mark viewed" })).toBeNull());
+  expect(main.queryByRole("button", { name: "Finish review" })).toBeNull();
+  expect(finishing(slot)).toBe(true);
+  // Closed, the end leads to it again, its main button now that the files are viewed.
+  fireEvent.click(slot.getByRole("button", { name: "Close panel" }));
+  await waitFor(() => expect(main.getByRole("button", { name: "Finish review" }).className).toContain("bg-primary"));
+  slot.lifecycle.unmount();
+}, 15_000);
+
 test("Mark viewed and continue marks the chapter's files and opens the next", async () => {
   const { slot, rpc } = await renderWorkspace();
   await slot.findByText("aa");

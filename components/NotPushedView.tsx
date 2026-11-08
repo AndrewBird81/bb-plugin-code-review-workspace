@@ -119,10 +119,10 @@ export function NotPushedView({ reveal }: { reveal?: { at: CommentLocation; nonc
 
 /**
  * The page's end: comments here go with Send, not Submit; Push, where the review has one, which shows how it goes in
- * Finish review; and Finish review.
+ * Finish review; and Finish review, until it shows.
  */
 function NotPushedFooter() {
-  const { targetKey, review, openFinish } = useWorkspace();
+  const { targetKey, review, openFinish, panel } = useWorkspace();
   const rpc = useRpc<typeof rpcContract>();
   const sendOn = useKnob("sendToThread");
   const [busy, setBusy] = useState(false);
@@ -147,7 +147,8 @@ function NotPushedFooter() {
       {pushable && <Button variant="outline" size="sm" className={cn("gap-1.5 aria-disabled:opacity-60", button)} aria-disabled={busy || undefined} onClick={() => void push()}>
         <Icon name={busy ? "Loading" : "ArrowUp"} className={cn(busy && "animate-spin motion-reduce:animate-none")} aria-hidden />Push
       </Button>}
-      <Button size="sm" className={button} onClick={() => openFinish()}>Finish review<Icon name="ArrowRight" aria-hidden /></Button>
+      {/* While Finish review shows, its Submit or Send is the one filled button. */}
+      {panel.view !== "finish" && <Button size="sm" className={button} onClick={() => openFinish()}>Finish review<Icon name="ArrowRight" aria-hidden /></Button>}
     </div>
   </div>;
 }

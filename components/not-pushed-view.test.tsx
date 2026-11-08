@@ -172,15 +172,20 @@ test("Viewed on Not pushed yet is kept for the file's revision there, as the ser
   page.lifecycle.unmount();
 });
 
-test("Not pushed yet ends saying its comments go with Send, not Submit, with Push, which shows how it goes in Finish review, and Finish review", async () => {
+test("Not pushed yet ends saying its comments go with Send, not Submit, with Push, which shows how it goes in Finish review, and Finish review until it shows", async () => {
   const push = vi.fn(() => ({ ok: true, delivery: "sent", asked: "commit" }));
   const { page } = await renderReview({ push }, "not-pushed", [], { head: "retry-uploads" });
   const view = await notPushed(page);
   const end = (await view.findByText("Comments here go with Send, not Submit.")).parentElement!;
-  expect(within(end).getAllByRole("button").map((button) => button.textContent)).toEqual(["Push", "Finish review"]);
+  const buttons = () => within(end).queryAllByRole("button").map((button) => button.textContent);
+  expect(buttons()).toEqual(["Push", "Finish review"]);
   fireEvent.click(within(end).getByRole("button", { name: "Push" }));
   await waitFor(() => expect(push).toHaveBeenCalledWith({ targetKey: review.targetKey }));
   expect(await page.findByRole("heading", { name: "Finish review" })).toBeTruthy();
+  // While it shows, its own button is the one filled; closed, the end leads to it again.
+  expect(buttons()).toEqual(["Push"]);
+  fireEvent.click(page.getByRole("button", { name: "Close panel" }));
+  await waitFor(() => expect(buttons()).toEqual(["Push", "Finish review"]));
   page.lifecycle.unmount();
   cleanup();
 
