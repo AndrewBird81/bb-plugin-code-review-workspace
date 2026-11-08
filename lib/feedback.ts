@@ -3,7 +3,11 @@
 import type { Verdict } from "../src/draft";
 import type { FeedbackThread } from "../src/github/types";
 
-export type AssessmentVerdict = "addressed" | "partial" | "not_addressed" | "disputed" | "unclear";
+// deferred: the author, the PR or the reviewer says it's done later, as in a follow-up PR; only for feedback on the PR.
+export type AssessmentVerdict = "addressed" | "partial" | "not_addressed" | "disputed" | "unclear" | "deferred";
+
+/** A verdict that leaves nothing for the author to do now: what Request what's left skips, and what an Approve may follow. */
+export const settled = (verdict: AssessmentVerdict) => verdict === "addressed" || verdict === "deferred";
 
 /** The assistant's verdict on one piece of feedback, for one head commit. */
 export interface AssessmentItem {

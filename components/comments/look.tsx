@@ -112,7 +112,7 @@ export function ReplyDraftBadge({ reply, brief = false }: {
   </Badge>;
 }
 
-const CHECK_TONE: Record<AssessmentVerdict, Tone> = { addressed: "success", partial: "warning", not_addressed: "danger", disputed: "warning", unclear: "neutral" };
+const CHECK_TONE: Record<AssessmentVerdict, Tone> = { addressed: "success", partial: "warning", not_addressed: "danger", disputed: "warning", unclear: "neutral", deferred: "neutral" };
 
 /** The agent's check of your feedback: "✦ Addressed". */
 export function CheckBadge({ check, size = "sm" }: { check: Pick<CommentCheck, "verdict">; size?: "sm" | "md" }) {

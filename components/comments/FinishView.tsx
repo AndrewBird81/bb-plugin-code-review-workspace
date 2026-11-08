@@ -7,6 +7,7 @@ import type { CommentFilter, CommentItem } from "../../lib/comments";
 import { rushedDoubt, unviewedDoubt } from "../../lib/approve-guard";
 import { readOf } from "../../lib/agent-coverage";
 import { summaryLines, type SummaryLine } from "../../lib/summary-lines";
+import { settled } from "../../lib/feedback";
 import { readDraftRecovery } from "../../lib/draft-recovery";
 import { useKnob } from "../../lib/settings";
 import { needsOrder, reviewState, type ReviewItem } from "../../lib/review-state";
@@ -352,8 +353,8 @@ function Verdicts({ revision }: { revision: string }) {
   const [busy, setBusy] = useState<"suggested" | "remaining" | null>(null);
   const [confirming, setConfirming] = useState<"suggested" | "remaining" | null>(null);
   const run = feedback?.run ?? null;
-  // Blocking feedback the agent's check says isn't done yet.
-  const left = !!feedback?.items.some((item) => !item.nonBlocking && item.assessment && item.assessment.verdict !== "addressed");
+  // Blocking feedback the agent's check says isn't done yet, nor deferred.
+  const left = !!feedback?.items.some((item) => !item.nonBlocking && item.assessment && !settled(item.assessment.verdict));
   // The agent's summary to use as yours, or its word on where the PR stands: readable here, whatever your summary says.
   const said = feedback?.suggestionInDraft ? "" : (run?.suggestedBody || run?.summary || "").trim();
   async function apply(mode: "suggested" | "remaining") {
@@ -593,17 +594,25 @@ function Archived() {
   );
 }
 
-/** Your last review, sent before: its verdict, when, and where it is on GitHub. */
+/**
+ * Your last review, sent before: its verdict, when, the commits since, and where it is on GitHub. Neutral, as history:
+ * it isn't where the PR stands.
+ */
 function LastReview() {
   const { review } = useWorkspace();
   const d = useDraft();
   const url = d.receiptUrl ?? review.url;
+  // GitHub's count, once the sync has read the review shown: one sent from here since is newer than what it counted from.
+  const commits: number = (review.submittedAt ?? 0) <= (review.signals?.lastReviewAt ?? 0) ? review.signals?.commitsSince ?? 0 : 0;
   return (
-    <section aria-label="Submitted review" className="flex min-h-11 flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border border-success/25 bg-success/10 px-3 py-1.5 text-xs">
-      <Icon name="BadgeCheck" className="size-4 shrink-0 text-diff-added" aria-hidden />
-      <span className="font-medium text-diff-added">{RECEIPT_LABEL[d.submittedVerdict!]}</span>
-      {timeAgo(review.submittedAt) && <span className="text-muted-foreground">· your last review, {timeAgo(review.submittedAt)}</span>}
-      {url && <UrlLink href={url} className={cn("relative ml-auto text-primary hover:underline", TOUCH_TARGET)}>View on GitHub</UrlLink>}
+    <section aria-label="Submitted review" className="flex min-h-11 flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border border-border bg-muted/25 px-3 py-1.5 text-xs">
+      <Icon name="History" className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+      <MetaLine className="min-w-0 flex-1" items={[
+        <>Your last review: <span className="font-medium text-foreground">{RECEIPT_LABEL[d.submittedVerdict!]}</span></>,
+        timeAgo(review.submittedAt),
+        commits > 0 ? `${plural(commits, "commit")} since` : null,
+      ]} />
+      {url && <UrlLink href={url} className={cn("relative text-primary hover:underline", TOUCH_TARGET)}>View on GitHub</UrlLink>}
     </section>
   );
 }

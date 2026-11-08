@@ -8,7 +8,7 @@ import { diffTooLarge, readFilesPatch, readPrDiff } from "./pr-snapshot";
 import { ensureGitHeaders, splitPatchByFile } from "./patch";
 import { diffFilesHead } from "./env-diff";
 import { interdiff, type FileInterdiff } from "./interdiff";
-import { firstLine, type AssessmentItem, type FeedbackItem, type FeedbackView } from "../lib/feedback";
+import { firstLine, settled, type AssessmentItem, type FeedbackItem, type FeedbackView } from "../lib/feedback";
 import { baselineOf, type AssessmentSummary } from "../lib/turn";
 import { localSendKey, sendBaselineOf, sendKey, sendOf } from "../lib/send-baseline";
 import type { Verdict } from "./draft";
@@ -237,13 +237,13 @@ export function summarize(headSha: string, items: AssessmentItem[], threadIds: r
   const count = (verdict: AssessmentItem["verdict"]) => ids.filter((id) => byId.get(id)?.verdict === verdict).length;
   return {
     headSha, total: ids.length, addressed: count("addressed"), partial: count("partial"), notAddressed: count("not_addressed"),
-    disputed: count("disputed"), unclear: count("unclear"), assessedAt: Math.max(0, ...items.map((item) => item.assessedAt)),
+    disputed: count("disputed"), unclear: count("unclear"), deferred: count("deferred"), assessedAt: Math.max(0, ...items.map((item) => item.assessedAt)),
   };
 }
 
-/** A Request changes summary listing the blocking feedback that isn't addressed yet. */
+/** A Request changes summary listing the blocking feedback that isn't addressed yet, deferred items aside. */
 export function remainingBody(view: FeedbackView): string {
-  const open = view.items.filter((item) => !item.nonBlocking && (item.assessment ? item.assessment.verdict !== "addressed" : item.thread?.status !== "resolved"));
+  const open = view.items.filter((item) => !item.nonBlocking && (item.assessment ? !settled(item.assessment.verdict) : item.thread?.status !== "resolved"));
   if (!open.length) return "";
   const line = (item: FeedbackItem) => {
     const where = item.thread?.path ? ` (\`${item.thread.path}${item.thread.line ? `:${item.thread.line}` : ""}\`)` : "";

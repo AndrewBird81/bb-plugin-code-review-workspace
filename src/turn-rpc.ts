@@ -173,9 +173,12 @@ export function register(deps: ServeDeps) {
             if (!body) return { ok: false, error: "Nothing is left open. Consider approving." };
             verdict = "REQUEST_CHANGES";
           }
-          // You chose the verdict; the words are still the assistant's until you edit them. You've settled the summary.
+          // You chose the verdict. The assistant's suggested words are its own until you edit them; what's left, listed at
+          // your ask, is yours. You've settled the summary.
           await tx.setLifecycle(targetKey, { summaryAsk: null });
-          const draft = await tx.updateSummary(targetKey, { verdict, verdictChosen: true, body, bodyAuthor: "agent", written: { verdict, comments: commentsKey((await tx.getDraft(targetKey)).comments) } });
+          const draft = await tx.updateSummary(targetKey, mode === "suggested"
+            ? { verdict, verdictChosen: true, body, bodyAuthor: "agent", written: { verdict, comments: commentsKey((await tx.getDraft(targetKey)).comments) } }
+            : { verdict, verdictChosen: true, body, bodyAuthor: undefined, written: undefined });
           bb.realtime.publish(`draft:${targetKey}`, {});
           return { ok: true, draft };
         });

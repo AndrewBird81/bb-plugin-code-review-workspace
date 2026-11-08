@@ -476,23 +476,25 @@ test("with nothing else waiting, the receipt says so, and All reviews goes back 
   slot.lifecycle.unmount();
 });
 
-test("an earlier review is a line above the next one's draft, so Finish stays open for it", async () => {
-  const { slot } = await renderWorkspace({ review: { submittedVerdict: "REQUEST_CHANGES", submittedAt: now - 2 * 86_400_000 }, rpc: { getDraft: () => ({ draft: draftOf({ comments: [] }), stale: [] }) } });
+test("an earlier review is a neutral line above the next one's draft, with the commits since, so Finish stays open for it", async () => {
+  const { slot } = await renderWorkspace({ review: { submittedVerdict: "REQUEST_CHANGES", submittedAt: now - 2 * 86_400_000, signals: { lastReviewAt: now - 2 * 86_400_000, commitsSince: 2 } }, rpc: { getDraft: () => ({ draft: draftOf({ comments: [] }), stale: [] }) } });
   fireEvent.keyDown(document.body, { key: "s" });
-  const last = within(await slot.findByRole("region", { name: "Submitted review" }));
-  expect(last.getByText("Changes requested")).toBeTruthy();
-  expect(last.getByText("· your last review, 2d ago")).toBeTruthy();
+  const region = await slot.findByRole("region", { name: "Submitted review" });
+  const last = within(region);
+  // History, not where the PR stands: it isn't success-tinted.
+  expect(region.textContent?.replace(/\s+/g, " ")).toBe("Your last review: Changes requested · 2d ago · 2 commits sinceView on GitHub");
+  expect(region.className).not.toMatch(/success/);
   // Its link is a line of text, with a 44px target on a touch screen.
   expect(last.getByRole("link", { name: "View on GitHub" }).className.split(" ")).toEqual(expect.arrayContaining(["relative", "pointer-coarse:after:h-11"]));
   expect(slot.getByRole("group", { name: "Review verdict" })).toBeTruthy();
   slot.lifecycle.unmount();
 });
 
-test("an earlier review sent moments ago says just now, not now ago", async () => {
-  const { slot } = await renderWorkspace({ review: { submittedVerdict: "COMMENT", submittedAt: Date.now() - 10_000 }, rpc: { getDraft: () => ({ draft: draftOf({ comments: [] }), stale: [] }) } });
+test("an earlier review sent moments ago says just now, not now ago, and no commits since that GitHub counted from the review before", async () => {
+  const { slot } = await renderWorkspace({ review: { submittedVerdict: "COMMENT", submittedAt: Date.now() - 10_000, signals: { lastReviewAt: now - 86_400_000, commitsSince: 2 } }, rpc: { getDraft: () => ({ draft: draftOf({ comments: [] }), stale: [] }) } });
   fireEvent.keyDown(document.body, { key: "s" });
-  const last = within(await slot.findByRole("region", { name: "Submitted review" }));
-  expect(last.getByText("· your last review, just now")).toBeTruthy();
+  const region = await slot.findByRole("region", { name: "Submitted review" });
+  expect(region.textContent?.replace(/\s+/g, " ")).toBe("Your last review: Commented · just nowView on GitHub");
   slot.lifecycle.unmount();
 });
 
@@ -660,6 +662,43 @@ test("an Approve suggestion from an agent that didn't read every file is a doubt
   const ask = await view.findByRole("alert");
   expect(ask.textContent).toContain("The agent suggests Approve but read 0 of 1 file.");
   expect(rpc.submitReview).not.toHaveBeenCalled();
+  slot.lifecycle.unmount();
+}, 15_000);
+
+test("on a re-review, what the agent read counts against the files changed since your review, or every file when that can't be read", async () => {
+  const rereview = { submittedHeadSha: "old", submittedAt: now - 86_400_000, agentReads: { head: "new", files: [] } };
+  const approve = vi.fn(() => ({ draft: draftOf({ verdict: "APPROVE", verdictChosen: true, suggestedVerdict: "APPROVE", comments: [] }), stale: [] }));
+  const since = (status: string) => () => ({ baseline: { sha: "old", at: now - 86_400_000, verdict: null }, files: [{ file: "src/a.ts", status, newLines: [], newDeletions: [], patch: "", dropped: "" }] });
+  // The diff shows all changes, whatever changed since.
+  const getPreferences = () => ({ preferences: { ...defaultPreferences, rereviewShows: "all" }, revision: 0 });
+  let { slot } = await renderWorkspace({ review: rereview, rpc: { getDraft: approve, getSinceReview: since("changed"), getPreferences } });
+  let view = await finish(slot);
+  expect(await within(view.getByRole("region", { name: "Agent’s suggestion" })).findByText("Read 0 of 1 file changed since your review")).toBeTruthy();
+  expect(view.getByText("The agent suggests Approve but read 0 of 1 file changed since your review")).toBeTruthy();
+  slot.lifecycle.unmount();
+
+  // Nothing changed since your review but a rebase: nothing new to read, and nothing to doubt.
+  ({ slot } = await renderWorkspace({ review: rereview, rpc: { getDraft: approve, getSinceReview: since("unchanged"), getPreferences } }));
+  view = await finish(slot);
+  await waitFor(() => expect(view.queryByText(/^Read /)).toBeNull());
+  expect(view.queryByText(/The agent suggests Approve but read/)).toBeNull();
+  slot.lifecycle.unmount();
+
+  ({ slot } = await renderWorkspace({ review: rereview, rpc: { getDraft: approve, getSinceReview: () => ({ baseline: null, files: [], error: "gh: not found" }), getPreferences } }));
+  view = await finish(slot);
+  expect(await within(view.getByRole("region", { name: "Agent’s suggestion" })).findByText("Read 0 of 1 file")).toBeTruthy();
+  slot.lifecycle.unmount();
+}, 20_000);
+
+test("a deferred item isn't left open: beside an Approve suggestion, there's no Request what's left", async () => {
+  const deferred = feedbackOf({ run: { ...run, suggestedVerdict: "APPROVE", suggestedBody: "Nothing outstanding." } });
+  deferred.items[0]!.assessment = { id: "t1", verdict: "deferred", evidence: "Author: staging fixtures come in the next PR.", assessedAt: now };
+  const { slot } = await renderWorkspace({ rpc: { getFeedback: vi.fn(() => ({ feedback: deferred })) } });
+  const view = await finish(slot);
+  const suggestion = within(view.getByRole("region", { name: "Agent’s suggestion" }));
+  expect(suggestion.getByText("Agent suggests Approve")).toBeTruthy();
+  expect(suggestion.getByRole("button", { name: "Use as draft" })).toBeTruthy();
+  expect(suggestion.queryByRole("button", { name: "Request what’s left" })).toBeNull();
   slot.lifecycle.unmount();
 }, 15_000);
 

@@ -39,7 +39,7 @@ const LOCAL_LABEL: Partial<Record<CommentState, string>> = { draft: "Draft · go
 export const THREAD_FLAG_LABEL = { outdated: "Outdated", fileComment: "File comment" } as const;
 /** The agent's check of your feedback, after its ✦. */
 export const CHECK_LABEL: Record<AssessmentVerdict, string> = {
-  addressed: "Addressed", partial: "Partly addressed", not_addressed: "Not addressed", disputed: "Author disagrees", unclear: "Unclear",
+  addressed: "Addressed", partial: "Partly addressed", not_addressed: "Not addressed", disputed: "Author disagrees", unclear: "Unclear", deferred: "Deferred",
 };
 export const REPLY_DRAFT_LABEL: Record<Author, string> = { reviewer: "Reply draft · not sent", agent: "Agent reply draft · not sent" };
 export const SUMMARY_LABEL: Record<Author, string> = { reviewer: "Summary · not submitted", agent: "Agent summary · not submitted" };
