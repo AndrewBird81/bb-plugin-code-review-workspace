@@ -11,7 +11,7 @@ import { useKnob } from "../../lib/settings";
 import { cn } from "../../lib/utils";
 import { useWorkspaceFor } from "../../lib/workspace-store";
 import { useDraft } from "../DraftProvider";
-import { AgentEvidence, CommentBody, ComposerFields, DiscussionView, NotOnGithubBadge, SeverityBadge, type InlineComposer } from "../InlineDraft";
+import { AgentEvidence, AgentReply, CommentBody, ComposerFields, DiscussionView, NotOnGithubBadge, SeverityBadge, type InlineComposer } from "../InlineDraft";
 import { age } from "../time-ago";
 import { TOUCH_CONTROL } from "../touch";
 import { Avatar } from "../ui/avatar";
@@ -300,7 +300,8 @@ function DraftCard({ targetKey, item }: { targetKey: string; item: DraftItem }) 
         {draft.editable && <div className="-mb-1 -ml-2 flex flex-wrap gap-0.5">
           <FixButtons targetKey={targetKey} comment={comment} checks={draft.checks} busy={draft.busy} posts={facts.posts && postable(comment, facts.own)} className={ACTION} onFix={draft.setFix} />
           <Button variant="ghost" size="sm" aria-label={`Edit comment on ${where}`} className={ACTION} {...whileBusy(draft.busy, draft.writing)} onClick={() => { if (!draft.busy && !draft.writing) draft.openComposer(comment, false); }}><Icon name="Edit" className="size-3.5" aria-hidden />Edit</Button>
-          <Button variant="ghost" size="sm" aria-label={`Ask agent about the comment on ${where}`} className={cn(ACTION, "text-(--ansi-13) hover:text-(--ansi-13)")} {...whileBusy(draft.busy, draft.writing)} onClick={() => { if (!draft.busy && !draft.writing) draft.openComposer(comment, false, true); }}><Icon name="Sparkles" className="size-3.5" aria-hidden />Ask agent</Button>
+          {/* Once it has a discussion, Reply at its foot goes on with it. */}
+          {!item.discussion && <Button variant="ghost" size="sm" aria-label={`Ask agent about the comment on ${where}`} className={cn(ACTION, "text-(--ansi-13) hover:text-(--ansi-13)")} {...whileBusy(draft.busy, draft.writing)} onClick={() => { if (!draft.busy && !draft.writing) draft.openComposer(comment, false, true); }}><Icon name="Sparkles" className="size-3.5" aria-hidden />Ask agent</Button>}
           {sendable && <SendNow targetKey={targetKey} comment={comment} to={sendable} className={ACTION} onNote={setSendNote} />}
           {preExisting && item.state !== "older-diff" && marksPreExisting(comment) && <Button variant="ghost" size="sm" className={ACTION} {...whileBusy(draft.busy)} onClick={() => { if (!draft.busy) void draft.markPreExisting(comment, comment.introduced !== false); }}>
             <Icon name="History" className="size-3.5" aria-hidden />{comment.introduced === false ? "Mark as from this PR" : "Mark as pre-existing"}
@@ -310,7 +311,8 @@ function DraftCard({ targetKey, item }: { targetKey: string; item: DraftItem }) 
           <CommentEditorMenu comment={comment} />
         </div>}
       </div>}
-      {item.discussion && <DiscussionView discussion={item.discussion} titled chat={draft.chat} busy={draft.busy} onUndo={draft.editable && !box ? () => void draft.undo(item.discussion!) : undefined} />}
+      {item.discussion && <DiscussionView discussion={item.discussion} titled chat={draft.chat} busy={draft.busy} writing={draft.writing} onUndo={draft.editable && !box ? () => void draft.undo(item.discussion!) : undefined}
+        onReply={draft.editable && !box ? () => draft.openComposer(comment, false, true) : undefined} />}
       {box === "ask" && <ComposerFields mode="ask" divided busy={draft.busy} composer={composer} />}
     </article>
   );
@@ -326,7 +328,7 @@ function PrivateCard({ item }: { item: PrivateItem }) {
     <article aria-label={`Private discussion on ${whereOf(item)}`} className={cn("overflow-hidden rounded-lg text-sm", frameOf(item))}>
       <DiscussionView discussion={discussion} titled={false} chat={draft.chat} busy={draft.busy} onUndo={draft.editable && !box ? () => void draft.undo(discussion) : undefined} />
       {box === "ask" ? <ComposerFields mode="ask" divided busy={draft.busy} composer={composer} /> : draft.editable && <div className="flex flex-wrap gap-0.5 px-1 pb-1.5">
-        <Button variant="ghost" size="sm" className={cn(ACTION, "text-(--ansi-13) hover:text-(--ansi-13)")} disabled={draft.busy || draft.writing} onClick={() => draft.openComposer(discussion, false, true)}><Icon name="Sparkles" className="size-3.5" aria-hidden />Reply</Button>
+        <AgentReply at={discussion} disabled={draft.busy || draft.writing} onClick={() => draft.openComposer(discussion, false, true)} />
         <Button variant="ghost" size="sm" className={ACTION} disabled={draft.busy} onClick={() => draft.inlineDraft.dismiss(discussion)}>Dismiss</Button>
       </div>}
     </article>

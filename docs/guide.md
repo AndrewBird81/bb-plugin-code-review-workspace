@@ -561,6 +561,7 @@ Discussions with the review agent sit under a line, kept apart from its comment.
 
 - **Ask agent** on a comment opens a box under it: say what's wrong or ask why, and the agent answers there, or edits or removes the comment. The box says what the agent gets with your words: "It sees this comment and line 192." It answers your questions there, and after an edit says what it changed; **Show changes** beside "Agent edited the comment." strikes the words it took out and marks the ones it put in. **Undo** puts back its latest change.
 - **Ask agent** in the comment box, or on selected lines, asks about the lines without adding a comment.
+- **Reply**, at the foot of a discussion, goes on with it, as on a GitHub thread: under a line, in Comments, and under the summary. Its box opens there, and the focus comes back to Reply once you send or leave it. **Ask agent** shows on a comment or the summary until it has a discussion.
 - Text selected in the code, a long-press included, offers **Ask agent about selection** (unless **Ask agent about selected text** is off in Settings).
 - Discussions stay in BB: submitting sends only the comments, and clears the discussions.
 

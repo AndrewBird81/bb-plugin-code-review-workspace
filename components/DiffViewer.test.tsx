@@ -245,6 +245,44 @@ test("Undo under a line waits while the panel's box edits that comment", () => {
   expect(within(screen.getByRole("region", { name: "Discussion with agent on src/a.ts:2" })).queryByRole("button", { name: "Undo" })).toBeNull();
 });
 
+// Ask agent sat above the discussion, so it didn't look like it could go on (ted-2026-11-03 01).
+test("a discussion goes on from Reply at its foot, as a GitHub thread does, in Ask agent's place, until a box opens there", () => {
+  const at = { file: "src/a.ts", line: 2, side: "RIGHT" as const };
+  const discussion = { ...at, waiting: false, entries: [
+    { author: "reviewer" as const, kind: "message" as const, body: "Is it a map?", createdAt: 1 },
+    { author: "agent" as const, kind: "message" as const, body: "Yes.", createdAt: 2 },
+  ] };
+  const draft = renderWithDraft({ comments: [comment], discussions: [discussion] });
+  const card = screen.getByRole("article", { name: "Draft comment on src/a.ts:2" });
+  expect(within(card).getByRole("button", { name: "Edit" })).toBeTruthy();
+  expect(within(card).queryByRole("button", { name: "Ask agent" })).toBeNull();
+  const thread = screen.getByRole("region", { name: "Discussion with agent on src/a.ts:2" });
+  // The last thing in it, after the agent's answer.
+  const reply = within(thread).getByRole("button", { name: "Reply" });
+  expect(thread.lastElementChild!.contains(reply)).toBe(true);
+  fireEvent.click(reply);
+  expect(draft.ask).toHaveBeenCalledWith(comment);
+  cleanup();
+  // Another box holding text holds it; one open here takes its place.
+  renderWithDraft({ comments: [comment], discussions: [discussion], writing: true });
+  expect((within(screen.getByRole("region", { name: "Discussion with agent on src/a.ts:2" })).getByRole("button", { name: "Reply" }) as HTMLButtonElement).disabled).toBe(true);
+  cleanup();
+  renderWithDraft({ comments: [comment], discussions: [discussion], composer: { ...at, editing: false, asking: true } }, {}, { body: "", change: vi.fn(), save: vi.fn(), askAgent: vi.fn(), cancel: vi.fn(), textareaRef: { current: null } });
+  expect(screen.getByRole("textbox", { name: "Message to agent" })).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Reply" })).toBeNull();
+  cleanup();
+  // A question with no comment: Dismiss heads it, and Reply ends it.
+  const asked = renderWithDraft({ discussions: [discussion] });
+  const bare = screen.getByText("Private · with the agent").closest<HTMLElement>("[data-draft-at]")!;
+  expect(within(bare).getAllByRole("button").map((button) => button.textContent)).toEqual(["Dismiss", "Reply"]);
+  fireEvent.click(within(bare).getByRole("button", { name: "Reply" }));
+  expect(asked.ask).toHaveBeenCalledWith(discussion);
+  cleanup();
+  // A draft that can't change has none.
+  renderWithDraft({ comments: [comment], discussions: [discussion], editable: false });
+  expect(screen.queryByRole("button", { name: "Reply" })).toBeNull();
+});
+
 test("a viewed file, folded, dims its path alone, not its row's other text", () => {
   render(<DiffViewer patch={patch} files={["src/a.ts"]} views={new Map<string, FileViewFlags>([["src/a.ts", { viewed: true, stale: true }]])} onToggleViewed={() => {}} />);
   const card = document.querySelector<HTMLElement>('[data-file="src/a.ts"]')!;

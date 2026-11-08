@@ -316,6 +316,25 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
     });
   }
   /**
+   * Once a message to the agent is sent or cancelled: Reply under its discussion, in the diff, this panel's list, or the
+   * summary, as a GitHub thread's Reply takes the focus back; else the comment's card, or the summary. Only while the
+   * focus went with the box, not to something you chose since.
+   */
+  function focusReply(at: CommentLocation, inDiff: boolean, frames = 10) {
+    requestAnimationFrame(() => {
+      if (document.activeElement && document.activeElement !== document.body) return;
+      const key = locationKey(at);
+      const summary = isSummary(at);
+      const scope = summary ? summaryRef.current : inDiff ? document : listRef.current;
+      const reply = Array.from(scope?.querySelectorAll<HTMLButtonElement>(inDiff && !summary ? "[data-draft-at] [data-agent-reply]" : "[data-agent-reply]") ?? []).find((el) => el.dataset.agentReply === key);
+      // It may not show yet, or still wait on the draft's save.
+      if (reply && !reply.disabled) reply.focus();
+      else if (frames > 1) focusReply(at, inDiff, frames - 1);
+      else if (summary) focusSummary();
+      else focusComment(at, inDiff);
+    });
+  }
+  /**
    * Before a comment is removed: where the focus goes once its card, which has it, is gone. In the code, to the next
    * comment's card in its file, else the file's row; in the list, to the next row, else the one before, else the filter.
    */
@@ -352,12 +371,13 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
       }
     });
   }
-  /** Close a line's box unsaved, and return focus to where it was opened, or else to the comment it edited. */
+  /** Close a line's box unsaved, and return focus to where it was opened, or else to Reply, or the comment it edited. */
   function cancelComposer() {
     const at = { file, line: Number(line), side };
     closeComposer();
     const from = opener.current;
     if (from?.isConnected) requestAnimationFrame(() => from.focus());
+    else if (asking) focusReply(at, inline);
     else focusComment(at, inline);
   }
   /** Close the summary's box, unsaved text and all, unless it holds a message to the agent. */
@@ -418,6 +438,7 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
     await mutate(async () => {
       const result = await enqueue(() => rpc.call("askAgent", { targetKey, file, line: Number(line), side, ...(startLine ? { startLine } : {}), body: body.trim(), inserted }));
       apply(result as { draft: Draft }); closeComposer();
+      focusReply({ file, line: Number(line), side }, inline);
     });
   }
   /** A message to the agent from the summary, without the box: write it, or update it. The plugin wrote it. */
@@ -758,7 +779,7 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
   } : null, [composerInDiff, body, edited, replacing, changedWhileEditing, askSees, severity, composerError, rebuilding, olderDiff, canSuggest]);
   const summaryComposer = editable && onSummary ? {
     mode: asking ? "ask" as const : "edit" as const, body, edited, textareaRef: bodyRef,
-    change: changeBody, save: () => { void saveSummary(body.trim()); }, askAgent: () => { void askAgent(); }, cancel: () => { closeComposer(); focusSummary(); },
+    change: changeBody, save: () => { void saveSummary(body.trim()); }, askAgent: () => { void askAgent(); }, cancel: () => { closeComposer(); if (asking) focusReply(SUMMARY_AT, false); else focusSummary(); },
   } : null;
   // A folder's review in a GitHub repo becomes its PR's once the branch has one; a checkout's never does.
   const hint = isLocal ? review?.feature?.repo ? "Nothing goes to GitHub yet. Once it has a PR, this review becomes the PR’s." : "Local review. Comments and notes stay in this BB installation."

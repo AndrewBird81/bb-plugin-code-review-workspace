@@ -155,6 +155,35 @@ test("an agent's summary written before your comments changed offers to update i
   slot.lifecycle.unmount();
 });
 
+// Ask agent sat above the discussion, so it didn't look like it could go on (ted-2026-11-03 01).
+test("the summary's discussion goes on from Reply at its foot, in Ask agent's place, which has the focus back once its box closes", async () => {
+  const draft = draftOf({ body: "One issue.", bodyAuthor: "agent" });
+  let discussions = [{ ...SUMMARY_AT, waiting: false, entries: [
+    { author: "reviewer", kind: "message", body: "Why one?", createdAt: 1 },
+    { author: "agent", kind: "message", body: "The rest are nits.", createdAt: 2 },
+  ] }];
+  const askAgent = vi.fn(({ body }: { body: string }) => {
+    discussions = [{ ...discussions[0], waiting: true, entries: [...discussions[0].entries, { author: "reviewer", kind: "message", body, createdAt: 3 }] }];
+    return { draft, stale: [], discussions };
+  });
+  const slot = await renderTray("reply", { getDraft: () => ({ draft, stale: [], discussions }), askAgent });
+  const thread = within(await summary(slot).findByRole("region", { name: "Discussion with agent on the review summary" }));
+  expect(summary(slot).queryByRole("button", { name: "Ask agent about the review summary" })).toBeNull();
+  fireEvent.click(thread.getByRole("button", { name: "Reply" }));
+  const box = summary(slot).getByRole("textbox", { name: "Message to agent" });
+  expect(thread.queryByRole("button", { name: "Reply" })).toBeNull();
+  // Left empty, the box closes and Reply has the focus.
+  fireEvent.keyDown(box, { key: "Escape" });
+  await waitFor(() => expect(document.activeElement).toBe(thread.getByRole("button", { name: "Reply" })));
+  fireEvent.click(thread.getByRole("button", { name: "Reply" }));
+  fireEvent.change(summary(slot).getByRole("textbox", { name: "Message to agent" }), { target: { value: "Name them." } });
+  fireEvent.click(summary(slot).getByRole("button", { name: "Send to agent" }));
+  await waitFor(() => expect(askAgent).toHaveBeenCalledWith({ targetKey: "reply", ...SUMMARY_AT, body: "Name them.", inserted: false }));
+  await thread.findByText("Waiting for agent…");
+  await waitFor(() => expect(document.activeElement).toBe(thread.getByRole("button", { name: "Reply" })));
+  slot.lifecycle.unmount();
+});
+
 test("without a summary, you write it or ask the agent to, and Request changes waits for one", async () => {
   const draft = draftOf();
   const askAgent = vi.fn(() => ({ draft, stale: [], discussions: [] }));

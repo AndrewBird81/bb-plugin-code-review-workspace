@@ -12,6 +12,8 @@ One review of a PR and your local changes to it: a thread on the branch of a PR 
 - **Ask agent** on a comment or the summary says what the agent gets with your words: "It sees this comment and line 192.", "It sees lines 1–2.", or "It sees the summary and the draft comments."
 - "Agent edited the comment." and "Agent edited the summary." have **Show changes**, which strikes the words the edit took out and marks the ones it put in.
 - The agent answers each question you ask in a discussion, and after an edit says in a sentence what it changed, where it could skip a reply before.
+- A discussion with the agent ends with **Reply**, as a GitHub thread does: under a line, in Comments, and under the summary. **Ask agent** sat above it, among the comment's actions, so it didn't look like you could go on. Reply's box opens in its place, and the focus comes back to Reply once you send or leave it; Ask agent shows until there's a discussion.
+- "The agent didn’t reply here." links to the agent's chat as **Open its chat**, which said Ask agent and read like Reply.
 
 ## 1.11.0 — 2026-11-03
 
