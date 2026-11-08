@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- While **Finish review** is open, **Submit to GitHub** is the one filled button: the last chapter's end and Not pushed yet's drop their **Finish review**, and **Mark viewed and finish** reads **Mark viewed**, outlined. Under Submit, "Your draft stays in BB until you submit, then posts to `flosports/web#4512` as @you." A reviewer who saw **Finish review** beside **Submit to GitHub** couldn't tell which came first, or whether finishing would close the review before they'd submitted.
+
 ## 1.11.0 — 2026-11-03
 
 See at a glance which reviews are working and which have news, with BB's own thread status icons on their rows. Still **BB 0.48+** (plugin SDK **0.6.79+**) with Node 24+; installs at `^1.0.0` update to 1.11.0. 1.11.0 adds no migration, so rolling back to 1.10.1 keeps everything; the rows lose their icons there.

@@ -12,6 +12,7 @@ import { needsOrder, reviewState, type ReviewItem } from "../../lib/review-state
 import { reviewIdentity } from "../../lib/review-identity";
 import { prDraftWaiting, pushAnywayOffered, pushFlagText, pushTarget } from "../../lib/push";
 import { Marked, Mono, updateThenClear } from "../shell/PushNotices";
+import { sidePanelId } from "../shell/SidePanel";
 import { statusWhy } from "../../lib/status-line";
 import { cn } from "../../lib/utils";
 import { NOT_PUSHED_PAGE, useWorkspace } from "../../lib/workspace-context";
@@ -85,6 +86,18 @@ export function FinishView({ shown, revision }: {
   // The panel's header names what shows, as Comments' foot does.
   const title = !body ? null : d.closed ? "Archived review" : "Review submitted";
   useEffect(() => updateComments(targetKey, { finishTitle: title }), [targetKey, title]);
+  // A receipt or an archived review has no summary to take the focus as the panel opens on it, and what opened it may
+  // have gone, as a chapter's end has no button to Finish review while it shows: the panel's title takes it then.
+  useEffect(() => {
+    if (!shown || !title) return;
+    const frame = requestAnimationFrame(() => {
+      const heading = document.activeElement === document.body && document.getElementById(sidePanelId(targetKey))?.querySelector<HTMLElement>("h2");
+      if (!heading) return;
+      heading.tabIndex = -1;
+      heading.focus({ preventScroll: true });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [shown, title, targetKey]);
   return (
     <div hidden={!shown} className={cn("flex min-h-0 flex-1 flex-col", !shown && "hidden")}>
       {d.loadError ? <div role="alert" className="space-y-3 p-3 text-sm"><p>Couldn’t load your draft. Editing is paused to protect it.</p><Button variant="outline" className={TOUCH_CONTROL} onClick={() => void d.load()}>Retry draft</Button></div>
@@ -497,8 +510,9 @@ function GoesToGitHub({ items, replyDrafts, onList }: { items: readonly CommentI
 }
 
 /**
- * Submit, pinned: the verdict on it, where it posts and as whom, or why it waits; the one more ask when in doubt; and
- * what GitHub or the server held it back for, in words, with what to do: Submit anyway, Submit as Comment, Open it on GitHub.
+ * Submit, pinned: the verdict on it, that the draft stays in BB until then and where it posts and as whom, or why it
+ * waits; the one more ask when in doubt; and what GitHub or the server held it back for, in words, with what to do:
+ * Submit anyway, Submit as Comment, Open it on GitHub.
  */
 function SubmitFoot({ onSubmit }: { onSubmit: (confirmed?: boolean, choice?: "anyway" | "comment") => void }) {
   const { review } = useWorkspace();
@@ -536,7 +550,8 @@ function SubmitFoot({ onSubmit }: { onSubmit: (confirmed?: boolean, choice?: "an
           {d.busy ? <Icon name="Loading" className="size-4 animate-spin motion-reduce:animate-none" aria-hidden /> : <Icon name="Github" className="size-4" aria-hidden />}
           {d.busy ? d.submitting ? "Submitting…" : "Saving…" : `Submit to GitHub · ${VERDICT_LABEL[d.draft.verdict]}${d.approvingBlocked ? ` · ${d.blockingCount} blocking` : ""}`}
         </Button>}
-      <p className="text-xs leading-relaxed text-muted-foreground">{ready && where ? <>Posts to {where}{d.account ? <> as @{d.account}</> : null}.</> : d.hint}</p>
+      {/* Said of the draft, not of everything: replies, resolves and Push go to GitHub on their own. */}
+      <p className="text-xs leading-relaxed text-muted-foreground">{ready && where ? <>Your draft stays in BB until you submit, then posts to {where}{d.account ? <> as @{d.account}</> : null}.</> : d.hint}</p>
     </footer>
   );
 }

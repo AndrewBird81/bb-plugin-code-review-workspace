@@ -106,7 +106,8 @@ test("it lists what goes to GitHub: the comments and their severities, who wrote
   expect(view.getByText("1 written by the agent")).toBeTruthy();
   expect(view.getByText("1 reply draft not sent: replies post on their own")).toBeTruthy();
   expect(submit(view).textContent).toBe("Submit to GitHub · Comment");
-  expect(view.getByText("Posts to acme/web#42 as @me.")).toBeTruthy();
+  // Said of the draft: nothing of it goes before Submit.
+  expect(view.getByText("Your draft stays in BB until you submit, then posts to acme/web#42 as @me.")).toBeTruthy();
   // Each row opens Comments on what it counts.
   fireEvent.click(view.getByRole("button", { name: "Show the comments to send" }));
   const list = within(await slot.findByRole("region", { name: "Comments" }));
@@ -588,8 +589,13 @@ test("a closed PR's last chapter ends at its archived review, not at finishing i
   fireEvent.click(main.getByRole("button", { name: "Mark viewed" }));
   await waitFor(() => expect(setFilesViewed).toHaveBeenCalledWith({ targetKey: "pr-42", files: ["src/a.ts"] }));
   expect(slot.queryByRole("region", { name: "Archived review" })).toBeNull();
-  fireEvent.click(main.getByRole("button", { name: "Archived review" }));
+  const open = main.getByRole("button", { name: "Archived review" });
+  open.focus();
+  fireEvent.click(open);
   expect(within(await slot.findByRole("region", { name: "Archived review" })).getByText("Merged · Archived")).toBeTruthy();
+  // Showing, it needs no button to it, and the panel's title takes the focus that button had.
+  expect(main.queryByRole("button", { name: "Archived review" })).toBeNull();
+  await waitFor(() => expect(document.activeElement).toBe(slot.getByRole("heading", { name: "Archived review" })));
   slot.lifecycle.unmount();
 });
 
