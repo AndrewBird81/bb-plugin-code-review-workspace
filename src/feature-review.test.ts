@@ -31,8 +31,8 @@ const BODY = "@@ -1,3 +1,3 @@\n one\n-two\n+TWO\n three\n";
 const PR_DIFF = "diff --git a/src/a.ts b/src/a.ts\nindex 1111111..2222222 100644\n--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1,3 +1,3 @@\n one\n-two\n+TWO\n three\n";
 
 /**
- * A folder (env1, on MaxBook, feat/qa) and the threads around it: `main` works in it and leads, `sub` is its subagent,
- * `orch` an orchestrator in another folder, `other` another top thread in the folder.
+ * A folder (env1, on MaxBook, feat/qa) and the threads around it: `main` works in it, `sub` is its sub-thread there,
+ * `other` another top thread in the folder.
  */
 function setup(folder: Folder = { files: [{ path: "src/a.ts", body: BODY }] }, threads: Record<string, T> = {}) {
   const all: Record<string, T> = {
@@ -90,7 +90,7 @@ test("three subagents sharing their thread's id make one review of the folder, a
   expect(results.map((r) => r.exitCode)).toEqual([0, 0, 0]);
   expect(results.filter((r) => r.stdout?.startsWith("Started a review of ~/src/api on MaxBook: api:feat/qa \"Snooze flaky checks\""))).toHaveLength(1);
   expect(results.filter((r) => r.stdout?.startsWith("Opened the review of ~/src/api on MaxBook: api:feat/qa \"Snooze flaky checks\""))).toHaveLength(2);
-  for (const r of results) expect(r.stdout).toContain(`Its main thread is "Snooze flaky checks" (main), the top thread working in this folder.`);
+  expect(results.filter((r) => r.stdout?.includes(`Its main thread is "Snooze flaky checks" (main). Comments sent from the review go there.`))).toHaveLength(3);
   const reviews = await s.store.listReviews();
   expect(reviews.map((r) => r.targetKey)).toEqual([key]);
   const review = reviews[0]!;
@@ -102,14 +102,34 @@ test("three subagents sharing their thread's id make one review of the folder, a
   await vi.waitFor(() => expect(s.spawns).toHaveLength(1));
 });
 
-test("a subagent under an orchestrator in another folder addresses the top thread working in the code's folder", async () => {
+test("a sub-thread you see addresses its review to itself, even in its orchestrator's folder: comments reach the thread that did the work", async () => {
+  const s = setup(undefined, {
+    orch: { id: "orch", environmentId: "env1", title: "Orchestrator" },
+    worker: { id: "worker", environmentId: "env1", parentThreadId: "orch", title: "Build snooze" },
+  });
+  expect((await run(s, "worker")).stdout).toContain(`Its main thread is "Build snooze" (worker). Comments sent from the review go there.`);
+  expect((await s.store.getReview(key))?.mainThread?.threadId).toBe("worker");
+  // Run again from the orchestrator, it opens as it is, still the sub-thread's.
+  expect((await run(s, "orch")).stdout).toContain(`Its main thread is "Build snooze" (worker), as before.`);
+  expect((await s.store.getReview(key))?.mainThread?.threadId).toBe("worker");
+});
+
+test("a hidden subagent addresses the nearest thread you see working in the folder, passing over one in another folder", async () => {
   const s = setup(undefined, {
     orch: { id: "orch", environmentId: "env_orch", title: "Orchestrator" },
     worker: { id: "worker", environmentId: "env1", parentThreadId: "orch", title: "Build snooze" },
-    deep: { id: "deep", environmentId: "env1", parentThreadId: "worker", title: "Write tests" },
+    hidden: { id: "hidden", environmentId: "env1", parentThreadId: "worker", title: "Write tests", visibility: "hidden" },
+    deeper: { id: "deeper", environmentId: "env1", parentThreadId: "hidden", title: "Lint", visibility: "hidden" },
   });
-  expect((await run(s, "deep")).stdout).toContain(`Its main thread is "Build snooze" (worker)`);
+  expect((await run(s, "deeper")).stdout).toContain(`Its main thread is "Build snooze" (worker)`);
   expect((await s.store.getReview(key))?.mainThread?.threadId).toBe("worker");
+
+  const away = setup(undefined, {
+    orch: { id: "orch", environmentId: "env1", title: "Orchestrator" },
+    elsewhere: { id: "elsewhere", environmentId: "env_other", parentThreadId: "orch", title: "Elsewhere" },
+    hidden: { id: "hidden", environmentId: "env1", parentThreadId: "elsewhere", title: "Write tests", visibility: "hidden" },
+  });
+  expect((await run(away, "hidden")).stdout).toContain(`Its main thread is "Orchestrator" (orch)`);
 });
 
 test("run again from any thread in the folder, it only opens: no rebuild, and the main thread stays", async () => {

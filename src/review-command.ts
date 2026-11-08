@@ -38,7 +38,7 @@ const usage = (list: boolean) => [
   "       bb review storage <status | verify | migrate | export-sqlite>  (see bb review storage --help)",
   "",
   "  With no PR or ref, it reviews this thread's folder: its committed, uncommitted and new files on its branch, on any",
-  "  machine. One review per folder and branch, addressed to the top thread working there; run again, it opens as it is.",
+  "  machine. One review per folder and branch, addressed to the thread that started it; run again, it opens as it is.",
   "  A git ref named comment, summary, list, ask, approve or storage is given as refs/heads/<name>.",
   "  A review's id, as api:feat-x or web#12, or its key, opens that review as it is.",
   "  --context  text for the assistant's automatic review, such as the ticket the change implements. It's kept with the review; '' removes it.",
