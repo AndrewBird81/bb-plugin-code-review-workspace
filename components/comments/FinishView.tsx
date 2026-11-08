@@ -220,8 +220,8 @@ function Push({ plan }: { plan: PushPlan | null | undefined }) {
       <p><span className="font-medium">Not pushed.</span> {run.warning ? <Marked text={run.warning} /> : <><Mono text={sha} /> isn’t what you reviewed.</>}</p>
       {files.length > 0 && <ul className="list-disc space-y-0.5 pl-5">{files.slice(0, 5).map((file) => <li key={file}><Mono text={file} />{secrets.has(file) && <span className="font-medium"> · may hold secrets</span>}</li>)}{files.length > 5 && <li>and {files.length - 5} more</li>}</ul>}
       <div className="flex flex-wrap gap-2">
-        {/* GitHub being ahead isn't something Update fixes; a commit the check couldn't place has nothing to push anyway. */}
-        {!(run.behind && !files.length) && updateButton("Update first", true)}
+        {/* GitHub being ahead, or someone else's branch, isn't something Update fixes; a commit the check couldn't place has nothing to push anyway. */}
+        {!((run.behind || run.theirs) && !files.length) && updateButton("Update first", true)}
         {pushAnywayOffered(run) && <Button size="sm" variant="outline" className={cn("gap-1.5 text-foreground", TOUCH_CONTROL, BUSY)} aria-disabled={!!busy || undefined} onClick={() => void push(true)}>{spinner(busy === "anyway", "ArrowUp")}Push anyway</Button>}
         {cancel()}
       </div>

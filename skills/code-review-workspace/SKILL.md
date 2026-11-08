@@ -28,7 +28,11 @@ bb review [<pr-url | owner/repo#n | pr-number | git-ref> [--base <ref>]] [--cont
   changes, uncommitted and new files included. There's one review per folder and branch, so run it
   from any thread or subagent there; run again, it only opens the review. It prints the review's
   id and its main thread, the thread that started it, which gets the comments the reviewer
-  sends: a sub-thread's own review goes to that sub-thread, not its orchestrator.
+  sends: a sub-thread's own review goes to that sub-thread, not its orchestrator. On the
+  branch of an open PR the reviewer is reviewing already, as when you checked out a
+  teammate's PR to change it, the folder joins that PR's review instead: the reviewer reads
+  what you haven't pushed in its Not pushed yet, and you're its main thread. So when the
+  reviewer wants to review your local changes to a PR, run `bb review` here.
 - A PR's URL, or `owner/repo#n`, works from anywhere; a PR number or a local ref needs this
   thread's checkout to be on the BB server.
 - A review's id, `bb review api:feat`, opens that review as it is, not as a git ref.

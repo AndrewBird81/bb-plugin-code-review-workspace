@@ -158,6 +158,7 @@ bb review https://github.com/acme/web/pull/42
 - **Push** in Finish review has the main thread commit what you reviewed, checks that commit against what you reviewed, warning first when they differ, then has the thread push exactly that commit, never forced.
 - **Push and open PR** in Finish review pushes, then has the review agent draft the PR. However the PR opens, the same review becomes the PR's within seconds, its id from before still naming it, and merges with the PR's own review if it has one.
 - The folder stays attached: **Not pushed yet**, a page after the chapters, shows what isn't on GitHub yet, and a comment on a line there goes with Send, then moves to the PR once it's pushed.
+- Reviewing the PR already, a teammate's too? **Review changes** in a thread on its branch joins that review rather than start another: its changes show in Not pushed yet, the thread gets your Sends, and Push asks before it puts a commit on someone else's branch.
 - On your own PR, teammates' comments go through the same loop: **Send** them to the thread that wrote it, or to a fresh thread at the PR's head that the review briefs.
 - Agents in your threads can add draft comments and a summary with `bb review comment` and `bb review summary`. They change only the local draft.
 - **Open in editor** opens a local review's file at the line.

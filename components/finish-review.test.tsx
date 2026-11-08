@@ -550,6 +550,16 @@ test("on your own PR, Finish counts only the comments that post: one sent to fix
   slot.lifecycle.unmount();
 });
 
+test("on someone else's PR whose review your folder joined, a comment sent to your thread there still posts with Submit, as on any PR of theirs", async () => {
+  const sentToFix = [{ ...comments[0], id: "c1", state: "sent", sendN: 1 }, comments[1]];
+  const joined = { ownPr: false, author: "dana", feature: { ...folderReview.feature, joinedAt: 2 }, mainThread: { threadId: "coder", environmentId: "env1", origin: "adopted", since: 2 } };
+  const { slot } = await renderWorkspace({ review: joined, rpc: { getDraft: vi.fn(() => ({ draft: draftOf({ comments: structuredClone(sentToFix) }), stale: [] })) } });
+  const view = await finish(slot);
+  expect(view.getByText("2 comments").parentElement!.textContent).toContain("1 blocking");
+  expect(view.queryByText(/sent to fix won’t post/)).toBeNull();
+  slot.lifecycle.unmount();
+});
+
 test("comments not on GitHub yet are said in Finish to go with Send, not Submit, and aren't counted as posting or sent to fix", async () => {
   const local = (line: number) => ({ file: "src/a.ts", line, side: "LOCAL", body: "Only in the folder." });
   for (const [draft, said] of [
@@ -907,6 +917,21 @@ test("a commit that isn't what you reviewed: Not pushed, which files, the secret
   expect(toast.success).toHaveBeenCalledWith("Updated. Review what changed, then Push.");
   expect(await within(again.part()).findByRole("button", { name: "Push" })).toBeTruthy();
   again.slot.lifecycle.unmount();
+});
+
+test("on someone else's PR whose review your folder joined, Push says first that the commit goes to their branch, with Push anyway and Cancel, not Update first", async () => {
+  const joined = { kind: "pr", repo: "acme/web", number: 7, url: "https://github.com/acme/web/pull/7", headSha: "c0ffee", head: "feat/qa", author: "dana", ownPr: false, feature: { ...folderReview.feature, joinedAt: 2 }, mainThread: { threadId: "coder", environmentId: "env1", origin: "adopted", since: 2 } };
+  const theirs = { state: "mismatch", at: now, threadId: "coder", repo: "acme/web", head: "feat/qa", theirs: true, warning: "This is @dana’s PR: Push puts the commit on their branch, `feat/qa`. Push anyway to go on." };
+  const { slot, state, calls, part } = await renderPush(theirs, {}, joined);
+  const alert = within(part()).getByRole("alert");
+  expect(alert.textContent).toContain("Not pushed. This is @dana’s PR: Push puts the commit on their branch, feat/qa. Push anyway to go on.");
+  expect(within(alert).getAllByRole("button").map((b) => b.textContent)).toEqual(["Push anyway", "Cancel"]);
+  const { warning: _warning, theirs: _theirs, ...rest } = theirs;
+  state.push = { ...rest, state: "committing", pastTheirs: true };
+  fireEvent.click(within(alert).getByRole("button", { name: "Push anyway" }));
+  await waitFor(() => expect(calls.push).toHaveBeenCalledWith({ targetKey: "pr-42", force: true, at: now }));
+  expect((await within(part()).findByRole("status")).textContent).toBe("Waiting for the main thread to commit. The review checks the commit before anything is pushed.");
+  slot.lifecycle.unmount();
 });
 
 test("pushed says so; GitHub not at the commit, or a push no one asked for, is flagged in Finish and on the review, until Got it", async () => {

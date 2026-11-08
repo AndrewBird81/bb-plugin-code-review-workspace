@@ -254,6 +254,10 @@ export interface PushRun {
   behind?: true;
   /** You chose Push anyway past `behind`: it isn't asked again for this Push. */
   pastBehind?: true;
+  /** mismatch: someone else's PR, whose review a folder of yours joined: the push goes to their branch. */
+  theirs?: true;
+  /** You chose Push anyway past `theirs`: it isn't asked again for this Push. */
+  pastTheirs?: true;
   flag?: "differs" | "unrequested" | "stopped";
   /** GitHub's head of the branch when flagged; null for no such branch. */
   remote?: string | null;
@@ -309,6 +313,12 @@ export interface FeatureReview {
   pushedAs?: string;
   /** The folder's head commit as last read on `branch`: a branch it's on now that has it may be `branch` renamed. */
   headSha?: string;
+  /**
+   * When the folder joined its PR's review, which was there before it (src/feature-review.ts joinPrReview): a thread
+   * on the PR's branch asked to review its changes. Such a folder doesn't make the change yours; the PR says whose it
+   * is. Absent for a review that began as the folder's.
+   */
+  joinedAt?: number;
   /** How many files changed in the folder since the review read it, as last checked; null for none or not checked. */
   changedFiles?: number | null;
   /**

@@ -4,6 +4,7 @@ import { classifyWriteError, PAGE_BUDGET_MS, refusalText, type GithubWrites } fr
 import { postable, sameComments, sameLocation, SUBMIT_WARNINGS, toGithubReviewPayload, type CommentLocation, type Draft, type DraftComment, type Verdict } from "./draft";
 import type { ReviewMeta } from "./store";
 import { reviewRevision } from "./review-revision";
+import { yoursByFolder } from "../lib/fixer";
 import { summaryLine, withSummaryLine } from "../lib/move-to-summary";
 import { invalidComments } from "./review-positions";
 import type { AsyncStore } from "./store-queue";
@@ -125,7 +126,7 @@ export function createReviewSubmitter(store: AsyncStore, run: typeof runGh, rece
     const ownOf = async (): Promise<{ needed: boolean; own: boolean | null }> => {
       const review = await store.getReview(targetKey);
       if (!review || !(await store.getDraft(targetKey)).comments.some(tracked)) return { needed: false, own: false };
-      if (review.kind === "ref" || review.feature) return { needed: true, own: true };
+      if (yoursByFolder(review)) return { needed: true, own: true };
       if (typeof review.ownPr === "boolean") return { needed: true, own: review.ownPr };
       if (!review.author) return { needed: true, own: false };
       const viewer = await login().catch(() => null);

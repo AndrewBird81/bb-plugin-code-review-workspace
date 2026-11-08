@@ -209,6 +209,26 @@ export function takeAskedComment(targetKey: string) {
   if (askedComments.delete(targetKey)) notify();
 }
 
+// Not pushed yet, asked for from another page, as Review changes asks once a thread's folder joined its PR's review:
+// the review's page opens on it once it can, whether it opens now or is open already. For this page's life.
+const askedNotPushed = new Map<string, number>();
+
+/** Ask the review's page to show Not pushed yet. */
+export function askToShowNotPushed(targetKey: string) {
+  askedNotPushed.set(targetKey, Date.now());
+  notify();
+}
+
+/** When Not pushed yet was asked to show in the review, until taken. */
+export function useAskedNotPushed(targetKey: string): number | null {
+  return useSyncExternalStore(subscribe, () => askedNotPushed.get(targetKey) ?? null);
+}
+
+/** Take the ask: it's answered once. */
+export function takeAskedNotPushed(targetKey: string) {
+  if (askedNotPushed.delete(targetKey)) notify();
+}
+
 // The review you last worked in, while its page shows: the pane in focus, for a command, which BB tells only the thread
 // in view. Of several panes, the one last clicked or typed in.
 let reviewInUse: string | null = null;
