@@ -315,14 +315,14 @@ test("the contract publishes to BB's RPC discovery: its schemas are JSON Schema 
 });
 
 // Plugins call it by this name, with this input, for this answer, as since 1.8.0: what a change here would break.
-test("reviewThreadChanges keeps its name, takes { threadId } alone, and answers { ok, error, targetKey }, which may gain fields", () => {
+test("reviewThreadChanges keeps its name, takes { threadId } alone, and answers { ok, error, targetKey }, which may gain fields, as joined has", () => {
   const method = publicContract.reviewThreadChanges;
   const schema = (direction: "input" | "output") => {
     const json = method[direction]["~standard"].jsonSchema![direction]({ target: "draft-2020-12" }) as any;
     return { required: json.required ?? [], properties: Object.fromEntries(Object.entries(json.properties).map(([key, field]: [string, any]) => [key, { type: field.type, ...field.minLength ? { minLength: field.minLength } : {} }])), additionalProperties: json.additionalProperties };
   };
   expect(schema("input")).toEqual({ required: ["threadId"], properties: { threadId: { type: "string", minLength: 1 } }, additionalProperties: false });
-  expect(schema("output")).toEqual({ required: ["ok"], properties: { ok: { type: "boolean" }, error: { type: "string" }, targetKey: { type: "string" } }, additionalProperties: {} });
+  expect(schema("output")).toEqual({ required: ["ok"], properties: { ok: { type: "boolean" }, error: { type: "string" }, targetKey: { type: "string" }, joined: { type: "boolean" } }, additionalProperties: {} });
   const valid = (input: unknown) => !("issues" in (method.input["~standard"].validate(input) as object));
   expect([{ threadId: "thr_1" }, { threadId: "" }, {}, { threadId: "thr_1", force: true }, null].map(valid)).toEqual([true, false, false, false, false]);
 });

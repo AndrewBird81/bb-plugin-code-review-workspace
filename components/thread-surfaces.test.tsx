@@ -3,13 +3,14 @@
 // while Settings has it on, reading BB's git status of the folder and never its diff; and the Review tab, only beside a
 // thread linked to a review, with its id and name, its comments and where each stands, the agent's chat and Review ↗.
 import { afterEach, expect, test, vi } from "vitest";
-import { act, cleanup, fireEvent, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, renderHook, waitFor, within } from "@testing-library/react";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import type { PluginAppDefinition } from "@get-bb/plugin-sdk/app";
 import { toast } from "sonner";
 import appModule from "../app";
 import { defaultPreferences } from "../src/preferences";
 import { ReviewChangesSegment, ReviewTab, useReviewChangesVisible, useReviewTabVisible } from "./ThreadSurfaces";
+import { useAskedNotPushed } from "../lib/workspace-store";
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() }, Toaster: () => null }));
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
@@ -176,6 +177,16 @@ test("Review changes starts the folder's review and opens it; with one, it reads
   fireEvent.click(plain);
   await waitFor(() => expect(offline.navigateCalls).toEqual([{ method: "toPluginPanel", path: "review", options: { subPath: "br-env-offline" } }]));
   expect(toast.error).toHaveBeenCalledTimes(1);
+});
+
+test("Review changes on a branch whose PR's review the folder joined goes to that review, asking it to open on Not pushed yet", async () => {
+  const props = { threadId: "t-join", projectId: "p1", environment: { id: "env-join" }, segments: [], isExpanded: false, onToggle: () => {} };
+  const slot = renderSlot({ component: ReviewChangesSegment }, props, { rpc: handlers({ folders: { "env-join": { files: 2 } }, rpc: { reviewThreadChanges: () => ({ ok: true, targetKey: "pr-7", joined: true }) } }) });
+  fireEvent.click(await slot.findByRole("button", { name: "Review changes" }));
+  await waitFor(() => expect(slot.navigateCalls).toEqual([{ method: "toPluginPanel", path: "review", options: { subPath: "pr-7" } }]));
+  expect(renderHook(() => useAskedNotPushed("pr-7")).result.current).toEqual(expect.any(Number));
+  // A review the folder didn't join opens as it does.
+  expect(renderHook(() => useAskedNotPushed("br-new")).result.current).toBeNull();
 });
 
 test("the line above the message box and the Review tab go to the same review, the one the thread is the main thread of", async () => {

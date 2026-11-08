@@ -14,7 +14,7 @@ import { cn } from "../lib/utils";
 import { experimental_useCodeTheme } from "@get-bb/plugin-sdk/app";
 import { getCommentsFolded, getGithubThreadsInCode, getHideWhitespace, getNavOpen, getNavView, getNavWidth, getPanelWidth, getReviewState, getWrapLines, patchReviewState, setCommentsFolded, setGithubThreadsInCode, setHideWhitespace, setNavOpen as saveNavOpen, setNavView, setNavWidth as saveNavWidth, setPanelWidth as savePanelWidth, setWrapLines, type NavView, type PanelView, type SideView } from "../lib/panel-state";
 import { NOT_PUSHED_PAGE, OVERVIEW, WorkspaceProvider, type WorkspaceApi } from "../lib/workspace-context";
-import { currentFileOf, publishReviewTitle, setCurrentFile as storeCurrentFile, takeAskedComment, useAskedComment, useCurrentFile, useReviewInUse, useTabShown } from "../lib/workspace-store";
+import { currentFileOf, publishReviewTitle, setCurrentFile as storeCurrentFile, takeAskedComment, takeAskedNotPushed, useAskedComment, useAskedNotPushed, useCurrentFile, useReviewInUse, useTabShown } from "../lib/workspace-store";
 import { reviewIdentity } from "../lib/review-identity";
 import { useAgentRead } from "../lib/use-agent-read";
 import { NAV_WIDTH, PANEL_WIDTH, READER_MIN, panelDockWidth, useWorkspaceLayout, type LayoutState } from "../lib/workspace-layout";
@@ -1515,6 +1515,14 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     // One whose page took long, as a review that couldn't load, isn't shown later, unasked.
     if (Date.now() - askedComment.asked < ASKED_COMMENT_MS) showComment(askedComment.at);
   }, [askedComment, hasApi, targetKey, showComment]);
+  // Not pushed yet, asked for as the thread's folder joined this PR's review, shown once the review has the folder.
+  const askedNotPushed = useAskedNotPushed(targetKey);
+  const notPushedHere = !!review && hasNotPushed(review);
+  useEffect(() => {
+    if (askedNotPushed === null || !hasApi) return;
+    takeAskedNotPushed(targetKey);
+    if (Date.now() - askedNotPushed < ASKED_COMMENT_MS && notPushedHere) setActiveId(NOT_PUSHED_PAGE);
+  }, [askedNotPushed, hasApi, targetKey, notPushedHere]);
   const { id, name, line } = identity ?? {};
   useEffect(() => id && name && line ? publishReviewTitle(targetKey, { id, name, line }) : undefined, [targetKey, id, name, line]);
 

@@ -5,7 +5,7 @@
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import { placeOn, reanchorDraft, type FeatureReview, type MainThread, type PushRun, type ReviewLifecycle, type ReviewMeta, type Store } from "./store";
 import type { AsyncStore } from "./store-queue";
-import { diffFilesHead, folderHas, folderHasBranch, folderHasSince, folderHead, isNotFound, isSecretPath, readFeatureDiff, readFeatureRevisions, type FeatureDiff, type FolderPr, type HiddenFile } from "./env-diff";
+import { diffFilesHead, featureBase, folderHas, folderHasBranch, folderHasSince, folderHead, isNotFound, isSecretPath, readFeatureDiff, readFeatureRevisions, type FeatureDiff, type FolderPr, type HiddenFile } from "./env-diff";
 import { featureKey, mergedSurvivor, prReviewKey, targetKey } from "./targets";
 import { beginGuide, guideWriterUnavailable, stopGuide } from "./generate";
 import { pruneDiffs } from "./feedback-view";
@@ -129,12 +129,48 @@ export function mainThreadState(review: Pick<ReviewMeta, "mainThread" | "impleme
   return { mainThread, sourceThreadId: main.id, sourceThreadAt: now, ...before ? { implementers: [...review.implementers ?? [], before] } : {} };
 }
 
-/** The review opened: whether it was started, whether its main thread was replaced and by which, and whether anything in it changed. */
-type Opened = { key: string; created: boolean; replaced: { threadId: string; title: string | null } | null; main: { threadId: string; title: string | null }; changed: boolean };
+/**
+ * The review opened: whether it was started, or the folder joined its PR's review, whether its main thread was replaced
+ * and by which, and whether anything in it changed.
+ */
+type Opened = { key: string; created: boolean; joined: boolean; replaced: { threadId: string; title: string | null } | null; main: { threadId: string; title: string | null }; changed: boolean };
+
+/** A PR's review a folder on its branch may join: open, with a guide or one being written, and no folder BB still has. */
+const joinable = (review: ReviewMeta) => review.kind === "pr" && !review.archivedAt && !review.mergedInto
+  && review.prState !== "MERGED" && review.prState !== "CLOSED" && (review.status === "ready" || review.status === "generating")
+  && (!review.feature || !!review.feature.folderGone);
+
+/** Whether `review` reads the folder `env` at the branch it's on, as one it joined does. */
+const readsFolder = (review: ReviewMeta | null, env: Folder["env"]) => !!review?.feature && !review.feature.folderGone
+  && review.feature.environmentId === env.id && folderBranchOf(review.feature) === env.branchName;
+
+/**
+ * The review a folder with none of its own joins, rather than start a second review of the same PR: the plugin's review
+ * of the open PR PR Status names for the folder's branch, else, where it names none, of this repo's open PR whose head
+ * is the branch, not from a fork; only while the folder has the PR's head, so it's that work. One another call joined
+ * the folder to meanwhile is the folder's. Null for none.
+ */
+async function prReviewToJoin(deps: Deps, folder: Folder): Promise<ReviewMeta | null> {
+  const { bb, store } = deps;
+  const { env, repo } = folder;
+  if (!repo) return null;
+  const found = await featureBase(bb, env, repo);
+  const pr = "pr" in found ? prOfBranch({ repo }, found.pr) : null;
+  // One already the folder's: not one its PR's merge or close ended, as a review's of a branch used again is (movedOn).
+  const takes = (review: ReviewMeta) => joinable(review) || review.kind === "pr" && !review.archivedAt && readsFolder(review, env) && !movedOn(review, env.branchName);
+  const review = pr ? await store.getReview(await prReviewKey(store, pr))
+    : (await store.listReviews()).find((review) => takes(review) && review.repo?.toLowerCase() === repo.toLowerCase() && review.head === env.branchName && typeof review.headFork !== "string") ?? null;
+  if (!review || !takes(review)) return null;
+  if (readsFolder(review, env)) return review;
+  const head = prHead(review);
+  return head && await folderHas(bb, env.id, head) ? review : null;
+}
 
 /**
  * Open the review of `folder` at its branch now, addressed to `main`, or start it: an existing one opens as it is, with
- * its main thread, unless that thread is archived or deleted and `main` is live. `run` starts its guide once called.
+ * its main thread, unless that thread is archived or deleted and `main` is live. With none, a folder on an open PR's
+ * branch the plugin reviews already joins that review (prReviewToJoin): its folder from then on, for Not pushed yet and
+ * Push, `main` its main thread, the one before kept, and nothing rebuilt. `run` starts its guide once called.
  */
 async function openFolderReview(deps: Deps, folder: Folder, main: Thread | null, options: { name?: string; context?: string } = {}): Promise<{ opened: Opened; run?: () => Promise<void> } | { error: string }> {
   const { bb, store } = deps;
@@ -154,11 +190,13 @@ async function openFolderReview(deps: Deps, folder: Folder, main: Thread | null,
     exact = featureKey(env.id, env.branchName, n);
     keyed = reviews.find((review) => review.targetKey === exact);
   }
-  const key = survivor ?? (reviews.some((review) => review.targetKey === exact) ? exact
+  let key = survivor ?? (reviews.some((review) => review.targetKey === exact) ? exact
     : reviewOfFolder(reviews.filter((review) => !movedOn(review, env.branchName)), env.id, env.branchName)?.targetKey ?? exact);
-  const existing = await store.getReview(key);
+  let existing = await store.getReview(key);
+  const joining = !existing && main ? await prReviewToJoin(deps, folder) : null;
+  if (joining) [key, existing] = [joining.targetKey, joining];
   // A recorded main thread that's archived or deleted gives way to the live one asking. One BB can't read now stays.
-  const checked = existing?.mainThread && main && existing.mainThread.threadId !== main.id ? await threadGone(bb, existing.mainThread.threadId) : null;
+  const checked = !joining && existing?.mainThread && main && existing.mainThread.threadId !== main.id ? await threadGone(bb, existing.mainThread.threadId) : null;
   const recorded = checked?.thread ?? null;
   const gone = !!checked?.gone;
   let read: FeatureDiff | undefined;
@@ -175,8 +213,22 @@ async function openFolderReview(deps: Deps, folder: Folder, main: Thread | null,
   const result = await store.exclusive(async (tx): Promise<{ opened: Opened } | { error: string }> => {
     const review = await tx.getReview(key);
     let created = false;
+    let joined = false;
     let replaced: Opened["replaced"] = null;
-    if (!review) {
+    // Joined by another call meanwhile, as by a subagent in the same folder: this one only opens it.
+    const here = readsFolder(review, env);
+    if (joining && !here) {
+      // One that got a folder of its own, went to Archive or was merged meanwhile isn't joined.
+      if (!review || !joinable(review)) return { error: "The review of this branch’s PR changed just now. Run bb review again." };
+      joined = true;
+      const feature: FeatureReview = {
+        environmentId: env.id, hostId: env.hostId, machine, path: env.path, branch: env.branchName, baseRef: review.base ?? env.defaultBranch ?? "main", repo,
+        ...review.head && review.head !== env.branchName ? { remoteBranch: review.head } : {}, joinedAt: now,
+      };
+      await tx.setLifecycle(key, { feature, ...review.mainThread?.threadId === main!.id ? {} : mainThreadState(review, main!, now), ...review.userArchivedAt ? { userArchivedAt: null } : {} });
+    } else if (joining) {
+      if (review!.userArchivedAt) await tx.setLifecycle(key, { userArchivedAt: null });
+    } else if (!review) {
       // Read first above, unless another call started it meanwhile: this one only opens it.
       if (!main || !read || read.outcome !== "available") return { error: "This folder’s review was deleted just now. Run bb review again to start a new one." };
       const feature: FeatureReview = { environmentId: env.id, hostId: env.hostId, machine, path: env.path, branch: env.branchName, baseRef: read.base, mergeBaseRef: read.mergeBaseRef, repo };
@@ -194,7 +246,7 @@ async function openFolderReview(deps: Deps, folder: Folder, main: Thread | null,
       // Asked for again, it's back from your archive.
       if (review.userArchivedAt) await tx.setLifecycle(key, { userArchivedAt: null });
     }
-    const changed = created || !!replaced || !!review?.userArchivedAt || options.name !== undefined || options.context !== undefined;
+    const changed = created || joined || !!replaced || !!review?.userArchivedAt || options.name !== undefined || options.context !== undefined;
     if (options.context !== undefined) await tx.setReviewContext(key, options.context.trim() || null);
     if (options.name !== undefined) {
       const named = (await tx.getReview(key))!;
@@ -202,7 +254,7 @@ async function openFolderReview(deps: Deps, folder: Folder, main: Thread | null,
     }
     if (created) run = await beginGuide(bb, tx, store, key, env.projectId);
     const threadId = (await tx.getReview(key))!.mainThread?.threadId ?? main?.id ?? "";
-    return { opened: { key, created, replaced, changed, main: { threadId, title: threadId === main?.id ? threadTitle(main) : recorded && threadTitle(recorded) } } };
+    return { opened: { key, created, joined, replaced, changed, main: { threadId, title: threadId === main?.id ? threadTitle(main) : recorded && threadTitle(recorded) } } };
   });
   return "error" in result ? result : { ...result, run };
 }
@@ -287,7 +339,7 @@ export async function runFeatureCommand(deps: Deps, command: FeatureCommand, ctx
   }
   if ("error" in started) return { exitCode: 1, stderr: started.error };
   void started.run?.();
-  const { key, created, replaced, main: to, changed } = started.opened;
+  const { key, created, joined, replaced, main: to, changed } = started.opened;
 
   const review = (await store.getReview(key))!;
   const identity = identityIn(await placeFacts(bb, [review]), await store.listReviews(), review);
@@ -299,8 +351,10 @@ export async function runFeatureCommand(deps: Deps, command: FeatureCommand, ctx
 
   const lines = [
     created ? `Started a review of ${where}: ${which}. ${open} to watch it build and review.`
+      : joined ? `This folder, ${where}, is on the branch of PR #${review.number}, which has a review already: ${which}. The folder joined it, and nothing was rebuilt: Not pushed yet shows what the folder has that the PR doesn’t on GitHub. ${open} to review it.`
       : `Opened the review of ${where}: ${which}, as it was; nothing was rebuilt. ${open} to review it.`,
-    replaced ? `Its main thread is now ${thread}, in place of ${replaced.title ? JSON.stringify(replaced.title) : replaced.threadId}, which is archived or deleted. Comments sent from the review go there.`
+    joined ? `Its main thread is now ${thread}, the top thread working in this folder. Comments sent from the review go there.`
+      : replaced ? `Its main thread is now ${thread}, in place of ${replaced.title ? JSON.stringify(replaced.title) : replaced.threadId}, which is archived or deleted. Comments sent from the review go there.`
       : !main ? `Its main thread is ${thread}, as before: BB couldn’t say which thread leads the work here now. Comments sent from the review go there.`
       : `Its main thread is ${thread}, the top thread working in this folder. Comments sent from the review go there.`,
   ];
@@ -379,7 +433,7 @@ const featureOf = (review: ReviewMeta | null): (ReviewMeta & { feature: FeatureR
  * merged is new work, not that PR's. PR Status finds it by the branch's upstream, so its head may have another name,
  * as when it was pushed as HEAD:feat/nice.
  */
-function prOfBranch(feature: FeatureReview, pr: FolderPr | undefined): { repo: string; number: number } | null {
+function prOfBranch(feature: Pick<FeatureReview, "repo">, pr: FolderPr | undefined): { repo: string; number: number } | null {
   const link = pr?.url ? parsePrLink(pr.url) : null;
   if (!link || !pr?.number || !feature.repo || link.repo.toLowerCase() !== feature.repo.toLowerCase()) return null;
   if (pr.state !== undefined && !/^(open|draft)$/i.test(pr.state)) return null;
@@ -1009,7 +1063,7 @@ export function register(deps: ServeDeps) {
       if ("error" in started) return { ok: false, error: started.error };
       void started.run?.();
       if (started.opened.changed) deps.changed(started.opened.key);
-      return { ok: true, targetKey: started.opened.key };
+      return { ok: true, targetKey: started.opened.key, ...started.opened.joined ? { joined: true as const } : {} };
     },
   } satisfies Partial<PublicHandlers>;
   return { handlers, events, published };

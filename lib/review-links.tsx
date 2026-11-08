@@ -7,6 +7,7 @@ import type { rpcContract } from "../src/rpc-contract";
 import { POSTS, type StatusFacts } from "./comments";
 import type { ReviewItem } from "./review-state";
 import { useKnob } from "./settings";
+import { yoursByFolder } from "./fixer";
 
 export interface ReviewLinks {
   /** What a draft comment's status line says of its review (lib/comment-status.ts): with Send to thread off, no Sends. */
@@ -66,7 +67,7 @@ export function useReviewLinks(review: ReviewItem | null): ReviewLinks {
   const sends = sendToThread ? review?.sends ?? null : null;
   const threadSends = sendToThread ? review?.threadSends ?? null : null;
   const posts = review?.kind === "pr";
-  const own = review?.kind === "ref" || review?.ownPr === true || !!review?.feature;
+  const own = yoursByFolder(review) || review?.ownPr === true;
   const status = useMemo(() => ({ posts, own, sends, sent, threadSends }), [posts, own, sends, sent, threadSends]);
   const featureHost = feature?.hostId;
   const featureRoot = feature?.path;

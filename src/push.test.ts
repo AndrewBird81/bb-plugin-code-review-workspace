@@ -38,10 +38,11 @@ const ok = (stdout = "") => ({ stdout, stderr: "", code: 0 });
  * review agent is `agent`. `folder` is what bb's Git plugin says of the folder: its head, whether it has changes not
  * committed, and what its branch commits; `github` is the branch's head on GitHub.
  */
-async function setup({ branch = "feat/qa", workBranch, pr }: { branch?: string; workBranch?: string; pr?: { fork?: string } } = {}) {
-  // Your PR, acme/api#12 from feat/qa, at PR_HEAD, with a fixer, "fixer", in its own worktree, env1, on its own branch.
-  const key = pr ? "pr-12" : KEY;
-  const base = pr ? PR_HEAD : BASE_SHA;
+async function setup({ branch = "feat/qa", workBranch, pr, joined = false }: { branch?: string; workBranch?: string; pr?: { fork?: string }; joined?: boolean } = {}) {
+  // Your PR, acme/api#12 from feat/qa, at PR_HEAD, with a fixer, "fixer", in its own worktree, env1, on its own branch;
+  // or, `joined`, @dana's, whose review your folder on feat/qa, env1, joined, with `coder` working there.
+  const key = pr || joined ? "pr-12" : KEY;
+  const base = pr || joined ? PR_HEAD : BASE_SHA;
   const main = pr ? "fixer" : "coder";
   runGh.mockReset();
   runGit.mockReset();
@@ -117,6 +118,13 @@ async function setup({ branch = "feat/qa", workBranch, pr }: { branch?: string; 
   if (pr) {
     await store.saveReview({ targetKey: key, kind: "pr", repo: "acme/api", number: 12, head: branch, base: "main", headSha: PR_HEAD, title: "Snooze flaky checks", createdAt: 1, status: "ready", projectId: "proj_api" });
     await store.setLifecycle(key, { ownPr: true, ...pr.fork ? { headFork: pr.fork } : { headFork: null }, mainThread: { threadId: "fixer", environmentId: "env1", origin: "fresh", since: 1, branch: "bb/fixes-thr_fix", fixer: { sha: PR_HEAD, at: 1 } } });
+    await store.savePatch(key, PATCH);
+  } else if (joined) {
+    await store.saveReview({ targetKey: key, kind: "pr", repo: "acme/api", number: 12, head: branch, base: "main", headSha: PR_HEAD, title: "Snooze flaky checks", author: "dana", createdAt: 1, status: "ready", projectId: "proj_api" });
+    await store.setLifecycle(key, {
+      ownPr: false, headFork: null, feature: { environmentId: "env1", hostId: "host_max", machine: "MaxBook", path: "/Users/me/src/api", branch, baseRef: "main", repo: "acme/api", joinedAt: 2 },
+      mainThread: { threadId: "coder", environmentId: "env1", origin: "adopted", since: 2 },
+    });
     await store.savePatch(key, PATCH);
   } else {
     await store.saveReview({ targetKey: KEY, kind: "ref", gitRef: branch, title: "Snooze flaky checks", createdAt: 1, status: "ready", projectId: "proj_api" });
@@ -731,6 +739,42 @@ test("any move on GitHub that didn't come from Push is flagged plainly, the fixe
   back.github.sha = OTHER;
   await back.idle();
   expect(await back.run()).toMatchObject({ state: "flagged", flag: "unrequested", remote: PR_HEAD });
+});
+
+test("on someone else's PR whose review your folder joined, Push says first that it goes to their branch; Push anyway goes on, checked against Not pushed yet, from the folder", async () => {
+  const { harness, push, cli, run, sent, idle, github, key } = await setup({ joined: true });
+  github.sha = PR_HEAD;
+  await harness.behavior.callRpc("getNotPushed", { targetKey: key });
+  expect(await push()).toEqual({ ok: true, warning: "This is @dana’s PR: Push puts the commit on their branch, `feat/qa`. Push anyway to go on." });
+  expect(sent).toEqual([]);
+  expect(await run()).toMatchObject({ state: "mismatch", theirs: true });
+  expect(await push(true)).toEqual({ ok: true, delivery: "sent" });
+  expect(sent[0]).toMatchObject({ threadId: "coder" });
+  expect(sent[0].input[0].text).toContain("bb review report --commit");
+  expect(await run()).toMatchObject({ state: "committing", pastTheirs: true });
+  expect((await cli("coder", "report", "--commit", HEAD)).stdout).toContain(`  git push origin '${HEAD}:refs/heads/feat/qa'\n`);
+  github.sha = HEAD;
+  await idle("coder");
+  expect(await run()).toMatchObject({ state: "pushed", sha: HEAD });
+
+  // Past it, GitHub ahead of the folder still asks, and Push anyway past that doesn't ask about their branch again.
+  const behind = await setup({ joined: true });
+  behind.folder.behind = true;
+  await behind.push();
+  expect(await behind.push(true)).toEqual({ ok: true, warning: "GitHub has commits on `feat/qa` that this folder doesn’t. Pull first, or Push anyway to try." });
+  expect(await behind.run()).toMatchObject({ state: "mismatch", behind: true, pastTheirs: true });
+  expect(await behind.push(true)).toEqual({ ok: true, delivery: "sent" });
+  expect(await behind.run()).toMatchObject({ state: "committing", pastBehind: true, pastTheirs: true });
+});
+
+test("Push on someone else's PR goes only from the folder that joined its review: not from a fixer, nor with no folder", () => {
+  const feature = { environmentId: "env1", hostId: "host_max", machine: "MaxBook", path: "/Users/me/src/api", branch: "feat/qa", baseRef: "main", repo: "acme/api", joinedAt: 2 };
+  const joined = { kind: "pr" as const, repo: "acme/api", number: 7, head: "feat/qa", ownPr: false, headFork: null, feature, mainThread: { threadId: "coder", environmentId: "env1", origin: "adopted" as const, since: 1 } };
+  expect(pushTarget(joined)).toEqual({ repo: "acme/api", head: "feat/qa", environmentId: "env1", remote: "origin", fixer: false, pr: 7 });
+  expect(pushTarget({ ...joined, headFork: "dana" })).toEqual({ repo: "acme/api", head: "feat/qa", environmentId: "env1", remote: "<remote>", forkOf: "dana", fixer: false, pr: 7 });
+  expect(pushTarget({ ...joined, feature: { ...feature, folderGone: true } })).toBe("Push works on someone else’s PR only from the folder that joined its review, while BB has it.");
+  const { joinedAt: _joined, ...converted } = feature;
+  expect(pushTarget({ ...joined, feature: converted })).toBe("Push works on a local review, on your own PR with a thread fixing it, or on a PR whose review your thread’s folder joined.");
 });
 
 test("a fork's PR is pushed to the fork's remote, named in the message", async () => {

@@ -84,6 +84,12 @@ async function readRecipient(bb: BbPluginApi, threadId: string): Promise<{ threa
   return { thread, state: thread.archivedAt ? "archived" : "open" };
 }
 
+/**
+ * Whether a Send goes to the main thread in the folder that joined the PR's review: your own thread, there, so someone
+ * else's PR doesn't ask first, though their code still reads as theirs.
+ */
+const toJoinedFolder = (review: ReviewMeta) => !!review.feature?.joinedAt && !review.feature.folderGone && review.mainThread?.environmentId === review.feature.environmentId;
+
 /** A folder's review whose main thread worked in the folder bb removed: the next Send starts a fresh thread from its branch. */
 const folderGone = (review: ReviewMeta) => !!review.feature?.folderGone && (!review.mainThread || review.mainThread.environmentId === review.feature.environmentId);
 
@@ -344,7 +350,7 @@ export async function send(deps: Deps, targetKey: string, picked: readonly Comme
   if (add.patch !== undefined && (picked.length !== 1 || github.length || !isPatch(add.patch))) throw new Error("A patch goes with one comment, as a unified diff with file headers and hunks, as git apply takes it.");
   if (github.length && (review.kind !== "pr" || review.ownPr !== true)) throw new Error("Only your own PR's threads on GitHub go with a Send: on someone else's, your review answers them.");
   const own = await isOwnChange(review);
-  const before = await route(deps, review, own, [], add);
+  const before = await route(deps, review, own || toJoinedFolder(review), [], add);
   if ("warning" in before) return before;
   const routed = before;
   // The review as routing left it, a folder it settled included: what the message says is read from that.
@@ -502,7 +508,7 @@ export async function sendApproval(deps: Deps, targetKey: string, revision: stri
     ...open ? [`Your draft has ${open} comment${open === 1 ? "" : "s"} you haven’t sent. Send ${open === 1 ? "it" : "them"} instead, or send Approved anyway?`] : [],
     ...review.approvalSent && review.approvalSent.revision === revision ? [`You already told ${review.approvalSent.title ?? "the thread"} you approve this diff.`] : [],
   ];
-  const routed = await route(deps, review, await isOwnChange(review), notes, add, false);
+  const routed = await route(deps, review, await isOwnChange(review) || toJoinedFolder(review), notes, add, false);
   if ("warning" in routed) return routed;
   const shown = await placed(bb, store, review);
   const { message, summary } = extras(body, add);

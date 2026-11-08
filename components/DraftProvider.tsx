@@ -4,6 +4,7 @@ import { useRealtime, useRpc } from "@get-bb/plugin-sdk/app";
 import { toast } from "sonner";
 import type { rpcContract } from "../src/rpc-contract";
 import type { ReviewItem } from "../lib/review-state";
+import { yoursByFolder } from "../lib/fixer";
 import type { CommentChecks } from "../lib/comments";
 import type { FixChange } from "./comments/FixTracking";
 import { commentsKey, isPreExisting, isSummary, linesOf, postable, rangeOf, sameLocation, SEVERITIES, severityCounts, SEVERITY_LABEL, sideOrder, summaryChanges, SUMMARY_AT, VERDICT_LABEL, type CommentLocation, type Discussion, type Draft, type DraftComment, type Severity, type Verdict } from "../src/draft";
@@ -655,7 +656,7 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
   }, [positionsOf, showComposer, summaryBox, asking, file, line, side, startLine, startSide]);
   const boxLines = linesOf({ line: Number(line), side, startLine, startSide });
   // On your own change only open comments post: a Send took the rest to the main thread (src/draft.ts postable). A local review posts none.
-  const own = isLocal || ownPr || !!review?.feature;
+  const own = isLocal || ownPr || yoursByFolder(review);
   const posting = useMemo(() => draft.comments.filter((comment) => postable(comment, own)), [draft.comments, own]);
   // What Submit sends as shown posting, read as it posts.
   const shownPosting = useRef(posting); shownPosting.current = posting;
