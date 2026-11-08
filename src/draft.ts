@@ -140,6 +140,8 @@ export interface DiscussionEntry {
   kind: "message" | "added" | "edited" | "removed" | "restored";
   /** A message's text. For a change, the text the agent left; empty for a removal. */
   body: string;
+  /** For an edit, the text it replaced, as `body` has it. */
+  before?: string;
   createdAt: number;
 }
 

@@ -1,5 +1,6 @@
 import { createContext, memo, useContext, useState, type KeyboardEvent, type ReactNode, type Ref, type RefObject } from "react";
 import { Markdown } from "@get-bb/plugin-sdk/app";
+import { diffWords } from "diff";
 import { isLocal, linesOf, postable, sameLocation, SEVERITIES, SEVERITY_LABEL, type CommentLocation, type Discussion, type DiscussionEntry, type DraftComment, type Severity } from "../src/draft";
 import { draftItemId, draftState, draftStatus, privateItemId, sentCheck, STATE_LABEL, type CommentChecks } from "../lib/comments";
 import { composing } from "../lib/composing";
@@ -71,6 +72,8 @@ export interface InlineComposer {
   replacing?: boolean;
   /** The comment being edited changed since its box opened, as by the agent, to `now`, or was removed (null): saving replaces it, or puts it back. */
   changedWhileEditing?: { now: DraftComment | null } | null;
+  /** A message to the agent at a line: what it gets with it, "It sees this comment and line 192." */
+  askSees?: string;
   change(body: string): void;
   /** A line comment's severity, and its control; the summary has none. */
   severity?: Severity;
@@ -306,6 +309,25 @@ const changeText = (kind: Change, summary: boolean) => kind === "restored" ? "Yo
   ? { added: "Agent wrote the summary.", edited: "Agent edited the summary.", removed: "Agent removed the summary." }[kind]
   : { added: "Agent added this comment.", edited: "Agent edited the comment.", removed: "Agent removed the comment." }[kind];
 
+/** The agent's change in a discussion; an edit's Show changes opens its words struck and inserted, as the text has them. */
+function ChangeEntry({ entry, summary, undo, busy }: { entry: DiscussionEntry; summary: boolean; undo?: () => void; busy: boolean }) {
+  const [open, setOpen] = useState(false);
+  const link = cn("relative h-auto p-0 text-xs not-italic", TOUCH_TARGET);
+  return <div className="space-y-1.5">
+    <p className="flex flex-wrap items-center gap-x-1.5 pl-0.5 text-xs italic text-muted-foreground">
+      <Icon name={changeIcons[entry.kind as Change]} className="size-3 text-(--ansi-13)" aria-hidden />{changeText(entry.kind as Change, summary)}
+      {entry.before !== undefined && <Button variant="link" size="sm" className={link} aria-expanded={open} onClick={() => setOpen(!open)}>{open ? "Hide changes" : "Show changes"}</Button>}
+      {undo && <Button variant="link" size="sm" className={link} disabled={busy} onClick={undo}>Undo</Button>}
+    </p>
+    {open && entry.before !== undefined && <p aria-label="Changes" className="rounded-md border border-border bg-background px-2.5 py-1.5 text-sm leading-relaxed whitespace-pre-wrap break-words">
+      {diffWords(entry.before, entry.body).map((part, index) => part.removed
+        ? <del key={index} className="rounded-sm bg-diff-removed/15 decoration-diff-removed">{part.value}</del>
+        : part.added ? <ins key={index} className="rounded-sm bg-diff-added/15 decoration-diff-added">{part.value}</ins>
+        : <span key={index}>{part.value}</span>)}
+    </p>}
+  </div>;
+}
+
 /** A discussion with the agent, under a line's comment or the review summary. `onUndo` undoes the agent's latest change while it can be. */
 export function DiscussionView({ discussion, titled, chat, busy = false, onUndo, summary = false }: {
   discussion: Discussion; titled: boolean; chat: (() => void) | null; busy?: boolean; onUndo?: () => void; summary?: boolean;
@@ -321,10 +343,7 @@ export function DiscussionView({ discussion, titled, chat, busy = false, onUndo,
             <Speaker agent={entry.author === "agent"}>{entry.author === "agent" ? "Agent" : "You"}</Speaker>
             <div className="pl-6"><Markdown content={entry.author === "agent" ? linkImages(entry.body) : withLineBreaks(entry.body)} className="text-sm leading-relaxed" /></div>
           </div>
-        : <p key={index} className="flex flex-wrap items-center gap-x-1.5 pl-0.5 text-xs italic text-muted-foreground">
-            <Icon name={changeIcons[entry.kind]} className="size-3 text-(--ansi-13)" aria-hidden />{changeText(entry.kind, summary)}
-            {index === latestChange && discussion.undoable && onUndo && <Button variant="link" size="sm" className={cn("relative h-auto p-0 text-xs not-italic", TOUCH_TARGET)} disabled={busy} onClick={onUndo}>Undo</Button>}
-          </p>)}
+        : <ChangeEntry key={index} entry={entry} summary={summary} undo={index === latestChange && discussion.undoable && onUndo ? onUndo : undefined} busy={busy} />)}
       {discussion.waiting
         ? <p role="status" className="flex items-center gap-2 pl-0.5 text-xs text-(--ansi-13)"><span aria-hidden className="flex gap-0.5">{[0, 1, 2].map((dot) => <span key={dot} className="size-1 rounded-full bg-current motion-safe:animate-bounce" style={{ animationDelay: `${dot * 140}ms` }} />)}</span>Waiting for agent…</p>
         : unanswered && <p className="flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
@@ -376,6 +395,7 @@ export function ComposerFields({ mode, subject = "comment", divided = false, bus
   const summary = subject === "summary";
   const primary = mode === "ask" ? composer.askAgent : composer.save;
   const held = busy || empty || mode !== "ask" && !!composer.rebuilding;
+  const sees = summary ? "It sees the summary and the draft comments." : composer.askSees;
   return (
     <div data-keyboard-box className={cn("space-y-2 p-2.5", divided && "border-t border-border")}>
       <Textarea
@@ -396,7 +416,7 @@ export function ComposerFields({ mode, subject = "comment", divided = false, bus
       </div>}
       {mode !== "ask" && <ComposerNotes error={composer.error} rebuilding={composer.rebuilding} keepOnCurrentDiff={composer.keepOnCurrentDiff} />}
       <div ref={controlsRef} data-composer-controls className="flex flex-wrap items-center justify-end gap-2">
-        {mode === "ask" && <span className="mr-auto flex items-center gap-1.5 text-xs text-muted-foreground"><Icon name="Sparkles" className="size-3.5 text-(--ansi-13)" aria-hidden />Goes to the agent, not GitHub.</span>}
+        {mode === "ask" && <span className="mr-auto flex items-center gap-1.5 text-xs text-muted-foreground"><Icon name="Sparkles" className="size-3.5 shrink-0 text-(--ansi-13)" aria-hidden /><span>Goes to the agent, not GitHub.{sees && ` ${sees}`}</span></span>}
         {mode !== "ask" && (composer.changeSeverity || composer.suggest) && <span className="mr-auto flex flex-wrap gap-2">
           {composer.changeSeverity && <SeveritySelect value={composer.severity} onChange={composer.changeSeverity} disabled={busy} />}
           {composer.suggest && <Button variant="outline" size="sm" className={TOUCH_CONTROL} disabled={busy} onClick={composer.suggest}><Icon name="Edit" className="size-3.5" aria-hidden />Suggest change</Button>}

@@ -44,7 +44,7 @@ test("asking about a draft comment sends the reviewer's message to the assistant
   const [message] = sent();
   expect(message).toMatchObject({ threadId: "assistant", mode: "queue-if-active", input: [{ type: "text", text: "On `a.ts:3`: It can't: b is 3." }, { type: "text", visibility: "agent-only" }, MARK_PART] });
   const context: string = message.input[1].text;
-  for (const part of ["reviewer's discussion at a.ts:3 (RIGHT side)", 'reply_in_discussion on file "a.ts", line 3, side RIGHT', "edit_draft_comment or delete_draft_comment", "added by an agent:\nCan this overflow?", "+const c = b * 2;", "one short line"]) expect(context).toContain(part);
+  for (const part of ["reviewer's discussion at a.ts:3 (RIGHT side)", 'reply_in_discussion on file "a.ts", line 3, side RIGHT', "answer each question they ask, and after a change say in a sentence what you changed", "edit_draft_comment or delete_draft_comment", "added by an agent:\nCan this overflow?", "+const c = b * 2;", "one short line"]) expect(context).toContain(part);
   // The draft itself doesn't change, and nothing reaches GitHub.
   expect((await store.getDraft("pr-1")).comments).toEqual([{ ...at, author: "agent", body: "Can this overflow?" }]);
   expect(runGh).not.toHaveBeenCalled();
@@ -139,7 +139,7 @@ test("asking on the review summary sends the summary, the verdicts, and the comm
   const [message] = sent();
   expect(message.input[0].text).toBe("On the review summary: Mention the overflow.");
   const context: string = message.input[1].text;
-  for (const part of ["discussion on the review summary in Finish review", "with set_review_summary instead of describing it", "reply_in_discussion with summary: true", "one short line",
+  for (const part of ["discussion on the review summary in Finish review", "with set_review_summary instead of describing it", "reply_in_discussion with summary: true: answer each question they ask, and after a change say in a sentence what you changed", "one short line",
     "Review summary · written by the reviewer\n  Fine by me.", "Verdict: the reviewer hasn't picked one, so it's Comment by default.", "An agent's suggested verdict: Approve.",
     "a.ts:3 RIGHT · added by an agent\n  Can this overflow?"]) expect(context).toContain(part);
   expect(context).not.toContain("Earlier in this discussion");
@@ -288,6 +288,26 @@ test("a severity the reviewer changed after the agent's edit makes Undo refuse, 
   await store.editDraftComment("pr-1", at, "It can overflow.", "nit");
   await expect(harness.behavior.callRpc("undoAgentChange", { targetKey: "pr-1", ...at })).rejects.toThrow("It changed since the agent's edit");
   expect((await store.getDraft("pr-1")).comments).toEqual([{ ...at, author: "agent", severity: "nit", body: "It can overflow." }]);
+});
+
+test("an agent's edit in a discussion carries the text it replaced, labeled as the edit is, so the reviewer can see what changed", async () => {
+  const summary = { file: "", line: 0, side: "RIGHT" } as const;
+  const { store, ask, tool } = await host();
+  await tool("add_draft_comment", { ...at, code: "const c = b * 2;", body: "**Nit:** Can this overflow?" });
+  await store.updateSummary("pr-1", { body: "Fine by me." });
+  await ask({ body: "Is it blocking?" });
+  await tool("edit_draft_comment", { ...at, body: "**Blocking:** It overflows past 2^53." });
+  await ask({ ...summary, body: "Mention it." });
+  await tool("set_review_summary", { body: "Fine, but see a.ts:3." });
+  const changes = (await store.listDiscussions("pr-1")).map((d) => d.entries.filter((entry) => entry.kind !== "message"));
+  expect(changes).toEqual([
+    [{ author: "agent", kind: "edited", body: "**Blocking:** It overflows past 2^53.", before: "**Nit:** Can this overflow?", createdAt: expect.any(Number) }],
+    [{ author: "agent", kind: "edited", body: "Fine, but see a.ts:3.", before: "Fine by me.", createdAt: expect.any(Number) }],
+  ]);
+  // Only an edit has text before it: an added comment had none.
+  await ask({ file: "a.ts", line: 2, side: "LEFT", body: "Comment here?" });
+  await tool("add_draft_comment", { file: "a.ts", line: 2, side: "LEFT", code: "const b = 2;", body: "Why change b?" });
+  expect((await store.listDiscussions("pr-1")).find((d) => d.side === "LEFT")!.entries.at(-1)).not.toHaveProperty("before");
 });
 
 test("asking about a comment sends it with its severity", async () => {

@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.12.0 — Unreleased
+
+- **Ask agent** on a comment or the summary says what the agent gets with your words: "It sees this comment and line 192.", "It sees lines 1–2.", or "It sees the summary and the draft comments."
+- "Agent edited the comment." and "Agent edited the summary." have **Show changes**, which strikes the words the edit took out and marks the ones it put in.
+- The agent answers each question you ask in a discussion, and after an edit says in a sentence what it changed, where it could skip a reply before.
+
 ## 1.11.0 — 2026-11-03
 
 See at a glance which reviews are working and which have news, with BB's own thread status icons on their rows. Still **BB 0.48+** (plugin SDK **0.6.79+**) with Node 24+; installs at `^1.0.0` update to 1.11.0. 1.11.0 adds no migration, so rolling back to 1.10.1 keeps everything; the rows lose their icons there.

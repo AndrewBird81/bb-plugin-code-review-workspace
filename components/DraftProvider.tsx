@@ -722,6 +722,14 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
     setLine(String(comment.line)); setStartLine(comment.startLine); setStartSide(comment.startSide);
     setEditing(comment);
   }, [draft.comments]); // eslint-disable-line react-hooks/exhaustive-deps
+  // What an ask at a line sends the agent besides your words, as src/discussions.ts gives it: the comment there and the lines.
+  const askSees = useMemo(() => {
+    if (!showComposer || !asking || summaryBox) return undefined;
+    const at = { file, line: Number(line), side };
+    const from = startLine ?? discussions.find((d) => sameLocation(d, at))?.startLine ?? at.line;
+    const lines = from === at.line ? `line ${at.line}` : `lines ${Math.min(from, at.line)}–${Math.max(from, at.line)}`;
+    return draft.comments.some((c) => sameLocation(c, at)) ? `It sees this comment and ${lines}.` : `It sees ${lines}.`;
+  }, [showComposer, asking, summaryBox, file, line, side, startLine, discussions, draft.comments]);
   const composerInDiff = editable && showComposer && inline;
   const chat = useMemo(() => onOpenPanel ? () => onOpenPanel("agent") : null, [onOpenPanel]);
   const editingLine = showComposer && !summaryBox && !asking;
@@ -739,14 +747,14 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
   const localDraft = useMemo(() => inlineOn(true), inlineDeps); // eslint-disable-line react-hooks/exhaustive-deps
   const canSuggest = !!suggestable;
   const inlineComposer = useMemo<InlineComposer | null>(() => composerInDiff ? {
-    body, edited, replacing, changedWhileEditing, textareaRef: bodyRef, error: composerError, rebuilding, keepOnCurrentDiff: olderDiff ? () => latest.current.keepOnCurrentDiff() : null,
+    body, edited, replacing, changedWhileEditing, askSees, textareaRef: bodyRef, error: composerError, rebuilding, keepOnCurrentDiff: olderDiff ? () => latest.current.keepOnCurrentDiff() : null,
     change: (text) => latest.current.changeBody(text),
     severity, changeSeverity: setSeverity,
     save: () => { void latest.current.addComment(); },
     askAgent: () => { void latest.current.askAgent(); },
     cancel: () => latest.current.cancelComposer(),
     suggest: canSuggest ? () => latest.current.suggestChange() : null,
-  } : null, [composerInDiff, body, edited, replacing, changedWhileEditing, severity, composerError, rebuilding, olderDiff, canSuggest]);
+  } : null, [composerInDiff, body, edited, replacing, changedWhileEditing, askSees, severity, composerError, rebuilding, olderDiff, canSuggest]);
   const summaryComposer = editable && onSummary ? {
     mode: asking ? "ask" as const : "edit" as const, body, edited, textareaRef: bodyRef,
     change: changeBody, save: () => { void saveSummary(body.trim()); }, askAgent: () => { void askAgent(); }, cancel: () => { closeComposer(); focusSummary(); },
@@ -795,7 +803,7 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
   return {
     targetKey, loadError, load, refresh, loaded, closed, review, draft, posting, checks, setFix, completed, submittedVerdict, receiptUrl, setWriteAnother, status,
     summaryRef, summaryDiscussion, editable, busy, submitting, writing, onSummary, summaryComposer, isLocal, chat, asking, summaryBase, openComposer, saveSummary, revisionRef, undo, requestSummary,
-    showComposer, inline, edited, replacing, counts, preExistingCount, blocks, markPreExisting, hideNits, nitCount, toggleNits, removeNits, listRef, sortedComments, stale, discussions, body, removeComment, setCommentSeverity, moveToSummary,
+    showComposer, inline, edited, replacing, askSees, counts, preExistingCount, blocks, markPreExisting, hideNits, nitCount, toggleNits, removeNits, listRef, sortedComments, stale, discussions, body, removeComment, setCommentSeverity, moveToSummary,
     file, boxLines, line, side, files, setFile, editing, showBoxInDiff, startLine, setLine, setSide, bodyRef, changeBody, canAdd, addComment, cancelComposer, composerError, rebuilding, olderDiff, keepOnCurrentDiff, composerControls, severity, setSeverity, suggestable, suggestChange,
     changedWhileEditing, ownPr, suggested, chooseVerdict, confirming, setConfirming, warned, setWarned, approval, agentCoverage, unreadApproval, approvingBlocked, blockingCount, commentCount, doubts, hasReview, needsSummary, staleComments, submit, confirmCancelRef, submitRef, hint,
     inlineDraft, localDraft, notOnGithub, inlineComposer, askAgent, patch, account, why, setWhy,
