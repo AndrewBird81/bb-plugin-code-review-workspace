@@ -87,8 +87,13 @@ export interface ReviewLifecycle {
    * turn is under way, since `at`.
    */
   summaryAsk?: Ask | null;
-  /** The reviewer asked the assistant to dig deeper into this chapter (src/deep-dive.ts), until the turn that carries it ends. */
-  deepDive?: { chapterId: string; ask: Ask } | null;
+  /**
+   * The reviewer asked the assistant to dig deeper into this chapter (src/deep-dive.ts), until the turn that carries it
+   * ends: the comments it added, and its report, so far.
+   */
+  deepDive?: { chapterId: string; ask: Ask; comments?: CommentLocation[]; report?: DeepDiveReport } | null;
+  /** What the last Dig deeper on each chapter found, by the chapter's id, until you dig into it again. */
+  deepDiveResults?: Record<string, DeepDiveResult>;
   /** The reviewer asked on draft comments: each opens the reviewer's comment there as summaryAsk opens the summary. */
   commentAsks?: Array<CommentLocation & { ask: Ask }>;
   /** When bb first read the PR's state. Earlier events don't alert or start work. */
@@ -427,6 +432,18 @@ export interface ActivityEntry {
 
 /** The turn of the reviewer's ask on the summary or a draft comment (src/asks.ts). */
 export type Ask = { threadId: string | null; state: "sending" | "queued" | "running"; queuedMessageId?: string; at: number };
+
+/** The review agent's report on a Dig deeper: one line overall, and a verdict on each of the chapter's What to verify, in order. */
+export interface DeepDiveReport {
+  summary: string;
+  checks: Array<{ verdict: "holds" | "problem" | "unverified"; note: string }>;
+}
+
+/**
+ * A Dig deeper that ended, on the chapter titled `title`: when, the comments it added, and its report, if it made one.
+ * `failed`: the agent's turn failed before it finished.
+ */
+export interface DeepDiveResult { at: number; title: string; comments: CommentLocation[]; report?: DeepDiveReport; failed?: true }
 
 export interface ReviewMeta extends ReviewLifecycle {
   targetKey: string;

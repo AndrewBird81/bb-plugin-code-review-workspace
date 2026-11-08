@@ -4,6 +4,7 @@ import type { PluginThreadEventHandler } from "@get-bb/plugin-sdk";
 import { assistantReview } from "./draft-comments";
 import { discussionsWaitingOn, settleDiscussions } from "./discussions";
 import { listAsks, setAsk } from "./asks";
+import { endDeepDive } from "./deep-dive";
 import { guideWorkerFailed } from "./generate";
 import { noteLeftQueue } from "./verification";
 import type { AsyncStore } from "./store-queue";
@@ -11,17 +12,18 @@ import type { EventListeners, ServeDeps } from "./server-modules";
 
 export function register(deps: ServeDeps) {
   const { bb, store, sync } = deps;
-  // A discussion the assistant didn't answer by the end of its turn stops waiting for it.
-  const settle = async ({ thread }: { thread: { id: string } }) => {
+  // A discussion the assistant didn't answer by the end of its turn stops waiting for it. `failed`: the turn failed.
+  const settleAs = (failed: boolean) => async ({ thread }: { thread: { id: string } }) => {
     // A turn ended; an ask on the summary or a comment ends with the turn that carried it. In one turn of the queue,
     // taken as the event arrives, so a turn after it can't find the ask open, nor an event after it see half of this.
     const { reviewKey, checkQueued, waiting } = await store.exclusive(async (tx) => {
       const reviewKey = await assistantReview(tx, thread.id);
       const asking = reviewKey ? await tx.getReview(reviewKey) : null;
       for (const { at, ask } of asking ? listAsks(asking) : []) if (ask.state === "running" && ask.threadId === thread.id) {
-        await setAsk(tx, reviewKey!, at, null);
-        // Its chapter stops saying the agent is digging into it.
-        if ("deepDive" in at) bb.realtime.publish(`review:${reviewKey}`, { ts: Date.now() });
+        if (!("deepDive" in at)) { await setAsk(tx, reviewKey!, at, null); continue; }
+        // Its chapter stops saying the agent is digging into it, and says what it found.
+        await endDeepDive(tx, reviewKey!, failed);
+        bb.realtime.publish(`review:${reviewKey}`, { ts: Date.now() });
       }
       return { reviewKey, checkQueued: !!asking?.verifyingMessageId, waiting: await discussionsWaitingOn(tx, thread.id) };
     });
@@ -91,9 +93,9 @@ export function register(deps: ServeDeps) {
   };
   return {
     events: {
-      "thread.idle": [settle],
+      "thread.idle": [settleAs(false)],
       "thread.deleted": [deleted],
-      "thread.failed": [settle, ({ thread, error }) => guideWorkerFailed(bb, thread.id, error)],
+      "thread.failed": [settleAs(true), ({ thread, error }) => guideWorkerFailed(bb, thread.id, error)],
       "message.dispatched": [dispatched],
       "message.cancelled": [cancelled],
     } satisfies EventListeners,

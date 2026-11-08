@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- **Dig deeper** says what it found once it's done, where the button was: each What to verify item marked holds ✓, problem ⚠ or not verified ?, with the agent's one-line note, its one line overall, the comments it added, each showing its line, and **Agent’s reply**, which opens its chat. It stays until you **Dig deeper again**, and says so when the agent stopped before it finished. The review agent reports it with a new tool, `report_deep_dive`.
+
 ## 1.11.0 — 2026-11-03
 
 See at a glance which reviews are working and which have news, with BB's own thread status icons on their rows. Still **BB 0.48+** (plugin SDK **0.6.79+**) with Node 24+; installs at `^1.0.0` update to 1.11.0. 1.11.0 adds no migration, so rolling back to 1.10.1 keeps everything; the rows lose their icons there.

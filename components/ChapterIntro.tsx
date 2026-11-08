@@ -2,7 +2,9 @@ import { memo, useContext, useId, useLayoutEffect, useRef, useState } from "reac
 import { Markdown, useRpc } from "@get-bb/plugin-sdk/app";
 import { toast } from "sonner";
 import type { rpcContract } from "../src/rpc-contract";
+import type { DeepDiveResult } from "../src/store";
 import { ASK_LIFETIME } from "../src/asks";
+import { linesOf, sameLocation, SEVERITY_LABEL } from "../src/draft";
 import { linkImages } from "../lib/link-images";
 import { getIntroCollapsed, setIntroCollapsed } from "../lib/panel-state";
 import { useFullscreenPortalContainer } from "../lib/portal-scope";
@@ -15,15 +17,17 @@ import { Hint } from "./ui/hint";
 import { Icon } from "./ui/icon";
 import { InlineCode } from "./ui/inline-code";
 import { InlineDraftContext } from "./InlineDraft";
+import { LINK } from "./FixHandoff";
 import { MetaLine } from "./MetaLine";
 import { RISK_LABEL, RISK_TONE } from "./ChapterNav";
 import { TOUCH_CONTROL } from "./touch";
 
 /**
  * Dig deeper on a medium- or high-risk chapter, unless Settings turns it off: the review agent's closer pass over it, at
- * high effort. While the agent is on it, from the click until its turn ends, the chapter says so instead.
+ * high effort. While the agent is on it, from the click until its turn ends, the chapter says so instead; then what it
+ * found, until you dig into the chapter again.
  */
-function useDeepDive(chapterId: string | undefined, risk: string | undefined) {
+function useDeepDive(chapterId: string | undefined, title: string, risk: string | undefined) {
   const rpc = useRpc<typeof rpcContract>();
   const { targetKey, review } = useWorkspace();
   const on = useKnob("digDeeper");
@@ -33,6 +37,9 @@ function useDeepDive(chapterId: string | undefined, risk: string | undefined) {
   const [sending, setSending] = useState(false);
   const running = review.deepDive && Date.now() - review.deepDive.ask.at < ASK_LIFETIME ? review.deepDive.chapterId : null;
   const offered = on && editable && !!chapterId && (risk === "medium" || risk === "high");
+  const digging = offered && (sending || running === chapterId);
+  // A rebuilt guide's chapter that reuses the id isn't the one dug into.
+  const found = chapterId ? review.deepDiveResults?.[chapterId] : undefined;
   async function dig() {
     if (!chapterId || sending) return;
     setSending(true);
@@ -45,7 +52,8 @@ function useDeepDive(chapterId: string | undefined, risk: string | undefined) {
   }
   return {
     offered,
-    digging: offered && (sending || running === chapterId),
+    digging,
+    result: !digging && found?.title === title ? found : null,
     /** Another chapter's deep dive is under way. */
     elsewhere: !!running && running !== chapterId,
     hint: ["Review agent", model, "high effort"].filter(Boolean).join(" · "),
@@ -53,12 +61,63 @@ function useDeepDive(chapterId: string | undefined, risk: string | undefined) {
   };
 }
 
+/** What a Dig deeper found, in one line: how its checks came out, and how many comments it added. */
+export function deepDiveOutcome(result: DeepDiveResult): string {
+  const added = result.comments.length;
+  const comments = added ? `${added} ${added === 1 ? "comment" : "comments"} added` : "no comments added";
+  const checks = result.report?.checks ?? [];
+  const count = (verdict: string) => checks.filter((check) => check.verdict === verdict).length;
+  const of = (n: number) => `${n} of ${checks.length} ${checks.length === 1 ? "check" : "checks"}`;
+  const outcome = result.failed ? "The agent stopped before it finished"
+    : !result.report ? "Finished"
+    : count("problem") ? `Found a problem in ${of(count("problem"))}`
+    : count("unverified") ? `Couldn’t verify ${of(count("unverified"))}`
+    : checks.length === 1 ? "The check holds" : `All ${checks.length} checks hold`;
+  return `${outcome} · ${comments}`;
+}
+
+const VERDICT = {
+  holds: { icon: "CircleCheck", tone: "text-diff-added", label: "Holds" },
+  problem: { icon: "AlertTriangle", tone: "text-warning-text", label: "Problem" },
+  unverified: { icon: "CircleQuestion", tone: "text-muted-foreground", label: "Not verified" },
+} as const;
+
+/**
+ * What the chapter's last Dig deeper found: how it came out, the agent's line on it, the comments it added that are
+ * still in the draft, each showing its line, and the agent's reply, in its chat.
+ */
+function DeepDiveFound({ result }: { result: DeepDiveResult }) {
+  const { reveal, panel } = useWorkspace();
+  const draft = useContext(InlineDraftContext);
+  const comments = (draft?.comments ?? []).filter((comment) => result.comments.some((at) => sameLocation(at, comment)));
+  return (
+    <div aria-label="What Dig deeper found" role="group" className="mt-2 space-y-1 rounded-md border border-(--ansi-13)/30 px-3 py-2 text-xs">
+      <p className="flex items-center gap-1.5 font-medium text-foreground">
+        <Icon name="Sparkles" className="size-3.5 shrink-0 text-(--ansi-13)" aria-hidden />Dig deeper: {deepDiveOutcome(result)}
+      </p>
+      {result.report && <p className="text-foreground/90"><InlineCode text={result.report.summary} /></p>}
+      {comments.length > 0 && (
+        <ul aria-label="Comments from Dig deeper" className="flex flex-wrap gap-x-3 gap-y-0.5">
+          {comments.map((comment) => (
+            <li key={`${comment.file}:${comment.line}:${comment.side}`}>
+              <button type="button" className={LINK} onClick={() => reveal(comment)}>
+                {comment.severity ? `${SEVERITY_LABEL[comment.severity]} · ` : ""}{comment.file.split("/").pop()}:{linesOf(comment)}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <button type="button" className={LINK} onClick={() => panel.open("agent")}>Agent’s reply</button>
+    </div>
+  );
+}
+
 /**
  * The open chapter above its diff: where it is in the guide, its risk and size, its title, full overview, and what to
  * verify. Hiding the overview sticks in this browser. On a phone (`brief`) the overview shows three lines until More,
  * and what to verify one line until you open it, so the code starts on screen. A re-review's switch goes in it
  * (`switchSlot`): on its first row where there's room, else under the title, so it costs the code no block of its own.
- * What to verify ends with Dig deeper on a medium- or high-risk chapter.
+ * What to verify ends with Dig deeper on a medium- or high-risk chapter, and once it's done, each item says how it came out.
  */
 export const ChapterIntro = memo(function ChapterIntro({ index, total, title, overview, risk, focus, lines, collapsedByDefault = false, brief = false, switchSlot }: {
   index: number;
@@ -78,7 +137,7 @@ export const ChapterIntro = memo(function ChapterIntro({ index, total, title, ov
   switchSlot?: (el: HTMLDivElement | null) => void;
 }) {
   const { sections, files } = useWorkspace();
-  const deepDive = useDeepDive(sections[index]?.id, risk);
+  const deepDive = useDeepDive(sections[index]?.id, title, risk);
   const container = useFullscreenPortalContainer();
   const [chosen, setCollapsed] = useState(getIntroCollapsed);
   const collapsed = chosen ?? collapsedByDefault;
@@ -111,6 +170,8 @@ export const ChapterIntro = memo(function ChapterIntro({ index, total, title, ov
     `${viewed} of ${chapterFiles.length} viewed`,
   ];
   const checks = focus ?? [];
+  // The agent's verdict on each, in order, when it gave one for each.
+  const verdicts = deepDive.result?.report?.checks.length === checks.length ? deepDive.result.report.checks : null;
   const listed = checks.length > 0 && (!brief || verifying);
   function toggle() {
     setIntroCollapsed(!collapsed);
@@ -162,18 +223,31 @@ export const ChapterIntro = memo(function ChapterIntro({ index, total, title, ov
       {listed && !collapsed && (
         <div className={cn("col-span-full max-w-[80ch] text-xs", brief ? "mt-1" : "mt-2.5")}>
           {!brief && <p className="flex items-center gap-1.5 font-medium text-foreground"><Icon name="ListTodo" className="size-3.5 text-primary" aria-hidden />What to verify</p>}
-          <ul aria-label="What to verify" className={cn("list-disc space-y-0.5 pl-5 text-foreground/90 marker:text-subtle-foreground", !brief && "mt-1")}>
-            {checks.map((item) => <li key={item}><InlineCode text={item} /></li>)}
+          <ul aria-label="What to verify" className={cn("space-y-0.5 text-foreground/90", verdicts ? "space-y-1" : "list-disc pl-5 marker:text-subtle-foreground", !brief && "mt-1")}>
+            {checks.map((item, i) => {
+              const verdict = verdicts?.[i];
+              if (!verdict) return <li key={item}><InlineCode text={item} /></li>;
+              const look = VERDICT[verdict.verdict];
+              return (
+                <li key={item} className="flex gap-1.5">
+                  <Icon name={look.icon} className={cn("mt-0.5 size-3.5 shrink-0", look.tone)} aria-label={look.label} />
+                  <span><InlineCode text={item} /><span className="block text-muted-foreground"><InlineCode text={verdict.note} /></span></span>
+                </li>
+              );
+            })}
           </ul>
+          {deepDive.result && <DeepDiveFound result={deepDive.result} />}
           {deepDive.offered && !deepDive.digging && (
             <Hint label={deepDive.hint} container={container}>
               <Button variant="outline" size="sm" className={cn("mt-2 h-7 border-(--ansi-13)/30 text-(--ansi-13) hover:text-(--ansi-13)", TOUCH_CONTROL)} disabled={deepDive.elsewhere} onClick={() => void deepDive.dig()}>
-                <Icon name="Sparkles" className="size-3.5" aria-hidden />Dig deeper
+                <Icon name="Sparkles" className="size-3.5" aria-hidden />{deepDive.result ? "Dig deeper again" : "Dig deeper"}
               </Button>
             </Hint>
           )}
         </div>
       )}
+      {/* With What to verify folded, what Dig deeper found shows anyway. */}
+      {deepDive.result && !(listed && !collapsed) && <div className="col-span-full">{<DeepDiveFound result={deepDive.result} />}</div>}
       {/* Whether What to verify shows or not. */}
       {deepDive.digging && (
         <p role="status" className="col-span-full mt-2 flex items-center gap-1.5 text-xs text-(--ansi-13)">

@@ -350,6 +350,57 @@ exports[`the plugin registers the same RPC methods, tools, CLI subcommands, list
     "presentation": null,
   },
   {
+    "description": "Report what a Dig deeper on a chapter found, after any comments: a verdict on each of its What to verify items, in order, and one line overall. The reviewer sees it on the chapter, with the comments you added. Only in the turn that carries a Dig deeper; nothing reaches GitHub.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "checks": {
+          "description": "One verdict for each What to verify item, in the order the message gave them.",
+          "items": {
+            "properties": {
+              "note": {
+                "description": "One line: what you read or ran, with file:line.",
+                "maxLength": 300,
+                "minLength": 1,
+                "type": "string",
+              },
+              "verdict": {
+                "description": "holds: you confirmed it; problem: you found one, and commented on it; unverified: you couldn't tell.",
+                "enum": [
+                  "holds",
+                  "problem",
+                  "unverified",
+                ],
+                "type": "string",
+              },
+            },
+            "required": [
+              "verdict",
+              "note",
+            ],
+            "type": "object",
+          },
+          "maxItems": 3,
+          "type": "array",
+        },
+        "summary": {
+          "description": "One line overall: what you found, or that the chapter holds up.",
+          "maxLength": 300,
+          "minLength": 1,
+          "type": "string",
+        },
+      },
+      "required": [
+        "summary",
+        "checks",
+      ],
+      "type": "object",
+    },
+    "instructions": null,
+    "name": "report_deep_dive",
+    "presentation": null,
+  },
+  {
     "description": "List the reviewer's feedback on this PR: each review thread they started (id, location, their comment, replies, resolved/outdated state, any earlier verdict) and their review summaries. Also the comments they sent to the main thread to fix (c12), each with its Send and what the thread reported. On their own PR: everyone's threads, and others' review summaries and comments on the PR.",
     "inputSchema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
