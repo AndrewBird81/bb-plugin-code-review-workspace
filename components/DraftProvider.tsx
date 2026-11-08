@@ -767,12 +767,12 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
     const box = composerControls.current?.parentElement;
     if (box?.contains(document.activeElement)) box.scrollIntoView?.({ block: "nearest" });
   }, [hint]);
-  // Approving with high-risk files not viewed, or chapters marked viewed faster than they read.
-  const approval = draft.verdict === "APPROVE" && approveGuard && (approveGuard.unviewed.length || approveGuard.rushed.length) ? approveGuard : null;
+  // Approving with high-risk or flagged files not viewed, or chapters marked viewed faster than they read.
+  const approval = draft.verdict === "APPROVE" && approveGuard && (approveGuard.unviewed.length || approveGuard.flagged.length || approveGuard.rushed.length) ? approveGuard : null;
   // The agent suggests Approve without having read every file worth reading.
   const unreadApproval = suggested === "APPROVE" && !ownPr && agentCoverage && agentCoverage.read < agentCoverage.total ? agentCoverage : null;
-  // Why Submit asks once more: the agent suggested another verdict, its summary no longer fits, what an approval
-  // skipped, or what the agent's suggested approval didn't read.
+  // Why Submit asks once more: the agent suggested another verdict, its summary no longer fits, files an approval
+  // didn't view, or what the agent's suggested approval didn't read. Chapters read quickly Finish review only lists.
   const doubts = [
     ...(suggested && suggested !== draft.verdict && !ownPr ? [`The agent suggested ${VERDICT_LABEL[suggested]}.`] : []),
     ...(changes.comments && changes.verdict ? [`Your comments changed, and the summary was written for ${VERDICT_LABEL[changes.verdict]}.`]

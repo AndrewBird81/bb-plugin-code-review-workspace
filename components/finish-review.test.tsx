@@ -223,36 +223,92 @@ test("doubts sit above Submit beside their fixes, and Submit still asks once mor
   slot.lifecycle.unmount();
 });
 
-test("approving with a high-risk file not viewed, or a chapter marked viewed too fast, says so and asks once more, never blocking", async () => {
-  const lines = (file: string, n: number) => `diff --git a/${file} b/${file}\n--- a/${file}\n+++ b/${file}\n@@ -0,0 +1,${n} @@\n${Array.from({ length: n }, (_, i) => `+row ${i}`).join("\n")}\n`;
-  const risky = { ...guide, sections: [
-    { id: "c1", title: "Parsing", overview: "Reads rows.", risk: "medium", diffs: [{ file: "src/b.ts" }, { file: "src/d.ts" }] },
-    { id: "c2", title: "Auth", overview: "Checks tokens.", risk: "high", diffs: [{ file: "src/a.ts" }] },
-    { id: "c3", title: "Docs", overview: "Says how.", risk: "low", diffs: [{ file: "src/c.ts" }] },
-  ] };
+const added = (file: string, n: number) => `diff --git a/${file} b/${file}\n--- a/${file}\n+++ b/${file}\n@@ -0,0 +1,${n} @@\n${Array.from({ length: n }, (_, i) => `+row ${i}`).join("\n")}\n`;
+const pr42 = { targetKey: "pr-42", kind: "pr", status: "ready", createdAt: 1, title: "Parse rows", headSha: "new", url: "https://github.com/acme/web/pull/42", repo: "acme/web", number: 42 };
+// The review opens on the first chapter, where a file to read draws.
+const risky = { ...guide, sections: [
+  { id: "c1", title: "Setup", overview: "Adds config.", risk: "low", diffs: [{ file: "src/e.ts" }] },
+  { id: "c2", title: "Parsing", overview: "Reads rows.", risk: "medium", focus: ["Check that an empty row is refused."], diffs: [{ file: "src/b.ts" }, { file: "src/d.ts" }] },
+  { id: "c3", title: "Auth", overview: "Checks tokens.", risk: "high", focus: ["Check that an expired token is refused."], diffs: [{ file: "src/a.ts" }] },
+  { id: "c4", title: "Docs", overview: "Says how.", risk: "low", diffs: [{ file: "src/c.ts" }] },
+] };
+const riskyPatch = added("src/a.ts", 5) + added("src/b.ts", 60) + added("src/c.ts", 5) + added("src/d.ts", 5) + added("src/e.ts", 5);
+// The docs, then Parsing's 65 lines a minute later.
+const readQuickly = [{ file: "src/c.ts", viewed: true, stale: false, viewedAt: now - 120_000 }, { file: "src/b.ts", viewed: true, stale: false, viewedAt: now - 60_000 }, { file: "src/d.ts", viewed: true, stale: false, viewedAt: now - 60_000 }];
+
+test("approving with a high-risk file not viewed says so under Before you approve and asks once more, never blocking; a chapter read quickly is listed, not asked about", async () => {
   let draft = draftOf({ verdict: "APPROVE", verdictChosen: true, body: "Fine.", comments: [] });
   const { slot, rpc } = await renderWorkspace({ rpc: {
-    getReviewBundle: () => ({ review: { targetKey: "pr-42", kind: "pr", status: "ready", createdAt: 1, title: "Parse rows", headSha: "new", url: "https://github.com/acme/web/pull/42", repo: "acme/web", number: 42 }, guide: risky, patch: lines("src/a.ts", 5) + lines("src/b.ts", 60) + lines("src/c.ts", 5) + lines("src/d.ts", 5), revision: "r1" }),
-    // The docs, then Parsing's 60 lines a minute later.
-    getFileViews: () => ({ views: [{ file: "src/c.ts", viewed: true, stale: false, viewedAt: now - 120_000 }, { file: "src/b.ts", viewed: true, stale: false, viewedAt: now - 60_000 }] }),
+    getReviewBundle: () => ({ review: pr42, guide: risky, patch: riskyPatch, revision: "r1" }),
+    getFileViews: () => ({ views: readQuickly }),
     getDraft: vi.fn(() => ({ draft, stale: [] })),
     getFeedback: () => ({ feedback: feedbackOf({ items: [] }) }),
     submitReview: vi.fn(() => { draft = draftOf({ comments: [] }); return { ok: true }; }),
   } });
   const view = await finish(slot);
-  expect(view.getByText("1 file in a high-risk chapter not viewed.")).toBeTruthy();
-  expect(view.getByText("Chapter 1 (medium risk): 60 lines marked viewed in 1 min.")).toBeTruthy();
+  const before = within(view.getByRole("heading", { name: "Before you approve" }).closest("section")!);
+  expect(before.getByText("1 file in a high-risk chapter not viewed.")).toBeTruthy();
+  expect(before.getByText("Read quickly: chapter 2 · 65 lines in 1 min")).toBeTruthy();
+  expect(before.getByText("Chapter 2: Check that an empty row is refused.")).toBeTruthy();
+  // Neither goes to GitHub, and the quick read is plain, not a warning.
+  expect(within(view.getByRole("heading", { name: "Goes to GitHub" }).closest("section")!).queryByText(/not viewed|Read quickly/)).toBeNull();
+  expect(before.getByText("Read quickly: chapter 2 · 65 lines in 1 min").closest("li")!.className).not.toMatch(/warning/);
   fireEvent.click(submit(view));
-  expect((await view.findByRole("alert")).textContent).toContain("Submit Approve? 1 file in a high-risk chapter not viewed. Chapter 1 (medium risk): 60 lines marked viewed in 1 min.");
+  const ask = (await view.findByRole("alert")).textContent;
+  expect(ask).toContain("Submit Approve? 1 file in a high-risk chapter not viewed.");
+  expect(ask).not.toContain("quickly");
   expect(rpc.submitReview).not.toHaveBeenCalled();
   fireEvent.click(view.getByRole("button", { name: "Cancel" }));
-  // Show opens the file, in its chapter.
+  // Show opens the file, in its chapter; the quick read's Show, its chapter.
   expect(slot.container.querySelector('[data-file="src/a.ts"]')).toBeNull();
-  fireEvent.click(view.getByRole("button", { name: "Show" }));
+  fireEvent.click(before.getByRole("button", { name: "Show the high-risk files not viewed" }));
   await waitFor(() => expect(slot.container.querySelector('[data-file="src/a.ts"]')).toBeTruthy());
+  // Viewed, and folded, its files open to read again.
+  fireEvent.click(before.getByRole("button", { name: "Show chapter 2" }));
+  await waitFor(() => expect(slot.container.querySelector('[data-file="src/b.ts"] [data-testid="filediff"]')).toBeTruthy());
   fireEvent.click(submit(view));
   fireEvent.click(await view.findByRole("button", { name: "Submit anyway" }));
   await waitFor(() => expect(rpc.submitReview).toHaveBeenCalledWith(expect.objectContaining({ verdict: "APPROVE" })));
+  slot.lifecycle.unmount();
+});
+
+test("approving with only a chapter read quickly submits in one click, and a chapter you said was fine isn't listed", async () => {
+  const fine = { chapterId: "c2", openMs: 0, fineAt: now };
+  let chapters: unknown[] = [];
+  const { slot, rpc } = await renderWorkspace({ rpc: {
+    getReviewBundle: () => ({ review: pr42, guide: risky, patch: riskyPatch, revision: "r1" }),
+    getFileViews: () => ({ views: [...readQuickly, { file: "src/a.ts", viewed: true, stale: false, viewedAt: now - 30_000 }], chapters }),
+    getDraft: () => ({ draft: draftOf({ verdict: "APPROVE", verdictChosen: true, body: "Fine.", comments: [] }), stale: [] }),
+    getFeedback: () => ({ feedback: feedbackOf({ items: [] }) }),
+  } });
+  const view = await finish(slot);
+  expect(view.getByText("Read quickly: chapter 2 · 65 lines in 1 min")).toBeTruthy();
+  expect(view.queryByText(/not viewed/)).toBeNull();
+  // Said fine in another window: read again, it's gone, and with it Before you approve.
+  chapters = [fine];
+  await slot.emitRealtime("review:pr-42", {});
+  await waitFor(() => expect(view.queryByRole("heading", { name: "Before you approve" })).toBeNull());
+  fireEvent.click(submit(view));
+  await waitFor(() => expect(rpc.submitReview).toHaveBeenCalledWith(expect.objectContaining({ verdict: "APPROVE" })));
+  expect(view.queryByRole("alert")).toBeNull();
+  slot.lifecycle.unmount();
+});
+
+test("approving with a flagged file not viewed says what flags it and asks once more", async () => {
+  const weak = "diff --git a/src/a.test.ts b/src/a.test.ts\n--- a/src/a.test.ts\n+++ b/src/a.test.ts\n@@ -1,2 +1,1 @@\n it(\"parses\", () => {\n-  expect(parse()).toBe(1);\n";
+  const { slot, rpc } = await renderWorkspace({ rpc: {
+    getReviewBundle: () => ({ review: pr42, guide: { ...guide, sections: [{ ...guide.sections[0], risk: "low" }, { id: "c2", title: "Tests", overview: "Tests parsing.", risk: "low", diffs: [{ file: "src/a.test.ts" }] }] }, patch: patch + weak, revision: "r1" }),
+    getDraft: () => ({ draft: draftOf({ verdict: "APPROVE", verdictChosen: true, body: "Fine.", comments: [] }), stale: [] }),
+    getFeedback: () => ({ feedback: feedbackOf({ items: [] }) }),
+  } });
+  const view = await finish(slot);
+  expect(view.getByText("1 flagged file not viewed: tests weakened.")).toBeTruthy();
+  fireEvent.click(submit(view));
+  expect((await view.findByRole("alert")).textContent).toContain("Submit Approve? 1 flagged file not viewed: tests weakened.");
+  expect(rpc.submitReview).not.toHaveBeenCalled();
+  fireEvent.click(view.getByRole("button", { name: "Cancel" }));
+  fireEvent.click(view.getByRole("button", { name: "Show the flagged files not viewed" }));
+  await waitFor(() => expect(slot.container.querySelector('[data-file="src/a.test.ts"]')).toBeTruthy());
   slot.lifecycle.unmount();
 });
 

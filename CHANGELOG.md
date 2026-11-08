@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.12.0 — Unreleased
+
+Finish review lists what you may have missed before you approve in a part of its own, and asks once more only about files you haven't viewed; tests and docs read at their own pace, and a chapter read quickly says so as you mark it, where you can say it's fine. Still **BB 0.48+** (plugin SDK **0.6.79+**) with Node 24+; installs at `^1.0.0` update to 1.12.0. 1.12.0 adds one migration, a `chapter_reads` table, on SQLite and on Postgres. Rolling back to 1.11.0 keeps everything, how long chapters were open and It's fine unused until you update again; on 1.11.0, `bb review storage` won't move the reviews between SQLite and Postgres, the migration being newer than it.
+
+- **Before you approve**, a part of Finish review between Verdict and Goes to GitHub while you approve, lists files in high-risk chapters you haven't viewed and, new, flagged files you haven't viewed: a test that loses assertions or skips tests, a lockfile with a new download host, or hidden bidirectional Unicode ("1 flagged file not viewed: tests weakened."), each with **Show**. Submit asks once more about these. They were under Goes to GitHub, though none of them posts.
+- Chapters marked viewed faster than they read are one plain row there, where each was a warning: "Read quickly: chapters 2 and 3 · 373 lines in 2 min", with the riskiest one's first thing to check under it and **Show**, which opens that chapter. Submit no longer asks about them.
+- Tests and docs read at their own pace, 2,000 lines an hour by default, beside 500 for code and config; lockfiles and generated files still don't count. A chapter is judged once all its files to read are viewed, and only when it takes 6 minutes or more at those paces, where it was 50 lines at any pace: 67 lines of tests marked viewed in a minute no longer count as read too fast.
+- A chapter's reading time is the longer of the time between your Viewed marks and how long it was open in a window you could see, kept on the server, so every device counts it. It only ever takes a chapter off the list.
+- When **Mark viewed and continue**, **Mark chapter viewed**, or a file's **Viewed** finishes a medium- or high-risk chapter faster than its pace, the toast says so ("Chapter 3 went quickly for high risk."), with **Back to it**, which opens the chapter again, its files unfolded. The chapter says so too, above What to verify, "Read quickly · 237 lines in 1 min", with **It's fine**. The line goes once the chapter has been open long enough at your pace; It's fine takes it off Finish review's list too, on every device, until you mark the chapter viewed again.
+- Settings → **Check before you approve** has **Reading pace**: **Code and config**, 100 to 2,000 lines an hour, 500 by default, which was **Flag chapters read faster than**, and **Tests** and **Docs**, 100 to 10,000, 2,000 by default. Those two are saved only while they differ from their defaults, so a release that tunes them reaches you.
+
 ## 1.11.0 — 2026-11-03
 
 See at a glance which reviews are working and which have news, with BB's own thread status icons on their rows. Still **BB 0.48+** (plugin SDK **0.6.79+**) with Node 24+; installs at `^1.0.0` update to 1.11.0. 1.11.0 adds no migration, so rolling back to 1.10.1 keeps everything; the rows lose their icons there.

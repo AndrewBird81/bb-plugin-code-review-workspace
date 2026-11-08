@@ -75,6 +75,8 @@ async function setup({ agentOnBoth = true } = {}) {
   await store.setFileViewed(S, "a.ts", "stale", 9);
   await store.setFileViewed(P, "a.ts", current, 3);
   await store.setFileViewed(P, "gone.ts", "g", 4);
+  await store.addChapterOpenTime(P, "c1", 60_000);
+  await store.addChapterOpenTime(S, "c1", 30_000);
   await store.saveFeedbackThreads(P, [thread("T1")], 5);
   await store.setReplyDraft(P, "T1", "Thanks", "agent");
   await store.saveAssessmentItems(P, "send:1", [{ id: "c1", verdict: "addressed", evidence: "Fixed", assessedAt: 6 }]);
@@ -189,7 +191,10 @@ test("merging the PR's own review into the folder's moves every table's rows, or
   expect(await store.listAgentMessages(P)).toHaveLength(1);
   expect(await rows(sql, "generations", P)).toBe(1);
   expect(await store.getAgentThread(S)).toBeNull();
-  covered("reviews", "patches", "guides", "guide_backups", "generations", "agent_threads", "agent_messages");
+  // How long its guide's chapters showed stays with that guide; this review's are its own guide's.
+  expect(await store.getChapterReads(P)).toEqual([{ chapterId: "c1", openMs: 60_000, fineAt: null }]);
+  expect(await store.getChapterReads(S)).toEqual([{ chapterId: "c1", openMs: 30_000, fineAt: null }]);
+  covered("reviews", "patches", "guides", "guide_backups", "generations", "agent_threads", "agent_messages", "chapter_reads");
   expect([...tables].sort()).toEqual([...REVIEW_TABLES].sort());
 });
 

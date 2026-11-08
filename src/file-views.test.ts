@@ -50,7 +50,7 @@ test("setFilesViewed marks a chapter's files in one call, hashing just those", a
   expect(await harness.behavior.callRpc("getFileViews", { targetKey: "pr-1" })).toEqual({ views: [
     { file: "a.ts", viewed: true, stale: false, viewedAt: expect.any(Number) },
     { file: "b.ts", viewed: true, stale: false, viewedAt: expect.any(Number) },
-  ] });
+  ], chapters: [] });
   // A file gone from the patch can't be marked.
   expect(await harness.behavior.callRpc("setFilesViewed", { targetKey: "pr-1", files: ["c.ts", "gone.ts"] })).toEqual({ ok: false, previous: [] });
   expect((await store.getFileViews("pr-1")).map((view) => view.file).sort()).toEqual(["a.ts", "b.ts", "c.ts"]);
@@ -64,7 +64,7 @@ test("setFilesViewed with viewed false unmarks a chapter's files at once, for Un
   await store.savePatch("pr-1", patch + "diff --git a/c.ts b/c.ts\n+three\n");
   expect(await harness.behavior.callRpc("setFilesViewed", { targetKey: "pr-1", files: ["a.ts", "b.ts", "c.ts"], viewed: true })).toEqual({ ok: true, previous: [] });
   expect(await harness.behavior.callRpc("setFilesViewed", { targetKey: "pr-1", files: ["a.ts", "b.ts", "gone.ts"], viewed: false })).toEqual({ ok: true });
-  expect(await harness.behavior.callRpc("getFileViews", { targetKey: "pr-1" })).toEqual({ views: [{ file: "c.ts", viewed: true, stale: false, viewedAt: expect.any(Number) }] });
+  expect(await harness.behavior.callRpc("getFileViews", { targetKey: "pr-1" })).toEqual({ views: [{ file: "c.ts", viewed: true, stale: false, viewedAt: expect.any(Number) }], chapters: [] });
 });
 
 test("setFilesViewed returns the views it replaced, and Undo with them puts a file viewed at an older version back as changed since", async () => {
@@ -81,10 +81,39 @@ test("setFilesViewed returns the views it replaced, and Undo with them puts a fi
   expect(await harness.behavior.callRpc("getFileViews", { targetKey: "pr-1" })).toEqual({ views: [
     { file: "a.ts", viewed: true, stale: false, viewedAt: expect.any(Number) },
     { file: "b.ts", viewed: true, stale: false, viewedAt: expect.any(Number) },
-  ] });
+  ], chapters: [] });
   expect(await harness.behavior.callRpc("setFilesViewed", { targetKey: "pr-1", files: ["a.ts", "b.ts"], viewed: false, previous: rpcContract.setFilesViewed.output.parse(marked).previous })).toEqual({ ok: true });
   expect(await store.getFileViews("pr-1")).toEqual([before]);
-  expect(await harness.behavior.callRpc("getFileViews", { targetKey: "pr-1" })).toEqual({ views: [{ file: "a.ts", viewed: false, stale: true, viewedAt: 1 }] });
+  expect(await harness.behavior.callRpc("getFileViews", { targetKey: "pr-1" })).toEqual({ views: [{ file: "a.ts", viewed: false, stale: true, viewedAt: 1 }], chapters: [] });
+});
+
+test("a chapter's time in view adds up from every window, It's fine keeps the server's clock, and both read with the views", async () => {
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
+  await plugin(bb);
+  const store = testStore(bb);
+  await store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, repo: "acme/web", status: "ready", createdAt: 1, headSha: "sha1", projectId: "p1" });
+  await store.savePatch("pr-1", patch);
+  const call = (method: string, input: unknown) => harness.behavior.callRpc(method, input) as Promise<any>;
+  expect(await call("addChapterOpenTime", { targetKey: "pr-1", chapterId: "auth", ms: 60_000 })).toEqual({ ok: true, openMs: 60_000 });
+  // Another window's minute adds to it.
+  expect(await call("addChapterOpenTime", { targetKey: "pr-1", chapterId: "auth", ms: 30_000 })).toEqual({ ok: true, openMs: 90_000 });
+  const before = Date.now();
+  const fine = await call("setChapterFine", { targetKey: "pr-1", chapterId: "auth" });
+  expect(fine).toEqual({ ok: true, fineAt: expect.any(Number) });
+  expect(fine.fineAt).toBeGreaterThanOrEqual(before);
+  // It's fine on a chapter never timed, and time after It's fine keeps it.
+  expect(await call("setChapterFine", { targetKey: "pr-1", chapterId: "ui" })).toEqual({ ok: true, fineAt: expect.any(Number) });
+  expect(await call("addChapterOpenTime", { targetKey: "pr-1", chapterId: "auth", ms: 1_000 })).toEqual({ ok: true, openMs: 91_000 });
+  expect((await call("getFileViews", { targetKey: "pr-1" })).chapters).toEqual([
+    { chapterId: "auth", openMs: 91_000, fineAt: fine.fineAt },
+    { chapterId: "ui", openMs: 0, fineAt: expect.any(Number) },
+  ]);
+  // Nothing for a review that's gone, and no time past an hour at once, or under a millisecond.
+  expect(await call("addChapterOpenTime", { targetKey: "pr-9", chapterId: "auth", ms: 1_000 })).toEqual({ ok: false });
+  expect(await call("setChapterFine", { targetKey: "pr-9", chapterId: "auth" })).toEqual({ ok: false });
+  for (const ms of [0, 3_600_001, 1.5]) await expect(call("addChapterOpenTime", { targetKey: "pr-1", chapterId: "auth", ms })).rejects.toThrow();
+  await expect(call("setChapterFine", { targetKey: "pr-1", chapterId: "" })).rejects.toThrow();
+  expect(await store.getChapterReads("pr-9")).toEqual([]);
 });
 
 const appDiff = (index: string, at: string, context: string, added = "+  run(a, b);") =>

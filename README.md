@@ -64,7 +64,7 @@ When the guide is ready, the review agent reviews the change and drafts line com
 **Finish review** shows the summary, the verdict, and exactly what will be posted. **Submit to GitHub** posts it all as one review.
 
 - The agent suggests a verdict. Only you pick it.
-- While you approve, it flags blocking comments, unviewed files in high-risk chapters, chapters read faster than your set pace, and, when the agent suggests Approve, files it didn't read.
+- While you approve, it flags blocking comments, unviewed files in high-risk chapters and flagged files, and, when the agent suggests Approve, files it didn't read, and lists chapters read faster than your pace for code, tests or docs, which a chapter also says as you mark it viewed, until you say it's fine.
 - It posts as the GitHub account it verified. If GitHub's answer is lost, it looks for the review it just posted rather than post it twice.
 - After you submit, it offers the next review that needs you.
 

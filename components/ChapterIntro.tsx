@@ -3,6 +3,7 @@ import { Markdown, useRpc } from "@get-bb/plugin-sdk/app";
 import { toast } from "sonner";
 import type { rpcContract } from "../src/rpc-contract";
 import { ASK_LIFETIME } from "../src/asks";
+import { quickNote, type QuickRead } from "../lib/approve-guard";
 import { linkImages } from "../lib/link-images";
 import { getIntroCollapsed, setIntroCollapsed } from "../lib/panel-state";
 import { useFullscreenPortalContainer } from "../lib/portal-scope";
@@ -58,9 +59,10 @@ function useDeepDive(chapterId: string | undefined, risk: string | undefined) {
  * verify. Hiding the overview sticks in this browser. On a phone (`brief`) the overview shows three lines until More,
  * and what to verify one line until you open it, so the code starts on screen. A re-review's switch goes in it
  * (`switchSlot`): on its first row where there's room, else under the title, so it costs the code no block of its own.
- * What to verify ends with Dig deeper on a medium- or high-risk chapter.
+ * What to verify ends with Dig deeper on a medium- or high-risk chapter. A chapter marked viewed faster than it reads says
+ * so above what to verify, with It's fine, until it's been open long enough.
  */
-export const ChapterIntro = memo(function ChapterIntro({ index, total, title, overview, risk, focus, lines, collapsedByDefault = false, brief = false, switchSlot }: {
+export const ChapterIntro = memo(function ChapterIntro({ index, total, title, overview, risk, focus, lines, quick, onFine, collapsedByDefault = false, brief = false, switchSlot }: {
   index: number;
   total: number;
   title: string;
@@ -70,6 +72,9 @@ export const ChapterIntro = memo(function ChapterIntro({ index, total, title, ov
   focus?: string[];
   /** The chapter's changed lines worth reading (lib/review-size.ts chapterReadingLines). */
   lines: number;
+  /** It was marked viewed faster than it reads (lib/approve-guard.ts). */
+  quick?: QuickRead;
+  onFine?: (chapter: QuickRead) => void;
   /** Hide the overview until you show it, unless you chose in this browser. */
   collapsedByDefault?: boolean;
   /** A phone's: the overview cut to three lines, and what to verify to one. */
@@ -83,6 +88,7 @@ export const ChapterIntro = memo(function ChapterIntro({ index, total, title, ov
   const [chosen, setCollapsed] = useState(getIntroCollapsed);
   const collapsed = chosen ?? collapsedByDefault;
   const titleId = useId();
+  const quickId = useId();
   const chapterFiles = sections[index]?.diffs ?? [];
   const viewed = chapterFiles.filter((diff) => files.views.get(diff.file)?.viewed).length;
   const [more, setMore] = useState(false);
@@ -148,6 +154,14 @@ export const ChapterIntro = memo(function ChapterIntro({ index, total, title, ov
       {overview && !collapsed && <div ref={overviewBox} className={cn("col-span-full mt-2 max-w-[80ch]", clamp && "max-h-[4.25rem] overflow-hidden", clamp && clipped && "[mask-image:linear-gradient(to_bottom,black_2.75rem,transparent)]")}>
         <Markdown content={linkImages(overview)} className="text-sm leading-relaxed text-foreground/90" />
       </div>}
+      {/* With the overview hidden too: It's fine is here. */}
+      {quick && (
+        <div className="col-span-full mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+          <Icon name="Clock" className="size-3.5 shrink-0" aria-hidden />
+          <span id={quickId} className="min-w-0 flex-1 tabular-nums">{quickNote(quick)}</span>
+          <Button variant="ghost" size="sm" aria-describedby={quickId} className={cn("h-7 px-2 text-xs text-muted-foreground hover:text-foreground", TOUCH_CONTROL)} onClick={() => onFine?.(quick)}>It’s fine</Button>
+        </div>
+      )}
       {brief && !collapsed && (checks.length > 0 || clipped) && (
         <div className="col-span-full mt-1 flex flex-wrap items-center gap-x-4 text-xs pointer-coarse:-mb-2">
           {checks.length > 0 && <button type="button" aria-expanded={verifying} onClick={() => setVerifying(!verifying)} className={cn("flex items-center gap-1.5 rounded-sm font-medium text-foreground", TOUCH_CONTROL)}>

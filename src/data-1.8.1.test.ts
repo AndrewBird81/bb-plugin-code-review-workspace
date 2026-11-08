@@ -48,7 +48,10 @@ test("every Store read of reviews 1.8.1 wrote gives what 1.8.1's gave", async ()
   dirs.push(dir);
   bb.storage.database().prepare(`VACUUM INTO ?`).run(join(dir, "data.db"));
   await harness.dispose();
-  expect(JSON.parse((await dumpDatabase(join(dir, "data.db"))).reads)).toEqual(JSON.parse(fixture("reads.json")));
+  const read181 = JSON.parse(fixture("reads.json"));
+  // 1.12.0's paces read at their defaults.
+  read181.global.getPreferences.preferences.knobs = { ...read181.global.getPreferences.preferences.knobs, approveGuardTestsPace: 2000, approveGuardDocsPace: 2000 };
+  expect(JSON.parse((await dumpDatabase(join(dir, "data.db"))).reads)).toEqual(read181);
 });
 
 test("each draft 1.8.1 wrote posts the same review, byte for byte, as a teammate's PR's and as your own", async () => {
