@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.12.0 — Unreleased
+
+One review of a PR and your local changes to it: a thread on the branch of a PR you're reviewing already joins that review, where it started a second one. Still **BB 0.48+** (plugin SDK **0.6.79+**) with Node 24+; installs at `^1.0.0` update to 1.12.0. 1.12.0 adds no migration: what it adds is kept with the review's other lifecycle fields. Rolling back to 1.11.0 keeps every review; there a folder that joined someone else's PR's review counts as yours, so Sends to its thread don't ask, comments sent to it don't post with Submit, and Push isn't offered.
+
+- **Review changes**, or `bb review` with no arguments, in a thread on the branch of an open PR you're reviewing already, as a thread you had check out a teammate's PR to change it, joins the PR's review. It started a review of its own beside it, with a second guide writer and review agent, which merged only on your click, and kept itself rather than the PR's. Now the folder is attached to the PR's review, the thread becomes its main thread, the one before kept, nothing is rebuilt, and Review changes opens the review on **Not pushed yet**: what the folder has that the PR's head on GitHub doesn't, committed or not. It joins the review of the PR PR Status names for the branch, else of the repo's open PR whose head is the branch, not from a fork, while the review has a guide, or one being written, and no folder of its own, and the folder has the PR's head; otherwise the folder gets a review of its own, as before.
+- It's still the author's PR: comments you send to the thread post with Submit unless you resolve or dismiss them, and a Send quotes the author's code as theirs. A Send to your thread there doesn't ask first, as Sends on someone else's PR do.
+- **Push** works there, from the folder, and says first "This is @dana's PR: Push puts the commit on their branch, `feat/qa`. Push anyway to go on.", with **Push anyway** and Cancel. A head in someone's fork goes to that fork's remote.
+- The review agent is told the folder joined the review, where its instructions said a PR's review with a folder began as it. The skill agents in your threads read says to run `bb review` there for you to see their local changes to a PR. `reviewThreadChanges` answers `joined: true` when the folder joined.
+
 ## 1.11.0 — 2026-11-03
 
 See at a glance which reviews are working and which have news, with BB's own thread status icons on their rows. Still **BB 0.48+** (plugin SDK **0.6.79+**) with Node 24+; installs at `^1.0.0` update to 1.11.0. 1.11.0 adds no migration, so rolling back to 1.10.1 keeps everything; the rows lose their icons there.
