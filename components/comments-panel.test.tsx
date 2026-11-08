@@ -199,6 +199,30 @@ test("a row and a pill show what waits with an item: a thread's reply draft, and
   slot.lifecycle.unmount();
 });
 
+// Ask agent sat above the discussion, so it didn't look like it could go on (ted-2026-11-03 01).
+test("in the list, a discussion with the agent goes on from Reply at its foot, which has the focus back once its box closes", async () => {
+  const talk = [{ file: "src/a.ts", line: 2, side: "RIGHT", waiting: false, entries: [
+    { author: "reviewer", kind: "message", body: "Is this right?", createdAt: now - HOUR },
+    { author: "agent", kind: "message", body: "Yes.", createdAt: now - HOUR },
+  ] }, ...discussions];
+  const { slot } = await renderWorkspace({ rpc: { getDraft: () => ({ draft: { targetKey: "pr-42", verdict: "COMMENT", body: "", comments: structuredClone(comments) }, stale: [], discussions: talk }) } });
+  const list = await openComments(slot);
+  fireEvent.click(list.getByRole("button", { name: "Expand Draft comment on src/a.ts:2" }));
+  const card = within(list.getByRole("article", { name: "Draft comment on src/a.ts:2" }));
+  expect(card.queryByRole("button", { name: "Ask agent about the comment on src/a.ts:2" })).toBeNull();
+  const thread = within(card.getByRole("region", { name: "Discussion with agent on src/a.ts:2" }));
+  fireEvent.click(thread.getByRole("button", { name: "Reply" }));
+  const box = card.getByRole("textbox", { name: "Message to agent" });
+  await waitFor(() => expect(document.activeElement).toBe(box));
+  fireEvent.keyDown(box, { key: "Escape" });
+  await waitFor(() => expect(document.activeElement).toBe(thread.getByRole("button", { name: "Reply" })));
+  // A question with no comment ends the same way, with Dismiss beside Reply; unanswered, its chat is a link apart.
+  fireEvent.click(list.getByRole("button", { name: "Expand Private discussion on src/b.ts:1 (old line)" }));
+  const question = within(list.getByRole("article", { name: "Private discussion on src/b.ts:1 (old line)" }));
+  expect(question.getAllByRole("button").map((button) => button.textContent)).toEqual(["Open its chat", "Reply", "Dismiss"]);
+  slot.lifecycle.unmount();
+});
+
 test("GitHub threads show at their lines with every message; a resolved one is a pill; outdated and file comments wait in the file's fold", async () => {
   const { slot } = await renderWorkspace();
   const open = await code(slot, "src/a.ts").findByRole("article", { name: "GitHub thread on src/a.ts:2" });

@@ -153,8 +153,9 @@ export const InlineLocation = memo(function InlineLocation({ at }: { at: Comment
   const refold = folded && key && opened && !box ? () => setCommentOpen(key, id, false) : null;
   return (
     <div data-draft-at={locationKey(at)} className={cn(card, comment || box ? notSubmitted(edge) : privately)}>
-      {box === "edit" ? <ComposerBox mode="edit" /> : comment ? <CommentView comment={comment} draft={draft} onFold={refold} /> : discussion && <DiscussionBar discussion={discussion} draft={draft} boxOpen={!!box} onFold={refold} />}
-      {discussion && <DiscussionView discussion={discussion} titled={!!comment || box === "edit"} chat={draft.chat} busy={draft.busy} onUndo={draft.editable && !box && !(draft.editingAt && sameLocation(draft.editingAt, at)) ? () => draft.undo(discussion) : undefined} />}
+      {box === "edit" ? <ComposerBox mode="edit" /> : comment ? <CommentView comment={comment} draft={draft} discussed={!!discussion} onFold={refold} /> : discussion && <DiscussionBar discussion={discussion} draft={draft} boxOpen={!!box} onFold={refold} />}
+      {discussion && <DiscussionView discussion={discussion} titled={!!comment || box === "edit"} chat={draft.chat} busy={draft.busy} writing={draft.writing} onUndo={draft.editable && !box && !(draft.editingAt && sameLocation(draft.editingAt, at)) ? () => draft.undo(discussion) : undefined}
+        onReply={draft.editable && !box ? () => draft.ask(comment ?? discussion) : undefined} />}
       {box && box !== "edit" && <ComposerBox mode={box} divided={!!(comment || discussion)} />}
     </div>
   );
@@ -176,7 +177,8 @@ export function DraftStatus({ status }: { status: ReturnType<typeof draftStatus>
   return <span className="min-w-0 font-medium text-foreground"><InlineCode text={label} />{when && <span className="font-normal text-muted-foreground"> · {when}</span>}</span>;
 }
 
-function CommentView({ comment, draft, onFold }: { comment: DraftComment; draft: InlineDraft; onFold: (() => void) | null }) {
+/** `discussed`: the comment has a discussion with the agent, which Reply at its foot goes on with, in Ask agent's place. */
+function CommentView({ comment, draft, discussed, onFold }: { comment: DraftComment; draft: InlineDraft; discussed: boolean; onFold: (() => void) | null }) {
   const state = draftState(comment, draft.stale);
   const facts = useStatusFacts();
   const status = draftStatus(comment, state, facts);
@@ -205,7 +207,7 @@ function CommentView({ comment, draft, onFold }: { comment: DraftComment; draft:
       {draft.editable && <div className="-mt-1 flex flex-wrap gap-0.5 px-1.5 pb-1.5">
         {draft.setFix && draft.targetKey && <FixButtons targetKey={draft.targetKey} comment={comment} checks={draft.checks} busy={draft.busy} posts={facts.posts && postable(comment, facts.own)} className={action} onFix={draft.setFix} />}
         <Button variant="ghost" size="sm" className={action} {...whileBusy(draft.busy, draft.writing)} onClick={() => { if (!draft.busy && !draft.writing) draft.open(comment); }}>Edit</Button>
-        <Button variant="ghost" size="sm" className={cn(action, TONE_TEXT.agent, "hover:text-(--ansi-13)")} {...whileBusy(draft.busy, draft.writing)} onClick={() => { if (!draft.busy && !draft.writing) draft.ask(comment); }}><Icon name="Sparkles" className="size-3.5" aria-hidden />Ask agent</Button>
+        {!discussed && <Button variant="ghost" size="sm" className={cn(action, TONE_TEXT.agent, "hover:text-(--ansi-13)")} {...whileBusy(draft.busy, draft.writing)} onClick={() => { if (!draft.busy && !draft.writing) draft.ask(comment); }}><Icon name="Sparkles" className="size-3.5" aria-hidden />Ask agent</Button>}
         {sendable && <SendNow targetKey={draft.targetKey!} comment={comment} to={sendable} className={action} onNote={setSendNote} />}
         {preExisting && state !== "older-diff" && marksPreExisting(comment) && draft.markPreExisting && <Button variant="ghost" size="sm" className={action} {...whileBusy(draft.busy)} onClick={() => { if (!draft.busy) draft.markPreExisting!(comment, comment.introduced !== false); }}>{comment.introduced === false ? "Mark as from this PR" : "Mark as pre-existing"}</Button>}
         <Button variant="ghost" size="sm" className={cn(action, "hover:text-destructive-text")} {...whileBusy(draft.busy)} onClick={() => { if (!draft.busy) draft.remove(comment); }}>Remove</Button>
@@ -286,10 +288,7 @@ function DiscussionBar({ discussion, draft, boxOpen, onFold }: { discussion: Dis
       {discussion.startLine !== undefined && <span className="tabular-nums">Lines {discussionLines(discussion)}</span>}
       {((draft.editable && !boxOpen) || onFold) && (
         <span className="-mr-1.5 ml-auto flex">
-          {draft.editable && !boxOpen && <>
-            <Button variant="ghost" size="sm" className={action} disabled={draft.busy || draft.writing} onClick={() => draft.ask(discussion)}>Ask agent</Button>
-            <Button variant="ghost" size="sm" className={action} disabled={draft.busy} onClick={() => draft.dismiss(discussion)}>Dismiss</Button>
-          </>}
+          {draft.editable && !boxOpen && <Button variant="ghost" size="sm" className={action} disabled={draft.busy} onClick={() => draft.dismiss(discussion)}>Dismiss</Button>}
           {onFold && <FoldButton onFold={onFold} />}
         </span>
       )}
@@ -307,8 +306,10 @@ const changeText = (kind: Change, summary: boolean) => kind === "restored" ? "Yo
   : { added: "Agent added this comment.", edited: "Agent edited the comment.", removed: "Agent removed the comment." }[kind];
 
 /** A discussion with the agent, under a line's comment or the review summary. `onUndo` undoes the agent's latest change while it can be. */
-export function DiscussionView({ discussion, titled, chat, busy = false, onUndo, summary = false }: {
+export function DiscussionView({ discussion, titled, chat, busy = false, writing = false, onUndo, onReply, summary = false }: {
   discussion: Discussion; titled: boolean; chat: (() => void) | null; busy?: boolean; onUndo?: () => void; summary?: boolean;
+  /** Reply at its foot goes on with it, as on a GitHub thread, its box opening there; it waits while another box holds text (`writing`). */
+  onReply?: () => void; writing?: boolean;
 }) {
   const last = discussion.entries[discussion.entries.length - 1];
   const unanswered = !discussion.waiting && last?.kind === "message" && last.author === "reviewer";
@@ -329,10 +330,21 @@ export function DiscussionView({ discussion, titled, chat, busy = false, onUndo,
         ? <p role="status" className="flex items-center gap-2 pl-0.5 text-xs text-(--ansi-13)"><span aria-hidden className="flex gap-0.5">{[0, 1, 2].map((dot) => <span key={dot} className="size-1 rounded-full bg-current motion-safe:animate-bounce" style={{ animationDelay: `${dot * 140}ms` }} />)}</span>Waiting for agent…</p>
         : unanswered && <p className="flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
             The agent didn’t reply here.
-            {chat && <Button variant="link" size="sm" className={cn("relative h-auto p-0 text-xs", TOUCH_TARGET)} onClick={chat}>Ask agent</Button>}
+            {chat && <Button variant="link" size="sm" className={cn("relative h-auto p-0 text-xs", TOUCH_TARGET)} onClick={chat}>Open its chat</Button>}
           </p>}
+      {onReply && <div className="-mb-1 -ml-2 flex"><AgentReply at={discussion} disabled={busy || writing} onClick={onReply} /></div>}
     </section>
   );
+}
+
+/**
+ * Reply, at a discussion's foot: as on a GitHub thread, but to the agent, in its tint. Its location lets the focus come
+ * back to it once its box closes.
+ */
+export function AgentReply({ at, disabled, onClick }: { at: CommentLocation; disabled: boolean; onClick(): void }) {
+  return <Button variant="ghost" size="sm" data-agent-reply={locationKey(at)} className={cn(action, TONE_TEXT.agent, "hover:text-(--ansi-13)")} disabled={disabled} onClick={onClick}>
+    <Icon name="CornerDownRight" className="size-3.5" aria-hidden />Reply
+  </Button>;
 }
 
 /** Cmd/Ctrl+Enter runs a box's primary action, when it can run; Esc cancels, without reaching a drawer around the panel. */

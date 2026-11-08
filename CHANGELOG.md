@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.12.0 — Unreleased
+
+- A discussion with the agent ends with **Reply**, as a GitHub thread does: under a line, in Comments, and under the summary. **Ask agent** sat above it, among the comment's actions, so it didn't look like you could go on. Reply's box opens in its place, and the focus comes back to Reply once you send or leave it; Ask agent shows until there's a discussion.
+- "The agent didn’t reply here." links to the agent's chat as **Open its chat**, which said Ask agent and read like Reply.
+
 ## 1.11.0 — 2026-11-03
 
 See at a glance which reviews are working and which have news, with BB's own thread status icons on their rows. Still **BB 0.48+** (plugin SDK **0.6.79+**) with Node 24+; installs at `^1.0.0` update to 1.11.0. 1.11.0 adds no migration, so rolling back to 1.10.1 keeps everything; the rows lose their icons there.

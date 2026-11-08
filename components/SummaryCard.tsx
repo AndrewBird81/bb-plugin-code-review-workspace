@@ -69,7 +69,7 @@ export function SummaryCard({ cardRef, draft, discussion, editable, busy, writin
             <Markdown content={withLineBreaks(linkImages(draft.body))} className="text-sm leading-relaxed" />
             {editable && <div className="-mb-1 -ml-2 flex flex-wrap gap-0.5">
               <Button variant="ghost" size="sm" aria-label="Edit review summary" className={cn(action, "text-muted-foreground")} disabled={blocked || !!composer || working} onClick={onEdit}><Icon name="Edit" className="size-3.5" aria-hidden />Edit</Button>
-              <Button variant="ghost" size="sm" aria-label="Ask agent about the review summary" className={cn(action, TONE_TEXT.agent, "hover:text-(--ansi-13)")} disabled={blocked || !!composer} onClick={onAsk}><Icon name="Sparkles" className="size-3.5" aria-hidden />Ask agent</Button>
+              {!discussion && <Button variant="ghost" size="sm" aria-label="Ask agent about the review summary" className={cn(action, TONE_TEXT.agent, "hover:text-(--ansi-13)")} disabled={blocked || !!composer} onClick={onAsk}><Icon name="Sparkles" className="size-3.5" aria-hidden />Ask agent</Button>}
               <Button variant="ghost" size="sm" aria-label="Remove review summary" className={cn(action, "text-muted-foreground hover:text-destructive-text")} disabled={busy || working} onClick={onRemove}><Icon name="Trash2" className="size-3.5" aria-hidden />Remove</Button>
             </div>}
           </div>
@@ -89,7 +89,7 @@ export function SummaryCard({ cardRef, draft, discussion, editable, busy, writin
           <Button variant="outline" size="sm" className={cn("h-6 px-2 text-xs", TOUCH_CONTROL)} disabled={blocked} onClick={() => onRequest(updateRequest(changes, draft.verdict))}>Update</Button>
         </div>
       )}
-      {discussion && <DiscussionView discussion={discussion} titled summary chat={chat} busy={busy} onUndo={editable && !composer ? onUndo : undefined} />}
+      {discussion && <DiscussionView discussion={discussion} titled summary chat={chat} busy={busy} writing={writing} onUndo={editable && !composer ? onUndo : undefined} onReply={editable && !composer ? onAsk : undefined} />}
       {composer?.mode === "ask" && <ComposerFields mode="ask" subject="summary" divided busy={busy} composer={composer} />}
     </section>
   );

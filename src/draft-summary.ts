@@ -18,7 +18,7 @@ export async function writeSummary(store: AsyncStore, targetKey: string, input: 
     const reviewers = !draft.bodyAuthor && !!draft.body.trim();
     // Asking on the summary opens it to the turn that carries the ask, replies and all, on that conversation.
     if (reviewers && !await asked(tx, targetKey, SUMMARY_AT, threadId)) {
-      return { ok: false, error: "The reviewer wrote the review summary, so it stays as they wrote it. Put your suggested summary in your reply instead; the reviewer can ask on the summary (Ask agent on the review summary, in Finish review) to apply it. Nothing was changed." };
+      return { ok: false, error: "The reviewer wrote the review summary, so it stays as they wrote it. Put your suggested summary in your reply instead; the reviewer can ask on the summary (Ask agent on the review summary in Finish review, or Reply in its discussion there) to apply it. Nothing was changed." };
     }
     // What it didn't check goes with its verdict; without it, what it said before stays.
     const suggested = { ...input.verdict ? { suggestedVerdict: input.verdict } : {}, ...input.unchecked ? { unchecked: input.unchecked.map((item) => item.trim()).filter(Boolean) } : {} };
