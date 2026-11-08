@@ -37,7 +37,7 @@ export async function discussionMessage(store: AsyncStore, targetKey: string, in
     const history = (discussion?.entries ?? []).map((entry) => historyLine(entry, at)).join("\n").slice(-MAX_HISTORY);
     if (isSummary(at)) return { text: `On the review summary: ${input.body}`, context: [
       "This message comes from the reviewer's discussion on the review summary in Finish review, not from the chat. They read replies there.",
-      "When they ask you to change the summary, or to write one, do it with set_review_summary instead of describing it. If a reply is warranted, answer with reply_in_discussion with summary: true. Keep your reply in this chat to one short line.",
+      "When they ask you to change the summary, or to write one, do it with set_review_summary instead of describing it. A finding about a line that no comment raises yet goes in a line comment with add_draft_comment first. If a reply is warranted, answer with reply_in_discussion with summary: true. Keep your reply in this chat to one short line.",
       await describeSummary(tx, targetKey),
       await describeComments(tx, targetKey),
       history ? `Earlier in this discussion:\n${history}` : "",

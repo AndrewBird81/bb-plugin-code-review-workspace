@@ -1,15 +1,16 @@
 import type { Ref } from "react";
 import { Markdown } from "@get-bb/plugin-sdk/app";
-import { summaryChanges, VERDICT_LABEL, type Discussion, type Draft, type Verdict } from "../src/draft";
+import { SEVERITY_LABEL, summaryChanges, VERDICT_LABEL, type Discussion, type Draft, type Verdict } from "../src/draft";
 import { SUMMARY_LABEL } from "../lib/comments";
+import type { SummaryLine } from "../lib/summary-lines";
 import { linkImages } from "../lib/link-images";
 import { cn } from "../lib/utils";
 import { withLineBreaks } from "../src/line-breaks";
-import { TONE_TEXT } from "./ui/badge";
+import { Badge, TONE_TEXT, type Tone } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Icon } from "./ui/icon";
 import { action, bar, ComposerFields, DiscussionView, type InlineComposer } from "./InlineDraft";
-import { DraftIcon, notSubmitted } from "./comments/look";
+import { DraftIcon, notSubmitted, SEVERITY_TONE, TAG_TONE } from "./comments/look";
 import { TOUCH_CONTROL } from "./touch";
 
 /** What to ask the agent when the summary no longer fits the comments, or the verdict you picked. */
@@ -24,7 +25,7 @@ export function updateRequest(changes: { comments: boolean; verdict: Verdict | n
  * you edit or remove it, and Ask agent discusses it with the agent here. Only in BB until you submit, so it's dashed,
  * with an edge in its words' color.
  */
-export function SummaryCard({ cardRef, draft, discussion, editable, busy, writing, composer, changedWhileEditing = false, isLocal, chat, onEdit, onAsk, onRemove, onUndo, onRequest }: {
+export function SummaryCard({ cardRef, draft, discussion, editable, busy, writing, composer, changedWhileEditing = false, isLocal, chat, lines = [], onOpenLine, onEdit, onAsk, onRemove, onUndo, onRequest }: {
   /** Takes focus after the summary changes from here, so focus doesn't fall to the page. */
   cardRef?: Ref<HTMLElement>;
   draft: Draft;
@@ -40,6 +41,9 @@ export function SummaryCard({ cardRef, draft, discussion, editable, busy, writin
   changedWhileEditing?: boolean;
   isLocal: boolean;
   chat: (() => void) | null;
+  /** The changed lines the summary cites (lib/summary-lines.ts), each opening in the code. */
+  lines?: SummaryLine[];
+  onOpenLine?(line: SummaryLine): void;
   onEdit(): void;
   onAsk(): void;
   onRemove(): void;
@@ -67,6 +71,7 @@ export function SummaryCard({ cardRef, draft, discussion, editable, busy, writin
         : body ? <div className="space-y-1.5 px-3 pb-2.5">
             {/* Move to summary puts an agent's or someone's words in it whoever wrote the rest, so it shows images as links. */}
             <Markdown content={withLineBreaks(linkImages(draft.body))} className="text-sm leading-relaxed" />
+            {lines.length > 0 && onOpenLine && <CitedLines lines={lines} onOpen={onOpenLine} />}
             {editable && <div className="-mb-1 -ml-2 flex flex-wrap gap-0.5">
               <Button variant="ghost" size="sm" aria-label="Edit review summary" className={cn(action, "text-muted-foreground")} disabled={blocked || !!composer || working} onClick={onEdit}><Icon name="Edit" className="size-3.5" aria-hidden />Edit</Button>
               <Button variant="ghost" size="sm" aria-label="Ask agent about the review summary" className={cn(action, TONE_TEXT.agent, "hover:text-(--ansi-13)")} disabled={blocked || !!composer} onClick={onAsk}><Icon name="Sparkles" className="size-3.5" aria-hidden />Ask agent</Button>
@@ -92,5 +97,36 @@ export function SummaryCard({ cardRef, draft, discussion, editable, busy, writin
       {discussion && <DiscussionView discussion={discussion} titled summary chat={chat} busy={busy} onUndo={editable && !composer ? onUndo : undefined} />}
       {composer?.mode === "ask" && <ComposerFields mode="ask" subject="summary" divided busy={busy} composer={composer} />}
     </section>
+  );
+}
+
+/** The comment on a cited line, as its badge: the draft's severity, or a GitHub thread's tag. */
+function badgeOf(item: NonNullable<SummaryLine["item"]>): { label: string; tone: Tone } {
+  if (item.kind === "draft") return item.comment.severity ? { label: SEVERITY_LABEL[item.comment.severity], tone: SEVERITY_TONE[item.comment.severity] } : { label: "Comment", tone: "neutral" };
+  const tag = item.kind === "thread" ? item.tag : null;
+  return tag ? { label: tag, tone: TAG_TONE[tag] ?? "neutral" } : { label: "On GitHub", tone: "neutral" };
+}
+
+/**
+ * The lines the summary cites, each opening in the code, so its points can be read where they are. One no comment
+ * raises says so: the reviewer won't have met it reading the chapters.
+ */
+function CitedLines({ lines, onOpen }: { lines: SummaryLine[]; onOpen(line: SummaryLine): void }) {
+  return (
+    <ul aria-label="Lines the summary cites" className="flex flex-wrap gap-1.5 pt-0.5">
+      {lines.map((line) => {
+        const badge = line.item && badgeOf(line.item);
+        return (
+          <li key={`${line.file}:${line.line}`}>
+            <button type="button" title={`${line.file}:${line.line}`} aria-label={`Show ${line.cited}, ${badge ? `${badge.label} comment` : "not in your comments"}`} onClick={() => onOpen(line)}
+              className={cn("inline-flex items-center gap-1.5 rounded-md border border-border px-1.5 py-0.5 hover:bg-state-hover focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring", TOUCH_CONTROL)}>
+              <span className="font-mono text-xs text-primary">{line.cited.split("/").pop()}</span>
+              {badge ? <Badge tone={badge.tone} size="sm">{badge.label}</Badge>
+                : <span className="flex items-center gap-1 text-xs text-warning-text"><Icon name="AlertCircle" className="size-3 shrink-0" aria-hidden />Not in your comments</span>}
+            </button>
+          </li>
+        );
+      })}
+    </ul>
   );
 }
