@@ -154,6 +154,11 @@ export function WorkspaceView({ api, children }: { api: WorkspaceApi; children: 
   return <WorkspaceContext.Provider value={api}>{children}</WorkspaceContext.Provider>;
 }
 
+/** A filled button's variant: with Finish review showing, Submit is the one filled button, so every other is outlined. */
+export function useFill(): "default" | "outline" {
+  return useContext(WorkspaceContext)?.panel.view === "finish" ? "outline" : "default";
+}
+
 /** The workspace this view is in. */
 export function useWorkspace(): WorkspaceApi {
   const api = useContext(WorkspaceContext);

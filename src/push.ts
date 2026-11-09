@@ -14,7 +14,7 @@ import { ghErrorMessage, type runGh } from "./gh";
 import { assistantReview, mergedAway } from "./draft-comments";
 import type { Turn } from "./asking";
 import { reviewIdentity } from "../lib/review-identity";
-import { behindText, mismatchText, pushAnywayOffered, pushFlagText, NOT_PUSHED, nothingToPush, plainText, pushCommand, pushTarget, type PushTarget } from "../lib/push";
+import { behindText, mismatchText, pushAnywayOffered, pushFlagText, NOT_PUSHED, nothingToPush, plainText, pushCommand, pushTarget, theirsText, type PushTarget } from "../lib/push";
 import { command } from "./post-preview";
 import { inlineCode } from "./untrusted";
 import type { PushRun, ReviewLifecycle, ReviewMeta, SendEntry } from "./store";
@@ -263,11 +263,15 @@ type Started = { ok: boolean; error?: string; warning?: string; note?: string; d
 
 const BUSY = (run: PushRun | null) => run?.state === "committing" || run?.state === "pushing" ? `Push is waiting on the main thread already, to ${run.state === "committing" ? "commit" : "push"}. ${run.state === "committing" ? "Cancel" : "Stop waiting"} in Finish review, then Push again.` : null;
 
+/** Someone else's PR, whose review your folder joined: Push asks first, as the commit goes to their branch. */
+const theirBranch = (review: ReviewMeta) => review.kind === "pr" && review.ownPr !== true && !!review.feature?.joinedAt;
+
 /**
  * Push: tell the main thread to commit what you reviewed and report the commit; or, the folder having nothing to
- * commit, check its head now. GitHub already at the commit has nothing to push; GitHub with commits the folder doesn't
- * warns first. With `force`, Push anyway, on the warning shown (`sha`, when the page shows one): the checked commit goes
- * as it is, if the folder is still at it; or, past GitHub being ahead, Push goes on without asking that again.
+ * commit, check its head now. GitHub already at the commit has nothing to push; someone else's PR, and GitHub with
+ * commits the folder doesn't, warn first. With `force`, Push anyway, on the warning shown (`sha`, when the page shows
+ * one): the checked commit goes as it is, if the folder is still at it; or, past someone else's branch or GitHub being
+ * ahead, Push goes on without asking that again.
  */
 export async function startPush(deps: Deps, targetKey: string, { force = false, sha, at, thenOpenPr = false }: { force?: boolean; sha?: string; at?: number; thenOpenPr?: boolean } = {}): Promise<Started> {
   const { store, gh } = deps;
@@ -277,6 +281,7 @@ export async function startPush(deps: Deps, targetKey: string, { force = false, 
   if (typeof place === "string") return { ok: false, error: place };
   const failedTo = (failure: unknown, was: PushRun | null) => savePush(deps, targetKey, was).then(() => ({ ok: false, error: `Couldn’t tell the main thread: ${error(failure)}` }));
   let pastBehind = false;
+  let pastTheirs = false;
   if (force) {
     const run = review!.push;
     if (!pushAnywayOffered(run)) return { ok: false, error: "No commit is waiting on Push anyway. Push to start again." };
@@ -296,14 +301,15 @@ export async function startPush(deps: Deps, targetKey: string, { force = false, 
         return failedTo(failure, swapped.was);
       }
     }
-    // GitHub was ahead, before any commit: go on, and don't ask that again, nor drop Push and open PR.
-    pastBehind = true;
+    // Someone else's branch, or GitHub ahead, before any commit: go on, and don't ask that again, nor drop Push and open PR.
+    pastBehind = !!run.behind || !!run.pastBehind;
+    pastTheirs = !!run.theirs || !!run.pastTheirs;
     thenOpenPr = run.thenOpenPr === true;
   }
   const main = await mainThreadLink(deps, targetKey).catch(() => null);
   if (!main) return { ok: false, error: "This review has no main thread to commit and push. Choose one in Main thread." };
   if (main.state !== "open") return { ok: false, error: `${main.title ?? "The main thread"} is ${main.state === "archived" ? "archived. Unarchive it" : "deleted. Start a fresh thread from Main thread"}, then Push.` };
-  const run: PushRun = { state: "committing", at: Date.now(), threadId: main.threadId, repo: place.repo, head: place.head, ...pastBehind ? { pastBehind: true as const } : {}, ...thenOpenPr ? { thenOpenPr: true as const } : {} };
+  const run: PushRun = { state: "committing", at: Date.now(), threadId: main.threadId, repo: place.repo, head: place.head, ...pastBehind ? { pastBehind: true as const } : {}, ...pastTheirs ? { pastTheirs: true as const } : {}, ...thenOpenPr ? { thenOpenPr: true as const } : {} };
   const claimed = await swapPush(deps, targetKey, BUSY, run);
   if ("error" in claimed) return { ok: false, error: claimed.error };
   const [head, remote] = await Promise.all([folderHead(deps, place.environmentId), githubHead(gh.runGh, place)]);
@@ -330,6 +336,12 @@ export async function startPush(deps: Deps, targetKey: string, { force = false, 
       if (!thenOpenPr) return { ok: true, note };
       const said = await draftPr(deps, targetKey);
       return said.ok || said.note ? { ok: true, note: `${note} ${said.ok && !said.note ? DRAFTING : said.note}` } : { ok: false, error: `${plainText(note).replace(/`/g, "")} ${said.error}` };
+    }
+    // Someone else's PR: said before the thread is told anything, once for this Push.
+    if (!pastTheirs && theirBranch(review!)) {
+      const warning = theirsText(review!.author, place.head);
+      const swapped = await swapPush(deps, targetKey, ours, { ...run, state: "mismatch", theirs: true, warning });
+      return "error" in swapped ? { ok: false, error: swapped.error } : { ok: true, warning: plainText(warning), at: run.at };
     }
     // GitHub has commits the folder doesn't: said before the thread is told anything.
     const behind = pastBehind ? false : await behindGithub(deps, place.environmentId, github?.sha);

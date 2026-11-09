@@ -7,6 +7,7 @@ import { spawnExecution } from "./preferences";
 import type { AsyncStore } from "./store-queue";
 import { untrusted } from "./untrusted";
 import { reviewIdentity, threadLine, type ReviewPlace } from "../lib/review-identity";
+import { yoursByFolder } from "../lib/fixer";
 import { placeFacts, reviewPlaces } from "./review-places";
 
 /** A review with where its code is (src/review-places.ts), as its messages name it. */
@@ -23,9 +24,9 @@ const MAX_CODE_LINES = 40;
 /** A comment as the fix thread reads it; a range comment also has its first line. */
 export type FixComment = Pick<DraftComment, "file" | "line" | "side" | "severity" | "body" | "introduced"> & { startLine?: number; startSide?: "LEFT" | "RIGHT" };
 
-/** Whether the change is yours: a local review, a folder's review that became its PR, or your own PR. */
+/** Whether the change is yours: a local review, a folder's review that became its PR, or your own PR, a folder there or not. */
 export async function isOwnChange(review: ReviewMeta): Promise<boolean> {
-  if (review.kind === "ref" || review.feature) return true;
+  if (yoursByFolder(review)) return true;
   if (typeof review.ownPr === "boolean") return review.ownPr;
   if (!review.author) return false;
   // The sync knows once it has read the PR; before that, ask gh who you are.

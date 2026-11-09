@@ -1,6 +1,6 @@
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import { renameOverviewChapter, type Guide } from "./guide";
-import { diffSide, isLocal, rangeOf, sameLocation, SUMMARY_AT, type Claim, type CommentLocation, type Discussion, type DiscussionEntry, type Draft, type DraftComment, type GithubReviewComment, type Severity, type Verdict } from "./draft";
+import { diffSide, isLocal, isSummary, postedBody, rangeOf, sameLocation, SUMMARY_AT, type Claim, type CommentLocation, type Discussion, type DiscussionEntry, type Draft, type DraftComment, type GithubReviewComment, type Severity, type Verdict } from "./draft";
 import { createHash, randomUUID } from "node:crypto";
 import { preferencesSchema, readPreferences, savedKnobs, unknownKnobs, type PreferencesRecord, type ReviewPreferences, type ReviewerNotesRecord } from "./preferences";
 import type { AssessmentSummary, TurnSignals } from "../lib/turn";
@@ -87,8 +87,13 @@ export interface ReviewLifecycle {
    * turn is under way, since `at`.
    */
   summaryAsk?: Ask | null;
-  /** The reviewer asked the assistant to dig deeper into this chapter (src/deep-dive.ts), until the turn that carries it ends. */
-  deepDive?: { chapterId: string; ask: Ask } | null;
+  /**
+   * The reviewer asked the assistant to dig deeper into this chapter (src/deep-dive.ts), until the turn that carries it
+   * ends: the comments it added, and its report, so far.
+   */
+  deepDive?: { chapterId: string; ask: Ask; comments?: CommentLocation[]; report?: DeepDiveReport } | null;
+  /** What the last Dig deeper on each chapter found, by the chapter's id, until you dig into it again. */
+  deepDiveResults?: Record<string, DeepDiveResult>;
   /** The reviewer asked on draft comments: each opens the reviewer's comment there as summaryAsk opens the summary. */
   commentAsks?: Array<CommentLocation & { ask: Ask }>;
   /** When bb first read the PR's state. Earlier events don't alert or start work. */
@@ -147,7 +152,7 @@ export interface ReviewLifecycle {
    * once the review becomes a PR, for Not pushed yet.
    */
   feature?: FeatureReview | null;
-  /** The thread a Send goes to: the top thread working in the folder, or a fixer. Null for none yet. */
+  /** The thread a Send goes to: the thread that started the folder's review, or a fixer. Null for none yet. */
   mainThread?: MainThread | null;
   /** The threads that were the main thread before `mainThread`, oldest first. */
   implementers?: MainThread[];
@@ -167,6 +172,8 @@ export interface ReviewLifecycle {
   readyToApprove?: ReadyToApprove | null;
   /** Let it push when done: a Send leaves out "Don't push until I say". Absent or false, it says it. */
   letPush?: boolean;
+  /** The feedback items the agent's check deferred whose deferral the reviewer confirmed, by item id: when. Absent: none. */
+  deferralsConfirmed?: Record<string, number>;
   /** Files the secrets filter keeps out of the diff that the reviewer chose to Include, by path. Absent: none. */
   includeHidden?: string[];
   /** Committed files that look like secrets whose warning the reviewer said Got it to, by path. Absent: none. */
@@ -254,6 +261,10 @@ export interface PushRun {
   behind?: true;
   /** You chose Push anyway past `behind`: it isn't asked again for this Push. */
   pastBehind?: true;
+  /** mismatch: someone else's PR, whose review a folder of yours joined: the push goes to their branch. */
+  theirs?: true;
+  /** You chose Push anyway past `theirs`: it isn't asked again for this Push. */
+  pastTheirs?: true;
   flag?: "differs" | "unrequested" | "stopped";
   /** GitHub's head of the branch when flagged; null for no such branch. */
   remote?: string | null;
@@ -309,6 +320,12 @@ export interface FeatureReview {
   pushedAs?: string;
   /** The folder's head commit as last read on `branch`: a branch it's on now that has it may be `branch` renamed. */
   headSha?: string;
+  /**
+   * When the folder joined its PR's review, which was there before it (src/feature-review.ts joinPrReview): a thread
+   * on the PR's branch asked to review its changes. Such a folder doesn't make the change yours; the PR says whose it
+   * is. Absent for a review that began as the folder's.
+   */
+  joinedAt?: number;
   /** How many files changed in the folder since the review read it, as last checked; null for none or not checked. */
   changedFiles?: number | null;
   /**
@@ -428,6 +445,18 @@ export interface ActivityEntry {
 /** The turn of the reviewer's ask on the summary or a draft comment (src/asks.ts). */
 export type Ask = { threadId: string | null; state: "sending" | "queued" | "running"; queuedMessageId?: string; at: number };
 
+/** The review agent's report on a Dig deeper: one line overall, and a verdict on each of the chapter's What to verify, in order. */
+export interface DeepDiveReport {
+  summary: string;
+  checks: Array<{ verdict: "holds" | "problem" | "unverified"; note: string }>;
+}
+
+/**
+ * A Dig deeper that ended, on the chapter titled `title`: when, the comments it added, and its report, if it made one.
+ * `failed`: the agent's turn failed before it finished.
+ */
+export interface DeepDiveResult { at: number; title: string; comments: CommentLocation[]; report?: DeepDiveReport; failed?: true }
+
 export interface ReviewMeta extends ReviewLifecycle {
   targetKey: string;
   kind: "pr" | "ref";
@@ -454,6 +483,13 @@ export interface FileView {
   file: string;
   hash: string;
   viewedAt: number;
+}
+
+/** A chapter's reading: how long it showed in a window in view, and when you said its quick read was fine, if you did. */
+export interface ChapterRead {
+  chapterId: string;
+  openMs: number;
+  fineAt: number | null;
 }
 
 export interface AgentMessageContext {
@@ -595,6 +631,12 @@ export interface Store extends AgentCommentStore {
   /** `viewedAt`, when Undo puts back a view as it was; otherwise now. */
   setFileViewed(targetKey: string, file: string, hash: string, viewedAt?: number): Promise<void>;
   unsetFileViewed(targetKey: string, file: string): Promise<void>;
+  // How long each of the guide's chapters showed, and when its quick read was said to be fine (lib/chapter-reads.ts).
+  getChapterReads(targetKey: string): Promise<ChapterRead[]>;
+  /** Adds `ms` to the time the chapter showed, and returns its total. */
+  addChapterOpenTime(targetKey: string, chapterId: string, ms: number): Promise<number>;
+  /** You said the chapter's quick read is fine, now; returns when. */
+  setChapterFine(targetKey: string, chapterId: string): Promise<number>;
   // Legacy review-agent worker and plugin-stored chat log, read-only since
   // conversations moved into bb threads.
   getAgentThread(targetKey: string): Promise<string | null>;
@@ -656,7 +698,7 @@ export type CommentTracking = Partial<Pick<DraftComment, typeof TRACKING[number]
 const TRACKING = ["id", "state", "sendN", "claim", "editedBy"] as const;
 
 /** A summary change: any of these fields, where undefined clears it. */
-export type SummaryChange = Partial<Pick<Draft, "verdict" | "body" | "bodyAuthor" | "suggestedVerdict" | "written" | "verdictChosen" | "unchecked">>;
+export type SummaryChange = Partial<Pick<Draft, "verdict" | "body" | "bodyAuthor" | "suggestedVerdict" | "written" | "verdictChosen" | "unchecked" | "unseen">>;
 
 /** What a comment or the summary was before an agent changed it; null when there was none. */
 /**
@@ -747,6 +789,11 @@ export const SQLITE_MIGRATIONS: readonly string[] = [
     `ALTER TABLE agent_comment_changes ADD COLUMN reason TEXT`,
     // Saved views of All reviews' filters (lib/review-filters.ts), their filters as JSON.
     `CREATE TABLE IF NOT EXISTS filter_views (id TEXT PRIMARY KEY, name TEXT NOT NULL, filters TEXT NOT NULL, created_at INTEGER NOT NULL)`,
+    // How long each of a guide's chapters showed in a window in view, and when the reviewer said its quick read was fine
+    // (lib/chapter-reads.ts).
+    `CREATE TABLE IF NOT EXISTS chapter_reads (
+      target_key TEXT NOT NULL, chapter_id TEXT NOT NULL, open_ms INTEGER NOT NULL, fine_at INTEGER,
+      PRIMARY KEY (target_key, chapter_id))`,
 ];
 
 /** The plugin's SQLite database, a former install brought in and SQLITE_MIGRATIONS applied, as the Store opens it. */
@@ -943,7 +990,8 @@ export function storeOn(sql: Sql): Store {
     },
     async mergeReview(from, into) {
       // Each of REVIEW_TABLES: its reviews, patches, guides, guide_backups, generations, agent_threads and agent_messages
-      // stay with `from`, and its snapshots at commits too; the rest moves, or joins `into`'s.
+      // stay with `from`, and its snapshots at commits too, and its chapter_reads, of its guide's chapters; the rest
+      // moves, or joins `into`'s.
       return sql.transaction(async () => {
         const source = await this.getReview(from), target = await this.getReview(into);
         if (!source || !target || from === into) throw new Error("Review not found.");
@@ -1354,13 +1402,16 @@ export function storeOn(sql: Sql): Store {
       await followRenames(k);
       const waiting = await sql.all<CommentLocation>(`SELECT file, line, side FROM discussion_waits WHERE target_key=? ORDER BY file, line, side`, [k]);
       const discussions: Discussion[] = [];
-      const entries = await sql.all<{ file: string; line: number; side: CommentLocation["side"]; author: DiscussionEntry["author"]; kind: DiscussionEntry["kind"]; body: string; start_line: number | null; created_at: number }>(
-        `SELECT file, line, side, author, kind, body, start_line, created_at FROM discussion_entries WHERE target_key=? ORDER BY id`, [k]);
+      const entries = await sql.all<{ file: string; line: number; side: CommentLocation["side"]; author: DiscussionEntry["author"]; kind: DiscussionEntry["kind"]; body: string; start_line: number | null; created_at: number; previous: string | null }>(
+        `SELECT file, line, side, author, kind, body, start_line, created_at, previous FROM discussion_entries WHERE target_key=? ORDER BY id`, [k]);
       for (const row of entries) {
         const location: CommentLocation = { file: row.file, line: row.line, side: row.side };
         let discussion = discussions.find((d) => sameLocation(d, location));
         if (!discussion) discussions.push(discussion = { ...location, entries: [], waiting: waiting.some((w) => sameLocation(w, location)) });
-        discussion.entries.push({ author: row.author, kind: row.kind, body: row.body, createdAt: row.created_at });
+        // An edit's text before it, labeled as the entry's is: a comment's severity, not the summary's.
+        const previous = row.kind === "edited" && row.previous ? JSON.parse(row.previous) as PreviousState : null;
+        const before = previous && (isSummary(location) ? previous.body : postedBody(previous));
+        discussion.entries.push({ author: row.author, kind: row.kind, body: row.body, ...(before ? { before } : {}), createdAt: row.created_at });
         if (row.start_line != null && discussion.startLine === undefined) discussion.startLine = row.start_line;
       }
       return discussions;
@@ -1426,6 +1477,27 @@ export function storeOn(sql: Sql): Store {
     },
     async unsetFileViewed(k, file) {
       await sql.run(`DELETE FROM file_views WHERE target_key=? AND file=?`, [k, file]);
+    },
+    async getChapterReads(k) {
+      return (await sql.all<{ chapter_id: string; open_ms: number; fine_at: number | null }>(`SELECT chapter_id, open_ms, fine_at FROM chapter_reads WHERE target_key=? ORDER BY chapter_id`, [k]))
+        .map((r) => ({ chapterId: r.chapter_id, openMs: r.open_ms, fineAt: r.fine_at }));
+    },
+    async addChapterOpenTime(k, chapterId, ms) {
+      await sql.run(
+        `INSERT INTO chapter_reads (target_key,chapter_id,open_ms) VALUES (?,?,?)
+         ON CONFLICT(target_key,chapter_id) DO UPDATE SET open_ms=chapter_reads.open_ms+excluded.open_ms`,
+        [k, chapterId, ms],
+      );
+      return (await sql.get<{ open_ms: number }>(`SELECT open_ms FROM chapter_reads WHERE target_key=? AND chapter_id=?`, [k, chapterId]))!.open_ms;
+    },
+    async setChapterFine(k, chapterId) {
+      const at = Date.now();
+      await sql.run(
+        `INSERT INTO chapter_reads (target_key,chapter_id,open_ms,fine_at) VALUES (?,?,0,?)
+         ON CONFLICT(target_key,chapter_id) DO UPDATE SET fine_at=excluded.fine_at`,
+        [k, chapterId, at],
+      );
+      return at;
     },
     async getAgentThread(k) {
       return (await sql.get<{ thread_id: string }>(`SELECT thread_id FROM agent_threads WHERE target_key=?`, [k]))?.thread_id ?? null;
@@ -1632,6 +1704,8 @@ export function storeOn(sql: Sql): Store {
             return moved ? { ...entry, line: moved[1], side: sides.get(moved[0]) ?? entry.side } : entry;
           }) });
         }
+        // A comment new to you stays new where it moves.
+        const unseen = d.comments.filter((c) => d.unseen?.some((at) => sameLocation(at, c)));
         for (const [c, line] of moves) {
           c.line = line;
           if (starts.has(c)) c.startLine = starts.get(c);
@@ -1643,6 +1717,7 @@ export function storeOn(sql: Sql): Store {
             ON CONFLICT(target_key,file,line,side) DO UPDATE SET patch_hash=excluded.patch_hash, code=excluded.code, start_code=excluded.start_code`,
             [k, c.file, line, c.side, hash, code, startCode]);
         }
+        if (d.unseen) d.unseen = unseen.map(({ file, line, side }) => ({ file, line, side }));
         await writeDraft(sql, d);
       });
     },
@@ -1709,7 +1784,7 @@ export const REVIEW_TABLES = [
   "reviews", "patches", "guides", "drafts", "file_views", "agent_threads", "agent_messages",
   "generations", "draft_comment_revisions", "review_lifecycle", "reviewer_notes", "assistant_threads", "review_context",
   "discussion_entries", "discussion_waits", "review_snapshots", "feedback_threads", "feedback_fetches",
-  "assessment_items", "assessment_runs", "reply_drafts", "guide_backups", "agent_comment_changes",
+  "assessment_items", "assessment_runs", "reply_drafts", "guide_backups", "agent_comment_changes", "chapter_reads",
 ] as const;
 
 type Placement = { at: CommentLocation; line: number; startLine?: number; side?: "RIGHT" | "LOCAL" };
@@ -1757,8 +1832,11 @@ function patchHash(patch: string) { return createHash("sha256").update(patch).di
 
 async function writeDraft(sql: Sql, d: Draft) {
   const { bodyAuthor, suggestedVerdict, written, verdictChosen, unchecked } = d;
+  // Only the agent's comments still in the draft are new to you.
+  const kept = d.unseen?.filter((at) => d.comments.some((c) => c.author === "agent" && sameLocation(c, at))).map(({ file, line, side }) => ({ file, line, side }));
+  const unseen = kept?.length ? kept : undefined;
   // JSON leaves out the undefined ones, which a change clears.
-  const meta = JSON.stringify({ bodyAuthor, suggestedVerdict, written, verdictChosen, unchecked });
+  const meta = JSON.stringify({ bodyAuthor, suggestedVerdict, written, verdictChosen, unchecked, unseen });
   await sql.run(
     `INSERT INTO drafts (target_key,verdict,body,comments,meta) VALUES (?,?,?,?,?)
      ON CONFLICT(target_key) DO UPDATE SET verdict=excluded.verdict,body=excluded.body,comments=excluded.comments,meta=excluded.meta`,

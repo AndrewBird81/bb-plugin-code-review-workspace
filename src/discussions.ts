@@ -37,7 +37,7 @@ export async function discussionMessage(store: AsyncStore, targetKey: string, in
     const history = (discussion?.entries ?? []).map((entry) => historyLine(entry, at)).join("\n").slice(-MAX_HISTORY);
     if (isSummary(at)) return { text: `On the review summary: ${input.body}`, context: [
       "This message comes from the reviewer's discussion on the review summary in Finish review, not from the chat. They read replies there.",
-      "When they ask you to change the summary, or to write one, do it with set_review_summary instead of describing it. If a reply is warranted, answer with reply_in_discussion with summary: true. Keep your reply in this chat to one short line.",
+      "When they ask you to change the summary, or to write one, do it with set_review_summary instead of describing it. A finding about a line that no comment raises yet goes in a line comment with add_draft_comment first. Answer with reply_in_discussion with summary: true: answer each question they ask, and after a change say in a sentence what you changed. Keep your reply in this chat to one short line.",
       await describeSummary(tx, targetKey),
       await describeComments(tx, targetKey),
       history ? `Earlier in this discussion:\n${history}` : "",
@@ -49,7 +49,7 @@ export async function discussionMessage(store: AsyncStore, targetKey: string, in
     const code = extractSelectedLines(patch, at.file, from, at.line, at.side === "LEFT" ? "deletions" : "additions");
     const context = [
       `This message comes from the reviewer's discussion at ${at.file}:${lines} (${at.side} side) in the diff, not from the chat. They read replies there.`,
-      `If a reply is warranted, answer with reply_in_discussion on file ${JSON.stringify(at.file)}, line ${at.line}, side ${at.side}. ${comment
+      `Answer with reply_in_discussion on file ${JSON.stringify(at.file)}, line ${at.line}, side ${at.side}: answer each question they ask, and after a change say in a sentence what you changed. ${comment
         ? "If they ask you to change or drop the draft comment there, do it with edit_draft_comment or delete_draft_comment."
         : "If they ask for a draft comment there, add it with add_draft_comment."} Keep your reply in this chat to one short line.`,
       comment ? `The draft comment there, ${comment.author === "agent" ? "added by an agent" : "written by the reviewer"}:\n${postedBody(comment)}` : "There is no draft comment there.",

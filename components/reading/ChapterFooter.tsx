@@ -18,13 +18,14 @@ const NAMED = 3;
 
 /**
  * The end of a chapter: how much of it you've viewed and commented on, then on to the next, marking it viewed if you
- * like. The last chapter's next step is finishing, and it names the files you haven't viewed yet in the others.
+ * like. The last chapter's next step is finishing, and it names the files you haven't viewed yet in the others; once
+ * Finish review shows, finishing is the panel's.
  */
 export function ChapterFooter({ patch }: {
   /** The diff, to place a comment on a file split across chapters by its hunk. */
   patch: string;
 }) {
-  const { review, sections, activeId, files, go, openFinish } = useWorkspace();
+  const { review, sections, activeId, files, go, openFinish, panel } = useWorkspace();
   const draft = useContext(InlineDraftContext);
   // chapterAt splits the patch it's given: give it just the comment's file, split once per patch.
   const texts = useMemo(() => new Map(splitPatchByFile(patch).map((file) => [file.path, file.text])), [patch]);
@@ -42,6 +43,10 @@ export function ChapterFooter({ patch }: {
   const unviewed = next ? [] : [...new Set(sections.flatMap((section) => section.diffs.map((diff) => diff.file)))].filter((file) => !own.has(file) && !files.views.get(file)?.viewed);
   // A closed PR has nothing to finish: the last chapter leads to its archived review instead.
   const closed = review.prState === "MERGED" || review.prState === "CLOSED";
+  // With Finish review showing, the last chapter has no button to it, and every chapter's buttons are outlined: Submit,
+  // or Send, is the one filled button, and nothing here reads as a step after it.
+  const finishShown = panel.view === "finish";
+  const finishing = !next && finishShown;
   const button = cn("min-w-0 max-w-full @max-[480px]/review:w-full", TOUCH_CONTROL);
   // The next chapter opens at its top: its title takes the focus, which would stay down here, past its files.
   const goNext = (id: string) => {
@@ -61,15 +66,16 @@ export function ChapterFooter({ patch }: {
         {/* Where the pane is phone-sized, each button takes a row of its own. */}
         <div className="flex min-w-0 max-w-full flex-wrap items-center justify-end gap-2 @max-[480px]/review:w-full">
           {left && (
-            <Button size="sm" className={button} onClick={() => { files.markChapterViewed(chapter.id); if (next) goNext(next.id); else if (!closed) openFinish(); }}>
+            // Finishing, it still opens Finish review, whose summary takes the focus that would go with this button.
+            <Button variant={finishShown ? "outline" : "default"} size="sm" className={button} onClick={() => { files.markChapterViewed(chapter.id); if (next) goNext(next.id); else if (!closed) openFinish(); }}>
               <Icon name="CircleCheck" aria-hidden />
-              {next ? "Mark viewed and continue" : closed ? "Mark viewed" : "Mark viewed and finish"}
+              {next ? "Mark viewed and continue" : closed || finishing ? "Mark viewed" : "Mark viewed and finish"}
             </Button>
           )}
-          <Button variant={left ? "ghost" : "default"} size="sm" className={cn(button, left && "text-muted-foreground")} onClick={() => next ? goNext(next.id) : openFinish()}>
+          {!finishing && <Button variant={left ? "ghost" : finishShown ? "outline" : "default"} size="sm" className={cn(button, left && "text-muted-foreground")} onClick={() => next ? goNext(next.id) : openFinish()}>
             <span className="truncate">{next ? <>Next: <InlineCode text={next.title} /></> : closed ? "Archived review" : "Finish review"}</span>
             <Icon name="ArrowRight" aria-hidden />
-          </Button>
+          </Button>}
         </div>
       </div>
       {unviewed.length > 0 && (

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ComponentProps } from "react";
 import { useBbNavigate, useRealtime, useRpc } from "@get-bb/plugin-sdk/app";
 import { toast } from "sonner";
 import type { rpcContract } from "../../src/rpc-contract";
@@ -18,6 +18,7 @@ import { REWRITE_GUIDE, type Notice } from "./ReviewNotices";
 import { usePrNotices, type PrReviewed } from "./PrNotices";
 import { useComments } from "../comments/store";
 import { setNotPushedFiles } from "../../lib/workspace-store";
+import { useFill } from "../../lib/workspace-context";
 
 /** The review, as far as its folder's notices read it. */
 interface Reviewed { kind?: "pr" | "ref"; status?: string; feature?: FeatureReview | null; mainThread?: Pick<MainThread, "environmentId"> | null; archivedAt?: number | null; userArchivedAt?: number | null; followed?: { branch: string; from: string } | null }
@@ -41,6 +42,11 @@ const GUIDE_OLDER: Record<NonNullable<FeatureReview["guideOlderThanDiff"]>, stri
 const fileName = (path: string) => path.slice(path.lastIndexOf("/") + 1);
 
 /** "and 2 more", which opens a list of those threads, each going to its thread. */
+/** A notice's one recommended button, filled unless Finish review shows: read where it shows, as notices are made outside the workspace. */
+function Recommended(props: ComponentProps<typeof Button>) {
+  return <Button {...props} variant={useFill()} />;
+}
+
 function MoreThreads({ threads, onOpen }: { threads: FeatureCheck["alsoActive"]; onOpen: (threadId: string) => void }) {
   const [open, setOpen] = useState(false);
   return <Popover open={open} onOpenChange={setOpen}>
@@ -121,7 +127,8 @@ export function useFeatureNotices(targetKey: string, review: (Reviewed & PrRevie
   // `agent`: it starts an agent, so it wears the agent's sparkle. `variant`: filled for the one recommended, ghost for a
   // quiet other choice.
   const button = (id: string, label: string, onClick: () => void, { aria, warning, whole, hint, description, agent, variant = "outline" }: { aria?: string; warning?: boolean; whole?: boolean; hint?: string; description?: string; agent?: boolean; variant?: "default" | "outline" | "ghost" } = {}) => {
-    const shown = <Button variant={variant} size="sm" className={cn(BUTTON, !whole && "max-w-64", warning && "border-warning/40")} disabled={!!busy} aria-label={aria} aria-description={description} onClick={onClick}>{agent && <Icon name="Sparkles" className="text-(--ansi-13)" aria-hidden />}<span title={hint} className={cn(!whole && "truncate")}>{busy === id ? `${label}…` : label}</span></Button>;
+    const Shown = variant === "default" ? Recommended : Button;
+    const shown = <Shown variant={variant} size="sm" className={cn(BUTTON, !whole && "max-w-64", warning && "border-warning/40")} disabled={!!busy} aria-label={aria} aria-description={description} onClick={onClick}>{agent && <Icon name="Sparkles" className="text-(--ansi-13)" aria-hidden />}<span title={hint} className={cn(!whole && "truncate")}>{busy === id ? `${label}…` : label}</span></Shown>;
     return description ? <Hint label={description} container={container}>{shown}</Hint> : shown;
   };
   const checkAgain = button("check", "Check again", () => { setBusy("check"); rpc.call("checkFeature", { targetKey }).then((next) => setRead({ targetKey, check: next }), () => {}).finally(() => setBusy(null)); });

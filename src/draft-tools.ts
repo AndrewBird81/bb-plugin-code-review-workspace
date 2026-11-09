@@ -1,10 +1,12 @@
 // The review assistant's tools on its own review's local draft: its comments, the summary, and replies in your discussions.
+import { AUTHOR_NEVER_SEES_GUIDE, LINE_COMMENTS_FIRST } from "./posting-rules";
 import type { PluginAgentToolResult } from "@get-bb/plugin-sdk";
 import { z } from "zod";
 import { addComment, assistantReview, deleteComment, editComment, mergedAway, replyInDiscussion, REVIEWERS, type DraftResult } from "./draft-comments";
 import { SEVERITIES, SUMMARY_AT } from "./draft";
 import { describeDraft, writeSummary } from "./draft-summary";
 import { describeRemovals, removalWarning } from "./learning";
+import { noteDeepDiveComment, reportDeepDive } from "./deep-dive";
 import type { AsyncStore } from "./store-queue";
 import { failed, type ServeDeps } from "./server-modules";
 
@@ -60,7 +62,7 @@ export function register(deps: ServeDeps) {
   bb.agents.registerTool({
     name: "add_draft_comment",
     description: "Add an inline comment to the reviewer's local draft for this review, on a line of the current diff, or with startLine on lines startLine to line. It reaches GitHub only when the review is submitted. Refuses a line that already has a draft comment.",
-    instructions: "During a review pass, or when the reviewer asks, add each verified issue with add_draft_comment on the line it concerns, or the lines (startLine to line). In ordinary chat, answer in chat. Put one issue in each comment. Give its severity (blocking, should-fix, question, or nit), then say concretely what fails and the fix. Put how you confirmed it in evidence, with file:line: only what you read or ran. Prefer a ```suggestion block for a small, mechanical fix: it holds the exact replacement, indentation included, for exactly the commented lines, line alone or startLine to line, and the author applies it with one click. Give a range that covers every line the suggestion replaces, and no more. Points about the change as a whole go in the review summary, with set_review_summary. list_draft_comments shows the draft and who added each comment, and the comments the reviewer removed: don't raise those again unless their code changed. edit_draft_comment and delete_draft_comment change it. Change or delete the reviewer's own comments only when they ask. The draft is the reviewer's: they edit and remove it, and it's submitted only when they say so.",
+    instructions: "During a review pass, or when the reviewer asks, add each verified issue with add_draft_comment on the line it concerns, or the lines (startLine to line). In ordinary chat, answer in chat. Put one issue in each comment. Give its severity (blocking, should-fix, question, or nit), then say concretely what fails and the fix. Put how you confirmed it in evidence, with file:line: only what you read or ran. Prefer a ```suggestion block for a small, mechanical fix: it holds the exact replacement, indentation included, for exactly the commented lines, line alone or startLine to line, and the author applies it with one click. Give a range that covers every line the suggestion replaces, and no more. " + AUTHOR_NEVER_SEES_GUIDE + " Points about the change as a whole go in the review summary, with set_review_summary. list_draft_comments shows the draft and who added each comment, and the comments the reviewer removed: don't raise those again unless their code changed. edit_draft_comment and delete_draft_comment change it. Change or delete the reviewer's own comments only when they ask. The draft is the reviewer's: they edit and remove it, and it's submitted only when they say so.",
     parameters: z.object({
       ...location,
       ...range,
@@ -72,7 +74,10 @@ export function register(deps: ServeDeps) {
     }),
     execute: async (input, { threadId }) => await assistantDraft(threadId, true, async (tx, targetKey) => {
       const added = await addComment(tx, targetKey, input);
-      return added.ok ? { ok: true, text: added.text + await removalWarning(tx, targetKey, input) } : added;
+      if (!added.ok) return added;
+      // A comment from a Dig deeper is listed on its chapter.
+      await noteDeepDiveComment(tx, targetKey, threadId, { file: input.file, line: input.line, side: input.side ?? "RIGHT" });
+      return { ok: true, text: added.text + await removalWarning(tx, targetKey, input) };
     }),
   });
   bb.agents.registerTool({
@@ -94,7 +99,7 @@ export function register(deps: ServeDeps) {
   bb.agents.registerTool({
     name: "set_review_summary",
     description: "Write the review summary in the reviewer's local draft for this review: the top-level comment GitHub shows with the verdict and the line comments. Optionally suggest a verdict; the reviewer picks it. Nothing reaches GitHub. Refuses a summary the reviewer wrote, unless they asked on the summary for the change.",
-    instructions: "Write the review summary with set_review_summary: the overall assessment, what blocks merging and what doesn't, and points that have no line. Don't repeat your line comments, since GitHub shows them with the review; refer to them by file:line. Keep it short, in GitHub Markdown. Name anything you didn't read. Give the verdict you'd suggest: APPROVE only if nothing blocks and you read every non-generated file, REQUEST_CHANGES only for a verified blocking issue, otherwise COMMENT. The reviewer picks the verdict, and yours is marked on it. Without verdict, your earlier suggestion stays marked. Messages from the summary's discussion ask for changes to it: make them with set_review_summary, and answer with reply_in_discussion (summary: true).",
+    instructions: "Write the review summary with set_review_summary: the overall assessment, what blocks merging and what doesn't, and points that have no line. " + LINE_COMMENTS_FIRST + " Don't repeat your line comments, since GitHub shows them with the review; refer to them by file:line. Keep it short, in GitHub Markdown. Name anything you didn't read. " + AUTHOR_NEVER_SEES_GUIDE + " Give the verdict you'd suggest: APPROVE only if nothing blocks, no blocking feedback from the reviewer's earlier review is open, and you read every non-generated file, or on a re-review, every one changed since the reviewer's last review; REQUEST_CHANGES only for a verified blocking issue, otherwise COMMENT. The reviewer picks the verdict, and yours is marked on it. Without verdict, your earlier suggestion stays marked. Messages from the summary's discussion ask for changes to it: make them with set_review_summary, and answer with reply_in_discussion (summary: true).",
     parameters: z.object({
       body: z.string().trim().min(1).max(65_000).describe("The summary, in GitHub Markdown."),
       verdict: z.enum(["APPROVE", "REQUEST_CHANGES", "COMMENT"]).optional().describe("The verdict you'd suggest; the reviewer picks."),
@@ -115,5 +120,17 @@ export function register(deps: ServeDeps) {
       summary ? await replyInDiscussion(tx, targetKey, { ...SUMMARY_AT, body })
       : file === undefined || line === undefined ? { ok: false, error: "Give the discussion's file and line, or summary: true for the review summary's discussion." }
       : await replyInDiscussion(tx, targetKey, { file, line, side, body })),
+  });
+  bb.agents.registerTool({
+    name: "report_deep_dive",
+    description: "Report what a Dig deeper on a chapter found, after any comments: a verdict on each of its What to verify items, in order, and one line overall. The reviewer sees it on the chapter, with the comments you added. Only in the turn that carries a Dig deeper; nothing reaches GitHub.",
+    parameters: z.object({
+      summary: z.string().trim().min(1).max(300).describe("One line overall: what you found, or that the chapter holds up."),
+      checks: z.array(z.object({
+        verdict: z.enum(["holds", "problem", "unverified"]).describe("holds: you confirmed it; problem: you found one, and commented on it; unverified: you couldn't tell."),
+        note: z.string().trim().min(1).max(300).describe("One line: what you read or ran, with file:line."),
+      })).max(3).describe("One verdict for each What to verify item, in the order the message gave them."),
+    }),
+    execute: async (input, { threadId }) => await assistantDraft(threadId, false, (tx, targetKey) => reportDeepDive(tx, targetKey, threadId, input)),
   });
 }

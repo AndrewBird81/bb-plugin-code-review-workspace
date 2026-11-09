@@ -7,7 +7,10 @@ import { becomePr, checkFeature, updateFeature } from "./feature-review";
 import { featureKey, prReviewKey, reviewNamed, targetKey } from "./targets";
 import { BASE_SHA, folderHost, type Folder } from "./env-diff.test-support";
 import { testSql, testStore } from "./test-store.test-support";
-import { storeOn } from "./store";
+import { storeOn, type ReviewLifecycle, type ReviewMeta } from "./store";
+import { isOwnChange } from "./fix-handoff";
+import { assistantInstructions } from "./agent";
+import { pushTarget } from "../lib/push";
 import { queueStore } from "./store-queue";
 import { changedFiles, splitPatchByFile } from "./patch";
 import { defaultPreferences } from "./preferences";
@@ -31,8 +34,8 @@ const BODY = "@@ -1,3 +1,3 @@\n one\n-two\n+TWO\n three\n";
 const PR_DIFF = "diff --git a/src/a.ts b/src/a.ts\nindex 1111111..2222222 100644\n--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1,3 +1,3 @@\n one\n-two\n+TWO\n three\n";
 
 /**
- * A folder (env1, on MaxBook, feat/qa) and the threads around it: `main` works in it and leads, `sub` is its subagent,
- * `orch` an orchestrator in another folder, `other` another top thread in the folder.
+ * A folder (env1, on MaxBook, feat/qa) and the threads around it: `main` works in it, `sub` is its sub-thread there,
+ * `other` another top thread in the folder.
  */
 function setup(folder: Folder = { files: [{ path: "src/a.ts", body: BODY }] }, threads: Record<string, T> = {}) {
   const all: Record<string, T> = {
@@ -90,7 +93,7 @@ test("three subagents sharing their thread's id make one review of the folder, a
   expect(results.map((r) => r.exitCode)).toEqual([0, 0, 0]);
   expect(results.filter((r) => r.stdout?.startsWith("Started a review of ~/src/api on MaxBook: api:feat/qa \"Snooze flaky checks\""))).toHaveLength(1);
   expect(results.filter((r) => r.stdout?.startsWith("Opened the review of ~/src/api on MaxBook: api:feat/qa \"Snooze flaky checks\""))).toHaveLength(2);
-  for (const r of results) expect(r.stdout).toContain(`Its main thread is "Snooze flaky checks" (main), the top thread working in this folder.`);
+  expect(results.filter((r) => r.stdout?.includes(`Its main thread is "Snooze flaky checks" (main). Comments sent from the review go there.`))).toHaveLength(3);
   const reviews = await s.store.listReviews();
   expect(reviews.map((r) => r.targetKey)).toEqual([key]);
   const review = reviews[0]!;
@@ -102,14 +105,69 @@ test("three subagents sharing their thread's id make one review of the folder, a
   await vi.waitFor(() => expect(s.spawns).toHaveLength(1));
 });
 
-test("a subagent under an orchestrator in another folder addresses the top thread working in the code's folder", async () => {
+test("a sub-thread you see addresses its review to itself, even in its orchestrator's folder: comments reach the thread that did the work", async () => {
+  const s = setup(undefined, {
+    orch: { id: "orch", environmentId: "env1", title: "Orchestrator" },
+    worker: { id: "worker", environmentId: "env1", parentThreadId: "orch", title: "Build snooze" },
+  });
+  expect((await run(s, "worker")).stdout).toContain(`Its main thread is "Build snooze" (worker). Comments sent from the review go there.`);
+  expect((await s.store.getReview(key))?.mainThread?.threadId).toBe("worker");
+  // Run again from the orchestrator, it opens as it is, still the sub-thread's.
+  expect((await run(s, "orch")).stdout).toContain(`Its main thread is "Build snooze" (worker), as before.`);
+  expect((await s.store.getReview(key))?.mainThread?.threadId).toBe("worker");
+});
+
+test("sub-threads sharing their orchestrator's folder address its review to the orchestrator, not to whichever of them asked first", async () => {
+  const s = setup(undefined, {
+    orch: { id: "orch", environmentId: "env1", title: "Orchestrator" },
+    worker: { id: "worker", environmentId: "env1", parentThreadId: "orch", title: "Build snooze" },
+    tests: { id: "tests", environmentId: "env1", parentThreadId: "orch", title: "Write tests" },
+    // A hidden helper of the worker's is the worker's, not a sibling.
+    helper: { id: "helper", environmentId: "env1", parentThreadId: "worker", title: "Lint", visibility: "hidden" },
+  });
+  const first = await run(s, "worker");
+  expect(first.stdout).toContain(`Its main thread is "Orchestrator" (orch), which leads the sub-threads working in this folder. Comments sent from the review go there.`);
+  expect((await s.store.getReview(key))?.mainThread?.threadId).toBe("orch");
+  // Asked again from either sibling, it stays the orchestrator's.
+  expect((await run(s, "tests")).stdout).toContain(`Its main thread is "Orchestrator" (orch)`);
+  expect((await s.store.getReview(key))?.mainThread?.threadId).toBe("orch");
+  // Nor are the sub-threads also editing it: they work under its main thread. The folder's other top threads are.
+  await settled(s);
+  expect((await checkFeature(s.deps, key)).alsoActive.map((thread) => thread.threadId)).toEqual(["main", "sub", "other"]);
+});
+
+test("a sibling that opens a sub-thread's review later moves it to their shared parent, which says so", async () => {
+  const threads: Record<string, T> = {
+    orch: { id: "orch", environmentId: "env1", title: "Orchestrator" },
+    worker: { id: "worker", environmentId: "env1", parentThreadId: "orch", title: "Build snooze" },
+  };
+  const s = setup(undefined, threads);
+  expect((await run(s, "worker")).stdout).toContain(`Its main thread is "Build snooze" (worker). Comments sent from the review go there.`);
+  await settled(s);
+  // Its orchestrator works in the folder above it, so it isn't also editing it.
+  expect((await checkFeature(s.deps, key)).alsoActive.map((thread) => thread.threadId)).toEqual(["main", "sub", "other"]);
+  s.all.tests = { id: "tests", environmentId: "env1", parentThreadId: "orch", title: "Write tests" };
+  const moved = await run(s, "tests");
+  expect(moved.stdout).toContain(`Its main thread is now "Orchestrator" (orch), which leads the sub-threads working in this folder, in place of "Build snooze" (worker). Comments sent from the review go there.`);
+  expect((await s.store.getReview(key))).toMatchObject({ mainThread: { threadId: "orch" }, implementers: [{ threadId: "worker" }] });
+});
+
+test("a hidden subagent addresses the nearest thread you see working in the folder, passing over one in another folder", async () => {
   const s = setup(undefined, {
     orch: { id: "orch", environmentId: "env_orch", title: "Orchestrator" },
     worker: { id: "worker", environmentId: "env1", parentThreadId: "orch", title: "Build snooze" },
-    deep: { id: "deep", environmentId: "env1", parentThreadId: "worker", title: "Write tests" },
+    hidden: { id: "hidden", environmentId: "env1", parentThreadId: "worker", title: "Write tests", visibility: "hidden" },
+    deeper: { id: "deeper", environmentId: "env1", parentThreadId: "hidden", title: "Lint", visibility: "hidden" },
   });
-  expect((await run(s, "deep")).stdout).toContain(`Its main thread is "Build snooze" (worker)`);
+  expect((await run(s, "deeper")).stdout).toContain(`Its main thread is "Build snooze" (worker)`);
   expect((await s.store.getReview(key))?.mainThread?.threadId).toBe("worker");
+
+  const away = setup(undefined, {
+    orch: { id: "orch", environmentId: "env1", title: "Orchestrator" },
+    elsewhere: { id: "elsewhere", environmentId: "env_other", parentThreadId: "orch", title: "Elsewhere" },
+    hidden: { id: "hidden", environmentId: "env1", parentThreadId: "elsewhere", title: "Write tests", visibility: "hidden" },
+  });
+  expect((await run(away, "hidden")).stdout).toContain(`Its main thread is "Orchestrator" (orch)`);
 });
 
 test("run again from any thread in the folder, it only opens: no rebuild, and the main thread stays", async () => {
@@ -565,6 +623,98 @@ test("each read of Not pushed yet keeps what it showed, and a comment there foll
   expect(await s.store.getSnapshot(key, "not-pushed")).toContain("+new\n+b\n");
   expect((await s.store.getDraft(key)).comments.find((c) => c.file === "src/b.ts")).toMatchObject({ line: 2, side: "LOCAL" });
   expect(await s.store.draftCommentCode(key, { file: "src/b.ts", line: 2, side: "LOCAL" })).toBe("b");
+});
+
+const PR_HEAD = "c0ffee".padEnd(40, "0");
+const prKey = targetKey({ kind: "pr", repo: "acme/api", number: 7 });
+/** PR #7 on feat/qa, as PR Status names it for the folder. */
+const onPr = { prBase: "main", pr: { number: 7, url: "https://github.com/acme/api/pull/7", headRefName: "feat/qa" } };
+/** The folder has the PR's head commit, as a worktree made from it, or one that pulled it, does; `behind` it doesn't. */
+const hasHead = (behind = 0) => ({ workspaceStatus: () => ({ outcome: "available", workspace: { mergeBase: { aheadCount: 1, behindCount: behind, commits: [] } } }) });
+/** @dana's PR #7, from feat/qa, as the plugin reviewed it before any folder: its guide written, and a comment of yours. */
+async function reviewedPr(s: ReturnType<typeof setup>, review: Partial<ReviewMeta> = {}, lifecycle: ReviewLifecycle = {}) {
+  await s.store.saveReview({ targetKey: prKey, kind: "pr", repo: "acme/api", number: 7, url: "https://github.com/acme/api/pull/7", title: "Snooze flaky checks for a day", author: "dana", head: "feat/qa", base: "main", headSha: PR_HEAD, status: "ready", createdAt: 1, projectId: "proj_api", ...review });
+  await s.store.setLifecycle(prKey, { ownPr: false, headFork: null, prState: "OPEN", ...lifecycle });
+  await s.store.upsertDraftComment(prKey, { file: "src/a.ts", line: 2, side: "RIGHT", body: "Mine", author: "reviewer" } as any);
+}
+
+test("a thread on an open PR's branch that the plugin reviews already joins that review: one review, no guide writer, its folder and thread attached, still the PR's author's", async () => {
+  const s = setup({ files: [{ path: "src/a.ts", body: BODY }], ...onPr, answers: hasHead() });
+  await reviewedPr(s, {}, { mainThread: { threadId: "orch", environmentId: "env_orch", origin: "adopted", since: 1 } });
+  // The thread and its subagents at once: one joins, and the others open what it joined.
+  const results = await Promise.all([run(s, "main"), run(s, "sub"), run(s, "main")]);
+  expect(results.map((result) => result.exitCode)).toEqual([0, 0, 0]);
+  const joined = results.find((result) => result.stdout?.includes("The folder joined it"))!;
+  expect(results.filter((result) => result.stdout?.startsWith(`Opened the review of ~/src/api on MaxBook: api#7`))).toHaveLength(2);
+  expect(joined.stdout).toContain(`This folder, ~/src/api on MaxBook, is on the branch of PR #7, which has a review already: api#7 "Snooze flaky checks for a day" (${prKey}). The folder joined it, and nothing was rebuilt: Not pushed yet shows what the folder has that the PR doesn’t on GitHub.`);
+  expect(joined.stdout).toContain(`Its main thread is now "Snooze flaky checks" (main).`);
+  expect((await s.store.listReviews()).map((review) => review.targetKey)).toEqual([prKey]);
+  const review = (await s.store.getReview(prKey))!;
+  expect(review).toMatchObject({ kind: "pr", number: 7, headSha: PR_HEAD, ownPr: false, mainThread: { threadId: "main", environmentId: "env1", origin: "adopted" }, implementers: [{ threadId: "orch" }], sourceThreadId: "main" });
+  expect(review.feature).toEqual({ environmentId: "env1", hostId: "host_max", machine: "MaxBook", path: "/Users/me/src/api", branch: "feat/qa", baseRef: "main", repo: "acme/api", joinedAt: expect.any(Number) });
+  expect((await s.store.getDraft(prKey)).comments.map((comment) => comment.body)).toEqual(["Mine"]);
+  expect(await checkFeature(s.deps, prKey)).toMatchObject({ state: "ahead", aheadFiles: 1, aheadPaths: ["src/a.ts"] });
+  // Still @dana's PR: Sends quote her code as hers and Submit posts what you sent, but Push goes from the folder.
+  expect(await isOwnChange(review)).toBe(false);
+  expect(pushTarget(review)).toEqual({ repo: "acme/api", head: "feat/qa", environmentId: "env1", remote: "origin", fixer: false, pr: 7 });
+  expect(assistantInstructions(prKey, null, defaultPreferences, undefined, review)).toContain("This review is acme/api PR #7 (https://github.com/acme/api/pull/7). A folder on its branch, ~/src/api on MaxBook, joined it: its main thread works there");
+  // Run again from any thread there, it opens as it is.
+  const again = await run(s, "other");
+  expect(again.stdout).toContain(`Opened the review of ~/src/api on MaxBook: api#7 "Snooze flaky checks for a day" (${prKey}), as it was; nothing was rebuilt.`);
+  expect((await s.store.getReview(prKey))?.mainThread?.threadId).toBe("main");
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  expect(s.spawns).toHaveLength(0);
+  expect(s.ghCalls).toEqual([]);
+});
+
+test("Review changes on the PR's branch joins its review too, and says so, for the page to open on Not pushed yet; your archive gives it back", async () => {
+  const s = setup({ files: [{ path: "src/a.ts", body: BODY }], ...onPr, answers: hasHead() });
+  vi.mocked(runGh).mockImplementation(s.deps.gh.runGh as any);
+  await plugin(s.bb);
+  await reviewedPr(s, {}, { userArchivedAt: 5 });
+  expect(await s.harness.behavior.callRpc("reviewThreadChanges", { threadId: "sub" })).toEqual({ ok: true, targetKey: prKey, joined: true });
+  expect(await s.store.getReview(prKey)).toMatchObject({ userArchivedAt: null, mainThread: { threadId: "sub" }, feature: { environmentId: "env1", joinedAt: expect.any(Number) } });
+  expect(await s.harness.behavior.callRpc("reviewThreadChanges", { threadId: "main" })).toEqual({ ok: true, targetKey: prKey });
+  expect(await s.harness.behavior.callRpc("getNotPushed", { targetKey: prKey })).toMatchObject({ state: "available", base: PR_HEAD, branch: "feat/qa", threadId: "sub" });
+  expect(await s.store.listReviews()).toHaveLength(1);
+});
+
+test("where PR Status names no PR, this repo's open PR whose head is the branch is joined by name, never one from a fork; renamed, the folder pushes to the PR's head", async () => {
+  const s = setup({ files: [{ path: "src/a.ts", body: BODY }], answers: hasHead() });
+  await reviewedPr(s);
+  await run(s, "main");
+  expect((await s.store.getReview(prKey))?.feature?.joinedAt).toEqual(expect.any(Number));
+
+  const fork = setup({ files: [{ path: "src/a.ts", body: BODY }], answers: hasHead() });
+  await reviewedPr(fork, {}, { headFork: "dana" });
+  await run(fork, "main");
+  expect((await fork.store.getReview(key))?.kind).toBe("ref");
+  expect((await fork.store.getReview(prKey))?.feature).toBeUndefined();
+
+  // A folder on a branch of its own that PR Status names the PR for, as one made from the PR's and pushed to it.
+  const renamed = setup({ files: [{ path: "src/a.ts", body: BODY }], prBase: "main", pr: { number: 7, url: "https://github.com/acme/api/pull/7", headRefName: "feat/x" }, answers: hasHead() });
+  await reviewedPr(renamed, { head: "feat/x" }, { headFork: "dana" });
+  await run(renamed, "main");
+  const review = (await renamed.store.getReview(prKey))!;
+  expect(review.feature).toMatchObject({ branch: "feat/qa", remoteBranch: "feat/x" });
+  expect(pushTarget(review)).toMatchObject({ head: "feat/x", remote: "<remote>", forkOf: "dana" });
+});
+
+test("a folder starts a review of its own where the PR's can't take it: no guide yet, merged, merged into another, with a folder of its own, or at a head the folder hasn't", async () => {
+  const cases: Array<[string, Partial<ReviewMeta>, ReviewLifecycle, number]> = [
+    ["no guide yet", { status: "tracked" }, {}, 0],
+    ["merged", {}, { prState: "MERGED", archivedAt: 9 }, 0],
+    ["merged into another", {}, { mergedInto: "pr-other" }, 0],
+    ["a folder of its own", {}, { feature: { environmentId: "env2", hostId: "host_max", machine: "MaxBook", path: "/Users/me/src/api2", branch: "feat/qa", baseRef: "main", repo: "acme/api" } }, 0],
+    ["a head the folder hasn't", {}, {}, 2],
+  ];
+  for (const [why, review, lifecycle, behind] of cases) {
+    const s = setup({ files: [{ path: "src/a.ts", body: BODY }], ...onPr, answers: hasHead(behind) });
+    await reviewedPr(s, review, lifecycle);
+    expect((await run(s, "main")).stdout, why).toContain("Started a review of ~/src/api on MaxBook");
+    expect((await s.store.getReview(key))?.kind, why).toBe("ref");
+    expect((await s.store.getReview(prKey))?.feature?.joinedAt, why).toBeUndefined();
+  }
 });
 
 test("Update on a PR's review with its folder reads the PR at its new head, without the guide writer: a comment not on GitHub before is on its line there now, its id, Send and report kept", async () => {

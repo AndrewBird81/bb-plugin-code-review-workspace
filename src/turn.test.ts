@@ -232,6 +232,16 @@ test("the assistant's all-addressed check counts only when you opt in", () => {
   expect(turn({ ...review, latestHeadSha: "sha3" }, { pushChecks: "ready" }).group).toBe("waiting");
 });
 
+test("a deferred item counts as settled: looks ready with the rest addressed, and progress says it apart", () => {
+  const review = changesRequested({ latestHeadSha: "sha2", assessment: { headSha: "sha2", total: 2, addressed: 1, partial: 0, notAddressed: 0, disputed: 0, unclear: 0, deferred: 1, assessedAt: t(1) } });
+  expect(turn(review, { pushChecks: "ready" })).toMatchObject({ group: "needs", reason: "looks-ready", label: "Looks ready" });
+  expect(feedbackProgress(review)).toEqual({ done: 1, total: 2, source: "assistant", deferred: 1 });
+  expect(progressText(feedbackProgress(review)!)).toBe("1/2 addressed +1 deferred");
+  // One still open isn't.
+  const open = changesRequested({ latestHeadSha: "sha2", assessment: { headSha: "sha2", total: 3, addressed: 1, partial: 1, notAddressed: 0, disputed: 0, unclear: 0, deferred: 1, assessedAt: t(1) } });
+  expect(turn(open, { pushChecks: "ready" }).group).toBe("waiting");
+});
+
 test("an approval stays reviewed when new commits arrive", () => {
   expect(turn(changesRequested({ submittedVerdict: "APPROVE", latestHeadSha: "sha2" }))).toMatchObject({ group: "reviewed", label: "Approved · updated", updated: true });
 });

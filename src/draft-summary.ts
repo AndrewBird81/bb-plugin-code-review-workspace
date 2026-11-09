@@ -3,6 +3,7 @@
 import { commentsKey, SUMMARY_AT, VERDICT_LABEL, verdictPicked, type Verdict } from "./draft";
 import { describeComments, unchangeable, type DraftResult } from "./draft-comments";
 import { asked } from "./asks";
+import { approveRefused } from "./feedback-view";
 import type { AsyncStore } from "./store-queue";
 
 /**
@@ -11,14 +12,18 @@ import type { AsyncStore } from "./store-queue";
  */
 export async function writeSummary(store: AsyncStore, targetKey: string, input: { body: string; verdict?: Verdict; unchecked?: string[] }, threadId?: string): Promise<DraftResult> {
   return store.exclusive(async (tx) => {
-    const refused = unchangeable(await tx.getReview(targetKey));
+    const review = await tx.getReview(targetKey);
+    const refused = unchangeable(review);
     if (refused) return { ok: false, error: refused };
+    // Not Approve beside blocking feedback the check leaves open, which Request what's left would list.
+    const approve = input.verdict === "APPROVE" && review ? await approveRefused(tx, review) : null;
+    if (approve) return { ok: false, error: approve };
     const draft = await tx.getDraft(targetKey);
     const body = input.body.trim();
     const reviewers = !draft.bodyAuthor && !!draft.body.trim();
     // Asking on the summary opens it to the turn that carries the ask, replies and all, on that conversation.
     if (reviewers && !await asked(tx, targetKey, SUMMARY_AT, threadId)) {
-      return { ok: false, error: "The reviewer wrote the review summary, so it stays as they wrote it. Put your suggested summary in your reply instead; the reviewer can ask on the summary (Ask agent on the review summary, in Finish review) to apply it. Nothing was changed." };
+      return { ok: false, error: "The reviewer wrote the review summary, so it stays as they wrote it. Put your suggested summary in your reply instead; the reviewer can ask on the summary (Ask agent on the review summary in Finish review, or Reply in its discussion there) to apply it. Nothing was changed." };
     }
     // What it didn't check goes with its verdict; without it, what it said before stays.
     const suggested = { ...input.verdict ? { suggestedVerdict: input.verdict } : {}, ...input.unchecked ? { unchecked: input.unchecked.map((item) => item.trim()).filter(Boolean) } : {} };

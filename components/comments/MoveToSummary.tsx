@@ -3,6 +3,7 @@ import type { DraftComment } from "../../src/draft";
 import { summaryLine } from "../../lib/move-to-summary";
 import { useKnob } from "../../lib/settings";
 import { cn } from "../../lib/utils";
+import { useFill } from "../../lib/workspace-context";
 import { useDraft } from "../DraftProvider";
 import { TOUCH_CONTROL } from "../touch";
 import { Button } from "../ui/button";
@@ -17,6 +18,7 @@ export function MoveToSummary({ comments, variant = "ghost", className }: { comm
   const on = useKnob("moveToSummary");
   const preExisting = useKnob("preExistingFindings");
   const [open, setOpen] = useState(false);
+  const fill = useFill();
   if (!on || !draft.editable || !comments.length) return null;
   const lines = comments.map((comment) => summaryLine(comment, preExisting));
   return <Popover open={open} onOpenChange={setOpen}>
@@ -28,7 +30,7 @@ export function MoveToSummary({ comments, variant = "ghost", className }: { comm
       <pre className="max-h-48 overflow-y-auto whitespace-pre-wrap break-words rounded-md bg-muted/40 p-2 font-mono text-xs text-muted-foreground">{lines.join("\n")}</pre>
       <div className="flex justify-end gap-2">
         <Button variant="ghost" size="sm" className={TOUCH_CONTROL} onClick={() => setOpen(false)}>Cancel</Button>
-        <Button size="sm" className={cn(TOUCH_CONTROL)} onClick={() => { setOpen(false); void draft.moveToSummary(comments); }}>Move</Button>
+        <Button size="sm" variant={fill} className={cn(TOUCH_CONTROL)} onClick={() => { setOpen(false); void draft.moveToSummary(comments); }}>Move</Button>
       </div>
     </PopoverContent>
   </Popover>;

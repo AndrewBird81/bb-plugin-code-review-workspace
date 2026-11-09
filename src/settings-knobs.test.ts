@@ -5,8 +5,8 @@ import { AUTOMATIC_REVIEW_BEFORE_PRECISION, VERIFICATION_PROMPT_BEFORE_OPEN_THRE
 import { defaultKnobs, type Knobs } from "../lib/knobs";
 import { testSql, testStore } from "./test-store.test-support";
 
-/** The knobs as the column keeps them while 1.8.0's switches are at their defaults. */
-const withoutSwitches = ({ reviewAgentActs: _agent, reviewChangesLine: _line, trackOwnPrs: _own, ...rest }: Knobs) => rest;
+/** The knobs as the column keeps them while 1.8.0's switches, and 1.12.0's paces for tests and docs, are at their defaults. */
+const withoutSwitches = ({ reviewAgentActs: _agent, reviewChangesLine: _line, trackOwnPrs: _own, approveGuardTestsPace: _tests, approveGuardDocsPace: _docs, ...rest }: Knobs) => rest;
 
 async function host() {
   const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });

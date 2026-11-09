@@ -407,6 +407,8 @@ test("asking the agent about its comment opens a box under it, and the agent ans
   // The box sits under the comment, which stays.
   expect(box.closest("[data-draft-at]")).toBe(diff().getByRole("article", { name: "Draft comment on src/a.ts:2" }).closest("[data-draft-at]"));
   expect(panel().getByText("Writing to the agent about src/a.ts:2")).toBeTruthy();
+  // The box says what the agent gets besides your words.
+  expect(diff().getByText("Goes to the agent, not GitHub. It sees this comment and line 2.")).toBeTruthy();
   fireEvent.change(box, { target: { value: "It is, in a.test.ts." } });
   fireEvent.click(diff().getByRole("button", { name: "Send to agent" }));
   await waitFor(() => expect(askAgent).toHaveBeenCalledWith({ targetKey: "ask", file: "src/a.ts", line: 2, side: "RIGHT", body: "It is, in a.test.ts.", inserted: false }));
@@ -415,11 +417,21 @@ test("asking the agent about its comment opens a box under it, and the agent ans
   expect(within(discussion).getByRole("status").textContent).toBe("Waiting for agent…");
   expect(diff().queryByRole("textbox")).toBeNull();
   expect(panel().getByRole("button", { name: "Agent draft · not submitted · src/a.ts:2 · 1 message with the agent · Waiting for agent" })).toBeTruthy();
+  // Sent, the box gives way to Reply at the discussion's foot, which takes the focus; Ask agent leaves the comment's actions.
+  await waitFor(() => expect(document.activeElement).toBe(within(discussion).getByRole("button", { name: "Reply" })));
+  expect(within(diff().getByRole("article", { name: "Draft comment on src/a.ts:2" })).queryByRole("button", { name: "Ask agent" })).toBeNull();
 
   discussions = [{ ...discussions[0], waiting: false, entries: [...discussions[0].entries, { author: "agent", kind: "message", body: "Then I'll drop it.", createdAt: 2 }, { author: "agent", kind: "removed", body: "", createdAt: 3 }] }];
   await slot.emitRealtime("draft:ask", {});
   await within(discussion).findByText("Then I'll drop it.");
   expect(within(discussion).queryByRole("status")).toBeNull();
+  // Reply opens the box in its place; leaving it empty, the focus comes back to Reply.
+  fireEvent.click(within(discussion).getByRole("button", { name: "Reply" }));
+  const again = diff().getByRole("textbox", { name: "Message to agent" });
+  await waitFor(() => expect(document.activeElement).toBe(again));
+  expect(within(discussion).queryByRole("button", { name: "Reply" })).toBeNull();
+  fireEvent.keyDown(again, { key: "Escape" });
+  await waitFor(() => expect(document.activeElement).toBe(within(discussion).getByRole("button", { name: "Reply" })));
   slot.lifecycle.unmount();
 });
 
@@ -468,6 +480,7 @@ test("asking about selected lines opens a message box at the last line, and quot
   fireEvent.click(slot.getByRole("button", { name: "Ask about selected lines" }));
   const box = await within(slot.getByTestId("filediff")).findByRole("textbox", { name: "Message to agent" });
   expect(box.closest("[data-draft-at]")?.getAttribute("data-draft-at")).toBe("src/a.ts:2:RIGHT");
+  expect(slot.getByText("Goes to the agent, not GitHub. It sees lines 1–2.")).toBeTruthy();
   fireEvent.change(box, { target: { value: "Why both?" } });
   fireEvent.click(slot.getByRole("button", { name: "Send to agent" }));
   await waitFor(() => expect(askAgent).toHaveBeenCalledWith({ targetKey: "lines", file: "src/a.ts", line: 2, side: "RIGHT", startLine: 1, body: "Why both?", inserted: false }));
@@ -482,7 +495,8 @@ test("a comment the agent removed leaves its discussion at the line, and an unse
   expect(diff().getByText("Removed by agent")).toBeTruthy();
   expect(within(discussion).getByText("Agent removed the comment.")).toBeTruthy();
   expect(within(discussion).queryByText("The agent didn’t reply here.")).toBeNull();
-  fireEvent.click(diff().getByRole("button", { name: "Ask agent" }));
+  expect(diff().queryByRole("button", { name: "Ask agent" })).toBeNull();
+  fireEvent.click(within(discussion).getByRole("button", { name: "Reply" }));
   fireEvent.change(diff().getByRole("textbox", { name: "Message to agent" }), { target: { value: "Why?" } });
   slot.lifecycle.unmount();
   ({ slot, diff } = await renderReview("stub", rpc));

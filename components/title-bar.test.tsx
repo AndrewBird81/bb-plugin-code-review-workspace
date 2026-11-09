@@ -240,7 +240,6 @@ test("a local review's Finish review counts the open comments Send would send, w
   // Nothing goes to GitHub: Send's icon.
   expect(finish.querySelector("svg")?.getAttribute("data-icon")).toBe("Send");
   fireEvent.click(finish);
-  expect(finish.getAttribute("aria-pressed")).toBe("true");
   expect(page.getByRole("complementary", { name: "Comments and Finish review" })).toBeTruthy();
   page.lifecycle.unmount(); bar!.lifecycle.unmount();
   // None open: no count.

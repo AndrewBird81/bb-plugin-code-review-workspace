@@ -4,17 +4,20 @@ import { toast } from "sonner";
 import type { rpcContract } from "../../src/rpc-contract";
 import { SUMMARY_AT, VERDICT_LABEL, verdictPicked, type Verdict } from "../../src/draft";
 import type { CommentFilter, CommentItem } from "../../lib/comments";
-import { rushedDoubt, unviewedDoubt } from "../../lib/approve-guard";
+import { flaggedDoubt, quickRead, riskiest, unviewedDoubt } from "../../lib/approve-guard";
 import { readOf } from "../../lib/agent-coverage";
+import { summaryLines, type SummaryLine } from "../../lib/summary-lines";
+import { settled } from "../../lib/feedback";
 import { readDraftRecovery } from "../../lib/draft-recovery";
 import { useKnob } from "../../lib/settings";
 import { needsOrder, reviewState, type ReviewItem } from "../../lib/review-state";
 import { reviewIdentity } from "../../lib/review-identity";
 import { prDraftWaiting, pushAnywayOffered, pushFlagText, pushTarget } from "../../lib/push";
 import { Marked, Mono, updateThenClear } from "../shell/PushNotices";
+import { sidePanelId } from "../shell/SidePanel";
 import { statusWhy } from "../../lib/status-line";
 import { cn } from "../../lib/utils";
-import { NOT_PUSHED_PAGE, useWorkspace } from "../../lib/workspace-context";
+import { NOT_PUSHED_PAGE, useFill, useWorkspace } from "../../lib/workspace-context";
 import { useDraft } from "../DraftProvider";
 import { FixHandoff, LINK } from "../FixHandoff";
 import { isOpen } from "../SendNow";
@@ -71,6 +74,13 @@ export function FinishView({ shown, revision }: {
   };
   // It didn't go: there's no receipt to show.
   useEffect(() => { if (d.status.error) setSent(null); }, [d.status.error]);
+  const files = useMemo(() => api.sections.flatMap((section) => section.diffs.map((diff) => diff.file)), [api.sections]);
+  const cited = useMemo(() => summaryLines(d.draft.body, files, items), [d.draft.body, files, items]);
+  // As a row in Comments opens its comment: in its chapter, or the whole diff for a file no chapter shows.
+  const openLine = ({ file, line, item }: SummaryLine) => {
+    if (item?.at && item.chapterId !== null) api.reveal({ file: item.at.file, line: item.at.line ?? line, side: item.at.side });
+    else api.showLocation(file, line, item?.at?.side ?? "RIGHT");
+  };
   const openList = (filter: CommentFilter, id: string | null = null) => {
     updateComments(targetKey, { filter, expanded: id });
     api.panel.open("comments");
@@ -85,6 +95,18 @@ export function FinishView({ shown, revision }: {
   // The panel's header names what shows, as Comments' foot does.
   const title = !body ? null : d.closed ? "Archived review" : "Review submitted";
   useEffect(() => updateComments(targetKey, { finishTitle: title }), [targetKey, title]);
+  // A receipt or an archived review has no summary to take the focus as the panel opens on it, and what opened it may
+  // have gone, as a chapter's end has no button to Finish review while it shows: the panel's title takes it then.
+  useEffect(() => {
+    if (!shown || !title) return;
+    const frame = requestAnimationFrame(() => {
+      const heading = document.activeElement === document.body && document.getElementById(sidePanelId(targetKey))?.querySelector<HTMLElement>("h2");
+      if (!heading) return;
+      heading.tabIndex = -1;
+      heading.focus({ preventScroll: true });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [shown, title, targetKey]);
   return (
     <div hidden={!shown} className={cn("flex min-h-0 flex-1 flex-col", !shown && "hidden")}>
       {d.loadError ? <div role="alert" className="space-y-3 p-3 text-sm"><p>Couldn’t load your draft. Editing is paused to protect it.</p><Button variant="outline" className={TOUCH_CONTROL} onClick={() => void d.load()}>Retry draft</Button></div>
@@ -96,12 +118,13 @@ export function FinishView({ shown, revision }: {
             {d.submittedVerdict && <LastReview />}
             <span role="status" className={cn("flex items-center gap-1.5 text-xs", d.status.error ? "text-destructive-text" : "text-muted-foreground")}>{d.status.error ? <Icon name="AlertCircle" className="size-3.5 shrink-0" aria-hidden /> : d.status.saving ? <Icon name="Loading" className="size-3.5 animate-spin motion-reduce:animate-none" aria-hidden /> : <Icon name="CircleCheck" className="size-3.5 text-diff-added" aria-hidden />}{d.status.error ?? (d.status.saving ? "Saving…" : "Draft saved")}</span>
             <Part title={isPr ? "Summary · posted with your verdict" : "Summary"}>
-              <SummaryCard cardRef={d.summaryRef} draft={d.draft} discussion={d.summaryDiscussion} editable={d.editable} busy={d.busy} writing={d.writing && !d.onSummary} composer={d.summaryComposer} isLocal={d.isLocal} chat={d.chat}
+              <SummaryCard cardRef={d.summaryRef} draft={d.draft} discussion={d.summaryDiscussion} editable={d.editable} busy={d.busy} writing={d.writing && !d.onSummary} composer={d.summaryComposer} isLocal={d.isLocal} chat={d.chat} lines={cited} onOpenLine={openLine}
                 changedWhileEditing={d.onSummary && !d.asking && d.summaryBase.current !== null && d.summaryBase.current !== d.draft.body}
                 onEdit={() => d.openComposer(SUMMARY_AT, false)} onAsk={() => d.openComposer(SUMMARY_AT, false, true)} onRemove={() => void d.saveSummary("", d.revisionRef.current)}
                 onUndo={() => void d.undo(SUMMARY_AT)} onRequest={(text) => void d.requestSummary(text)} />
             </Part>
             {isPr && <Verdicts revision={revision} />}
+            {isPr && <BeforeYouApprove />}
             {isPr ? <GoesToGitHub items={items} replyDrafts={items.filter((item) => item.kind === "thread" && item.replyDraft).length} onList={openList} />
               : <Part title="Stays in BB"><p className="text-sm text-muted-foreground">{d.hint}</p>{notes.show && <PrivateNotes targetKey={targetKey} />}</Part>}
             {(d.isLocal || d.ownPr || api.mainThread) && <FixHandoff targetKey={targetKey} comments={d.sortedComments} revision={revision} />}
@@ -161,6 +184,9 @@ function Push({ plan }: { plan: PushPlan | null | undefined }) {
   const navigate = useBbNavigate();
   const sendOn = useKnob("sendToThread");
   const acts = useKnob("reviewAgentActs");
+  // With no Submit, on a local review, Push's way on stays filled.
+  const fill = useFill();
+  const lead = d.isLocal ? "default" : fill;
   const [busy, setBusy] = useState<"push" | "anyway" | "update" | "dismiss" | "retry" | null>(null);
   // What went wrong, or that there was nothing to push.
   const [said, setSaid] = useState<{ text: string; error: boolean } | null>(null);
@@ -206,7 +232,7 @@ function Push({ plan }: { plan: PushPlan | null | undefined }) {
   </Button>;
   const quiet = (label: string, onClick: () => void) => <Button variant="ghost" size="sm" className={cn("text-muted-foreground hover:text-foreground", TOUCH_CONTROL, BUSY)} aria-disabled={!!busy || undefined} onClick={onClick}>{label}</Button>;
   const cancel = (label = "Cancel") => quiet(label, () => void dismiss());
-  const updateButton = (label: string, filled: boolean) => <Button size="sm" variant={filled ? "default" : "outline"} className={cn("gap-1.5", !filled && "text-foreground", TOUCH_CONTROL, BUSY)} aria-disabled={!!busy || undefined} onClick={() => void update()}>{spinner(busy === "update", "ArrowReloadHorizontal")}{label}</Button>;
+  const updateButton = (label: string, filled: boolean) => <Button size="sm" variant={filled ? lead : "outline"} className={cn("gap-1.5", !filled && "text-foreground", TOUCH_CONTROL, BUSY)} aria-disabled={!!busy || undefined} onClick={() => void update()}>{spinner(busy === "update", "ArrowReloadHorizontal")}{label}</Button>;
   const branch = <Mono text={run?.head ?? target.head} />;
   const flag = pushFlagText(run);
   const secrets = new Set(run?.secrets ?? []);
@@ -220,8 +246,8 @@ function Push({ plan }: { plan: PushPlan | null | undefined }) {
       <p><span className="font-medium">Not pushed.</span> {run.warning ? <Marked text={run.warning} /> : <><Mono text={sha} /> isn’t what you reviewed.</>}</p>
       {files.length > 0 && <ul className="list-disc space-y-0.5 pl-5">{files.slice(0, 5).map((file) => <li key={file}><Mono text={file} />{secrets.has(file) && <span className="font-medium"> · may hold secrets</span>}</li>)}{files.length > 5 && <li>and {files.length - 5} more</li>}</ul>}
       <div className="flex flex-wrap gap-2">
-        {/* GitHub being ahead isn't something Update fixes; a commit the check couldn't place has nothing to push anyway. */}
-        {!(run.behind && !files.length) && updateButton("Update first", true)}
+        {/* GitHub being ahead, or someone else's branch, isn't something Update fixes; a commit the check couldn't place has nothing to push anyway. */}
+        {!((run.behind || run.theirs) && !files.length) && updateButton("Update first", true)}
         {pushAnywayOffered(run) && <Button size="sm" variant="outline" className={cn("gap-1.5 text-foreground", TOUCH_CONTROL, BUSY)} aria-disabled={!!busy || undefined} onClick={() => void push(true)}>{spinner(busy === "anyway", "ArrowUp")}Push anyway</Button>}
         {cancel()}
       </div>
@@ -343,9 +369,10 @@ function Verdicts({ revision }: { revision: string }) {
   const ownPrId = useId();
   const [busy, setBusy] = useState<"suggested" | "remaining" | null>(null);
   const [confirming, setConfirming] = useState<"suggested" | "remaining" | null>(null);
+  const fill = useFill();
   const run = feedback?.run ?? null;
-  // Blocking feedback the agent's check says isn't done yet.
-  const left = !!feedback?.items.some((item) => !item.nonBlocking && item.assessment && item.assessment.verdict !== "addressed");
+  // Blocking feedback the agent's check says isn't done yet, nor deferred with your confirmation.
+  const left = !!feedback?.items.some((item) => !item.nonBlocking && item.assessment && !settled(item.assessment.verdict, item.assessment.confirmed));
   // The agent's summary to use as yours, or its word on where the PR stands: readable here, whatever your summary says.
   const said = feedback?.suggestionInDraft ? "" : (run?.suggestedBody || run?.summary || "").trim();
   async function apply(mode: "suggested" | "remaining") {
@@ -414,7 +441,7 @@ function Verdicts({ revision }: { revision: string }) {
           </DialogHeader>
           <DialogFooter className="gap-2 sm:space-x-0">
             <Button variant="outline" className={TOUCH_CONTROL} onClick={() => setConfirming(null)}>Keep mine</Button>
-            <Button className={TOUCH_CONTROL} onClick={replace}>Replace summary</Button>
+            <Button variant={fill} className={TOUCH_CONTROL} onClick={replace}>Replace summary</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -433,13 +460,52 @@ function Unchecked({ items }: { items: readonly string[] }) {
   </div>;
 }
 
-/** One line of what goes to GitHub, or of what holds it back, with where to see it or fix it. */
-function Row({ icon, tone = "neutral", children, action }: { icon: ReactNode; tone?: "neutral" | "warning"; children: ReactNode; action?: ReactNode }) {
-  return <li className={cn("flex min-h-11 items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm", tone === "warning" ? "border border-warning/30 bg-warning/10 text-warning-text" : notSubmitted("yours"), tone === "neutral" && "border-l-primary/60 bg-card")}>
+/**
+ * One line of what goes to GitHub, of what holds it back, or of what to look at before you approve, with where to see it
+ * or fix it. `plain`: worth a look, nothing to settle.
+ */
+function Row({ icon, tone = "neutral", children, action }: { icon: ReactNode; tone?: "neutral" | "warning" | "plain"; children: ReactNode; action?: ReactNode }) {
+  return <li className={cn("flex min-h-11 items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm", tone === "warning" ? "border border-warning/30 bg-warning/10 text-warning-text" : tone === "plain" ? "border border-border bg-card" : notSubmitted("yours"), tone === "neutral" && "border-l-primary/60 bg-card")}>
     {icon}
     <div className="min-w-0 flex-1">{children}</div>
     {action}
   </li>;
+}
+
+/** A row's fix: Show, Write it. `name`, where the label alone wouldn't say which. */
+const fix = (label: string, onClick: () => void, name?: string) =>
+  <Button variant="outline" size="sm" aria-label={name} className={cn("h-7 shrink-0 px-2 text-xs", TOUCH_CONTROL)} onClick={onClick}>{label}</Button>;
+
+/**
+ * Before you approve: files you haven't viewed, in high-risk chapters or flagged, which Submit asks about once more; the
+ * chapters read quickly, one plain row with the riskiest one's first thing to check, which it doesn't ask about; and an
+ * Approve the agent suggests without reading every file, which it asks about.
+ */
+function BeforeYouApprove() {
+  const d = useDraft();
+  const { showLocation, go, files } = useWorkspace();
+  if (!d.approval && !d.unreadApproval) return null;
+  const { unviewed, flagged, rushed } = d.approval ?? { unviewed: [], flagged: [], rushed: [] };
+  const first = rushed.length ? riskiest(rushed) : null;
+  return (
+    <Part title="Before you approve">
+      <ul className="space-y-1.5">
+        {unviewed.length > 0 && <Row tone="warning" icon={<Icon name="EyeOff" className="size-4 shrink-0" aria-hidden />} action={fix("Show", () => showLocation(unviewed[0], null, "RIGHT"), "Show the high-risk files not viewed")}>
+          {unviewedDoubt(unviewed)}
+        </Row>}
+        {flagged.length > 0 && <Row tone="warning" icon={<Icon name="AlertTriangle" className="size-4 shrink-0" aria-hidden />} action={fix("Show", () => showLocation(flagged[0].file, null, "RIGHT"), "Show the flagged files not viewed")}>
+          {flaggedDoubt(flagged)}
+        </Row>}
+        {first && <Row tone="plain" icon={<Icon name="Clock" className="size-4 shrink-0 text-muted-foreground" aria-hidden />} action={fix("Show", () => { go(first.id); files.foldAll(false); }, `Show chapter ${first.number}`)}>
+          <p>{quickRead(rushed)}</p>
+          {first.focus && <p className="text-xs text-muted-foreground">Chapter {first.number}: <InlineCode text={first.focus} /></p>}
+        </Row>}
+        {d.unreadApproval && <Row tone="warning" icon={<Icon name="EyeOff" className="size-4 shrink-0" aria-hidden />} action={fix("Show", () => showLocation(d.unreadApproval!.unread[0], null, "RIGHT"))}>
+          The agent suggests Approve but read {readOf(d.unreadApproval)}
+        </Row>}
+      </ul>
+    </Part>
+  );
 }
 
 /**
@@ -458,7 +524,6 @@ function GoesToGitHub({ items, replyDrafts, onList }: { items: readonly CommentI
   const movable = useKnob("moveToSummary") && d.editable;
   const blocking = items.find((item) => item.kind === "draft" && item.posts && d.blocks(item.comment));
   const link = (label: string, onClick: () => void) => <Button variant="ghost" size="sm" aria-label={label} className={cn("size-8 shrink-0 px-0 text-muted-foreground", TOUCH_CONTROL)} onClick={onClick}><Icon name="ChevronRight" aria-hidden /></Button>;
-  const fix = (label: string, onClick: () => void) => <Button variant="outline" size="sm" className={cn("h-7 shrink-0 px-2 text-xs", TOUCH_CONTROL)} onClick={onClick}>{label}</Button>;
   return (
     <Part title="Goes to GitHub">
       <ul className="space-y-1.5">
@@ -482,13 +547,6 @@ function GoesToGitHub({ items, replyDrafts, onList }: { items: readonly CommentI
         {d.approvingBlocked && <Row tone="warning" icon={<Icon name="AlertTriangle" className="size-4 shrink-0" aria-hidden />} action={blocking && fix("Show", () => onList("not-submitted", blocking.id))}>
           Approving with {plural(d.blockingCount, "blocking comment")}.
         </Row>}
-        {d.approval && d.approval.unviewed.length > 0 && <Row tone="warning" icon={<Icon name="EyeOff" className="size-4 shrink-0" aria-hidden />} action={fix("Show", () => showLocation(d.approval!.unviewed[0], null, "RIGHT"))}>
-          {unviewedDoubt(d.approval.unviewed)}
-        </Row>}
-        {d.approval?.rushed.map((chapter) => <Row key={chapter.id} tone="warning" icon={<Icon name="Clock" className="size-4 shrink-0" aria-hidden />}>{rushedDoubt(chapter)}</Row>)}
-        {d.unreadApproval && <Row tone="warning" icon={<Icon name="EyeOff" className="size-4 shrink-0" aria-hidden />} action={fix("Show", () => showLocation(d.unreadApproval!.unread[0], null, "RIGHT"))}>
-          The agent suggests Approve but read {readOf(d.unreadApproval)}
-        </Row>}
       </ul>
       {held > 0 && <p className="px-0.5 text-xs text-muted-foreground">{held} sent to fix won’t post to GitHub. Reopen {held === 1 ? "it" : "one"} to post it.</p>}
       {d.notOnGithub > 0 && <p className="px-0.5 text-xs text-muted-foreground">{d.notOnGithub === 1 ? "1 comment isn’t on GitHub yet. It goes" : `${d.notOnGithub} comments aren’t on GitHub yet. They go`} with Send, not Submit.</p>}
@@ -497,8 +555,9 @@ function GoesToGitHub({ items, replyDrafts, onList }: { items: readonly CommentI
 }
 
 /**
- * Submit, pinned: the verdict on it, where it posts and as whom, or why it waits; the one more ask when in doubt; and
- * what GitHub or the server held it back for, in words, with what to do: Submit anyway, Submit as Comment, Open it on GitHub.
+ * Submit, pinned: the verdict on it, that the draft stays in BB until then and where it posts and as whom, or why it
+ * waits; the one more ask when in doubt; and what GitHub or the server held it back for, in words, with what to do:
+ * Submit anyway, Submit as Comment, Open it on GitHub.
  */
 function SubmitFoot({ onSubmit }: { onSubmit: (confirmed?: boolean, choice?: "anyway" | "comment") => void }) {
   const { review } = useWorkspace();
@@ -536,7 +595,8 @@ function SubmitFoot({ onSubmit }: { onSubmit: (confirmed?: boolean, choice?: "an
           {d.busy ? <Icon name="Loading" className="size-4 animate-spin motion-reduce:animate-none" aria-hidden /> : <Icon name="Github" className="size-4" aria-hidden />}
           {d.busy ? d.submitting ? "Submitting…" : "Saving…" : `Submit to GitHub · ${VERDICT_LABEL[d.draft.verdict]}${d.approvingBlocked ? ` · ${d.blockingCount} blocking` : ""}`}
         </Button>}
-      <p className="text-xs leading-relaxed text-muted-foreground">{ready && where ? <>Posts to {where}{d.account ? <> as @{d.account}</> : null}.</> : d.hint}</p>
+      {/* Said of the draft, not of everything: replies, resolves and Push go to GitHub on their own. */}
+      <p className="text-xs leading-relaxed text-muted-foreground">{ready && where ? <>Your draft stays in BB until you submit, then posts to {where}{d.account ? <> as @{d.account}</> : null}.</> : d.hint}</p>
     </footer>
   );
 }
@@ -585,17 +645,25 @@ function Archived() {
   );
 }
 
-/** Your last review, sent before: its verdict, when, and where it is on GitHub. */
+/**
+ * Your last review, sent before: its verdict, when, the commits since, and where it is on GitHub. Neutral, as history:
+ * it isn't where the PR stands.
+ */
 function LastReview() {
   const { review } = useWorkspace();
   const d = useDraft();
   const url = d.receiptUrl ?? review.url;
+  // GitHub's count, once the sync has read the review shown: one sent from here since is newer than what it counted from.
+  const commits: number = (review.submittedAt ?? 0) <= (review.signals?.lastReviewAt ?? 0) ? review.signals?.commitsSince ?? 0 : 0;
   return (
-    <section aria-label="Submitted review" className="flex min-h-11 flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border border-success/25 bg-success/10 px-3 py-1.5 text-xs">
-      <Icon name="BadgeCheck" className="size-4 shrink-0 text-diff-added" aria-hidden />
-      <span className="font-medium text-diff-added">{RECEIPT_LABEL[d.submittedVerdict!]}</span>
-      {timeAgo(review.submittedAt) && <span className="text-muted-foreground">· your last review, {timeAgo(review.submittedAt)}</span>}
-      {url && <UrlLink href={url} className={cn("relative ml-auto text-primary hover:underline", TOUCH_TARGET)}>View on GitHub</UrlLink>}
+    <section aria-label="Submitted review" className="flex min-h-11 flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border border-border bg-muted/25 px-3 py-1.5 text-xs">
+      <Icon name="History" className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+      <MetaLine className="min-w-0 flex-1" items={[
+        <>Your last review: <span className="font-medium text-foreground">{RECEIPT_LABEL[d.submittedVerdict!]}</span></>,
+        timeAgo(review.submittedAt),
+        commits > 0 ? `${plural(commits, "commit")} since` : null,
+      ]} />
+      {url && <UrlLink href={url} className={cn("relative text-primary hover:underline", TOUCH_TARGET)}>View on GitHub</UrlLink>}
     </section>
   );
 }

@@ -26,7 +26,7 @@ An agent writes a guide to the change: what it does and why, then chapters in re
 
 - **Start here** lists the one to three riskiest lines, each a click from the code.
 - **Requirements** checks what the PR's description and linked issues ask for against the diff: covered, partial, missing, or unclear, with evidence.
-- Medium- and high-risk chapters say what to verify. **Dig deeper** asks the agent for a closer pass over one.
+- Medium- and high-risk chapters say what to verify. **Dig deeper** asks the agent for a closer pass over one, then marks each item checked and lists the comments it added.
 - Lockfiles, generated files, and diffs over 1,500 changed lines start folded. The reading-time estimate skips lockfiles and generated files.
 
 <img src="docs/screenshots/overview-dark.webp" alt="A review Overview lists what the PR does and why, three Start here hotspots, requirements scored 2 of 4 covered, a failing CI check, and chapters with High risk badges.">
@@ -64,7 +64,7 @@ When the guide is ready, the review agent reviews the change and drafts line com
 **Finish review** shows the summary, the verdict, and exactly what will be posted. **Submit to GitHub** posts it all as one review.
 
 - The agent suggests a verdict. Only you pick it.
-- While you approve, it flags blocking comments, unviewed files in high-risk chapters, chapters read faster than your set pace, and, when the agent suggests Approve, files it didn't read.
+- While you approve, it flags blocking comments, unviewed files in high-risk chapters and flagged files, and, when the agent suggests Approve, files it didn't read, and lists chapters read faster than your pace for code, tests or docs, which a chapter also says as you mark it viewed, until you say it's fine.
 - It posts as the GitHub account it verified. If GitHub's answer is lost, it looks for the review it just posted rather than post it twice.
 - After you submit, it offers the next review that needs you.
 
@@ -93,9 +93,9 @@ When the guide is ready, the review agent reviews the change and drafts line com
 After new commits, **Since your review** shows only what changed since the commit you reviewed. The review agent checks your earlier feedback against it before you start.
 
 - Rebases and merges from the base branch don't show up as changes.
-- The agent marks each of your earlier threads, and each ask in your review summary, **Addressed**, **Partial**, **Not addressed**, **Author disagrees**, or **Unclear**, with one line of evidence.
+- The agent marks each of your earlier threads, and each ask in your review summary, **Addressed**, **Partial**, **Not addressed**, **Author disagrees**, **Unclear**, or **Deferred**, with one line of evidence. A deferral keeps blocking approval until you confirm it.
 - It drafts replies to your threads. Each waits until you choose **Send reply**.
-- **Request what's left** drafts a Request changes listing what's still open.
+- **Request what's left** drafts a Request changes listing what's still open, deferrals you confirmed aside.
 - Compare with any earlier commit of the PR, not just your last review.
 
 <img src="docs/screenshots/since-your-review-dark.webp" alt="A review Overview after a follow-up commit shows a Since your review summary, 5/9 addressed, checks passing, a Review changes button, and chapters marked 1 changed and 2 changed.">
@@ -158,6 +158,7 @@ bb review https://github.com/acme/web/pull/42
 - **Push** in Finish review has the main thread commit what you reviewed, checks that commit against what you reviewed, warning first when they differ, then has the thread push exactly that commit, never forced.
 - **Push and open PR** in Finish review pushes, then has the review agent draft the PR. However the PR opens, the same review becomes the PR's within seconds, its id from before still naming it, and merges with the PR's own review if it has one.
 - The folder stays attached: **Not pushed yet**, a page after the chapters, shows what isn't on GitHub yet, and a comment on a line there goes with Send, then moves to the PR once it's pushed.
+- Reviewing the PR already, a teammate's too? **Review changes** in a thread on its branch joins that review rather than start another: its changes show in Not pushed yet, the thread gets your Sends, and Push asks before it puts a commit on someone else's branch.
 - On your own PR, teammates' comments go through the same loop: **Send** them to the thread that wrote it, or to a fresh thread at the PR's head that the review briefs.
 - Agents in your threads can add draft comments and a summary with `bb review comment` and `bb review summary`. They change only the local draft.
 - **Open in editor** opens a local review's file at the line.

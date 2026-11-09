@@ -5,7 +5,7 @@ import type { rpcContract } from "../../src/rpc-contract";
 import type { CommentLocation } from "../../src/draft";
 import { REMOVAL_NOTE_LIMIT, REMOVAL_REASON_LABEL, REMOVAL_REASONS, type RemovalReasonId } from "../../lib/removal-reasons";
 import { cn } from "../../lib/utils";
-import { useWorkspace } from "../../lib/workspace-context";
+import { useFill, useWorkspace } from "../../lib/workspace-context";
 import { TOUCH_CONTROL } from "../touch";
 import { Button } from "../ui/button";
 import { CompactViewportOverrideProvider } from "../ui/hooks/use-compact-viewport";
@@ -24,6 +24,7 @@ const CHOICE = cn("h-7 px-2 text-xs aria-pressed:border-primary/50 aria-pressed:
 export function RemovalWhy({ request, onClose }: { request: WhyRequest; onClose: () => void }) {
   const rpc = useRpc<typeof rpcContract>();
   const { targetKey, layout } = useWorkspace();
+  const fill = useFill();
   const [reason, setReason] = useState<RemovalReasonId | null>(null);
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
@@ -57,7 +58,7 @@ export function RemovalWhy({ request, onClose }: { request: WhyRequest; onClose:
         </div>
         <form className="flex items-center gap-2" onSubmit={(event) => { event.preventDefault(); void save(); }}>
           <Input aria-label="Your note, optional" placeholder="Add a note (optional)" maxLength={REMOVAL_NOTE_LIMIT} value={note} className="h-8 min-w-0 flex-1 text-sm" onChange={(event) => setNote(event.target.value)} />
-          <Button type="submit" size="sm" className={cn("h-8", TOUCH_CONTROL)} disabled={busy || !reason}>Save</Button>
+          <Button type="submit" size="sm" variant={fill} className={cn("h-8", TOUCH_CONTROL)} disabled={busy || !reason}>Save</Button>
         </form>
       </PopoverContent>
     </Popover>
