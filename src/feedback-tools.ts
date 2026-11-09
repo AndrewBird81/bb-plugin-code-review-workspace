@@ -1,4 +1,5 @@
 // The tools that read a review's context and files, and check your feedback on a PR and the fixes of comments you sent.
+import { AUTHOR_NEVER_SEES_GUIDE, LINE_COMMENTS_FIRST } from "./posting-rules";
 import { z } from "zod";
 import { changedFiles } from "./patch";
 import { readPrContext } from "./pr-context";
@@ -33,7 +34,7 @@ export function register(deps: ServeDeps) {
   bb.agents.registerTool({
     name: "list_feedback",
     description: "List the reviewer's feedback on this PR: each review thread they started (id, location, their comment, replies, resolved/outdated state, any earlier verdict) and their review summaries. Also the comments they sent to the main thread to fix (c12), each with its Send and what the thread reported. On their own PR: everyone's threads, and others' review summaries and comments on the PR.",
-    instructions: "When a review comes back to the reviewer, check whether each piece of their feedback was properly addressed: list_feedback, then read_changes_since_review (with send, for a sent comment's Send), then read_file where you need context. Judge the fix itself, not just whether the lines changed: a renamed variable doesn't fix a race. Record every thread, each sent comment by its id, and each distinct ask in the summaries as \"summary:<n>\" with a title, with assess_feedback: addressed, partial, not_addressed, disputed (the author argues against it; say why in the evidence), unclear, or deferred (the author, the PR or the reviewer says it's done later, such as in a follow-up PR; quote where in the evidence). Then suggest a verdict and a short summary the reviewer could submit, with assess_feedback (Approve only while every blocking item is addressed or deferred): they go into the reviewer's draft, where the reviewer picks the verdict. A summary the reviewer wrote stays theirs, and yours waits in Finish review. Draft a reply with draft_thread_reply only on open threads where one adds something, such as what's still missing, or \"Fixed in abc123, thanks.\" On the reviewer's own PR, list_feedback has everyone's threads, and others' review summaries and comments on the PR, with what the thread that fixed each reported: draft each thread's reply from its report with draft_thread_reply, and for a review summary or comment, suggest the reply in your message.",
+    instructions: "When a review comes back to the reviewer, check whether each piece of their feedback was properly addressed: list_feedback, then read_changes_since_review (with send, for a sent comment's Send), then read_file where you need context. Judge the fix itself, not just whether the lines changed: a renamed variable doesn't fix a race. Record every thread, each sent comment by its id, and each distinct ask in the summaries as \"summary:<n>\" with a title, with assess_feedback: addressed, partial, not_addressed, disputed (the author argues against it; say why in the evidence), unclear, or deferred (the author, the PR or the reviewer says it's done later, such as in a follow-up PR; quote where in the evidence). A new problem in the fix commits is a line comment with add_draft_comment first, as in a review pass: " + LINE_COMMENTS_FIRST + " Then suggest a verdict and a short summary the reviewer could submit, with assess_feedback (Approve only while every blocking item is addressed or deferred): they go into the reviewer's draft, where the reviewer picks the verdict. A summary the reviewer wrote stays theirs, and yours waits in Finish review. " + AUTHOR_NEVER_SEES_GUIDE + " Draft a reply with draft_thread_reply only on open threads where one adds something, such as what's still missing, or \"Fixed in abc123, thanks.\" On the reviewer's own PR, list_feedback has everyone's threads, and others' review summaries and comments on the PR, with what the thread that fixed each reported: draft each thread's reply from its report with draft_thread_reply, and for a review summary or comment, suggest the reply in your message.",
     parameters: z.object({}),
     async execute(_input, { threadId }) {
       const review = await assistantReviewOf(threadId);
@@ -146,7 +147,7 @@ export function register(deps: ServeDeps) {
       })).min(1),
       summary: z.string().optional().describe("Two or three sentences on where the PR stands."),
       suggestedVerdict: z.enum(["APPROVE", "REQUEST_CHANGES", "COMMENT"]).optional(),
-      suggestedBody: z.string().max(65_000).optional().describe("The review summary you'd submit with that verdict, in GitHub Markdown. It goes into the reviewer's draft, unless they wrote the draft's summary."),
+      suggestedBody: z.string().max(65_000).optional().describe("The review summary you'd submit with that verdict, in GitHub Markdown. It goes into the reviewer's draft, unless they wrote the draft's summary. It posts to the PR, whose author never sees the guide: it doesn't mention it, and names no finding about a line that a line comment doesn't raise."),
     }),
     async execute(input, { threadId }) {
       const review = await assistantReviewOf(threadId);
@@ -181,7 +182,7 @@ export function register(deps: ServeDeps) {
   });
   bb.agents.registerTool({
     name: "draft_thread_reply",
-    description: "Draft a reply on one of the reviewer's review threads. It waits on the thread in Comments, unposted.",
+    description: "Draft a reply on one of the reviewer's review threads. It waits on the thread in Comments, unposted, and posts to GitHub, where the PR's author never sees the guide: don't mention it.",
     parameters: z.object({ threadId: z.string().min(1).describe("The thread id from list_feedback."), body: z.string().trim().min(1).max(65_000).describe("The reply, in GitHub Markdown.") }),
     async execute({ threadId: thread, body }, { threadId }) {
       const review = await assistantReviewOf(threadId);

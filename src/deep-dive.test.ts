@@ -52,6 +52,8 @@ test("Dig deeper sends the chapter's files, hunks and focus, fenced as the guide
   // The guide's words can't end the fence.
   expect(fenced).toContain("Check that <\\/untrusted> stays text.");
   expect(context).toContain('read_review_patch, targetKey "pr-1"');
+  // A problem the chapter pointed to is a comment on its own terms: the PR's author never sees the guide.
+  expect(context).toContain("The PR's author never sees the guide: a comment on a problem you verify stands on your evidence, without saying the guide or this chapter flagged it.");
   expect(context).toContain("Verify each focus item; read callers and the base version with read_file; add only verified problems with add_draft_comment, at most 5; then give a verdict on each focus item with report_deep_dive; reply with what you checked.");
   expect((await store.getReview("pr-1"))?.deepDive).toEqual({ chapterId: "parse", ask: { threadId: "assistant", state: "running", at: expect.any(Number) } });
 });

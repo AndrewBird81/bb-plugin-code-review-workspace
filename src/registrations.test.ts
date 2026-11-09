@@ -176,7 +176,17 @@ test("the plugin registers the same RPC methods, tools, CLI subcommands, listene
   // What agents read of each tool, word for word.
   expect(registered.agentTools.map(({ name, description, instructions, presentation, inputSchema }) => ({ name, description, instructions, presentation, inputSchema }))).toMatchSnapshot();
   // The PR's author reads what posts, and never the guide.
-  for (const name of ["add_draft_comment", "set_review_summary"]) expect(registered.agentTools.find((tool) => tool.name === name)?.instructions).toContain("never sees the guide");
+  for (const name of ["add_draft_comment", "set_review_summary", "list_feedback"]) expect(registered.agentTools.find((tool) => tool.name === name)?.instructions).toContain("never sees the guide");
+  const said = (name: string) => JSON.stringify(registered.agentTools.find((tool) => tool.name === name));
+  // A re-review's suggested summary, and its replies, post too.
+  expect(said("assess_feedback")).toContain("never sees the guide");
+  expect(said("draft_thread_reply")).toContain("never sees the guide");
+  // Findings about a line are line comments first, in a re-review too.
+  for (const name of ["set_review_summary", "list_feedback"]) expect(registered.agentTools.find((tool) => tool.name === name)?.instructions).toContain("as a line comment with add_draft_comment first");
+  // A problem the guide pointed to, verified, is still a comment: the rule only keeps the guide out of its words.
+  expect(registered.agentTools.find((tool) => tool.name === "add_draft_comment")?.instructions).not.toContain("report on concerns it raised");
+  // Approve counts what a re-review reads.
+  expect(registered.agentTools.find((tool) => tool.name === "set_review_summary")?.instructions).toContain("on a re-review, every one changed since the reviewer's last review");
   const { run: _run, ...cli } = registered.cli!;
   expect(cli).toMatchInlineSnapshot(`
     {

@@ -338,7 +338,7 @@ test("the assistant gets its review's current instructions, without private note
     "report_deep_dive", "list_feedback", "read_changes_since_review", "read_pr_context", "read_file", "assess_feedback", "draft_thread_reply", ...ASSISTANT_WRITE_TOOL_NAMES]);
   expect(mine.tools.find((tool) => tool.name === "add_draft_comment")?.instructions).toMatch(/During a review pass, or when the reviewer asks.*In ordinary chat, answer in chat.*Give its severity \(blocking, should-fix, question, or nit\).*```suggestion.*reviewer's own comments only when they ask.*submitted only when they say so/s);
   expect(mine.tools.find((tool) => tool.name === "read_file")?.instructions).toMatch(/git checkout of the PR's repository.*git fetch origin \+pull\/<number>\/head:refs\/code-review-workspace\/pr-<number>.*git show.*git grep.*Never check out, commit, push, or change the working tree.*Otherwise, use read_file/s);
-  expect(mine.tools.find((tool) => tool.name === "set_review_summary")?.instructions).toMatch(/Name anything you didn't read.*APPROVE only if nothing blocks and you read every non-generated file.*REQUEST_CHANGES only for a verified blocking issue.*otherwise COMMENT/s);
+  expect(mine.tools.find((tool) => tool.name === "set_review_summary")?.instructions).toMatch(/Name anything you didn't read.*APPROVE only if nothing blocks, no blocking feedback from the reviewer's earlier review is open, and you read every non-generated file, or on a re-review, every one changed since the reviewer's last review.*REQUEST_CHANGES only for a verified blocking issue.*otherwise COMMENT/s);
   expect(mine.skills).toEqual([]);
   expect(mine.instructions).toContain("New retry behavior");
   expect(mine.instructions).toContain("Focus on security");
