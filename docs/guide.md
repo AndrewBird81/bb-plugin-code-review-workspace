@@ -378,7 +378,7 @@ Every layout detail, held either way and on foldables such as the iPhone Duo, is
 **All reviews** has four sections, in the order you'll work them. Needs review starts open and the others closed; each remembers what you chose, in this browser.
 
 - **Needs review**: it's your turn. Approvals, merges and closes your other threads asked for (**Ready to approve**, see [Asks and approvals from other threads](#asks-and-approvals-from-other-threads)), reviews that came back to you (**Back to you**), new reviews and requests for your review (**New**), and **Team requests**, each longest-waiting first. **Blocks merge** marks a changes-requested review that's the only thing left, since everyone else approved; it comes first. Your own PR comes back to you as **Your PR · 3 new comments in 2 threads** when someone's comment waits for your reply, with an alert; a bot's comment never brings it back. One you started a review of shows here as **Your PR** until you've reviewed it; otherwise your PRs wait in Reviewed, never on an author.
-- **Waiting on author**: you requested changes, or commented with threads still open, and the author hasn't said they're done. Rows show progress (`2/5 addressed`, `+1 nit`), new commits, CI, outdated threads, and how long the author has been quiet. Snoozed reviews wait here too, and so do reviews waiting on a thread: comments you sent the main thread, on a PR's review as on a local one, until it reports them all (`2 of 6 reported`), and a Push under way (**Committing for Push**, **Pushing to feat/qa**). A local review whose folder is on another branch (**Paused**) or was removed (**Folder removed**) waits here too, on no one.
+- **Waiting on author**: you requested changes, or commented with threads still open, and the author hasn't said they're done. Rows show progress (`2/5 addressed`, `+1 deferred`, `+1 nit`), new commits, CI, outdated threads, and how long the author has been quiet. Snoozed reviews wait here too, and so do reviews waiting on a thread: comments you sent the main thread, on a PR's review as on a local one, until it reports them all (`2 of 6 reported`), and a Push under way (**Committing for Push**, **Pushing to feat/qa**). A local review whose folder is on another branch (**Paused**) or was removed (**Folder removed**) waits here too, on no one.
 - **Reviewed**: you approved, or commented with every thread resolved or answered. A push after your approval adds “updated” but doesn't bring it back. Your own PRs with nothing waiting for your reply wait here too, and a local review or your own PR you approved in its main thread, as **Approved** ("You approved 2h ago"), while the code is as you approved it.
 - **Archive**: merged, closed, or archived by you; a PR found on GitHub that no longer requests you (**No longer requested**); and one GitHub hasn't found for 7 days (**Can't read on GitHub**).
 
@@ -412,14 +412,14 @@ A push alone never makes a review your turn: authors often push one fix at a tim
 - the author **re-requests** your review (it even leaves your archive); a request to a team you're on isn't a re-request;
 - the author **asks you something** on one of your threads, or anyone mentions you on the PR, in a review, or in a line comment and you haven't commented since, whatever your verdict. **Whose turn → When the author replies** chooses which replies count: **Questions for you** (the default) or **Any reply**, to come back on every reply. Turn off **Come back when you're mentioned** to leave mentions out. Only the author's replies count on your threads; anyone else's counts when it @mentions you;
 - every thread you opened is **resolved or answered**, apart from non-blocking ones, there are new commits, CI isn't running or failing, and the author has been quiet for 10 minutes;
-- with **After the author pushes** set to **Check, and bring it back when everything's addressed**, the review agent finds all your feedback addressed;
+- with **After the author pushes** set to **Check, and bring it back when everything's addressed**, the review agent finds all your feedback addressed, or deferred;
 - GitHub dismisses your review.
 
 **After the author pushes** is one of three choices, and needs **Run the re-review check** on:
 
 - **Do nothing** (the default): pushes alone don't start a check.
 - **Check my feedback**: while the review waits on the author, the review agent checks your feedback after their pushes and shows its progress, without bringing the review back.
-- **Check, and bring it back when everything's addressed**: the same check, and the review comes back once it finds everything addressed.
+- **Check, and bring it back when everything's addressed**: the same check, and the review comes back once it finds everything addressed, or deferred.
 
 Either check runs once the author's pushes have been quiet for 15 minutes and CI has settled.
 

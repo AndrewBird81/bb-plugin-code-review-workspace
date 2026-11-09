@@ -349,7 +349,7 @@ export function computeTurn(review: TurnInput, options: TurnOptions = defaultTur
     }
     const assessment = review.assessment;
     if (options.pushChecks === "ready" && assessment && assessment.headSha === head && updated && assessment.total > 0
-      && assessment.addressed === assessment.total && after(assessment.assessedAt, lastReviewAt, snoozedAt)) {
+      && assessment.addressed + (assessment.deferred ?? 0) === assessment.total && after(assessment.assessedAt, lastReviewAt, snoozedAt)) {
       return needs("looks-ready", "Looks ready", `looks-ready:${head}`, assessment.assessedAt, true);
     }
     // A comment review with nothing open isn't waiting on anyone.
@@ -410,21 +410,23 @@ export function ciSettled(s: TurnSignals, now = Date.now()): boolean {
  * Progress on your feedback for a list row, such as "2/5 addressed", and `nits`, your non-blocking threads,
  * which it leaves out. Null when there's nothing to count.
  */
-export function feedbackProgress(review: TurnInput): { done: number; total: number; source: "assistant" | "threads"; nits?: number } | null {
+export function feedbackProgress(review: TurnInput): { done: number; total: number; source: "assistant" | "threads"; nits?: number; deferred?: number } | null {
   const head = review.latestHeadSha ?? review.headSha;
   const a = review.assessment;
   const t = review.signals?.threads;
   const nits = t?.nonBlocking ? { nits: t.nonBlocking } : {};
-  if (a && a.total > 0 && a.headSha === head) return { done: a.addressed, total: a.total, source: "assistant", ...nits };
+  if (a && a.total > 0 && a.headSha === head) return { done: a.addressed, total: a.total, source: "assistant", ...a.deferred ? { deferred: a.deferred } : {}, ...nits };
   // On your own PR, an answered thread waits for your reply: it isn't progress.
   if (t && t.total > 0 && !review.ownPr) return { done: t.resolved + t.answered, total: t.total, source: "threads", ...nits };
   return null;
 }
 
-/** How progress reads: "2/5 addressed", or "2/5 handled" (resolved or answered) from GitHub, then "+2 nits". */
+/** How progress reads: "2/5 addressed", or "2/5 handled" (resolved or answered) from GitHub, then "+1 deferred" and "+2 nits". */
 export function progressText(progress: NonNullable<ReturnType<typeof feedbackProgress>>): string {
   const nits = progress.nits ? ` +${progress.nits} nit${progress.nits === 1 ? "" : "s"}` : "";
-  return `${progress.done}/${progress.total} ${progress.source === "assistant" ? "addressed" : "handled"}${nits}`;
+  // Deferred, said to come later, is settled but not addressed.
+  const deferred = progress.deferred ? ` +${progress.deferred} deferred` : "";
+  return `${progress.done}/${progress.total} ${progress.source === "assistant" ? "addressed" : "handled"}${deferred}${nits}`;
 }
 
 /** The commit and time your feedback came from: your latest real review, or a newer one submitted here. */
