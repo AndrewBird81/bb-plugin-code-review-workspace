@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.12.0 — Unreleased
+## 1.12.0 — 2026-11-09
 
 One review of a PR and your local changes to it, comments that go to the thread that asked, a discussion with the agent you can see into and go on with, and a Finish review whose signals agree and that no longer asks about chapters you read quickly. Still **BB 0.48+** (plugin SDK **0.6.79+**) with Node 24+; installs at `^1.0.0` update to 1.12.0. 1.12.0 adds one migration, a `chapter_reads` table, on SQLite and on Postgres; what else it adds is kept with the review's other lifecycle fields and its draft. Rolling back to 1.11.0 keeps every review and setting, and deferrals you confirmed, how long chapters were open and It's fine unused until you update again, except that a draft 1.11.0 changes forgets which of the agent's comments you haven't seen, so they no longer say New from agent; on 1.11.0, `bb review storage` won't move the reviews between SQLite and Postgres, the migration being newer than it. There a folder that joined someone else's PR's review counts as yours, so Sends to its thread don't ask, comments sent to it don't post with Submit, and Push isn't offered; and a **Deferred** check shows a blank badge.
 
