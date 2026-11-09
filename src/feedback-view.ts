@@ -8,7 +8,8 @@ import { diffTooLarge, readFilesPatch, readPrDiff } from "./pr-snapshot";
 import { ensureGitHeaders, splitPatchByFile } from "./patch";
 import { diffFilesHead } from "./env-diff";
 import { interdiff, type FileInterdiff } from "./interdiff";
-import { firstLine, settled, type AssessmentItem, type FeedbackItem, type FeedbackView } from "../lib/feedback";
+import { firstLine, settled, type AssessmentItem, type AssessmentVerdict, type FeedbackItem, type FeedbackView } from "../lib/feedback";
+import type { FeedbackThread } from "./github/types";
 import { baselineOf, type AssessmentSummary } from "../lib/turn";
 import { localSendKey, sendBaselineOf, sendKey, sendOf } from "../lib/send-baseline";
 import type { Verdict } from "./draft";
@@ -239,6 +240,34 @@ export function summarize(headSha: string, items: AssessmentItem[], threadIds: r
     headSha, total: ids.length, addressed: count("addressed"), partial: count("partial"), notAddressed: count("not_addressed"),
     disputed: count("disputed"), unclear: count("unclear"), deferred: count("deferred"), assessedAt: Math.max(0, ...items.map((item) => item.assessedAt)),
   };
+}
+
+/**
+ * The blocking items an Approve would leave open, as Request what's left counts them, each as "t1 (not_addressed)": a
+ * blocking thread whose verdict doesn't settle it, or with none, unless it's resolved; and each summary ask whose verdict
+ * doesn't. `verdicts` by item id.
+ */
+export function openBlocking(threads: readonly FeedbackThread[], verdicts: ReadonlyMap<string, AssessmentVerdict>): string[] {
+  const open = threads.filter((t) => !threadLabel(t.body)?.nonBlocking).filter((t) => {
+    const verdict = verdicts.get(t.id);
+    return verdict ? !settled(verdict) : !t.isResolved;
+  }).map((t) => `${t.id} (${verdicts.get(t.id) ?? "no verdict"})`);
+  return [...open, ...[...verdicts].filter(([id, verdict]) => isSummaryItem(id) && !settled(verdict)).map(([id, verdict]) => `${id} (${verdict})`)];
+}
+
+/** Blocking items open, said to an agent that suggested Approve. */
+export const openSaid = (open: readonly string[]) => `${open.length === 1 ? "1 blocking item is" : `${open.length} blocking items are`} still open: ${open.join(", ")}`;
+
+/**
+ * Why an agent's Approve can't be suggested for the review now, or null: blocking feedback the check, at the commit it
+ * checks, leaves open, so Finish review would suggest Approve beside Request what's left.
+ */
+export async function approveRefused(tx: AsyncStore, review: ReviewMeta): Promise<string | null> {
+  const head = review.verifyingSince && review.verifyingHead ? review.verifyingHead : headOf(review);
+  if (review.kind !== "pr" || !head) return null;
+  const verdicts = new Map((await tx.getAssessment(review.targetKey, head)).items.map((item) => [item.id, item.verdict]));
+  const open = openBlocking(await tx.listFeedbackThreads(review.targetKey), verdicts);
+  return open.length ? `You suggested Approve, but ${openSaid(open)}. Suggest Request changes or Comment instead, or check the feedback again with assess_feedback. Nothing was changed.` : null;
 }
 
 /** A Request changes summary listing the blocking feedback that isn't addressed yet, deferred items aside. */

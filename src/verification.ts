@@ -14,7 +14,7 @@ import { readFeatureDiff, type HiddenFile } from "./env-diff";
 import { messageAssistant } from "./agent";
 import type { TurnKind } from "./asking";
 import { reReviewCheckPrompt } from "./preferences";
-import { baselineOf, diffAt, feedbackView, headOf, isSummaryItem, summarize } from "./feedback-view";
+import { baselineOf, diffAt, feedbackView, headOf, isSummaryItem, openBlocking, openSaid, summarize } from "./feedback-view";
 import { describeInterdiff, describeInterdiffRead, interdiff } from "./interdiff";
 import { sendBaselineOf, sendKey } from "../lib/send-baseline";
 import { commentsOut, reported, type OutComment } from "../lib/fixes";
@@ -431,6 +431,9 @@ export async function assess(store: AsyncStore, caller: ReviewMeta, input: Asses
     const head = review.verifyingSince && review.verifyingHead ? review.verifyingHead : headOf(review);
     if (feedback.length && !head) return { ok: false, error: "This review has no commit to check against." };
     const approving = input.suggestedVerdict === "APPROVE" && review.kind === "pr" && !!head;
+    // An Approve suggested before, by a check or the summary, that this one leaves standing.
+    const earlier = feedback.length && !input.suggestedVerdict && review.kind === "pr" && head ? (await tx.getAssessment(review.targetKey, head)).run?.suggestedVerdict ?? null : null;
+    const kept = earlier === "APPROVE" || !!feedback.length && !input.suggestedVerdict && review.kind === "pr" && (await tx.getDraft(review.targetKey)).suggestedVerdict === "APPROVE";
     const threads = feedback.length || approving ? await tx.listFeedbackThreads(review.targetKey) : [];
     const threadIds = threads.map((t) => t.id);
     const unknown = feedback.filter((item) => !threadIds.includes(item.id) && !isSummaryItem(item.id)).map((item) => item.id);
@@ -438,13 +441,15 @@ export async function assess(store: AsyncStore, caller: ReviewMeta, input: Asses
     const untitled: AssessInput["items"] = [];
     for (const item of feedback) if (isSummaryItem(item.id) && !item.title?.trim() && !(await tx.getAssessment(review.targetKey, head!)).items.some((i) => i.id === item.id && i.title)) untitled.push(item);
     if (untitled.length) return { ok: false, error: `Give each summary ask a title: ${untitled.map((i) => i.id).join(", ")}. Nothing was recorded.` };
-    // An Approve beside blocking feedback it leaves open would have Finish review suggest Approve and Request what's left at once.
-    if (approving) {
+    // An Approve beside blocking feedback it leaves open, or hasn't checked, would have Finish review suggest Approve and
+    // Request what's left at once: refused when suggested now, and withdrawn when kept from before.
+    let withdrawn: string[] = [];
+    if (approving || kept) {
       const verdicts = new Map((await tx.getAssessment(review.targetKey, head!)).items.map((item) => [item.id, item.verdict]));
       for (const item of feedback) verdicts.set(item.id, item.verdict);
-      const blocking = new Set(threads.filter((t) => !threadLabel(t.body)?.nonBlocking).map((t) => t.id));
-      const open = [...verdicts].filter(([id, verdict]) => (blocking.has(id) || isSummaryItem(id)) && !settled(verdict));
-      if (open.length) return { ok: false, error: `You suggested Approve, but ${open.length === 1 ? "1 blocking item is" : `${open.length} blocking items are`} still open: ${open.map(([id, verdict]) => `${id} (${verdict})`).join(", ")}. Suggest Request changes or Comment instead, or record an item as deferred if the author, the PR or the reviewer says it's done later, quoting where in its evidence. Nothing was recorded.` };
+      const open = openBlocking(threads, verdicts);
+      if (approving && open.length) return { ok: false, error: `You suggested Approve, but ${openSaid(open)}. Suggest Request changes or Comment instead, or record an item as deferred if the author, the PR or the reviewer says it's done later, quoting where in its evidence. Nothing was recorded.` };
+      if (kept) withdrawn = open;
     }
     const now = Date.now();
     // Where the evidence is, only as a line the current diff shows on its new side, so it links to code the reviewer sees.
@@ -485,13 +490,17 @@ export async function assess(store: AsyncStore, caller: ReviewMeta, input: Asses
       await tx.saveAssessmentRun(review.targetKey, {
         headSha: head!, assessedAt: now,
         summary: input.summary?.trim() ?? previous?.summary ?? "",
-        suggestedVerdict: input.suggestedVerdict ?? previous?.suggestedVerdict ?? null,
+        suggestedVerdict: input.suggestedVerdict ?? (withdrawn.length && previous?.suggestedVerdict === "APPROVE" ? null : previous?.suggestedVerdict ?? null),
         suggestedBody: input.suggestedBody?.trim() ?? previous?.suggestedBody ?? "",
       });
       // Non-blocking threads are checked too, but don't count toward what's addressed.
       const summary = summarize(head!, (await tx.getAssessment(review.targetKey, head!)).items, threads.filter((t) => !threadLabel(t.body)?.nonBlocking).map((t) => t.id));
       await tx.setLifecycle(review.targetKey, { assessment: summary });
       const missing = summary.total - summary.addressed - summary.partial - summary.notAddressed - summary.disputed - summary.unclear - (summary.deferred ?? 0);
+      if (withdrawn.length) {
+        if ((await tx.getDraft(review.targetKey)).suggestedVerdict === "APPROVE") await tx.updateSummary(review.targetKey, { suggestedVerdict: undefined });
+        said.push(`Your earlier Approve is withdrawn: ${openSaid(withdrawn).replace(" still open", " open")}. Suggest a verdict again with assess_feedback.`);
+      }
       said.unshift(`Recorded ${items.length} item${items.length === 1 ? "" : "s"} for ${short(head)}: ${summary.addressed} of ${summary.total} addressed.${missing ? ` ${missing} item${missing === 1 ? " has" : "s have"} no verdict yet.` : ""} The reviewer sees them in Comments.`);
     }
     return { ok: true, text: said.join(" ") };

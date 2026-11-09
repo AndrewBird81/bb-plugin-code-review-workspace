@@ -407,3 +407,23 @@ test("the check can't suggest Approve beside blocking feedback it leaves open; d
   expect((await store.getReview("pr-1"))?.assessment).toMatchObject({ total: 2, addressed: 1, deferred: 1 });
   expect(await call("useSuggestedVerdict", { targetKey: "pr-1", revision: await reviewRevision(store, "pr-1"), mode: "remaining" })).toEqual({ ok: false, error: "Nothing is left open. Consider approving." });
 });
+
+test("a later check that reopens a blocking item withdraws the Approve it kept, and Approve waits for every blocking thread's verdict", async () => {
+  const { tool, call, store } = await setup();
+  await store.saveFeedbackThreads("pr-1", [thread("t1", "answered"), thread("t2", "answered")], 1);
+  // t2 has no verdict yet: Approve waits for it.
+  expect(await tool("assess_feedback", { items: [{ id: "t1", verdict: "addressed", evidence: "Invalidated" }], suggestedVerdict: "APPROVE" })).toMatchObject({ isError: true, content: [{ text: expect.stringContaining("t2 (no verdict)") }] });
+  const both = [{ id: "t1", verdict: "addressed", evidence: "Invalidated" }, { id: "t2", verdict: "addressed", evidence: "Done" }];
+  expect(await tool("assess_feedback", { items: both, suggestedVerdict: "APPROVE" })).toContain("2 of 2 addressed");
+  expect(await store.getDraft("pr-1")).toMatchObject({ suggestedVerdict: "APPROVE" });
+  // Rechecked, t1 isn't addressed: the Approve kept from before goes, so Finish review can't suggest it beside Request what's left.
+  const rechecked = await tool("assess_feedback", { items: [{ id: "t1", verdict: "not_addressed", evidence: "Still stale on delete" }] });
+  expect(rechecked).toContain("Your earlier Approve is withdrawn: 1 blocking item is open: t1 (not_addressed).");
+  const { feedback } = await call("getFeedback", { targetKey: "pr-1" });
+  expect(feedback.run.suggestedVerdict).toBeNull();
+  expect((await store.getDraft("pr-1")).suggestedVerdict).toBeUndefined();
+  // Nor can set_review_summary suggest it while t1 is open.
+  expect(await tool("set_review_summary", { body: "Looks good.", verdict: "APPROVE" })).toMatchObject({ isError: true, content: [{ text: expect.stringContaining("1 blocking item is still open: t1 (not_addressed)") }] });
+  expect((await store.getDraft("pr-1")).body).toBe("");
+  expect(await tool("set_review_summary", { body: "One thing left.", verdict: "REQUEST_CHANGES" })).not.toMatchObject({ isError: true });
+});

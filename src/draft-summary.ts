@@ -3,6 +3,7 @@
 import { commentsKey, SUMMARY_AT, VERDICT_LABEL, verdictPicked, type Verdict } from "./draft";
 import { describeComments, unchangeable, type DraftResult } from "./draft-comments";
 import { asked } from "./asks";
+import { approveRefused } from "./feedback-view";
 import type { AsyncStore } from "./store-queue";
 
 /**
@@ -11,8 +12,12 @@ import type { AsyncStore } from "./store-queue";
  */
 export async function writeSummary(store: AsyncStore, targetKey: string, input: { body: string; verdict?: Verdict; unchecked?: string[] }, threadId?: string): Promise<DraftResult> {
   return store.exclusive(async (tx) => {
-    const refused = unchangeable(await tx.getReview(targetKey));
+    const review = await tx.getReview(targetKey);
+    const refused = unchangeable(review);
     if (refused) return { ok: false, error: refused };
+    // Not Approve beside blocking feedback the check leaves open, which Request what's left would list.
+    const approve = input.verdict === "APPROVE" && review ? await approveRefused(tx, review) : null;
+    if (approve) return { ok: false, error: approve };
     const draft = await tx.getDraft(targetKey);
     const body = input.body.trim();
     const reviewers = !draft.bodyAuthor && !!draft.body.trim();
