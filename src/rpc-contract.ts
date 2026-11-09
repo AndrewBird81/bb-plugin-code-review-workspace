@@ -249,6 +249,11 @@ export const rpcContract = defineRpcContract({
 
   // Draft and submit
   getDraft: { input: targetKey, output: draftOutput },
+  /** The agent's comments at `at` were reviewed: a card of each was in view. They're no longer New from agent. */
+  markCommentsSeen: {
+    input: z.object({ targetKey: z.string(), at: z.array(z.object(location)).max(500) }).strict(),
+    output: z.object({ ok: z.boolean() }),
+  },
   saveDraftComment: {
     // `replaces`: the line's comment the box saw, null for none; a save over another one, written since, is refused.
     // `restore`, Undo after Remove with replaces null: the comment keeps its id, and where its fix stood, as sent back.

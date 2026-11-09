@@ -3,6 +3,8 @@ import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
 import { runGh } from "./gh";
 import { queueStore, type AsyncStore } from "./store-queue";
 import { startPlugin } from "./plugin-store.test-support";
+import { reanchorDraft } from "./store";
+import { reviewRevision } from "./review-revision";
 
 vi.mock("./gh", async (original) => ({ ...await original<typeof import("./gh")>(), runGh: vi.fn() }));
 vi.mock("./store-queue", async (original) => {
@@ -254,4 +256,23 @@ test("a comment on code the PR didn't change keeps introduced: false through add
   const { introduced: _introduced, ...fromThisPr } = comment;
   await harness.behavior.callRpc("saveDraftComment", { targetKey: "pr-1", revision, replaces: "Old bug.", comment: fromThisPr });
   expect((await store.getDraft("pr-1")).comments[1]).not.toHaveProperty("introduced");
+});
+
+test("a comment the agent adds is new to you until a card of it was in view or you saved it, and stays new as its line moves", async () => {
+  const { harness, store, add } = await host();
+  await add({ file: "a.ts", line: 3, code: "const c = b * 2;", body: "Can this overflow?" });
+  await add({ file: "a.ts", line: 2, side: "LEFT", code: "const b = 2;", body: "Why change b?" });
+  await store.upsertDraftComment("pr-1", { file: "a.ts", line: 1, side: "RIGHT", body: "Mine" });
+  expect((await store.getDraft("pr-1")).unseen).toEqual([{ file: "a.ts", line: 3, side: "RIGHT" }, { file: "a.ts", line: 2, side: "LEFT" }]);
+  // A line added at the top moves the agent's comment on the new side, and it's still new.
+  const next = ["diff --git a/a.ts b/a.ts", "--- a/a.ts", "+++ b/a.ts", "@@ -1,3 +1,5 @@", "+// top", " const a = 1;", "-const b = 2;", "+const b = 3;", "+const c = b * 2;", " export { a };", ""].join("\n");
+  await store.savePatch("pr-1", next);
+  await store.rebaseDraftComments("pr-1", await reanchorDraft(store, "pr-1", patch, next));
+  expect((await store.getDraft("pr-1")).unseen).toEqual([{ file: "a.ts", line: 4, side: "RIGHT" }, { file: "a.ts", line: 2, side: "LEFT" }]);
+  // Seen on the page.
+  expect(await harness.behavior.callRpc("markCommentsSeen", { targetKey: "pr-1", at: [{ file: "a.ts", line: 4, side: "RIGHT" }] })).toEqual({ ok: true });
+  expect((await store.getDraft("pr-1")).unseen).toEqual([{ file: "a.ts", line: 2, side: "LEFT" }]);
+  // Your edit of it is a review of it.
+  await harness.behavior.callRpc("saveDraftComment", { targetKey: "pr-1", revision: await reviewRevision(store, "pr-1"), comment: { file: "a.ts", line: 2, side: "LEFT", author: "agent", body: "Why change b, then?" } });
+  expect((await store.getDraft("pr-1")).unseen).toBeUndefined();
 });

@@ -698,7 +698,7 @@ export type CommentTracking = Partial<Pick<DraftComment, typeof TRACKING[number]
 const TRACKING = ["id", "state", "sendN", "claim", "editedBy"] as const;
 
 /** A summary change: any of these fields, where undefined clears it. */
-export type SummaryChange = Partial<Pick<Draft, "verdict" | "body" | "bodyAuthor" | "suggestedVerdict" | "written" | "verdictChosen" | "unchecked">>;
+export type SummaryChange = Partial<Pick<Draft, "verdict" | "body" | "bodyAuthor" | "suggestedVerdict" | "written" | "verdictChosen" | "unchecked" | "unseen">>;
 
 /** What a comment or the summary was before an agent changed it; null when there was none. */
 /**
@@ -1704,6 +1704,8 @@ export function storeOn(sql: Sql): Store {
             return moved ? { ...entry, line: moved[1], side: sides.get(moved[0]) ?? entry.side } : entry;
           }) });
         }
+        // A comment new to you stays new where it moves.
+        const unseen = d.comments.filter((c) => d.unseen?.some((at) => sameLocation(at, c)));
         for (const [c, line] of moves) {
           c.line = line;
           if (starts.has(c)) c.startLine = starts.get(c);
@@ -1715,6 +1717,7 @@ export function storeOn(sql: Sql): Store {
             ON CONFLICT(target_key,file,line,side) DO UPDATE SET patch_hash=excluded.patch_hash, code=excluded.code, start_code=excluded.start_code`,
             [k, c.file, line, c.side, hash, code, startCode]);
         }
+        if (d.unseen) d.unseen = unseen.map(({ file, line, side }) => ({ file, line, side }));
         await writeDraft(sql, d);
       });
     },
@@ -1829,8 +1832,11 @@ function patchHash(patch: string) { return createHash("sha256").update(patch).di
 
 async function writeDraft(sql: Sql, d: Draft) {
   const { bodyAuthor, suggestedVerdict, written, verdictChosen, unchecked } = d;
+  // Only the agent's comments still in the draft are new to you.
+  const kept = d.unseen?.filter((at) => d.comments.some((c) => c.author === "agent" && sameLocation(c, at))).map(({ file, line, side }) => ({ file, line, side }));
+  const unseen = kept?.length ? kept : undefined;
   // JSON leaves out the undefined ones, which a change clears.
-  const meta = JSON.stringify({ bodyAuthor, suggestedVerdict, written, verdictChosen, unchecked });
+  const meta = JSON.stringify({ bodyAuthor, suggestedVerdict, written, verdictChosen, unchecked, unseen });
   await sql.run(
     `INSERT INTO drafts (target_key,verdict,body,comments,meta) VALUES (?,?,?,?,?)
      ON CONFLICT(target_key) DO UPDATE SET verdict=excluded.verdict,body=excluded.body,comments=excluded.comments,meta=excluded.meta`,

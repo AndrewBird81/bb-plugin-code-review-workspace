@@ -152,6 +152,8 @@ export interface DraftItem extends ItemBase {
   comment: DraftComment;
   /** Your discussion with the agent about it, shown under it. */
   discussion: Discussion | null;
+  /** The agent added it and you haven't reviewed it yet: New from agent—not yet reviewed (src/draft.ts Draft unseen). */
+  unseen?: true;
 }
 
 export interface PrivateItem extends ItemBase {
@@ -388,6 +390,7 @@ export function buildItems(sources: CommentSources): CommentItem[] {
       at: { file: comment.file, line: comment.line, side: comment.side, lines: linesOf(comment) }, chapterId: chapterOf(comment.file, comment.line, comment.side),
       who, latest: { who, body: comment.body, at: null }, nonBlocking: comment.severity === "nit",
       comment, discussion: discussions.find((discussion) => sameLocation(discussion, comment)) ?? null,
+      ...comment.author === "agent" && draft?.draft.unseen?.some((at) => sameLocation(at, comment)) ? { unseen: true as const } : {},
     });
   }
   for (const discussion of discussions) {

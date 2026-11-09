@@ -718,6 +718,12 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
   const undoAt = useCallback((at: CommentLocation) => { void latest.current.undo(at); }, []);
   const markAt = useCallback((comment: DraftComment, preExisting: boolean) => { void latest.current.markPreExisting(comment, preExisting); }, []);
   const fixAt = useCallback((comment: DraftComment, state: FixChange) => latest.current.setFix(comment, state), []);
+  // A card of the agent's new comment was in view: it's reviewed, here at once, and on the server.
+  const markSeen = useCallback((at: CommentLocation) => {
+    const place = { file: at.file, line: at.line, side: at.side };
+    setDraft((previous) => previous.unseen?.some((u) => sameLocation(u, place)) ? { ...previous, unseen: previous.unseen.filter((u) => !sameLocation(u, place)) } : previous);
+    void rpc.call("markCommentsSeen", { targetKey, at: [place] }).catch(() => {});
+  }, [rpc, targetKey]);
   const editable = loaded && !loadError && !closed;
   // On your own PR, Comment is the only verdict GitHub takes.
   useEffect(() => { if (ownPr && editable && !isLocal && draft.verdict !== "COMMENT" && !pendingVerdict.current) chooseVerdict("COMMENT"); }, [ownPr, editable, isLocal, draft.verdict]);
@@ -760,11 +766,12 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
     const here = (at: Pick<CommentLocation, "side">) => (at.side === "LOCAL") === local;
     return {
       targetKey, comments: draft.comments.filter(here), stale, discussions: lineDiscussions.filter(here), editable, busy, writing, hideNits, open, ask, remove, dismiss, undo: undoAt, markPreExisting: markAt, chat, checks, setFix: fixAt,
+      unseen: draft.unseen, markSeen,
       composer: composerInDiff && here({ side }) ? { file, line: Number(line), side, ...(startLine ? { startLine } : {}), editing: editing !== null, asking } : null,
       editingAt: editingLine && here({ side }) ? { file, line: Number(line), side } : null,
     };
   };
-  const inlineDeps = [targetKey, draft.comments, stale, lineDiscussions, editable, busy, writing, hideNits, open, ask, remove, dismiss, undoAt, markAt, chat, checks, fixAt, composerInDiff, editingLine, file, line, side, startLine, editing, asking];
+  const inlineDeps = [targetKey, draft.comments, draft.unseen, markSeen, stale, lineDiscussions, editable, busy, writing, hideNits, open, ask, remove, dismiss, undoAt, markAt, chat, checks, fixAt, composerInDiff, editingLine, file, line, side, startLine, editing, asking];
   const inlineDraft = useMemo(() => inlineOn(false), inlineDeps); // eslint-disable-line react-hooks/exhaustive-deps
   const localDraft = useMemo(() => inlineOn(true), inlineDeps); // eslint-disable-line react-hooks/exhaustive-deps
   const canSuggest = !!suggestable;
@@ -825,7 +832,7 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
   return {
     targetKey, loadError, load, refresh, loaded, closed, review, draft, posting, checks, setFix, completed, submittedVerdict, receiptUrl, setWriteAnother, status,
     summaryRef, summaryDiscussion, editable, busy, submitting, writing, onSummary, summaryComposer, isLocal, chat, asking, summaryBase, openComposer, saveSummary, revisionRef, undo, requestSummary,
-    showComposer, inline, edited, replacing, askSees, counts, preExistingCount, blocks, markPreExisting, hideNits, nitCount, toggleNits, removeNits, listRef, sortedComments, stale, discussions, body, removeComment, setCommentSeverity, moveToSummary,
+    showComposer, inline, edited, replacing, askSees, counts, preExistingCount, blocks, markPreExisting, markSeen, hideNits, nitCount, toggleNits, removeNits, listRef, sortedComments, stale, discussions, body, removeComment, setCommentSeverity, moveToSummary,
     file, boxLines, line, side, files, setFile, editing, showBoxInDiff, startLine, setLine, setSide, bodyRef, changeBody, canAdd, addComment, cancelComposer, composerError, rebuilding, olderDiff, keepOnCurrentDiff, composerControls, severity, setSeverity, suggestable, suggestChange,
     changedWhileEditing, ownPr, suggested, chooseVerdict, confirming, setConfirming, warned, setWarned, approval, agentCoverage, unreadApproval, approvingBlocked, blockingCount, commentCount, doubts, hasReview, needsSummary, staleComments, submit, confirmCancelRef, submitRef, hint,
     inlineDraft, localDraft, notOnGithub, inlineComposer, askAgent, patch, account, why, setWhy,

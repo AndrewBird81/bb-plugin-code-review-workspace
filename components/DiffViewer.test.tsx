@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { test, expect, vi, afterEach } from "vitest";
-import { render, screen, fireEvent, cleanup, within } from "@testing-library/react";
+import { render, screen, fireEvent, cleanup, within, waitFor } from "@testing-library/react";
 
 // Render only our chrome and annotations, not @pierre/diffs' internals. Like
 // pierre, the gutter "+" reports a line selection right after its own click.
@@ -135,6 +135,30 @@ test("draft comments show under their lines with who added them, and the file's 
   expect(within(shown).getByText("Older diff · not submitted")).toBeTruthy();
   expect(within(shown).getByText("Agent")).toBeTruthy();
   expect(screen.getByText("1 not submitted")).toBeTruthy();
+});
+
+test("an agent's comment you haven't reviewed says New from agent—not yet reviewed in the code until its card was in view a moment", async () => {
+  const observed: Array<{ callback: IntersectionObserverCallback; target?: Element }> = [];
+  vi.stubGlobal("IntersectionObserver", class {
+    callback: IntersectionObserverCallback; target?: Element;
+    constructor(callback: IntersectionObserverCallback) { this.callback = callback; observed.push(this); }
+    observe(target: Element) { this.target = target; }
+    disconnect() {}
+  });
+  const markSeen = vi.fn();
+  renderWithDraft({ comments: [comment, { ...comment, line: 1, author: undefined, body: "Mine." }], unseen: [{ file: "src/a.ts", line: 2, side: "RIGHT" }], markSeen });
+  const shown = screen.getByRole("article", { name: "Draft comment on src/a.ts:2" });
+  expect(within(shown).getByText("New from agent—not yet reviewed")).toBeTruthy();
+  expect(within(screen.getByRole("article", { name: "Draft comment on src/a.ts:1" })).queryByText("New from agent—not yet reviewed")).toBeNull();
+  // Only the new one is watched; a glimpse doesn't count, a moment in view does.
+  const watcher = observed.find((o) => o.target === shown)!;
+  expect(observed.filter((o) => o.target)).toHaveLength(1);
+  watcher.callback([{ isIntersecting: true, intersectionRatio: 0.2, intersectionRect: { height: 20 } } as any], watcher as any);
+  await new Promise((resolve) => setTimeout(resolve, 900));
+  expect(markSeen).not.toHaveBeenCalled();
+  watcher.callback([{ isIntersecting: true, intersectionRatio: 1, intersectionRect: { height: 80 } } as any], watcher as any);
+  await waitFor(() => expect(markSeen).toHaveBeenCalledWith(comment), { timeout: 2000 });
+  vi.unstubAllGlobals();
 });
 
 test("a comment's Edit and Remove act on it, and a collapsed file still counts it", () => {

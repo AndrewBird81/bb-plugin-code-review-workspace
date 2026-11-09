@@ -1330,3 +1330,48 @@ test("a deferral the agent proposes waits for you: it needs you, Request what's 
   await waitFor(() => expect(confirmDeferral).toHaveBeenLastCalledWith({ targetKey: "pr-42", itemId: "t1", confirmed: false }));
   slot.lifecycle.unmount();
 }, 15_000);
+
+/** IntersectionObserver, which jsdom lacks: each one observed, to say its card came into view. */
+function observers() {
+  const made: Array<{ callback: IntersectionObserverCallback; targets: Element[] }> = [];
+  vi.stubGlobal("IntersectionObserver", class {
+    targets: Element[] = [];
+    constructor(public callback: IntersectionObserverCallback) { made.push(this); }
+    observe(target: Element) { this.targets.push(target); }
+    unobserve() {}
+    disconnect() { this.targets = []; }
+    takeRecords() { return []; }
+  });
+  /** Every card observed now comes into view, wholly. */
+  const show = () => { for (const observer of made) for (const target of observer.targets) observer.callback([{ target, isIntersecting: true, intersectionRatio: 1, intersectionRect: target.getBoundingClientRect() } as unknown as IntersectionObserverEntry], observer as unknown as IntersectionObserver); };
+  return { show };
+}
+
+test("a comment the agent added is New from agent—not yet reviewed, under the summary that cites it and on its card, until its card was in view", async () => {
+  const seen = observers();
+  const agentComment = { file: "src/a.ts", line: 1, side: "RIGHT", author: "agent", severity: "should-fix", body: "Spacing breaks the parser." };
+  let unseen: unknown[] | undefined = [{ file: "src/a.ts", line: 1, side: "RIGHT" }];
+  const markCommentsSeen = vi.fn(async () => { unseen = undefined; return { ok: true }; });
+  const getDraft = vi.fn(() => ({ draft: draftOf({ comments: [agentComment], body: "One thing: `src/a.ts:1` breaks parsing.", bodyAuthor: "agent", ...unseen ? { unseen } : {} }), stale: [] }));
+  const { slot } = await renderWorkspace({ rpc: { getDraft, markCommentsSeen } });
+  const view = await finish(slot);
+  const cited = within(view.getByRole("list", { name: "Lines the summary cites" }));
+  expect(cited.getByRole("button", { name: "Show src/a.ts:1, New from agent—not yet reviewed, Should fix comment" }).textContent).toContain("New from agent—not yet reviewed");
+  fireEvent.click(slot.getByRole("button", { name: /^Comments/ }));
+  const list = within(await slot.findByRole("region", { name: "Comments" }));
+  const row = list.getAllByRole("button").find((button) => button.textContent?.includes("Spacing breaks the parser."))!;
+  expect(row.textContent).toContain("New from agent—not yet reviewed");
+  // A row isn't the comment read: nothing's marked yet.
+  seen.show();
+  await new Promise((resolve) => setTimeout(resolve, 1200));
+  expect(markCommentsSeen).not.toHaveBeenCalled();
+  fireEvent.click(list.getByRole("button", { name: /^Expand Draft comment/ }));
+  const card = await list.findByRole("article", { name: "Draft comment on src/a.ts:1" });
+  expect(card.textContent).toContain("New from agent—not yet reviewed");
+  // Its card in view for a moment is a review of it.
+  seen.show();
+  await waitFor(() => expect(markCommentsSeen).toHaveBeenCalledWith({ targetKey: "pr-42", at: [{ file: "src/a.ts", line: 1, side: "RIGHT" }] }), { timeout: 3000 });
+  await waitFor(() => expect(list.getByRole("article", { name: "Draft comment on src/a.ts:1" }).textContent).not.toContain("New from agent"));
+  vi.unstubAllGlobals();
+  slot.lifecycle.unmount();
+}, 15_000);

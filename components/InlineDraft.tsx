@@ -1,4 +1,4 @@
-import { createContext, memo, useContext, useState, type KeyboardEvent, type ReactNode, type Ref, type RefObject } from "react";
+import { createContext, memo, useContext, useRef, useState, type KeyboardEvent, type ReactNode, type Ref, type RefObject } from "react";
 import { Markdown } from "@get-bb/plugin-sdk/app";
 import { diffWords } from "diff";
 import { isLocal, linesOf, postable, sameLocation, SEVERITIES, SEVERITY_LABEL, type CommentLocation, type Discussion, type DiscussionEntry, type DraftComment, type Severity } from "../src/draft";
@@ -7,6 +7,7 @@ import { composing } from "../lib/composing";
 import { linkImages } from "../lib/link-images";
 import { setCommentOpen, useCommentOpen } from "../lib/comments-fold";
 import { useKnob } from "../lib/settings";
+import { useSeenInView } from "../lib/use-seen-in-view";
 import { cn } from "../lib/utils";
 import { Button } from "./ui/button";
 import { Icon } from "./ui/icon";
@@ -61,6 +62,10 @@ export interface InlineDraft {
   checks?: CommentChecks;
   /** Resolve or dismiss a sent comment, or reopen it: the reviewer's click alone. */
   setFix?(comment: DraftComment, state: FixChange): Promise<void>;
+  /** The agent's comments you haven't reviewed yet (src/draft.ts Draft unseen). */
+  unseen?: CommentLocation[];
+  /** A card of the agent's comment at `at` was in view: it's reviewed. */
+  markSeen?(at: CommentLocation): void;
 }
 
 /** The comment box's text. Apart from InlineDraft so that typing re-renders only the box, not the diff. */
@@ -145,7 +150,7 @@ export const InlineLocation = memo(function InlineLocation({ at }: { at: Comment
       const status = draftStatus(comment, draftState(comment, draft.stale), facts);
       const check = sentCheck(comment, draft.checks);
       return <div data-draft-at={locationKey(at)}><CommentPill frame={notSubmitted(edge)} icon={<DraftIcon edge={edge} mark={status.mark} />} who={null} words={status.label}
-        stateBadge={isLocal(comment) && <NotOnGithubBadge brief />} badge={check && <CheckBadge check={check} />}
+        stateBadge={isLocal(comment) ? <NotOnGithubBadge brief /> : comment.author === "agent" && draft.unseen?.some((place) => sameLocation(place, comment)) && <NewFromAgentBadge />} badge={check && <CheckBadge check={check} />}
         tag={comment.severity && SEVERITY_LABEL[comment.severity]} text={comment.body}
         more={talk ? `${talk} message${talk === 1 ? "" : "s"} with the agent` : null} name={`Draft comment on ${where}`} onShow={fold} /></div>;
     }
@@ -189,8 +194,12 @@ function CommentView({ comment, draft, discussed, onFold }: { comment: DraftComm
   const sendable = useSendable(draft.editable ? draft.targetKey : undefined, comment);
   // What Send now warned, or why it failed, under the comment.
   const [sendNote, setSendNote] = useState<ReactNode>(null);
+  // The agent's, new to you until its card has been in view.
+  const unseen = comment.author === "agent" && !!draft.unseen?.some((at) => sameLocation(at, comment));
+  const cardRef = useRef<HTMLElement>(null);
+  useSeenInView(cardRef, unseen && !!draft.markSeen, () => draft.markSeen?.(comment));
   return (
-    <article tabIndex={-1} aria-label={`Draft comment on ${comment.file}:${linesOf(comment)}`} className="outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50">
+    <article ref={cardRef} tabIndex={-1} aria-label={`Draft comment on ${comment.file}:${linesOf(comment)}`} className="outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50">
       <div className={bar}>
         {/* The icon stays beside its words, which wrap after it on a phone. */}
         <span className="flex min-w-0 items-baseline gap-2">
@@ -198,6 +207,7 @@ function CommentView({ comment, draft, discussed, onFold }: { comment: DraftComm
           <span className="min-w-0"><DraftStatus status={status} />{draft.targetKey && draft.setFix && <FixUndo targetKey={draft.targetKey} comment={comment} onFix={draft.setFix} />}</span>
         </span>
         {state === "older-diff" && comment.author === "agent" && <Badge tone="agent" size="sm" icon={<Icon name="Sparkles" aria-hidden />}>Agent</Badge>}
+        {unseen && <NewFromAgentBadge />}
         {comment.startLine !== undefined && <span className="tabular-nums">Lines {linesOf(comment)}</span>}
         {comment.severity && <SeverityBadge severity={comment.severity} />}
         {isLocal(comment) && <NotOnGithubBadge />}
@@ -219,6 +229,12 @@ function CommentView({ comment, draft, discussed, onFold }: { comment: DraftComm
       {state === "older-diff" && (!facts.posts || postable(comment, facts.own)) && <p className="border-t border-warning/20 bg-warning/10 px-3 py-1.5 text-xs text-warning-text">Drafted against an older diff. Edit and save it, or remove it, before you submit.</p>}
     </article>
   );
+}
+
+/** An agent's comment you haven't reviewed yet: on its card, pill and row, and under the summary that cites it. */
+export const NEW_FROM_AGENT = "New from agent—not yet reviewed";
+export function NewFromAgentBadge() {
+  return <Badge tone="agent" size="sm" icon={<Icon name="Sparkles" aria-hidden />} title="The agent added it since you last looked. It stays marked until its card has been in view, or you edit it.">{NEW_FROM_AGENT}</Badge>;
 }
 
 /** How much a comment matters, on its card. */

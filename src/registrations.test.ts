@@ -85,6 +85,7 @@ test("the plugin registers the same RPC methods, tools, CLI subcommands, listene
       "listFilterViews",
       "listMachines",
       "listReviews",
+      "markCommentsSeen",
       "markSeen",
       "mergeReviews",
       "moveToSummary",

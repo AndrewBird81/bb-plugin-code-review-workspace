@@ -13,7 +13,8 @@ import { useKnob } from "../../lib/settings";
 import { cn } from "../../lib/utils";
 import { useWorkspaceFor } from "../../lib/workspace-store";
 import { useDraft } from "../DraftProvider";
-import { AgentEvidence, AgentReply, CommentBody, ComposerFields, DiscussionView, NotOnGithubBadge, SeverityBadge, type InlineComposer } from "../InlineDraft";
+import { AgentEvidence, AgentReply, CommentBody, ComposerFields, DiscussionView, NewFromAgentBadge, NotOnGithubBadge, SeverityBadge, type InlineComposer } from "../InlineDraft";
+import { useSeenInView } from "../../lib/use-seen-in-view";
 import { age } from "../time-ago";
 import { TOUCH_CONTROL } from "../touch";
 import { Avatar } from "../ui/avatar";
@@ -308,8 +309,11 @@ function DraftCard({ targetKey, item }: { targetKey: string; item: DraftItem }) 
   const sendable = useSendable(draft.editable ? targetKey : undefined, comment);
   // What Send now warned, or why it failed, under the comment.
   const [sendNote, setSendNote] = useState<ReactNode>(null);
+  // The agent's, new to you until its card has been in view.
+  const cardRef = useRef<HTMLElement>(null);
+  useSeenInView(cardRef, !!item.unseen, () => draft.markSeen(comment));
   return (
-    <article data-comment-at={`${comment.file}:${comment.line}:${comment.side}`} tabIndex={-1} aria-label={`Draft comment on ${where}`} className={cn("overflow-hidden rounded-lg bg-card text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/50", frameOf(item))}>
+    <article ref={cardRef} data-comment-at={`${comment.file}:${comment.line}:${comment.side}`} tabIndex={-1} aria-label={`Draft comment on ${where}`} className={cn("overflow-hidden rounded-lg bg-card text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/50", frameOf(item))}>
       {box === "edit" ? <>
         {draft.showBoxInDiff && <p className="flex justify-end px-1.5 pt-1.5"><ShowBoxInDiff /></p>}
         {comment.startLine !== undefined && <p className="px-2.5 pt-2.5 text-xs text-muted-foreground tabular-nums">Lines {linesOf(comment)}</p>}
@@ -317,6 +321,7 @@ function DraftCard({ targetKey, item }: { targetKey: string; item: DraftItem }) 
       </> : <div className="space-y-2 px-3 pb-2.5 pt-2.5">
         {/* The row above says its status; right after Resolve or Dismiss, Undo is here. */}
         <FixUndo targetKey={targetKey} comment={comment} onFix={draft.setFix} label />
+        {item.unseen && <p className="flex"><NewFromAgentBadge /></p>}
         {(comment.startLine !== undefined || comment.side !== "RIGHT") && <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
           {comment.startLine !== undefined && <span className="tabular-nums">Lines {linesOf(comment)}</span>}
           {comment.side === "LEFT" && <Badge size="sm">Old line</Badge>}

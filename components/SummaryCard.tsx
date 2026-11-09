@@ -9,7 +9,7 @@ import { withLineBreaks } from "../src/line-breaks";
 import { Badge, TONE_TEXT, type Tone } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Icon } from "./ui/icon";
-import { action, bar, ComposerFields, DiscussionView, type InlineComposer } from "./InlineDraft";
+import { action, bar, ComposerFields, DiscussionView, NEW_FROM_AGENT, NewFromAgentBadge, type InlineComposer } from "./InlineDraft";
 import { DraftIcon, notSubmitted, SEVERITY_TONE, TAG_TONE } from "./comments/look";
 import { TOUCH_CONTROL } from "./touch";
 
@@ -116,11 +116,14 @@ function CitedLines({ lines, onOpen }: { lines: SummaryLine[]; onOpen(line: Summ
     <ul aria-label="Lines the summary cites" className="flex flex-wrap gap-1.5 pt-0.5">
       {lines.map((line) => {
         const badge = line.item && badgeOf(line.item);
+        // One the agent added, as while it updated this summary, you haven't met in the code yet.
+        const unseen = line.item?.kind === "draft" && !!line.item.unseen;
         return (
           <li key={`${line.file}:${line.line}`}>
-            <button type="button" title={`${line.file}:${line.line}`} aria-label={`Show ${line.cited}, ${badge ? `${badge.label} comment` : "not in your comments"}`} onClick={() => onOpen(line)}
+            <button type="button" title={`${line.file}:${line.line}`} aria-label={`Show ${line.cited}, ${unseen ? `${NEW_FROM_AGENT}, ` : ""}${badge ? `${badge.label} comment` : "not in your comments"}`} onClick={() => onOpen(line)}
               className={cn("inline-flex items-center gap-1.5 rounded-md border border-border px-1.5 py-0.5 hover:bg-state-hover focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring", TOUCH_CONTROL)}>
               <span className="font-mono text-xs text-primary">{line.cited.split("/").pop()}</span>
+              {unseen && <NewFromAgentBadge />}
               {badge ? <Badge tone={badge.tone} size="sm">{badge.label}</Badge>
                 : <span className="flex items-center gap-1 text-xs text-warning-text"><Icon name="AlertCircle" className="size-3 shrink-0" aria-hidden />Not in your comments</span>}
             </button>

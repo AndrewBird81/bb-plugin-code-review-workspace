@@ -25,6 +25,7 @@ One review of a PR and your local changes to it, comments that go to the thread 
 
 - The review agent is told the PR's author reads the comments, replies and summary on GitHub and never sees the guide, in a review pass, a re-review's check and Dig deeper, so what it drafts no longer mentions its chapters, Start here, risk levels or what it flagged, which read on GitHub as a reply to a conversation the author never had. A problem the guide pointed to that the agent verifies is still a comment, on its own evidence; a spot that holds up, it tells you in chat.
 - The agent raises a finding about a line as a line comment before its summary names it, a re-review's new findings too, so you meet it reading the chapters, and the summary raises nothing they didn't. Under the summary in Finish review, each changed line it cites, such as `playlist.go:192`, opens in the code, marked with the severity of the comment there, or **Not in your comments** when no comment raises it.
+- A comment the agent adds, in its review, a re-review or while it updates the summary at your ask, is **New from agent—not yet reviewed**: on its card in the code and in Comments, its pill and row, and on the chip of a summary that cites it. It stays marked until its card has been in view for a moment, or you edit it, on every device, so a finding added at the summary doesn't pass as one you read in the chapters.
 
 ### Finish review
 
