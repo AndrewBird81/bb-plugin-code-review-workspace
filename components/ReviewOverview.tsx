@@ -156,7 +156,9 @@ export const ReviewOverview = memo(function ReviewOverview({ checks, readLines, 
   onShowFeedback?: () => void;
   onOpenLine: (file: string, line: number, side: "LEFT" | "RIGHT") => void;
 }) {
-  const { review, guide, sections, go, snooze, files } = useWorkspace();
+  const { review, guide, sections, go, snooze, files, panel } = useWorkspace();
+  // With Finish review showing, Submit is the one filled button.
+  const finishShown = panel.view === "finish";
   const changed = changedSince ? sections.find((section) => changedSince[section.id] > 0) : undefined;
   const resumed = sections.find((section) => section.id === resume);
   // Where reading goes on: the chapter you left, or on a re-review the first one that changed, else the first.
@@ -179,8 +181,8 @@ export const ReviewOverview = memo(function ReviewOverview({ checks, readLines, 
         onSnooze={review.kind === "pr" ? (snoozed, until) => void snooze(snoozed, until) : undefined}
         snoozing={snoozing}
         action={next && (
-          <Button className={cn("min-w-0 max-w-full justify-start gap-2 @max-[480px]/overview:w-full", TOUCH_CONTROL)} onClick={() => go(next.id)}>
-            <span className="truncate">{cta}:{" "}<span aria-hidden className="mr-1.5 inline-flex size-[18px] items-center justify-center rounded-full bg-primary-foreground/15 align-[1px] text-[10px] font-semibold tabular-nums">{nextIndex + 1}</span><InlineCode text={next.title} /></span>
+          <Button variant={finishShown ? "outline" : "default"} className={cn("min-w-0 max-w-full justify-start gap-2 @max-[480px]/overview:w-full", TOUCH_CONTROL)} onClick={() => go(next.id)}>
+            <span className="truncate">{cta}:{" "}<span aria-hidden className={cn("mr-1.5 inline-flex size-[18px] items-center justify-center rounded-full align-[1px] text-[10px] font-semibold tabular-nums", finishShown ? "bg-muted" : "bg-primary-foreground/15")}>{nextIndex + 1}</span><InlineCode text={next.title} /></span>
             <Icon name="ArrowRight" aria-hidden />
           </Button>
         )}

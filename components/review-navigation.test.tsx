@@ -999,3 +999,38 @@ test("the chapters' Skip to code takes the focus to the code, whose keys then sc
   expect(document.activeElement).toBe(scroller(slot));
   slot.lifecycle.unmount();
 }, 15_000);
+
+test("the title bar's Finish review opens or focuses its panel, never closes it, and while it shows Submit is the one filled button on every chapter and the Overview", async () => {
+  patchReviewState("pr-42", { activeId: "c1" });
+  const { slot } = await renderWorkspace();
+  await slot.findByRole("button", { name: "Mark viewed and continue" });
+  const main = within(slot.getByRole("main"));
+  await slot.findByRole("button", { name: /^Finish review:/ }, { timeout: 5000 });
+  const bar = () => slot.getByRole("button", { name: /^Finish review:/ });
+  // Before it opens, the chapter's way on is filled.
+  expect(main.getByRole("button", { name: "Mark viewed and continue" }).className).toContain("bg-primary");
+  fireEvent.click(bar());
+  await waitFor(() => expect(finishing(slot)).toBe(true));
+  // Clicked again, it stays open, and the panel has the focus.
+  fireEvent.click(bar());
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  expect(finishing(slot)).toBe(true);
+  expect(bar().getAttribute("aria-pressed")).toBeNull();
+  await waitFor(() => expect(slot.getByRole("complementary", { name: "Comments and Finish review" }).contains(document.activeElement)).toBe(true));
+  // An earlier chapter's buttons are outlined while it shows.
+  expect(main.getByRole("button", { name: "Mark viewed and continue" }).className).not.toContain("bg-primary");
+  slot.lifecycle.unmount();
+  cleanup();
+  // So is the Overview's way into the chapters.
+  patchReviewState("pr-42", { activeId: "overview" });
+  const again = await renderWorkspace();
+  const start = await within(again.slot.getByRole("main")).findByRole("button", { name: /: Parsing$/ });
+  // The panel opens as it was left: closed, for this part.
+  if (finishing(again.slot)) fireEvent.click(again.slot.getByRole("button", { name: "Close panel" }));
+  await waitFor(() => expect(finishing(again.slot)).toBe(false));
+  expect(start.className).toContain("bg-primary");
+  fireEvent.click(await again.slot.findByRole("button", { name: /^Finish review:/ }, { timeout: 5000 }));
+  await waitFor(() => expect(finishing(again.slot)).toBe(true));
+  expect(within(again.slot.getByRole("main")).getByRole("button", { name: /: Parsing$/ }).className).not.toContain("bg-primary");
+  again.slot.lifecycle.unmount();
+}, 15_000);

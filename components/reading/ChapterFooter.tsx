@@ -43,9 +43,10 @@ export function ChapterFooter({ patch }: {
   const unviewed = next ? [] : [...new Set(sections.flatMap((section) => section.diffs.map((diff) => diff.file)))].filter((file) => !own.has(file) && !files.views.get(file)?.viewed);
   // A closed PR has nothing to finish: the last chapter leads to its archived review instead.
   const closed = review.prState === "MERGED" || review.prState === "CLOSED";
-  // With Finish review showing, the last chapter has no button to it, and Mark viewed is outlined: Submit, or Send, is
-  // the one filled button, and nothing here reads as a step after it.
-  const finishing = !next && panel.view === "finish";
+  // With Finish review showing, the last chapter has no button to it, and every chapter's buttons are outlined: Submit,
+  // or Send, is the one filled button, and nothing here reads as a step after it.
+  const finishShown = panel.view === "finish";
+  const finishing = !next && finishShown;
   const button = cn("min-w-0 max-w-full @max-[480px]/review:w-full", TOUCH_CONTROL);
   // The next chapter opens at its top: its title takes the focus, which would stay down here, past its files.
   const goNext = (id: string) => {
@@ -66,12 +67,12 @@ export function ChapterFooter({ patch }: {
         <div className="flex min-w-0 max-w-full flex-wrap items-center justify-end gap-2 @max-[480px]/review:w-full">
           {left && (
             // Finishing, it still opens Finish review, whose summary takes the focus that would go with this button.
-            <Button variant={finishing ? "outline" : "default"} size="sm" className={button} onClick={() => { files.markChapterViewed(chapter.id); if (next) goNext(next.id); else if (!closed) openFinish(); }}>
+            <Button variant={finishShown ? "outline" : "default"} size="sm" className={button} onClick={() => { files.markChapterViewed(chapter.id); if (next) goNext(next.id); else if (!closed) openFinish(); }}>
               <Icon name="CircleCheck" aria-hidden />
               {next ? "Mark viewed and continue" : closed || finishing ? "Mark viewed" : "Mark viewed and finish"}
             </Button>
           )}
-          {!finishing && <Button variant={left ? "ghost" : "default"} size="sm" className={cn(button, left && "text-muted-foreground")} onClick={() => next ? goNext(next.id) : openFinish()}>
+          {!finishing && <Button variant={left ? "ghost" : finishShown ? "outline" : "default"} size="sm" className={cn(button, left && "text-muted-foreground")} onClick={() => next ? goNext(next.id) : openFinish()}>
             <span className="truncate">{next ? <>Next: <InlineCode text={next.title} /></> : closed ? "Archived review" : "Finish review"}</span>
             <Icon name="ArrowRight" aria-hidden />
           </Button>}
