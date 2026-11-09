@@ -376,7 +376,10 @@ export async function send(deps: Deps, targetKey: string, picked: readonly Comme
   const stayOn = "to" in routed && !toFixer && main && main.environmentId === now.feature?.environmentId ? await folderBranchLine(bb, now) : null;
   const moved = fresh?.from ? newWorktree(shown, fresh.from) : null;
   // A fresh thread is told GitHub's limits as Fix in a new thread is: all of them, or, let push, all but the push.
-  const limits = fresh || fixer || briefed ? [letPush ? GUARD_BUT_PUSH : GUARD] : letPush ? [] : [NO_PUSH];
+  // Let push on someone else's PR, from a folder that joined its review: told whose branch a push changes, as Push says.
+  const theirBranch = letPush && !own && !fresh && !fixer && !briefed && toJoinedFolder(now) && now.head
+    ? `This is ${theirs ? `@${theirs}'s` : "someone else's"} PR: a push puts your commit on their branch, ${inlineCode(now.head)}.` : null;
+  const limits = fresh || fixer || briefed ? [letPush ? GUARD_BUT_PUSH : GUARD] : letPush ? theirBranch ? [theirBranch] : [] : [NO_PUSH];
   // What the message says, and what the Send keeps, read in one turn; the comments get their ids now.
   let holding = false;
   try {

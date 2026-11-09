@@ -3,6 +3,7 @@ import { experimental_useSidebarThreads, ThreadTitle, useBbNavigate, useRpc } fr
 import { toast } from "sonner";
 import type { rpcContract } from "../src/rpc-contract";
 import { linesOf, type DraftComment } from "../src/draft";
+import { yoursByFolder } from "../lib/fixer";
 import { askChangeThread, useMainThread } from "../lib/main-thread";
 import { useKnob } from "../lib/settings";
 import { cn } from "../lib/utils";
@@ -78,7 +79,8 @@ export function FixHandoff({ targetKey, comments, revision }: { targetKey: strin
   const summary = draft.body.trim();
   // A PR's comments post with Submit, which a Send doesn't change; a local review's never post.
   const posts = review?.kind === "pr";
-  const theirs = !isLocal && !ownPr && !review?.feature;
+  // A folder that joined the PR's review later doesn't make it yours: the PR says whose it is.
+  const theirs = !isLocal && !ownPr && !yoursByFolder(review);
   const waits = !!listed && BUSY.has(listed.status) ? " after its current turn" : "";
   const picked = () => chosen.map(({ file, line, side }) => ({ file, line, side }));
   const extras = () => ({ ...(message.trim() ? { message: message.trim() } : {}), ...(withSummary && summary ? { includeSummary: true } : {}) });

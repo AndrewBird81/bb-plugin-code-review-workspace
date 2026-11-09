@@ -243,6 +243,18 @@ test("on someone else's PR, Let it push when done pushes back once before it's o
   slot.lifecycle.unmount();
 });
 
+test("a folder that joined someone else's PR's review still asks before Let it push when done is on", async () => {
+  const setLetPush = vi.fn(async () => ({ ok: true }));
+  const joined = { review: { targetKey: "k", kind: "pr", author: "alice", sourceThreadId: "coder", feature: { environmentId: "env1", joinedAt: 5 } }, workspace: { mainThread: { threadId: "coder", title: "Retry uploads", machine: null } } };
+  const slot = await renderTray({ getSourceThread: open(), setLetPush }, joined);
+  fireEvent.click(await slot.findByRole("button", { name: "Send 2 to main thread" }));
+  const picks = within(slot.getByRole("group", { name: "Comments to send" }));
+  fireEvent.click(picks.getByRole("checkbox", { name: "Let it push when done" }));
+  expect(picks.getByRole("alert").textContent).toContain("This is @alice’s PR: a push changes their branch.");
+  expect(setLetPush).not.toHaveBeenCalled();
+  slot.lifecycle.unmount();
+});
+
 test("on someone else's PR with a main thread, Send and Fix in a new thread warn first, and go anyway when you say", async () => {
   const warning = { ok: false, warning: "This is @alice’s PR, not yours. Your review on GitHub stays as it is.", offers: ["anyway"] };
   const sendToSourceThread = vi.fn().mockResolvedValueOnce(warning).mockResolvedValueOnce({ ok: true, delivery: "sent", title: "Retry uploads", threadId: "coder" });

@@ -224,6 +224,23 @@ test("on someone else's PR whose review your folder joined, a Send to its main t
   expect(await call(h.harness, "sendNow", { targetKey: "pr-1", comment: B2 })).toMatchObject({ ok: false, warning: expect.stringContaining("@alice’s PR, not yours"), offers: ["anyway"] });
 });
 
+test("on someone else's PR whose review your folder joined, a Send that lets the thread push says whose branch a push changes", async () => {
+  const h = host({ coder: { title: "Retry uploads", environmentId: "env1" } });
+  const store = await startPlugin(h.bb);
+  await ownPr(store, {
+    ownPr: false, mainThread: { threadId: "coder", environmentId: "env1", origin: "adopted", since: 2 },
+    feature: { environmentId: "env1", hostId: "host_max", machine: "MaxBook", path: "/Users/me/src/web", branch: "retry-uploads", baseRef: "main", repo: "acme/web", joinedAt: 2 },
+  });
+  expect(await call(h.harness, "sendNow", { targetKey: "pr-1", comment: A3, letPush: true })).toMatchObject({ ok: true });
+  const text = h.sends()[0].input[0].text;
+  expect(text).not.toContain("Don't push until I say.");
+  expect(text).toContain("This is @alice's PR: a push puts your commit on their branch, `retry-uploads`.");
+  // Without Let it push, it's told not to push, as before.
+  expect(await call(h.harness, "sendNow", { targetKey: "pr-1", comment: B2 })).toMatchObject({ ok: true });
+  expect(h.sends()[1].input[0].text).toContain("Don't push until I say.");
+  expect(h.sends()[1].input[0].text).not.toContain("their branch");
+});
+
 test("an archived main thread offers to unarchive it or start a fresh thread, and each does", async () => {
   const h = host({ coder: { title: "Retry uploads", archivedAt: 5 } });
   const store = await startPlugin(h.bb);
