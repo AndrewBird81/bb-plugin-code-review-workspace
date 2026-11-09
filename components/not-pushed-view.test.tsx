@@ -198,6 +198,21 @@ test("Not pushed yet ends saying its comments go with Send, not Submit, with Pus
   none.page.lifecycle.unmount();
 });
 
+test("Review changes opens Not pushed yet on a review open already once it reloads with the folder that joined it, not before", async () => {
+  const { askToShowNotPushed } = await import("../lib/workspace-store");
+  // Open with no main thread in a folder, as a PR's review before a thread's folder joins it.
+  let over: Record<string, unknown> = { mainThread: null };
+  const { page } = await renderReview({ getReviewBundle: () => ({ review: { ...review, ...over }, guide: structuredClone(guide), patch, revision: "r1" }) });
+  act(() => askToShowNotPushed(review.targetKey));
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  expect(page.queryByRole("region", { name: "Not pushed yet" })).toBeNull();
+  // The join reloads the review, which now reads the folder: the ask still stands, and opens it.
+  over = {};
+  await page.emitRealtime(`review:${review.targetKey}`, {});
+  expect(await notPushed(page)).toBeTruthy();
+  page.lifecycle.unmount();
+});
+
 // Last: what it reads stays in the page's count of Not pushed yet's files, which the tests above start without.
 test("Review changes on a thread whose folder joined the PR's review opens the review on Not pushed yet, once, whether it opens now or is open already", async () => {
   const { askToShowNotPushed } = await import("../lib/workspace-store");

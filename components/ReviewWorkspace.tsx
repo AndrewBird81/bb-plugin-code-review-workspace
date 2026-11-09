@@ -1582,10 +1582,15 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   // Not pushed yet, asked for as the thread's folder joined this PR's review, shown once the review has the folder.
   const askedNotPushed = useAskedNotPushed(targetKey);
   const notPushedHere = !!review && hasNotPushed(review);
+  // A review open already may not have it yet: the ask waits for its reload, which the join brings, and asks for one.
+  const asksReload = askedNotPushed !== null && hasApi && !notPushedHere;
+  useEffect(() => { if (asksReload) void load(); }, [asksReload, load]);
   useEffect(() => {
     if (askedNotPushed === null || !hasApi) return;
+    const fresh = Date.now() - askedNotPushed < ASKED_COMMENT_MS;
+    if (fresh && !notPushedHere) return;
     takeAskedNotPushed(targetKey);
-    if (Date.now() - askedNotPushed < ASKED_COMMENT_MS && notPushedHere) setActiveId(NOT_PUSHED_PAGE);
+    if (fresh) setActiveId(NOT_PUSHED_PAGE);
   }, [askedNotPushed, hasApi, targetKey, notPushedHere]);
   const { id, name, line } = identity ?? {};
   useEffect(() => id && name && line ? publishReviewTitle(targetKey, { id, name, line }) : undefined, [targetKey, id, name, line]);
