@@ -1267,7 +1267,8 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     setInjection({ context, nonce: Date.now(), ...(quote ? { quote } : {}) });
     openPanel("agent");
   }, [openPanel]);
-  const askAgent = useCallback((context?: AgentMessageContext, quote?: string) => ask(context ?? { file: currentFileOf(targetKey), chapterId }, quote), [ask, targetKey, chapterId]);
+  // Ask agent alone opens the chat empty: the file in view isn't named for you.
+  const askAgent = useCallback((context?: AgentMessageContext, quote?: string) => ask(context ?? { chapterId }, quote), [ask, chapterId]);
   const showFeedback = useMemo(() => isPr ? () => openComments("feedback") : undefined, [isPr, openComments]);
   // The diff remounts after the Overview and Not pushed yet; it shouldn't jump back to an old comment.
   useEffect(() => {

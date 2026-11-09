@@ -212,7 +212,7 @@ test.skipIf(!process.env.BB_E2E_URL)("fullscreen verdict → submitted → reloa
     // bb's ThreadChat takes over. The stubbed worker id has no thread in this bb.
     await assistant.getByText("This thread is no longer available.").waitFor();
     expect(harness.inspection.sdk.callsTo("threads.spawn")[0][0]).toMatchObject({ visibility: "hidden", title: `Review agent: web#7 · Validate incoming review data · ${key}`, pluginMetadata: { targetKey: key },
-      input: [{ type: "text", text: "Explain the validation guard\n\nAbout `src/input.ts`." }, MARK_PART] });
+      input: [{ type: "text", text: "Explain the validation guard" }, MARK_PART] });
     expect(JSON.stringify(harness.inspection.sdk.callsTo("threads.spawn"))).not.toContain("Private: verify");
     await page.screenshot({ animations: "disabled", path: `${dir}/assistant-panel.png` });
     expect(await page.getByText("Open as thread", { exact: true }).count()).toBe(0);
