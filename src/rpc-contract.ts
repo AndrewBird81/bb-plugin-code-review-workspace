@@ -638,6 +638,14 @@ export const rpcContract = defineRpcContract({
     output: z.object({ drafts: z.array(z.object({ threadId: z.string(), body: z.string(), author: z.enum(["agent", "reviewer"]), updatedAt: z.number() })) }),
   },
   /**
+   * Confirm, or take back, a deferral the agent's check proposed for one item of your feedback: until you confirm it,
+   * the item holds back an Approve and stays in Request what's left. Refused for an item the check didn't defer.
+   */
+  confirmDeferral: {
+    input: z.object({ targetKey: z.string(), itemId: z.string(), confirmed: z.boolean() }).strict(),
+    output: z.object({ ok: z.boolean(), error: z.string().optional() }),
+  },
+  /**
    * Put the assistant's suggested verdict and summary in the draft ("suggested"), or a
    * Request changes listing the feedback that isn't addressed yet ("remaining").
    */

@@ -367,8 +367,8 @@ function Verdicts({ revision }: { revision: string }) {
   const [busy, setBusy] = useState<"suggested" | "remaining" | null>(null);
   const [confirming, setConfirming] = useState<"suggested" | "remaining" | null>(null);
   const run = feedback?.run ?? null;
-  // Blocking feedback the agent's check says isn't done yet, nor deferred.
-  const left = !!feedback?.items.some((item) => !item.nonBlocking && item.assessment && !settled(item.assessment.verdict));
+  // Blocking feedback the agent's check says isn't done yet, nor deferred with your confirmation.
+  const left = !!feedback?.items.some((item) => !item.nonBlocking && item.assessment && !settled(item.assessment.verdict, item.assessment.confirmed));
   // The agent's summary to use as yours, or its word on where the PR stands: readable here, whatever your summary says.
   const said = feedback?.suggestionInDraft ? "" : (run?.suggestedBody || run?.summary || "").trim();
   async function apply(mode: "suggested" | "remaining") {

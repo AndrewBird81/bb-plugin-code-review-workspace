@@ -115,6 +115,8 @@ export interface CommentCheck {
   evidence: string;
   /** Where the fix is in this diff: Show the fix. */
   fix: { file: string; line: number } | null;
+  /** Deferred: whether you confirmed the deferral, which until then holds back approving. */
+  confirmed?: boolean;
 }
 
 interface ItemBase {
@@ -337,8 +339,12 @@ function checkOf(feedback: FeedbackItem | null): CommentCheck | null {
   const assessment = feedback?.assessment;
   if (!assessment) return null;
   const { verdict, evidence, file, line } = assessment;
-  return { verdict, label: CHECK_LABEL[verdict], evidence, fix: file && line ? { file, line } : null };
+  const deferred = verdict === "deferred" ? { confirmed: !!assessment.confirmed } : {};
+  return { verdict, label: verdict === "deferred" && !assessment.confirmed ? `${CHECK_LABEL.deferred} · not confirmed` : CHECK_LABEL[verdict], evidence, fix: file && line ? { file, line } : null, ...deferred };
 }
+
+/** What the agent's check leaves for you: one it says isn't done, or a deferral it proposed that you haven't confirmed. */
+const checkNeeds = (check: CommentCheck | null) => !!check && (UNADDRESSED.has(check.verdict) || check.verdict === "deferred" && !check.confirmed);
 
 /** Every comment-like item in a review, once each, in reading order: the whole PR's first, then by chapter, file and line. */
 export function buildItems(sources: CommentSources): CommentItem[] {
@@ -436,7 +442,7 @@ export function buildItems(sources: CommentSources): CommentItem[] {
     const reply = replyDrafts ? replyDrafts.get(id) ?? null : item?.replyDraft ?? null;
     const check = checkOf(item);
     // Resolved, it's settled, whatever an earlier check said.
-    const needs = state === "resolved" ? null : state === "question" ? "question" : state === "needs-reply" ? "needs-reply" : check && UNADDRESSED.has(check.verdict) ? "check" : state === "replied" ? "replied" : reply?.author === "agent" ? "reply-drafted" : null;
+    const needs = state === "resolved" ? null : state === "question" ? "question" : state === "needs-reply" ? "needs-reply" : checkNeeds(check) ? "check" : state === "replied" ? "replied" : reply?.author === "agent" ? "reply-drafted" : null;
     const tag = threadLabel(messages[0]?.body ?? "");
     const replyTo = live?.comments[0]?.databaseId ?? stored?.commentId ?? null;
     const last = messages.at(-1);
@@ -474,7 +480,7 @@ export function buildItems(sources: CommentSources): CommentItem[] {
     if (item.kind !== "summary") continue;
     const check = checkOf(item);
     add({
-      kind: "ask", id: item.id, state: "summary-ask", label: STATE_LABEL["summary-ask"], ...needing(check && UNADDRESSED.has(check.verdict) ? "check" : null, "on-github"),
+      kind: "ask", id: item.id, state: "summary-ask", label: STATE_LABEL["summary-ask"], ...needing(checkNeeds(check) ? "check" : null, "on-github"),
       at: null, chapterId: null, who: "You", latest: { who: "You", body: item.title, at: null }, nonBlocking: false, title: item.title, check, feedback: item,
     });
   }

@@ -1,5 +1,7 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
-import { Markdown, useBbNavigate } from "@get-bb/plugin-sdk/app";
+import { Markdown, useBbNavigate, useRpc } from "@get-bb/plugin-sdk/app";
+import { toast } from "sonner";
+import type { rpcContract } from "../../src/rpc-contract";
 import { linesOf, sameLocation, type CommentLocation } from "../../src/draft";
 import { withLineBreaks } from "../../src/line-breaks";
 import { topLevelLabel, type AskItem, type CommentItem, type DraftItem, type PrivateItem, type ThreadItem, type ThreadMessage } from "../../lib/comments";
@@ -95,6 +97,32 @@ function Evidence({ item, onFix }: { item: ThreadItem | AskItem; onFix?: () => v
   </div>;
 }
 
+/**
+ * A deferral the agent's check proposed: it holds back approving until you confirm it, with Confirm deferral; once
+ * confirmed, it says so, with Reopen. Either click is yours alone.
+ */
+function Deferral({ targetKey, item }: { targetKey: string; item: ThreadItem | AskItem }) {
+  const rpc = useRpc<typeof rpcContract>();
+  const [busy, setBusy] = useState(false);
+  if (item.check?.verdict !== "deferred") return null;
+  const confirmed = !!item.check.confirmed;
+  const change = async (on: boolean) => {
+    setBusy(true);
+    try {
+      const result = await rpc.call("confirmDeferral", { targetKey, itemId: item.id, confirmed: on });
+      if (!result.ok) toast.error(result.error ?? "Couldn’t change the deferral.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Couldn’t change the deferral.");
+    } finally { setBusy(false); }
+  };
+  return <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+    <span className="min-w-0 flex-1">{confirmed ? "You confirmed the deferral." : "The agent proposes deferring this. It holds back approving until you confirm it."}</span>
+    <Button variant={confirmed ? "ghost" : "outline"} size="sm" className={cn("h-7 shrink-0 px-2 text-xs", TOUCH_CONTROL)} disabled={busy} onClick={() => void change(!confirmed)}>
+      <Icon name={confirmed ? "RotateCcw" : "CircleCheck"} className="size-3.5" aria-hidden />{confirmed ? "Reopen" : "Confirm deferral"}
+    </Button>
+  </div>;
+}
+
 /** Earlier replies stay folded, past the latest two. */
 function Replies({ replies }: { replies: ThreadMessage[] }) {
   const [all, setAll] = useState(false);
@@ -187,6 +215,7 @@ function ThreadCard({ targetKey, item, variant }: { targetKey: string; item: Thr
         {first && <Clamped body={first.body} link />}
         <Replies replies={replies} />
         <Evidence item={item} onFix={item.check?.fix && api ? () => api.showLocation(item.check!.fix!.file, item.check!.fix!.line, "RIGHT") : undefined} />
+        <Deferral targetKey={targetKey} item={item} />
         {item.sendStatus && <SendStatus status={item.sendStatus} />}
         {sendNote}
         {actions && replyShows && <ReplyBox targetKey={targetKey} item={item} where={where} actions={actions} busy={busy} writing={writing} onClose={() => setWriting(false)} replyButton={replyButton} />}
@@ -237,6 +266,7 @@ function AskCard({ targetKey, item, variant }: { targetKey: string; item: AskIte
       <div className="space-y-2.5 px-3 pb-2.5">
         <p className="text-sm">{item.title}</p>
         <Evidence item={item} onFix={item.check?.fix && api ? () => api.showLocation(item.check!.fix!.file, item.check!.fix!.line, "RIGHT") : undefined} />
+        <Deferral targetKey={targetKey} item={item} />
       </div>
     </article>
   );

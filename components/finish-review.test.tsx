@@ -754,9 +754,9 @@ test("on a re-review, what the agent read counts against the files changed since
   slot.lifecycle.unmount();
 }, 20_000);
 
-test("a deferred item isn't left open: beside an Approve suggestion, there's no Request what's left", async () => {
+test("a deferral you confirmed isn't left open: beside an Approve suggestion, there's no Request what's left", async () => {
   const deferred = feedbackOf({ run: { ...run, suggestedVerdict: "APPROVE", suggestedBody: "Nothing outstanding." } });
-  deferred.items[0]!.assessment = { id: "t1", verdict: "deferred", evidence: "Author: staging fixtures come in the next PR.", assessedAt: now };
+  deferred.items[0]!.assessment = { id: "t1", verdict: "deferred", evidence: "Author: staging fixtures come in the next PR.", assessedAt: now, confirmed: true };
   const { slot } = await renderWorkspace({ rpc: { getFeedback: vi.fn(() => ({ feedback: deferred })) } });
   const view = await finish(slot);
   const suggestion = within(view.getByRole("region", { name: "Agent’s suggestion" }));
@@ -1302,3 +1302,31 @@ test("on your PR with a fixer, new commits on GitHub that didn't come from Push 
   expect(slot.getByRole("status", { name: "New commits on GitHub" }).textContent).toContain(said);
   slot.lifecycle.unmount();
 });
+
+test("a deferral the agent proposes waits for you: it needs you, Request what's left still lists it, and Confirm deferral settles it", async () => {
+  let confirmed = false;
+  const deferred = () => feedbackOf({ run: { ...run, suggestedVerdict: "COMMENT" }, items: [{ ...feedbackOf().items[0]!, assessment: { id: "t1", verdict: "deferred", evidence: "Author: \"in the next PR\"", assessedAt: now, ...confirmed ? { confirmed: true as const } : {} } }] });
+  const confirmDeferral = vi.fn(async ({ confirmed: on }: { confirmed: boolean }) => { confirmed = on; return { ok: true }; });
+  const { slot } = await renderWorkspace({ rpc: { getFeedback: vi.fn(() => ({ feedback: deferred() })), confirmDeferral } });
+  const view = await finish(slot);
+  // Not settled yet: what's left still has it.
+  expect(await view.findByRole("button", { name: "Request what’s left" })).toBeTruthy();
+  fireEvent.click(slot.getByRole("button", { name: /^Comments/ }));
+  const list = within(await slot.findByRole("region", { name: "Comments" }));
+  // Its row says so; opened, its card says what to do.
+  const row = list.getAllByRole("button").find((button) => button.textContent?.includes("Handle the empty list"))!;
+  expect(row.textContent).toContain("Deferred · not confirmed");
+  fireEvent.click(list.getByRole("button", { name: /^Expand GitHub thread/ }));
+  const card = await list.findByRole("article", { name: /^GitHub thread on/ });
+  expect(within(card).getByText("The agent proposes deferring this. It holds back approving until you confirm it.")).toBeTruthy();
+  expect(list.getByRole("radio", { name: "Needs you, 1" })).toBeTruthy();
+  fireEvent.click(within(card).getByRole("button", { name: "Confirm deferral" }));
+  await waitFor(() => expect(confirmDeferral).toHaveBeenCalledWith({ targetKey: "pr-42", itemId: "t1", confirmed: true }));
+  await slot.emitRealtime("feedback:pr-42", { ts: Date.now() });
+  const settledCard = await list.findByText("You confirmed the deferral.");
+  // Settled, it no longer needs you.
+  expect(list.queryByRole("radio", { name: "Needs you, 1" })).toBeNull();
+  fireEvent.click(within(settledCard.closest("article")!).getByRole("button", { name: "Reopen" }));
+  await waitFor(() => expect(confirmDeferral).toHaveBeenLastCalledWith({ targetKey: "pr-42", itemId: "t1", confirmed: false }));
+  slot.lifecycle.unmount();
+}, 15_000);

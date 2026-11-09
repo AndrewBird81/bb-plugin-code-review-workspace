@@ -93,9 +93,9 @@ When the guide is ready, the review agent reviews the change and drafts line com
 After new commits, **Since your review** shows only what changed since the commit you reviewed. The review agent checks your earlier feedback against it before you start.
 
 - Rebases and merges from the base branch don't show up as changes.
-- The agent marks each of your earlier threads, and each ask in your review summary, **Addressed**, **Partial**, **Not addressed**, **Author disagrees**, **Unclear**, or **Deferred**, with one line of evidence.
+- The agent marks each of your earlier threads, and each ask in your review summary, **Addressed**, **Partial**, **Not addressed**, **Author disagrees**, **Unclear**, or **Deferred**, with one line of evidence. A deferral keeps blocking approval until you confirm it.
 - It drafts replies to your threads. Each waits until you choose **Send reply**.
-- **Request what's left** drafts a Request changes listing what's still open, deferred items aside.
+- **Request what's left** drafts a Request changes listing what's still open, deferrals you confirmed aside.
 - Compare with any earlier commit of the PR, not just your last review.
 
 <img src="docs/screenshots/since-your-review-dark.webp" alt="A review Overview after a follow-up commit shows a Since your review summary, 5/9 addressed, checks passing, a Review changes button, and chapters marked 1 changed and 2 changed.">

@@ -155,7 +155,7 @@ export async function describeFeedback(store: AsyncStore, review: ReviewMeta): P
     lines.push("", `[${thread.id}] ${where}${state ? ` · ${state}` : ""}`, ...thread.body.split("\n").map((l) => `  > ${l}`));
     for (const reply of thread.replies.slice(-5)) lines.push(`  @${reply.author}${reply.mine ? " (reviewer)" : ""}${reply.bot ? " (bot)" : ""}: ${reply.body.replace(/\s+/g, " ").slice(0, 1500)}`);
     if (own && !feedbackCheck(review)) lines.push(...fixReport(review, thread.id));
-    if (assessment) lines.push(`  Earlier check: ${assessment.verdict} — ${assessment.evidence}`);
+    if (assessment) lines.push(`  Earlier check: ${assessment.verdict}${assessment.verdict !== "deferred" ? "" : assessment.confirmed ? " (the reviewer confirmed the deferral)" : " (the reviewer hasn't confirmed the deferral)"} — ${assessment.evidence}`);
   }
   const out = [threads.length ? `${threads.length} review thread${threads.length === 1 ? "" : "s"} ${own ? "on the reviewer's own PR, everyone's" : "the reviewer started"}:\n${untrusted("review threads", lines.join("\n").trim())}` : own ? "No review threads on the reviewer's PR." : "The reviewer started no review threads."];
   // On your own PR, others' review summaries and comments on it, which the reviewer answers as the PR's author.
@@ -447,8 +447,8 @@ export async function assess(store: AsyncStore, caller: ReviewMeta, input: Asses
     if (approving || kept) {
       const verdicts = new Map((await tx.getAssessment(review.targetKey, head!)).items.map((item) => [item.id, item.verdict]));
       for (const item of feedback) verdicts.set(item.id, item.verdict);
-      const open = openBlocking(threads, verdicts);
-      if (approving && open.length) return { ok: false, error: `You suggested Approve, but ${openSaid(open)}. Suggest Request changes or Comment instead, or record an item as deferred if the author, the PR or the reviewer says it's done later, quoting where in its evidence. Nothing was recorded.` };
+      const open = openBlocking(threads, verdicts, review.deferralsConfirmed);
+      if (approving && open.length) return { ok: false, error: `You suggested Approve, but ${openSaid(open)}. Suggest Request changes or Comment instead. An item the author, the PR or the reviewer says is done later may be recorded as deferred, quoting where in its evidence, but it holds back Approve until the reviewer confirms the deferral in Comments. Nothing was recorded.` };
       if (kept) withdrawn = open;
     }
     const now = Date.now();
@@ -494,14 +494,18 @@ export async function assess(store: AsyncStore, caller: ReviewMeta, input: Asses
         suggestedBody: input.suggestedBody?.trim() ?? previous?.suggestedBody ?? "",
       });
       // Non-blocking threads are checked too, but don't count toward what's addressed.
-      const summary = summarize(head!, (await tx.getAssessment(review.targetKey, head!)).items, threads.filter((t) => !threadLabel(t.body)?.nonBlocking).map((t) => t.id));
+      const checked = (await tx.getAssessment(review.targetKey, head!)).items;
+      const blocking = threads.filter((t) => !threadLabel(t.body)?.nonBlocking).map((t) => t.id);
+      const summary = summarize(head!, checked, blocking, review.deferralsConfirmed);
       await tx.setLifecycle(review.targetKey, { assessment: summary });
-      const missing = summary.total - summary.addressed - summary.partial - summary.notAddressed - summary.disputed - summary.unclear - (summary.deferred ?? 0);
+      // Deferrals the reviewer hasn't confirmed are in no bucket of the summary's.
+      const proposed = summarize(head!, checked, blocking, Object.fromEntries(checked.map((item) => [item.id, 1]))).deferred! - summary.deferred!;
+      const missing = summary.total - summary.addressed - summary.partial - summary.notAddressed - summary.disputed - summary.unclear - (summary.deferred ?? 0) - proposed;
       if (withdrawn.length) {
         if ((await tx.getDraft(review.targetKey)).suggestedVerdict === "APPROVE") await tx.updateSummary(review.targetKey, { suggestedVerdict: undefined });
         said.push(`Your earlier Approve is withdrawn: ${openSaid(withdrawn).replace(" still open", " open")}. Suggest a verdict again with assess_feedback.`);
       }
-      said.unshift(`Recorded ${items.length} item${items.length === 1 ? "" : "s"} for ${short(head)}: ${summary.addressed} of ${summary.total} addressed.${missing ? ` ${missing} item${missing === 1 ? " has" : "s have"} no verdict yet.` : ""} The reviewer sees them in Comments.`);
+      said.unshift(`Recorded ${items.length} item${items.length === 1 ? "" : "s"} for ${short(head)}: ${summary.addressed} of ${summary.total} addressed.${missing ? ` ${missing} item${missing === 1 ? " has" : "s have"} no verdict yet.` : ""}${proposed ? ` ${proposed === 1 ? "1 deferral waits for the reviewer to confirm it" : `${proposed} deferrals wait for the reviewer to confirm them`}.` : ""} The reviewer sees them in Comments.`);
     }
     return { ok: true, text: said.join(" ") };
   });

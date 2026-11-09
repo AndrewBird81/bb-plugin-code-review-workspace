@@ -115,8 +115,10 @@ export function ReplyDraftBadge({ reply, brief = false }: {
 const CHECK_TONE: Record<AssessmentVerdict, Tone> = { addressed: "success", partial: "warning", not_addressed: "danger", disputed: "warning", unclear: "neutral", deferred: "neutral" };
 
 /** The agent's check of your feedback: "✦ Addressed". */
-export function CheckBadge({ check, size = "sm" }: { check: Pick<CommentCheck, "verdict">; size?: "sm" | "md" }) {
-  return <Badge tone={CHECK_TONE[check.verdict]} size={size} title="The agent’s check" icon={<Icon name="Sparkles" aria-hidden />}>{CHECK_LABEL[check.verdict]}</Badge>;
+export function CheckBadge({ check, size = "sm" }: { check: Pick<CommentCheck, "verdict"> & Partial<Pick<CommentCheck, "label" | "confirmed">>; size?: "sm" | "md" }) {
+  // A deferral the agent proposed waits for you, in the warning tone.
+  const tone = check.verdict === "deferred" && check.confirmed === false ? "warning" : CHECK_TONE[check.verdict];
+  return <Badge tone={tone} size={size} title="The agent’s check" icon={<Icon name="Sparkles" aria-hidden />}>{check.label ?? CHECK_LABEL[check.verdict]}</Badge>;
 }
 
 /** A thread label's tone: a severity's, as on draft comments; neutral for nits, FYIs and other non-blocking ones. */

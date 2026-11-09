@@ -172,6 +172,8 @@ export interface ReviewLifecycle {
   readyToApprove?: ReadyToApprove | null;
   /** Let it push when done: a Send leaves out "Don't push until I say". Absent or false, it says it. */
   letPush?: boolean;
+  /** The feedback items the agent's check deferred whose deferral the reviewer confirmed, by item id: when. Absent: none. */
+  deferralsConfirmed?: Record<string, number>;
   /** Files the secrets filter keeps out of the diff that the reviewer chose to Include, by path. Absent: none. */
   includeHidden?: string[];
   /** Committed files that look like secrets whose warning the reviewer said Got it to, by path. Absent: none. */

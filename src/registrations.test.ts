@@ -40,6 +40,7 @@ test("the plugin registers the same RPC methods, tools, CLI subcommands, listene
       "checkPluginUpdates",
       "checkPr",
       "checkRepoAccess",
+      "confirmDeferral",
       "deleteFilterView",
       "deleteReview",
       "digDeeper",

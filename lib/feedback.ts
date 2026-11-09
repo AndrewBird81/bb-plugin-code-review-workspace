@@ -6,8 +6,11 @@ import type { FeedbackThread } from "../src/github/types";
 // deferred: the author, the PR or the reviewer says it's done later, as in a follow-up PR; only for feedback on the PR.
 export type AssessmentVerdict = "addressed" | "partial" | "not_addressed" | "disputed" | "unclear" | "deferred";
 
-/** A verdict that leaves nothing for the author to do now: what Request what's left skips, and what an Approve may follow. */
-export const settled = (verdict: AssessmentVerdict) => verdict === "addressed" || verdict === "deferred";
+/**
+ * A verdict that leaves nothing for the author to do now: what Request what's left skips, and what an Approve may follow.
+ * Deferred is the agent's proposal: it settles an item only once the reviewer confirmed it (`confirmed`).
+ */
+export const settled = (verdict: AssessmentVerdict, confirmed = false) => verdict === "addressed" || verdict === "deferred" && confirmed;
 
 /** The assistant's verdict on one piece of feedback, for one head commit. */
 export interface AssessmentItem {
@@ -22,6 +25,8 @@ export interface AssessmentItem {
   file?: string;
   line?: number;
   assessedAt: number;
+  /** Deferred, and the reviewer confirmed the deferral: the review's view says so, from its lifecycle. */
+  confirmed?: true;
 }
 
 /** The assistant's overall check of one head commit. */

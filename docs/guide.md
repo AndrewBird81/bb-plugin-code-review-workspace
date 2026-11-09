@@ -412,14 +412,14 @@ A push alone never makes a review your turn: authors often push one fix at a tim
 - the author **re-requests** your review (it even leaves your archive); a request to a team you're on isn't a re-request;
 - the author **asks you something** on one of your threads, or anyone mentions you on the PR, in a review, or in a line comment and you haven't commented since, whatever your verdict. **Whose turn → When the author replies** chooses which replies count: **Questions for you** (the default) or **Any reply**, to come back on every reply. Turn off **Come back when you're mentioned** to leave mentions out. Only the author's replies count on your threads; anyone else's counts when it @mentions you;
 - every thread you opened is **resolved or answered**, apart from non-blocking ones, there are new commits, CI isn't running or failing, and the author has been quiet for 10 minutes;
-- with **After the author pushes** set to **Check, and bring it back when everything's addressed**, the review agent finds all your feedback addressed, or deferred;
+- with **After the author pushes** set to **Check, and bring it back when everything's addressed**, the review agent finds all your feedback addressed, or deferred with your confirmation;
 - GitHub dismisses your review.
 
 **After the author pushes** is one of three choices, and needs **Run the re-review check** on:
 
 - **Do nothing** (the default): pushes alone don't start a check.
 - **Check my feedback**: while the review waits on the author, the review agent checks your feedback after their pushes and shows its progress, without bringing the review back.
-- **Check, and bring it back when everything's addressed**: the same check, and the review comes back once it finds everything addressed, or deferred.
+- **Check, and bring it back when everything's addressed**: the same check, and the review comes back once it finds everything addressed, or deferred with your confirmation.
 
 Either check runs once the author's pushes have been quiet for 15 minutes and CI has settled.
 
@@ -458,15 +458,15 @@ A thread whose first comment starts with `nit:`, `FYI:`, `optional:`, or `non-bl
 **When a review comes back, it's prepared for you.**
 
 - An out-of-date guide is rebuilt for the new commits, keeping its chapters where the files still fit and summarizing what changed since your review; if the rebuild fails, the previous guide stays. (For a PR found on GitHub, without a guide of its own, this happens only in your auto-start repositories.)
-- Then the review agent checks your feedback, in the review's own conversation: for each of your threads, and each ask in your review summary, it records whether the author **addressed** it, partly, not at all, disagreed, or **deferred** it, said to come later, as in a follow-up PR, with one line of evidence, quoting where for a deferral.
-- It also looks for new problems in the fix commits, drafts replies to your threads, and suggests a verdict with a summary, which goes into your draft. It suggests Approve only when every blocking item is addressed or deferred.
+- Then the review agent checks your feedback, in the review's own conversation: for each of your threads, and each ask in your review summary, it records whether the author **addressed** it, partly, not at all, disagreed, or **deferred** it, said to come later, as in a follow-up PR, with one line of evidence, quoting where for a deferral. A deferral is only the agent's proposal: the item reads "Deferred · not confirmed", is in **Needs you**, and keeps blocking approval until you click **Confirm deferral** on it in Comments; **Reopen** there takes your confirmation back.
+- It also looks for new problems in the fix commits, drafts replies to your threads, and suggests a verdict with a summary, which goes into your draft. It suggests Approve only when every blocking item is addressed, or deferred and confirmed by you.
 
 Comments shows all of it:
 
 - The agent's check sits at the top ("Agent’s check · a1b2c3d · 2h · 2 of 3 addressed", with **Check again**).
 - **Needs you** lists each thread that needs you, non-blocking ones last: your comment, the author's replies, the agent's verdict and evidence (**Show the fix** opens its line), the drafted reply waiting as an "Agent reply draft · not sent", **Reply**, **Resolve**, and in ⋯ **Follow up** (a new draft comment at the line).
 - Your feedback's progress on the Overview opens it.
-- If you'd already written your own summary, the suggestion waits in **Finish review**: **Use as draft** puts it and its verdict in your draft. **Request what's left** drafts a Request changes listing what's still open, deferred items aside, as your summary.
+- If you'd already written your own summary, the suggestion waits in **Finish review**: **Use as draft** puts it and its verdict in your draft. **Request what's left** drafts a Request changes listing what's still open, deferrals you confirmed aside, as your summary.
 
 Nothing posts to GitHub until you choose Send reply, Resolve, or Submit, or ask the review agent to post and confirm it. **Get a review ready before alerting you**, on by default, holds the alert for this, at most 10 minutes; off, the alert comes at once, and **Update guide** and **Check again** are a click away. Change the check's instructions with **Re-review check** in settings, or turn it off with **Run the re-review check**, which keeps them.
 

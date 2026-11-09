@@ -387,7 +387,7 @@ test("a non-blocking thread is checked, but left out of what's addressed and of 
   expect(await call("useSuggestedVerdict", { targetKey: "pr-1", revision: await reviewRevision(store, "pr-1"), mode: "remaining" })).toEqual({ ok: false, error: "Nothing is left open. Consider approving." });
 });
 
-test("the check can't suggest Approve beside blocking feedback it leaves open; deferred, quoted, is settled, and Request what's left skips it", async () => {
+test("the check can't suggest Approve beside blocking feedback it leaves open; a deferral it proposes holds Approve back until you confirm it, and then Request what's left skips it", async () => {
   const { tool, call, store } = await setup();
   const ttl = { id: "summary:1", title: "Document the TTL", verdict: "addressed", evidence: "README has it" };
   const open = await tool("assess_feedback", { items: [{ id: "t1", verdict: "not_addressed", evidence: "Fixtures not from staging" }, ttl], suggestedVerdict: "APPROVE", suggestedBody: "Nothing outstanding." });
@@ -400,12 +400,28 @@ test("the check can't suggest Approve beside blocking feedback it leaves open; d
   await tool("assess_feedback", { items: [{ id: "t1", verdict: "unclear", evidence: "Can't tell from the diff" }] });
   expect(await tool("assess_feedback", { items: [ttl], suggestedVerdict: "APPROVE" })).toMatchObject({ isError: true, content: [{ text: expect.stringContaining("t1 (unclear)") }] });
 
-  const deferred = await tool("assess_feedback", { items: [{ id: "t1", verdict: "deferred", evidence: "Author: \"staging fixtures come in the next PR\"" }, ttl], suggestedVerdict: "APPROVE" });
+  // The agent may propose a deferral, but it blocks an Approve until you confirm it.
+  const quoted = { id: "t1", verdict: "deferred", evidence: "Author: \"staging fixtures come in the next PR\"" };
+  expect(await tool("assess_feedback", { items: [quoted, ttl], suggestedVerdict: "APPROVE" })).toMatchObject({ isError: true, content: [{ text: expect.stringContaining("t1 (deferred, not confirmed by the reviewer)") }] });
+  const proposed = await tool("assess_feedback", { items: [quoted, ttl] });
+  expect(proposed).toContain("Recorded 2 items for sha2: 1 of 2 addressed. 1 deferral waits for the reviewer to confirm it.");
+  expect((await store.getReview("pr-1"))?.assessment).toMatchObject({ total: 2, addressed: 1, deferred: 0 });
+  expect((await call("getFeedback", { targetKey: "pr-1" })).feedback.items.find((item: any) => item.id === "t1").assessment).not.toHaveProperty("confirmed");
+  // Request what's left still asks for it.
+  expect(await call("useSuggestedVerdict", { targetKey: "pr-1", revision: await reviewRevision(store, "pr-1"), mode: "remaining" })).toMatchObject({ ok: true });
+  // Confirmed, it's settled: Approve may follow, Request what's left skips it, and it counts as deferred.
+  expect(await call("confirmDeferral", { targetKey: "pr-1", itemId: "t1", confirmed: true })).toEqual({ ok: true });
+  expect((await call("getFeedback", { targetKey: "pr-1" })).feedback.items.find((item: any) => item.id === "t1").assessment).toMatchObject({ verdict: "deferred", confirmed: true });
+  expect((await store.getReview("pr-1"))?.assessment).toMatchObject({ total: 2, addressed: 1, deferred: 1 });
+  const deferred = await tool("assess_feedback", { items: [quoted, ttl], suggestedVerdict: "APPROVE" });
   expect(deferred).toContain("Recorded 2 items for sha2: 1 of 2 addressed.");
   expect(deferred).not.toContain("no verdict yet");
   expect(await store.getDraft("pr-1")).toMatchObject({ suggestedVerdict: "APPROVE" });
-  expect((await store.getReview("pr-1"))?.assessment).toMatchObject({ total: 2, addressed: 1, deferred: 1 });
   expect(await call("useSuggestedVerdict", { targetKey: "pr-1", revision: await reviewRevision(store, "pr-1"), mode: "remaining" })).toEqual({ ok: false, error: "Nothing is left open. Consider approving." });
+  // Undone, it blocks again, and a confirmation isn't for an item that isn't deferred.
+  expect(await call("confirmDeferral", { targetKey: "pr-1", itemId: "t1", confirmed: false })).toEqual({ ok: true });
+  expect((await store.getReview("pr-1"))?.assessment).toMatchObject({ deferred: 0 });
+  expect(await call("confirmDeferral", { targetKey: "pr-1", itemId: "summary:1", confirmed: true })).toEqual({ ok: false, error: "The agent's check didn't defer that item." });
 });
 
 test("a later check that reopens a blocking item withdraws the Approve it kept, and Approve waits for every blocking thread's verdict", async () => {
