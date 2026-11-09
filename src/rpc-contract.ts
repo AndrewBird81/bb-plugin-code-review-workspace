@@ -84,7 +84,8 @@ const syncHealth = z.object({
 });
 const discussion = z.object({
   ...location,
-  entries: z.array(z.object({ author: z.enum(["reviewer", "agent"]), kind: z.enum(["message", "added", "edited", "removed", "restored"]), body: z.string(), createdAt: z.number() })),
+  // An edit's text before it, which Show changes compares (src/draft.ts DiscussionEntry before).
+  entries: z.array(z.object({ author: z.enum(["reviewer", "agent"]), kind: z.enum(["message", "added", "edited", "removed", "restored"]), body: z.string(), before: z.string().optional(), createdAt: z.number() })),
   startLine: z.number().int().optional(),
   waiting: z.boolean(),
   undoable: z.boolean().optional(),

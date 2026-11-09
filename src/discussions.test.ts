@@ -292,7 +292,7 @@ test("a severity the reviewer changed after the agent's edit makes Undo refuse, 
 
 test("an agent's edit in a discussion carries the text it replaced, labeled as the edit is, so the reviewer can see what changed", async () => {
   const summary = { file: "", line: 0, side: "RIGHT" } as const;
-  const { store, ask, tool } = await host();
+  const { store, ask, tool, harness } = await host();
   await tool("add_draft_comment", { ...at, code: "const c = b * 2;", body: "**Nit:** Can this overflow?" });
   await store.updateSummary("pr-1", { body: "Fine by me." });
   await ask({ body: "Is it blocking?" });
@@ -304,6 +304,9 @@ test("an agent's edit in a discussion carries the text it replaced, labeled as t
     [{ author: "agent", kind: "edited", body: "**Blocking:** It overflows past 2^53.", before: "**Nit:** Can this overflow?", createdAt: expect.any(Number) }],
     [{ author: "agent", kind: "edited", body: "Fine, but see a.ts:3.", before: "Fine by me.", createdAt: expect.any(Number) }],
   ]);
+  // The page gets it as the store has it, through getDraft's contract, for Show changes.
+  const page = await harness.behavior.callRpc("getDraft", { targetKey: "pr-1" }) as { discussions: Array<{ entries: Array<{ kind: string; before?: string }> }> };
+  expect(page.discussions.map((d) => d.entries.find((entry) => entry.kind === "edited")?.before)).toEqual(["**Nit:** Can this overflow?", "Fine by me."]);
   // Only an edit has text before it: an added comment had none.
   await ask({ file: "a.ts", line: 2, side: "LEFT", body: "Comment here?" });
   await tool("add_draft_comment", { file: "a.ts", line: 2, side: "LEFT", code: "const b = 2;", body: "Why change b?" });
