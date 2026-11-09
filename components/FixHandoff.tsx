@@ -7,7 +7,7 @@ import { yoursByFolder } from "../lib/fixer";
 import { askChangeThread, useMainThread } from "../lib/main-thread";
 import { useKnob } from "../lib/settings";
 import { cn } from "../lib/utils";
-import { useWorkspace } from "../lib/workspace-context";
+import { useFill, useWorkspace } from "../lib/workspace-context";
 import { TOUCH_CONTROL, TOUCH_TARGET } from "./touch";
 import { Button } from "./ui/button";
 import { Icon } from "./ui/icon";
@@ -44,6 +44,9 @@ export function FixHandoff({ targetKey, comments, revision }: { targetKey: strin
   const { panel, layout } = useWorkspace();
   // refresh: a Send makes its comments sent, which the draft says at once, as BB's realtime would.
   const { review, draft, refresh, isLocal, ownPr } = useDraft();
+  // With no Submit, on a local review, the form's Send is the way on: it stays filled beside Finish review.
+  const fill = useFill();
+  const lead = isLocal ? "default" : fill;
   const { thread: main, reload } = useMainThread(targetKey, review);
   const listed = experimental_useSidebarThreads().threads.find((thread) => thread.id === main?.threadId);
   // What the picker is for: sending comments or an approval to the main thread, or a new thread.
@@ -165,7 +168,7 @@ export function FixHandoff({ targetKey, comments, revision }: { targetKey: strin
       {askingPush && <div role="alert" className="space-y-2 rounded-lg border border-warning/25 bg-warning/10 p-2.5 text-xs leading-relaxed text-warning-text">
         <p className="flex gap-1.5"><Icon name="AlertTriangle" className="mt-0.5 size-3.5 shrink-0" aria-hidden /><span>This is {review?.author ? `@${review.author}’s` : "someone else’s"} PR: a push changes their branch. Leave pushing to them, or let the main thread push anyway?</span></p>
         <div className="flex flex-wrap gap-2">
-          <Button size="sm" className={TOUCH_CONTROL} onClick={() => void changeLetPush(true)}>Let it push</Button>
+          <Button size="sm" variant={fill} className={TOUCH_CONTROL} onClick={() => void changeLetPush(true)}>Let it push</Button>
           <Button size="sm" variant="ghost" className={TOUCH_CONTROL} onClick={() => setAskingPush(false)}>Keep it off</Button>
         </div>
       </div>}
@@ -175,10 +178,10 @@ export function FixHandoff({ targetKey, comments, revision }: { targetKey: strin
       {/* With a warning up, its choices are the only way on. */}
       {!warned && <div className="flex flex-wrap gap-2">
         {picking === "approve" && to
-          ? <Button size="sm" className={TOUCH_CONTROL} disabled={busy} onClick={() => void approve()}>{busy ? spinner : <Icon name="Send" className="size-4" aria-hidden />}Send</Button>
+          ? <Button size="sm" variant={lead} className={TOUCH_CONTROL} disabled={busy} onClick={() => void approve()}>{busy ? spinner : <Icon name="Send" className="size-4" aria-hidden />}Send</Button>
           : picking === "send" && to
-          ? <Button size="sm" className={TOUCH_CONTROL} disabled={busy || !chosen.length} onClick={() => void send()}>{busy ? spinner : <Icon name="Send" className="size-4" aria-hidden />}Send</Button>
-          : <Button size="sm" className={TOUCH_CONTROL} disabled={busy || !chosen.length} onClick={() => void start()}>{busy && spinner}Start thread</Button>}
+          ? <Button size="sm" variant={lead} className={TOUCH_CONTROL} disabled={busy || !chosen.length} onClick={() => void send()}>{busy ? spinner : <Icon name="Send" className="size-4" aria-hidden />}Send</Button>
+          : <Button size="sm" variant={lead} className={TOUCH_CONTROL} disabled={busy || !chosen.length} onClick={() => void start()}>{busy && spinner}Start thread</Button>}
         <Button size="sm" variant="ghost" className={TOUCH_CONTROL} disabled={busy} onClick={() => setChoosing(null)}>Cancel</Button>
       </div>}
     </fieldset> : warned ? null : approvable ? <div className="space-y-2">

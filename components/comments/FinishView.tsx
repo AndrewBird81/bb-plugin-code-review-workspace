@@ -17,7 +17,7 @@ import { Marked, Mono, updateThenClear } from "../shell/PushNotices";
 import { sidePanelId } from "../shell/SidePanel";
 import { statusWhy } from "../../lib/status-line";
 import { cn } from "../../lib/utils";
-import { NOT_PUSHED_PAGE, useWorkspace } from "../../lib/workspace-context";
+import { NOT_PUSHED_PAGE, useFill, useWorkspace } from "../../lib/workspace-context";
 import { useDraft } from "../DraftProvider";
 import { FixHandoff, LINK } from "../FixHandoff";
 import { isOpen } from "../SendNow";
@@ -184,6 +184,9 @@ function Push({ plan }: { plan: PushPlan | null | undefined }) {
   const navigate = useBbNavigate();
   const sendOn = useKnob("sendToThread");
   const acts = useKnob("reviewAgentActs");
+  // With no Submit, on a local review, Push's way on stays filled.
+  const fill = useFill();
+  const lead = d.isLocal ? "default" : fill;
   const [busy, setBusy] = useState<"push" | "anyway" | "update" | "dismiss" | "retry" | null>(null);
   // What went wrong, or that there was nothing to push.
   const [said, setSaid] = useState<{ text: string; error: boolean } | null>(null);
@@ -229,7 +232,7 @@ function Push({ plan }: { plan: PushPlan | null | undefined }) {
   </Button>;
   const quiet = (label: string, onClick: () => void) => <Button variant="ghost" size="sm" className={cn("text-muted-foreground hover:text-foreground", TOUCH_CONTROL, BUSY)} aria-disabled={!!busy || undefined} onClick={onClick}>{label}</Button>;
   const cancel = (label = "Cancel") => quiet(label, () => void dismiss());
-  const updateButton = (label: string, filled: boolean) => <Button size="sm" variant={filled ? "default" : "outline"} className={cn("gap-1.5", !filled && "text-foreground", TOUCH_CONTROL, BUSY)} aria-disabled={!!busy || undefined} onClick={() => void update()}>{spinner(busy === "update", "ArrowReloadHorizontal")}{label}</Button>;
+  const updateButton = (label: string, filled: boolean) => <Button size="sm" variant={filled ? lead : "outline"} className={cn("gap-1.5", !filled && "text-foreground", TOUCH_CONTROL, BUSY)} aria-disabled={!!busy || undefined} onClick={() => void update()}>{spinner(busy === "update", "ArrowReloadHorizontal")}{label}</Button>;
   const branch = <Mono text={run?.head ?? target.head} />;
   const flag = pushFlagText(run);
   const secrets = new Set(run?.secrets ?? []);
@@ -366,6 +369,7 @@ function Verdicts({ revision }: { revision: string }) {
   const ownPrId = useId();
   const [busy, setBusy] = useState<"suggested" | "remaining" | null>(null);
   const [confirming, setConfirming] = useState<"suggested" | "remaining" | null>(null);
+  const fill = useFill();
   const run = feedback?.run ?? null;
   // Blocking feedback the agent's check says isn't done yet, nor deferred with your confirmation.
   const left = !!feedback?.items.some((item) => !item.nonBlocking && item.assessment && !settled(item.assessment.verdict, item.assessment.confirmed));
@@ -437,7 +441,7 @@ function Verdicts({ revision }: { revision: string }) {
           </DialogHeader>
           <DialogFooter className="gap-2 sm:space-x-0">
             <Button variant="outline" className={TOUCH_CONTROL} onClick={() => setConfirming(null)}>Keep mine</Button>
-            <Button className={TOUCH_CONTROL} onClick={replace}>Replace summary</Button>
+            <Button variant={fill} className={TOUCH_CONTROL} onClick={replace}>Replace summary</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

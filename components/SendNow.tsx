@@ -8,7 +8,7 @@ import type { CommentLocation, DraftComment } from "../src/draft";
 import type { FixerChoice, Offer } from "../src/loop";
 import { cn } from "../lib/utils";
 import { useWorkspaceFor } from "../lib/workspace-store";
-import type { MainThreadName } from "../lib/workspace-context";
+import { useFill, type MainThreadName } from "../lib/workspace-context";
 import { useFullscreenPortalContainer } from "../lib/portal-scope";
 import { Hint } from "./ui/hint";
 import { TOUCH_CONTROL } from "./touch";
@@ -71,6 +71,7 @@ function choiceLead({ why, thread, folder }: FixerChoice): string {
 function SendChoice({ warned, choice, what, busy, onChoose, onCancel, className }: { warned: SendWarned; choice: FixerChoice; what: string; busy: boolean; onChoose: (choice: Choice) => void; onCancel: () => void; className?: string }) {
   const id = useId();
   const box = useFirstButton();
+  const fill = useFill();
   // "3 comments" reads as these 3.
   const these = /^\d/.test(what) ? `these ${what}` : what;
   const line: Record<Exclude<Offer, "anyway">, string> = {
@@ -84,7 +85,7 @@ function SendChoice({ warned, choice, what, busy, onChoose, onCancel, className 
     <p id={`${id}-lead`} role="status" className="font-medium text-foreground">{choiceLead(choice)} Where should {these} go?</p>
     <ul className="space-y-2">
       {offers.map((offer, i) => <li key={offer} className="space-y-0.5">
-        <Button size="sm" variant={i ? "outline" : "default"} className={cn("aria-disabled:pointer-events-none aria-disabled:opacity-50", TOUCH_CONTROL)} aria-disabled={busy || undefined}
+        <Button size="sm" variant={i ? "outline" : fill} className={cn("aria-disabled:pointer-events-none aria-disabled:opacity-50", TOUCH_CONTROL)} aria-disabled={busy || undefined}
           aria-describedby={`${id}-${offer}`} onClick={() => { if (!busy) onChoose(choiceOf(offer)); }}>{LABEL[offer]}</Button>
         <p id={`${id}-${offer}`} className="text-muted-foreground">{line[offer]}</p>
       </li>)}
@@ -100,12 +101,13 @@ function SendChoice({ warned, choice, what, busy, onChoose, onCancel, className 
  */
 export function SendWarning({ warned, busy, anyway = "Send anyway", what = "the comment", onChoose, onCancel, className }: { warned: SendWarned; busy: boolean; anyway?: string; what?: string; onChoose: (choice: Choice) => void; onCancel: () => void; className?: string }) {
   const box = useFirstButton();
+  const fill = useFill();
   if (warned.choice) return <SendChoice warned={warned} choice={warned.choice} what={what} busy={busy} onChoose={onChoose} onCancel={onCancel} className={className} />;
   const label: Record<Offer, string> = { anyway, ...LABEL };
   return <div ref={box} role="alert" className={cn("space-y-2 rounded-lg border border-warning/25 bg-warning/10 p-2.5 text-xs leading-relaxed text-warning-text", className)}>
     <p className="flex gap-1.5"><Icon name="AlertTriangle" className="mt-0.5 size-3.5 shrink-0" aria-hidden /><span>{warned.warning}</span></p>
     <div className="flex flex-wrap gap-2">
-      {warned.offers.map((offer, i) => <Button key={offer} size="sm" variant={i ? "outline" : "default"} className={cn("aria-disabled:pointer-events-none aria-disabled:opacity-50", TOUCH_CONTROL)} aria-disabled={busy || undefined}
+      {warned.offers.map((offer, i) => <Button key={offer} size="sm" variant={i ? "outline" : fill} className={cn("aria-disabled:pointer-events-none aria-disabled:opacity-50", TOUCH_CONTROL)} aria-disabled={busy || undefined}
         aria-description={offer === "fork" && warned.forkFrom ? `Forks ${warned.forkFrom}` : offer === "fresh" && warned.freshWhere ? `Starts it ${warned.freshWhere}` : undefined} onClick={() => { if (!busy) onChoose(choiceOf(offer)); }}>{label[offer]}</Button>)}
       <Button size="sm" variant="ghost" className={TOUCH_CONTROL} onClick={onCancel}>Cancel</Button>
     </div>

@@ -9,6 +9,7 @@ import { setCommentOpen, useCommentOpen } from "../lib/comments-fold";
 import { useKnob } from "../lib/settings";
 import { useSeenInView } from "../lib/use-seen-in-view";
 import { cn } from "../lib/utils";
+import { useFill } from "../lib/workspace-context";
 import { Button } from "./ui/button";
 import { Icon } from "./ui/icon";
 import { InlineCode } from "./ui/inline-code";
@@ -422,6 +423,7 @@ export function ComposerFields({ mode, subject = "comment", divided = false, bus
   const empty = !composer.body.trim();
   const summary = subject === "summary";
   const primary = mode === "ask" ? composer.askAgent : composer.save;
+  const fill = useFill();
   const held = busy || empty || mode !== "ask" && !!composer.rebuilding;
   const sees = summary ? "It sees the summary and the draft comments." : composer.askSees;
   return (
@@ -451,7 +453,7 @@ export function ComposerFields({ mode, subject = "comment", divided = false, bus
         </span>}
         <Button variant="ghost" size="sm" className={TOUCH_CONTROL} disabled={busy} onClick={composer.cancel}>Cancel</Button>
         {mode === "new" && <Button variant="outline" size="sm" className={TOUCH_CONTROL} disabled={busy || empty} onClick={composer.askAgent}><Icon name="Sparkles" className="size-3.5 text-(--ansi-13)" aria-hidden />Ask agent</Button>}
-        <Button size="sm" className={TOUCH_CONTROL} disabled={held} onClick={primary}>
+        <Button size="sm" variant={fill} className={TOUCH_CONTROL} disabled={held} onClick={primary}>
           {mode === "ask" ? "Send to agent" : summary ? "Save summary" : mode === "edit" ? composer.changedWhileEditing?.now ? "Replace comment" : "Save comment" : composer.replacing ? "Replace comment" : "Add to draft"}
         </Button>
       </div>

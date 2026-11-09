@@ -1375,3 +1375,17 @@ test("a comment the agent added is New from agent—not yet reviewed, under the 
   vi.unstubAllGlobals();
   slot.lifecycle.unmount();
 }, 15_000);
+
+test("in Finish review, Move to summary's Move and Replace summary are outlined, so Submit is the one filled button", async () => {
+  const filled = (scope: HTMLElement) => within(scope).getAllByRole("button").filter((button) => button.className.includes("bg-primary ")).map((button) => button.textContent);
+  const moving = await renderWorkspace({ rpc: movedRpc() });
+  const view = await finish(moving.slot);
+  fireEvent.click(view.getByRole("button", { name: "Move to summary" }));
+  expect(filled(await moving.slot.findByRole("dialog", { name: "Move to summary" }))).toEqual([]);
+  moving.slot.lifecycle.unmount();
+  cleanup();
+  const { slot } = await renderWorkspace({ rpc: { getDraft: vi.fn(() => ({ draft: draftOf({ body: "My summary." }), stale: [] })), getFeedback: () => ({ feedback: feedbackOf({ run }) }) } });
+  fireEvent.click((await finish(slot)).getByRole("button", { name: "Request what’s left" }));
+  expect(filled(await slot.findByRole("dialog", { name: "Replace your summary?" }))).toEqual([]);
+  slot.lifecycle.unmount();
+});

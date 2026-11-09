@@ -372,3 +372,22 @@ test("sending comments to the main thread can add your message and the summary; 
   await waitFor(() => expect(sendToSourceThread).toHaveBeenCalledWith({ targetKey: "k", comments: [{ file: "src/a.ts", line: 2, side: "RIGHT" }, { file: "src/b.ts", line: 9, side: "LEFT" }], message: "Do these first.", includeSummary: true }));
   slot.lifecycle.unmount();
 });
+
+test("with Finish review showing on a PR, Send and Let it push are outlined, so Submit is the one filled button; a local review's Send stays its way on", async () => {
+  // The tray shows Comments beside Finish review, which the page doesn't: its Finish review button isn't counted.
+  const filled = (slot: Awaited<ReturnType<typeof renderTray>>) => slot.getAllByRole("button").filter((button) => button.className.includes("bg-primary ") && button.textContent !== "Finish review").map((button) => button.textContent);
+  const finishing = { view: "finish" as const, open: () => {}, toggle: () => {}, close: () => {} };
+  const teammate = { review: { targetKey: "k", kind: "pr", author: "alice", sourceThreadId: "coder" }, workspace: { panel: finishing, mainThread: { threadId: "coder", title: "Retry uploads", machine: null } } };
+  const slot = await renderTray({ getSourceThread: open(), setLetPush: vi.fn(async () => ({ ok: true })) }, teammate);
+  fireEvent.click(await slot.findByRole("button", { name: "Send 2 to main thread" }));
+  const picks = within(slot.getByRole("group", { name: "Comments to send" }));
+  fireEvent.click(picks.getByRole("checkbox", { name: "Let it push when done" }));
+  within(picks.getByRole("alert")).getByRole("button", { name: "Let it push" });
+  expect(filled(slot)).toEqual([expect.stringMatching(/^Submit to GitHub/)]);
+  slot.lifecycle.unmount();
+  cleanup();
+  const folder = await renderTray({ getSourceThread: open() }, { ...local, workspace: { panel: finishing } });
+  fireEvent.click(await folder.findByRole("button", { name: "Send 2 to main thread" }));
+  expect(filled(folder)).toEqual(["Send"]);
+  folder.lifecycle.unmount();
+});
