@@ -117,6 +117,41 @@ test("a sub-thread you see addresses its review to itself, even in its orchestra
   expect((await s.store.getReview(key))?.mainThread?.threadId).toBe("worker");
 });
 
+test("sub-threads sharing their orchestrator's folder address its review to the orchestrator, not to whichever of them asked first", async () => {
+  const s = setup(undefined, {
+    orch: { id: "orch", environmentId: "env1", title: "Orchestrator" },
+    worker: { id: "worker", environmentId: "env1", parentThreadId: "orch", title: "Build snooze" },
+    tests: { id: "tests", environmentId: "env1", parentThreadId: "orch", title: "Write tests" },
+    // A hidden helper of the worker's is the worker's, not a sibling.
+    helper: { id: "helper", environmentId: "env1", parentThreadId: "worker", title: "Lint", visibility: "hidden" },
+  });
+  const first = await run(s, "worker");
+  expect(first.stdout).toContain(`Its main thread is "Orchestrator" (orch), which leads the sub-threads working in this folder. Comments sent from the review go there.`);
+  expect((await s.store.getReview(key))?.mainThread?.threadId).toBe("orch");
+  // Asked again from either sibling, it stays the orchestrator's.
+  expect((await run(s, "tests")).stdout).toContain(`Its main thread is "Orchestrator" (orch)`);
+  expect((await s.store.getReview(key))?.mainThread?.threadId).toBe("orch");
+  // Nor are the sub-threads also editing it: they work under its main thread. The folder's other top threads are.
+  await settled(s);
+  expect((await checkFeature(s.deps, key)).alsoActive.map((thread) => thread.threadId)).toEqual(["main", "sub", "other"]);
+});
+
+test("a sibling that opens a sub-thread's review later moves it to their shared parent, which says so", async () => {
+  const threads: Record<string, T> = {
+    orch: { id: "orch", environmentId: "env1", title: "Orchestrator" },
+    worker: { id: "worker", environmentId: "env1", parentThreadId: "orch", title: "Build snooze" },
+  };
+  const s = setup(undefined, threads);
+  expect((await run(s, "worker")).stdout).toContain(`Its main thread is "Build snooze" (worker). Comments sent from the review go there.`);
+  await settled(s);
+  // Its orchestrator works in the folder above it, so it isn't also editing it.
+  expect((await checkFeature(s.deps, key)).alsoActive.map((thread) => thread.threadId)).toEqual(["main", "sub", "other"]);
+  s.all.tests = { id: "tests", environmentId: "env1", parentThreadId: "orch", title: "Write tests" };
+  const moved = await run(s, "tests");
+  expect(moved.stdout).toContain(`Its main thread is now "Orchestrator" (orch), which leads the sub-threads working in this folder, in place of "Build snooze" (worker). Comments sent from the review go there.`);
+  expect((await s.store.getReview(key))).toMatchObject({ mainThread: { threadId: "orch" }, implementers: [{ threadId: "worker" }] });
+});
+
 test("a hidden subagent addresses the nearest thread you see working in the folder, passing over one in another folder", async () => {
   const s = setup(undefined, {
     orch: { id: "orch", environmentId: "env_orch", title: "Orchestrator" },

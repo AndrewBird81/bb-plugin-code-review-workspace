@@ -28,7 +28,8 @@ bb review [<pr-url | owner/repo#n | pr-number | git-ref> [--base <ref>]] [--cont
   changes, uncommitted and new files included. There's one review per folder and branch, so run it
   from any thread or subagent there; run again, it only opens the review. It prints the review's
   id and its main thread, the thread that started it, which gets the comments the reviewer
-  sends: a sub-thread's own review goes to that sub-thread, not its orchestrator. On the
+  sends: a sub-thread's own review goes to that sub-thread, not its orchestrator, unless
+  sibling sub-threads share the folder, when it goes to the parent they share there. On the
   branch of an open PR the reviewer is reviewing already, as when you checked out a
   teammate's PR to change it, the folder joins that PR's review instead: the reviewer reads
   what you haven't pushed in its Not pushed yet, and you're its main thread. So when the

@@ -63,24 +63,64 @@ async function threadGone(bb: BbPluginApi, threadId: string): Promise<{ gone: bo
  * The thread a folder's comments go to, `main`: `caller`, when you see it, as a sub-thread working on its own feature
  * does, even in its parent's folder; a hidden one gives way to the nearest of its ancestors you see that still works in
  * its folder, passing over one in another folder. `top` is the highest of them working there, which may be one of this
- * plugin's agents a thread works under. Each step reads one thread (threads.get, not experimental_listAncestors, which
- * older BBs lack); a parent BB no longer has ends the walk, and any other failure throws, as neither can be told.
+ * plugin's agents a thread works under; `above`, the threads you see over `main` working there, nearest first. Each step
+ * reads one thread (threads.get, not experimental_listAncestors, which older BBs lack); a parent BB no longer has ends
+ * the walk, and any other failure throws, as neither can be told.
  */
-export async function mainThreadOf(bb: BbPluginApi, caller: Thread): Promise<{ main: Thread; top: Thread }> {
+export async function mainThreadOf(bb: BbPluginApi, caller: Thread): Promise<{ main: Thread; top: Thread; above: Thread[] }> {
   let main = caller;
   let top = caller;
   let at = caller;
+  const above: Thread[] = [];
   // A cycle, which BB shouldn't make, ends here too.
   for (let depth = 0; at.parentThreadId && depth < 50; depth++) {
     const parent = await threadOf(bb, at.parentThreadId);
     if (!parent) break;
     if (parent.environmentId === caller.environmentId && live(parent)) {
       if (main.visibility === "hidden") main = parent;
+      else if (parent.visibility !== "hidden") above.push(parent);
       top = parent;
     }
     at = parent;
   }
-  return { main, top };
+  return { main, top, above };
+}
+
+/** The ids of `thread`'s ancestors, nearest first, read from `known` where it has them and from BB where it doesn't. */
+async function ancestorIds(bb: BbPluginApi, thread: Pick<Thread, "parentThreadId">, known: Map<string, string | null>): Promise<string[]> {
+  const ids: string[] = [];
+  for (let at = thread.parentThreadId ?? null, depth = 0; at && depth < 50; depth++) {
+    ids.push(at);
+    if (!known.has(at)) known.set(at, (await threadOf(bb, at))?.parentThreadId ?? null);
+    at = known.get(at) ?? null;
+  }
+  return ids;
+}
+
+/**
+ * Where sub-threads share a folder: `main`, a thread you see there, gives way to the nearest of the threads `above` it
+ * that every other thread you see working there under one of them works under, so their comments go to the thread that
+ * leads them, not to whichever asked first. `covers`: the threads it takes over from, `main` among them, by title. Null
+ * when no other thread you see works there under one of `above`, as when `main` works there alone.
+ */
+async function sharedMain(bb: BbPluginApi, main: Thread, above: readonly Thread[]): Promise<{ main: Thread; covers: Map<string, string | null> } | null> {
+  if (!above.length || !main.environmentId) return null;
+  const listed = await bb.sdk.threads.list({ environmentId: main.environmentId });
+  const known = new Map(listed.map((thread) => [thread.id, thread.parentThreadId ?? null]));
+  const over = new Set(above.map((thread) => thread.id));
+  const covers = new Map([[main.id, threadTitle(main)]]);
+  let reach = -1;
+  for (const thread of listed) {
+    if (thread.id === main.id || over.has(thread.id) || !live(thread) || thread.visibility === "hidden" || thread.originPluginId === bb.pluginId) continue;
+    const ancestors = await ancestorIds(bb, thread, known);
+    // The main thread's own sub-threads are its work.
+    if (ancestors.includes(main.id)) continue;
+    const at = above.findIndex((parent) => ancestors.includes(parent.id));
+    if (at < 0) continue;
+    reach = Math.max(reach, at);
+    covers.set(thread.id, threadTitle(thread));
+  }
+  return reach < 0 ? null : { main: above[reach]!, covers };
 }
 
 /** What a folder's review needs to know of it: bb's environment, its machine's name, and its project's GitHub repo. */
@@ -138,7 +178,7 @@ export function mainThreadState(review: Pick<ReviewMeta, "mainThread" | "impleme
  * The review opened: whether it was started, or the folder joined its PR's review, whether its main thread was replaced
  * and by which, and whether anything in it changed.
  */
-type Opened = { key: string; created: boolean; joined: boolean; replaced: { threadId: string; title: string | null } | null; main: { threadId: string; title: string | null }; changed: boolean };
+type Opened = { key: string; created: boolean; joined: boolean; replaced: { threadId: string; title: string | null } | null; main: { threadId: string; title: string | null }; changed: boolean; shared: boolean; movedFrom: { threadId: string; title: string | null } | null };
 
 /** A PR's review a folder on its branch may join: open, with a guide or one being written, and no folder BB still has. */
 const joinable = (review: ReviewMeta) => review.kind === "pr" && !review.archivedAt && !review.mergedInto
@@ -175,9 +215,10 @@ async function prReviewToJoin(deps: Deps, folder: Folder): Promise<ReviewMeta | 
  * Open the review of `folder` at its branch now, addressed to `main`, or start it: an existing one opens as it is, with
  * its main thread, unless that thread is archived or deleted and `main` is live. With none, a folder on an open PR's
  * branch the plugin reviews already joins that review (prReviewToJoin): its folder from then on, for Not pushed yet and
- * Push, `main` its main thread, the one before kept, and nothing rebuilt. `run` starts its guide once called.
+ * Push, `main` its main thread, the one before kept, and nothing rebuilt. `covers`, where `main` leads sub-threads
+ * sharing the folder (sharedMain): a review one of them has moves to `main`. `run` starts its guide once called.
  */
-async function openFolderReview(deps: Deps, folder: Folder, main: Thread | null, options: { name?: string; context?: string } = {}): Promise<{ opened: Opened; run?: () => Promise<void> } | { error: string }> {
+async function openFolderReview(deps: Deps, folder: Folder, main: Thread | null, options: { name?: string; context?: string } = {}, covers?: Map<string, string | null>): Promise<{ opened: Opened; run?: () => Promise<void> } | { error: string }> {
   const { bb, store } = deps;
   const { env, machine, repo } = folder;
   // A review re-homed to a fixer's worktree, on that worktree's branch, is the folder's review: its key is its old folder's;
@@ -220,6 +261,7 @@ async function openFolderReview(deps: Deps, folder: Folder, main: Thread | null,
     let created = false;
     let joined = false;
     let replaced: Opened["replaced"] = null;
+    let movedFrom: Opened["movedFrom"] = null;
     // Joined by another call meanwhile, as by a subagent in the same folder: this one only opens it.
     const here = readsFolder(review, env);
     if (joining && !here) {
@@ -247,11 +289,15 @@ async function openFolderReview(deps: Deps, folder: Folder, main: Thread | null,
       if (main && gone && review.mainThread?.threadId === existing!.mainThread!.threadId) {
         replaced = { threadId: review.mainThread!.threadId, title: recorded ? threadTitle(recorded) : null };
         await tx.setLifecycle(key, mainThreadState(review, main, now));
+      } else if (main && covers && review.mainThread && review.mainThread.threadId !== main.id && covers.has(review.mainThread.threadId)) {
+        // A sub-thread's, now its siblings share the folder: theirs, through the thread that leads them.
+        movedFrom = { threadId: review.mainThread.threadId, title: covers.get(review.mainThread.threadId) ?? null };
+        await tx.setLifecycle(key, mainThreadState(review, main, now));
       }
       // Asked for again, it's back from your archive.
       if (review.userArchivedAt) await tx.setLifecycle(key, { userArchivedAt: null });
     }
-    const changed = created || joined || !!replaced || !!review?.userArchivedAt || options.name !== undefined || options.context !== undefined;
+    const changed = created || joined || !!replaced || !!movedFrom || !!review?.userArchivedAt || options.name !== undefined || options.context !== undefined;
     if (options.context !== undefined) await tx.setReviewContext(key, options.context.trim() || null);
     if (options.name !== undefined) {
       const named = (await tx.getReview(key))!;
@@ -259,7 +305,7 @@ async function openFolderReview(deps: Deps, folder: Folder, main: Thread | null,
     }
     if (created) run = await beginGuide(bb, tx, store, key, env.projectId);
     const threadId = (await tx.getReview(key))!.mainThread?.threadId ?? main?.id ?? "";
-    return { opened: { key, created, joined, replaced, changed, main: { threadId, title: threadId === main?.id ? threadTitle(main) : recorded && threadTitle(recorded) } } };
+    return { opened: { key, created, joined, replaced, changed, movedFrom, shared: !!covers && threadId === main?.id, main: { threadId, title: threadId === main?.id ? threadTitle(main) : recorded && threadTitle(recorded) } } };
   });
   return "error" in result ? result : { ...result, run };
 }
@@ -304,7 +350,7 @@ interface Ctx { projectId?: string; threadId?: string; cwd?: string }
  * The folder `threadId` works in and the thread its review goes to, as `bb review` with no arguments finds them, or why
  * not: neither may be one of the plugin's own threads, as a thread a review agent started would lead to its agent.
  */
-async function callerFolder(deps: Deps, threadId: string): Promise<{ caller: Thread; folder: Folder; main: Thread | null } | { exitCode: number; stderr: string }> {
+async function callerFolder(deps: Deps, threadId: string): Promise<{ caller: Thread; folder: Folder; main: Thread | null; covers?: Map<string, string | null> } | { exitCode: number; stderr: string }> {
   const { bb } = deps;
   let caller: Thread | null;
   try {
@@ -322,7 +368,9 @@ async function callerFolder(deps: Deps, threadId: string): Promise<{ caller: Thr
   // Unknown, it starts no review, and an existing one keeps its main thread.
   const found = await mainThreadOf(bb, caller).catch(() => null);
   if (found && (await pluginThread(deps, found.main, true) || await pluginThread(deps, found.top, true))) return { exitCode: 2, stderr: agents };
-  return { caller, folder, main: found?.main ?? null };
+  // Sub-threads sharing the folder: the thread that leads them. Unknown, the thread found stays.
+  const shared = found ? await sharedMain(bb, found.main, found.above).catch(() => null) : null;
+  return { caller, folder, main: shared?.main ?? found?.main ?? null, ...shared ? { covers: shared.covers } : {} };
 }
 
 /**
@@ -335,16 +383,16 @@ export async function runFeatureCommand(deps: Deps, command: FeatureCommand, ctx
   if (!ctx.threadId) return { exitCode: 2, stderr: "Run `bb review` with no arguments in a bb thread: it reviews the changes in that thread’s folder. Outside a thread, pass a PR or a git ref." };
   const found = await callerFolder(deps, ctx.threadId);
   if ("stderr" in found) return { exitCode: found.exitCode, stderr: found.stderr };
-  const { folder, main } = found;
+  const { folder, main, covers } = found;
   let started: Awaited<ReturnType<typeof openFolderReview>>;
   try {
-    started = await openFolderReview(deps, folder, main, command);
+    started = await openFolderReview(deps, folder, main, command, covers);
   } catch (error) {
     return { exitCode: 1, stderr: error instanceof Error ? error.message : String(error) };
   }
   if ("error" in started) return { exitCode: 1, stderr: started.error };
   void started.run?.();
-  const { key, created, joined, replaced, main: to, changed } = started.opened;
+  const { key, created, joined, replaced, main: to, changed, shared, movedFrom } = started.opened;
 
   const review = (await store.getReview(key))!;
   const identity = identityIn(await placeFacts(bb, [review]), await store.listReviews(), review);
@@ -359,8 +407,10 @@ export async function runFeatureCommand(deps: Deps, command: FeatureCommand, ctx
       : joined ? `This folder, ${where}, is on the branch of PR #${review.number}, which has a review already: ${which}. The folder joined it, and nothing was rebuilt: Not pushed yet shows what the folder has that the PR doesn’t on GitHub. ${open} to review it.`
       : `Opened the review of ${where}: ${which}, as it was; nothing was rebuilt. ${open} to review it.`,
     joined ? `Its main thread is now ${thread}. Comments sent from the review go there.`
+      : movedFrom ? `Its main thread is now ${thread}, which leads the sub-threads working in this folder, in place of ${movedFrom.title ? `${JSON.stringify(movedFrom.title)} (${movedFrom.threadId})` : movedFrom.threadId}. Comments sent from the review go there.`
       : replaced ? `Its main thread is now ${thread}, in place of ${replaced.title ? JSON.stringify(replaced.title) : replaced.threadId}, which is archived or deleted. Comments sent from the review go there.`
       : !main ? `Its main thread is ${thread}, as before: BB couldn’t say which thread leads the work here now. Comments sent from the review go there.`
+      : shared ? `Its main thread is ${thread}, which leads the sub-threads working in this folder. Comments sent from the review go there.`
       : `Its main thread is ${thread}${to.threadId === main.id ? "" : ", as before"}. Comments sent from the review go there.`,
   ];
   // A subagent in a worktree of its own shares its parent's thread, whose folder this reviews.
@@ -402,7 +452,10 @@ function changedCount(kept: Record<string, string> | null, now: Record<string, s
   return [...paths].filter((path) => kept[path] !== now[path]).length;
 }
 
-/** The other threads in the review's folder, by title: not its main thread, its subagents, or this plugin's threads. */
+/**
+ * The other threads in the review's folder, by title: not its main thread, its subagents, the threads it works under,
+ * as an orchestrator over a sub-thread's own review, or this plugin's threads.
+ */
 async function alsoActive(bb: BbPluginApi, review: ReviewMeta & { feature: FeatureReview }): Promise<FeatureCheck["alsoActive"]> {
   const main = review.mainThread?.threadId;
   const [listed, below] = await Promise.all([
@@ -410,7 +463,10 @@ async function alsoActive(bb: BbPluginApi, review: ReviewMeta & { feature: Featu
     main ? bb.sdk.threads.experimental_listDescendants?.({ threadIds: [main] }).catch(() => null) : null,
   ]);
   const under = new Set(below?.threads.find((thread) => thread.threadId === main)?.descendantIds ?? []);
-  return listed.filter((thread) => thread.id !== main && !under.has(thread.id) && thread.parentThreadId !== main && !thread.archivedAt && !thread.deletedAt
+  const known = new Map(listed.map((thread) => [thread.id, thread.parentThreadId ?? null]));
+  const listedMain = listed.find((thread) => thread.id === main);
+  const over = new Set(listedMain ? await ancestorIds(bb, listedMain, known).catch(() => []) : []);
+  return listed.filter((thread) => thread.id !== main && !under.has(thread.id) && !over.has(thread.id) && thread.parentThreadId !== main && !thread.archivedAt && !thread.deletedAt
     && thread.visibility !== "hidden" && thread.originPluginId !== bb.pluginId)
     .map((thread) => ({ threadId: thread.id, title: threadTitle(thread) ?? "Untitled thread" }));
 }
@@ -1061,7 +1117,7 @@ export function register(deps: ServeDeps) {
       if (found.caller.visibility === "hidden") return { ok: false, error: "This thread is one of Code Review Workspace’s agents, so it can’t start a review of its folder. Run it in a thread working on the change." };
       let started: Awaited<ReturnType<typeof openFolderReview>>;
       try {
-        started = await openFolderReview(deps, found.folder, found.main);
+        started = await openFolderReview(deps, found.folder, found.main, {}, found.covers);
       } catch (error) {
         return { ok: false, error: error instanceof Error ? error.message : String(error) };
       }
