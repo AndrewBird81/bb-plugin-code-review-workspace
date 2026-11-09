@@ -473,14 +473,15 @@ const fix = (label: string, onClick: () => void, name?: string) =>
   <Button variant="outline" size="sm" aria-label={name} className={cn("h-7 shrink-0 px-2 text-xs", TOUCH_CONTROL)} onClick={onClick}>{label}</Button>;
 
 /**
- * Before you approve: files you haven't viewed, in high-risk chapters or flagged, which Submit asks about once more; and
- * the chapters read quickly, one plain row with the riskiest one's first thing to check, which it doesn't ask about.
+ * Before you approve: files you haven't viewed, in high-risk chapters or flagged, which Submit asks about once more; the
+ * chapters read quickly, one plain row with the riskiest one's first thing to check, which it doesn't ask about; and an
+ * Approve the agent suggests without reading every file, which it asks about.
  */
 function BeforeYouApprove() {
   const d = useDraft();
   const { showLocation, go, files } = useWorkspace();
-  if (!d.approval) return null;
-  const { unviewed, flagged, rushed } = d.approval;
+  if (!d.approval && !d.unreadApproval) return null;
+  const { unviewed, flagged, rushed } = d.approval ?? { unviewed: [], flagged: [], rushed: [] };
   const first = rushed.length ? riskiest(rushed) : null;
   return (
     <Part title="Before you approve">
@@ -494,6 +495,9 @@ function BeforeYouApprove() {
         {first && <Row tone="plain" icon={<Icon name="Clock" className="size-4 shrink-0 text-muted-foreground" aria-hidden />} action={fix("Show", () => { go(first.id); files.foldAll(false); }, `Show chapter ${first.number}`)}>
           <p>{quickRead(rushed)}</p>
           {first.focus && <p className="text-xs text-muted-foreground">Chapter {first.number}: <InlineCode text={first.focus} /></p>}
+        </Row>}
+        {d.unreadApproval && <Row tone="warning" icon={<Icon name="EyeOff" className="size-4 shrink-0" aria-hidden />} action={fix("Show", () => showLocation(d.unreadApproval!.unread[0], null, "RIGHT"))}>
+          The agent suggests Approve but read {readOf(d.unreadApproval)}
         </Row>}
       </ul>
     </Part>
@@ -538,9 +542,6 @@ function GoesToGitHub({ items, replyDrafts, onList }: { items: readonly CommentI
         {d.needsSummary && <Row tone="warning" icon={<Icon name="AlertCircle" className="size-4 shrink-0" aria-hidden />} action={d.editable && !d.writing && fix("Write it", () => d.openComposer(SUMMARY_AT, false))}>Request changes needs a summary: say what has to change.</Row>}
         {d.approvingBlocked && <Row tone="warning" icon={<Icon name="AlertTriangle" className="size-4 shrink-0" aria-hidden />} action={blocking && fix("Show", () => onList("not-submitted", blocking.id))}>
           Approving with {plural(d.blockingCount, "blocking comment")}.
-        </Row>}
-        {d.unreadApproval && <Row tone="warning" icon={<Icon name="EyeOff" className="size-4 shrink-0" aria-hidden />} action={fix("Show", () => showLocation(d.unreadApproval!.unread[0], null, "RIGHT"))}>
-          The agent suggests Approve but read {readOf(d.unreadApproval)}
         </Row>}
       </ul>
       {held > 0 && <p className="px-0.5 text-xs text-muted-foreground">{held} sent to fix won’t post to GitHub. Reopen {held === 1 ? "it" : "one"} to post it.</p>}

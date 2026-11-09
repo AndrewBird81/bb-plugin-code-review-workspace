@@ -720,6 +720,8 @@ test("an Approve suggestion from an agent that didn't read every file is a doubt
   expect(within(view.getByRole("region", { name: "Agent’s suggestion" })).getByText("Read 0 of 1 file")).toBeTruthy();
   const row = view.getByText("The agent suggests Approve but read 0 of 1 file").closest("li")!;
   expect(within(row).getByRole("button", { name: "Show" })).toBeTruthy();
+  // It's a doubt before you approve, not something that posts.
+  expect(row.closest("section")!.querySelector("h3")!.textContent).toBe("Before you approve");
   fireEvent.click(submit(view));
   const ask = await view.findByRole("alert");
   expect(ask.textContent).toContain("The agent suggests Approve but read 0 of 1 file.");
