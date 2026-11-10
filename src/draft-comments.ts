@@ -74,7 +74,7 @@ export async function describeComments(store: AsyncStore, targetKey: string): Pr
  * Why a comment can't go at a location and range of the current diff, or null: the last line's text must match
  * `code`, or for a range the last line of `code`, its first line the range's first, and GitHub must take the range.
  */
-async function placeProblem(store: AsyncStore, targetKey: string, at: CommentLocation, range: RangeInput, input: string): Promise<string | null> {
+export async function placeProblem(store: AsyncStore, targetKey: string, at: CommentLocation, range: RangeInput, input: string): Promise<string | null> {
   return store.exclusive(async (tx) => {
     const positions = (await tx.diffPositions(targetKey)).get(at.file);
     const lines = positions?.[at.side === "RIGHT" ? "right" : "left"];

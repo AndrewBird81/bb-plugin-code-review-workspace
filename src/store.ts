@@ -21,6 +21,7 @@ import { NOT_PUSHED, notPushedView } from "../lib/push";
 import { revisionOf } from "./review-revision";
 
 export interface ReviewLifecycle {
+  focusRun?: import("./focus-model").FocusRun;
   prState?: "OPEN" | "CLOSED" | "MERGED";
   /** The PR's state as gh read it when the review last started or rebuilt, until the sync reads the PR. Only the sync writes prState. */
   startedPrState?: "OPEN" | "CLOSED" | "MERGED" | null;
@@ -513,6 +514,11 @@ export interface AgentMessage {
 export interface Store extends AgentCommentStore {
   getPreferences(): Promise<PreferencesRecord>;
   savePreferences(preferences: ReviewPreferences, revision: number): Promise<PreferencesRecord>;
+  listFocusThreads(): Promise<import("./focus-model").FocusThread[]>;
+  recordFocusThread(thread: import("./focus-model").FocusThread): Promise<void>;
+  focusFindings(targetKey: string, runId: string): Promise<import("./focus-model").FocusFinding[]>;
+  saveFocusFinding(finding: import("./focus-model").FocusFinding): Promise<void>;
+  clearFocusFindings(targetKey: string): Promise<void>;
   getReviewerNotes(targetKey: string): Promise<ReviewerNotesRecord>;
   saveReviewerNotes(targetKey: string, body: string, revision: number): Promise<ReviewerNotesRecord>;
   saveReview(meta: ReviewMeta): Promise<void>;
@@ -913,6 +919,20 @@ export function storeOn(sql: Sql): Store {
 
   return {
     ...agentCommentStore(sql),
+    async listFocusThreads() {
+      return sql.all<import("./focus-model").FocusThread>(`SELECT thread_id AS "threadId", target_key AS "targetKey", run_id AS "runId", focus_id AS "focusId", label, created_at AS "createdAt" FROM focus_threads ORDER BY created_at, thread_id`);
+    },
+    async recordFocusThread(t) {
+      await sql.run(`INSERT INTO focus_threads (thread_id,target_key,run_id,focus_id,label,created_at) VALUES (?,?,?,?,?,?)`, [t.threadId, t.targetKey, t.runId, t.focusId, t.label, t.createdAt]);
+    },
+    async focusFindings(targetKey, runId) {
+      const rows = await sql.all<Omit<import("./focus-model").FocusFinding, "introduced"> & { introduced: number | null }>(`SELECT target_key AS "targetKey", run_id AS "runId", id, focus_id AS "focusId", label, file, line, side, start_line AS "startLine", start_side AS "startSide", severity, body, evidence, introduced, status, reason, note, draft_file AS "draftFile", draft_line AS "draftLine", draft_side AS "draftSide", decided_at AS "decidedAt" FROM focus_findings WHERE target_key=? AND run_id=? ORDER BY id`, [targetKey, runId]);
+      return rows.map((row) => Object.fromEntries(Object.entries({ ...row, introduced: row.introduced === null ? undefined : !!row.introduced }).filter(([, value]) => value != null)) as unknown as import("./focus-model").FocusFinding);
+    },
+    async saveFocusFinding(f) {
+      await sql.run(`INSERT INTO focus_findings (target_key,run_id,id,focus_id,label,file,line,side,start_line,start_side,severity,body,evidence,introduced,status,reason,note,draft_file,draft_line,draft_side,decided_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT (target_key,run_id,id) DO UPDATE SET status=excluded.status,severity=excluded.severity,reason=excluded.reason,note=excluded.note,draft_file=excluded.draft_file,draft_line=excluded.draft_line,draft_side=excluded.draft_side,decided_at=excluded.decided_at`, [f.targetKey,f.runId,f.id,f.focusId,f.label,f.file,f.line,f.side,f.startLine ?? null,f.startSide ?? null,f.severity,f.body,f.evidence,f.introduced === undefined ? null : Number(f.introduced),f.status,f.reason ?? null,f.note ?? null,f.draftFile ?? null,f.draftLine ?? null,f.draftSide ?? null,f.decidedAt ?? null]);
+    },
+    async clearFocusFindings(targetKey) { await sql.run(`DELETE FROM focus_findings WHERE target_key=?`, [targetKey]); },
     async getPreferences() {
       const row = await sql.get<{ value: string; revision: number; knobs: string | null; focuses: string | null }>(`SELECT value, revision, knobs, focuses FROM review_preferences WHERE id=1`);
       // No row, or a value that won't parse: defaults, as fresh copies.

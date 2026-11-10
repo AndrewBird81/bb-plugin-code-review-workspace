@@ -28,7 +28,8 @@ export function register(deps: ServeDeps) {
         // These are in the assistants' instructions; whether they may run the repo's checks depends on the last two. So
         // are the agent checks the knobs turn on, and whether it acts when asked, which chooses its tools too.
         const refresh = (["assistantInstructions", "runRepoChecks", "unattendedAuthors"] as const).some((key) => result.preferences[key] !== before[key])
-          || (["preExistingFindings", "agentCoverage", "testWeakening", "reviewAgentActs"] as const).some((knob) => result.preferences.knobs[knob] !== before.knobs[knob]);
+          || (["preExistingFindings", "agentCoverage", "testWeakening", "reviewAgentActs"] as const).some((knob) => result.preferences.knobs[knob] !== before.knobs[knob])
+          || result.preferences.focuses.enabled !== before.focuses.enabled;
         return { result, refresh };
       });
       // Started after the block, which its reads of the store would wait for.

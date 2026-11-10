@@ -31,6 +31,7 @@ const STARTS_TURNS = [
 const ALLOWED: Record<string, { count: number; why: string }> = {
   "src/asking.ts": { count: 2, why: "sendToAgent and spawnAgent, which mark what they send" },
   "src/fix-handoff.ts": { count: 1, why: "spawns a fixer, Fix in a new thread" },
+  "src/focus-run.ts": { count: 2, why: "spawns a hidden focus worker and nudges it, never a review agent" },
   "src/generate.ts": { count: 2, why: "spawns the guide writer, and keeps bb.sdk.threads to stop it once the plugin is disposed" },
   "src/learning.ts": { count: 2, why: "spawns the Suggest instructions worker, through an alias" },
   "src/loop.ts": { count: 2, why: "Send: to the review's main thread, never one of the plugin's agents, or a fresh one it spawns" },

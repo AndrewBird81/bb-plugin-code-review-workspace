@@ -10,6 +10,7 @@ import { localIdOf } from "../lib/review-identity";
 import { inlineCode } from "./untrusted";
 import { retitleAssistant } from "./agent";
 import { stopGuide } from "./generate";
+import { stopFocusRun } from "./focus-run";
 import { settleFixes } from "./fix-tally";
 
 type Deps = { bb: BbPluginApi; store: AsyncStore; changed(targetKey: string): void; sync?: Pick<ServeDeps["sync"], "one"> };
@@ -71,6 +72,7 @@ export async function afterMerge(deps: Deps, from: string, into: string): Promis
  */
 export async function mergeReviews(deps: Deps, from: string, into: string): Promise<boolean> {
   if ((await deps.store.getReview(from))?.status === "generating") await stopGuide(deps.bb, deps.store, from);
+  await stopFocusRun(deps.bb, deps.store, from, "stopped", true);
   const merged = await deps.store.exclusive((tx) => tx.transaction((db) => mergeIn(db, from, into)));
   if (merged) await afterMerge(deps, from, into);
   return merged;

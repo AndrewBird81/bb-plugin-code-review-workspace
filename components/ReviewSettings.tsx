@@ -374,6 +374,15 @@ export function ReviewSettings({ onBack, back }: { onBack?: () => void; back?: s
             {knob("digDeeper")}
           </section>
           <section className="space-y-4 rounded-xl border border-border bg-card p-5 shadow-xs">
+            <SectionHeading icon="Sparkles" tone="agent" title="Focuses" description="Each focus reads the change on its own, looking for one kind of problem. The review agent checks what they find and drafts one review. Off: the review agent reviews alone." />
+            <label className={`flex items-center gap-2.5 ${TOUCH_CONTROL}`}><input type="checkbox" className="size-4 shrink-0 accent-primary" checked={record.preferences.focuses.enabled} onChange={(event) => { setSaved(false); setRecord({ ...record, preferences: { ...record.preferences, focuses: { ...record.preferences.focuses, enabled: event.target.checked } } }); }} /><span className="text-sm font-medium">Review with focuses</span></label>
+            <p className="text-xs text-muted-foreground">Each focus is one more agent run per review. Focuses run unattended at the lowest permissions their provider allows, which can still edit files in the review's checkout.</p>
+            <div aria-disabled={!record.preferences.focuses.enabled} className={`ml-6 space-y-3 text-sm ${record.preferences.focuses.enabled ? "" : DISABLED_TEXT}`}>
+              <p><strong>General</strong> · The review agent’s own review. Always runs.</p>
+              <p><strong>Docs</strong> · Comments and docs that are wrong or out of date. <span className="text-muted-foreground">Review agent’s model</span></p>
+            </div>
+          </section>
+          <section className="space-y-4 rounded-xl border border-border bg-card p-5 shadow-xs">
             <SectionHeading icon="ListTodo" title="Whose turn" description="What brings a review back to Needs review, and which reviews to follow." />
             <div className="space-y-2"><p id="wake-on-replies-label" className="text-sm font-medium">When the author replies</p><div role="group" aria-labelledby="wake-on-replies-label" className="flex flex-wrap gap-2">
               {([ ["questions", "Questions for you"], ["any", "Any reply"] ] as const).map(([value, label]) => <Button key={value} variant="outline" size="sm" className={CHOICE} aria-pressed={record.preferences.wakeOnReplies === value} onClick={() => { setSaved(false); setRecord({ ...record, preferences: { ...record.preferences, wakeOnReplies: value } }); }}>{label}</Button>)}

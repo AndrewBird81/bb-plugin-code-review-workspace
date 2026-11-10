@@ -287,7 +287,8 @@ function reportStatus(claim: Claim): { label: string; at: number; mark: FixMark 
  */
 export function draftStatus(comment: DraftComment, state: DraftItem["state"], facts: StatusFacts): { label: string; at?: number; mark?: FixMark } {
   const draft = facts.posts && (!facts.own || !comment.state || comment.state === "open");
-  const base = draft ? (isLocal(comment) && LOCAL_LABEL[state]) || STATE_LABEL[state] : state === "older-diff" ? "Older diff" : comment.author === "agent" ? "Agent · Open" : "Open";
+  const plain = draft ? (isLocal(comment) && LOCAL_LABEL[state]) || STATE_LABEL[state] : state === "older-diff" ? "Older diff" : comment.author === "agent" ? "Agent · Open" : "Open";
+  const base = comment.author === "agent" && comment.focus && state !== "older-diff" ? plain.replace(" · ", ` · ${comment.focus} · `) : plain;
   if (comment.state === "resolved") return { label: "Resolved", mark: "resolved" };
   if (comment.state === "dismissed") return { label: "Dismissed", mark: "dismissed" };
   // The thread's report on what it was sent; an edit opens it again, for the next Send.

@@ -35,6 +35,9 @@ import { createInstructionSuggester } from "./src/learning";
 import { FORMER_PLUGIN_ID } from "./src/former-install";
 import { queueStore, type QueuedStore } from "./src/store-queue";
 import { createConfigureView } from "./src/configure-view";
+import { focusInFlightTitle } from "./src/focus-identity";
+import * as focusTools from "./src/focus-tools";
+import { disposeFocusRuns, focusEvents, recordFocusTools, recoverFocusRuns } from "./src/focus-run";
 import { chooseStorage, openPostgres, unlessAborted } from "./src/storage";
 import { createStorageCommand } from "./src/storage-cli";
 import { migratePg, pgSchemaMigrated } from "./src/db/pg-migrations";
@@ -76,6 +79,7 @@ const WAIT_GRACE = 2 * 60_000;
 interface Served {
   store: QueuedStore;
   configure(context: PluginAgentConfigurationContext): PluginAgentConfiguration;
+  isFocusThread(threadId: string): Promise<boolean>;
   run(argv: string[], ctx: PluginCliContext): Promise<PluginCliResult>;
   checkUpdates(signal: AbortSignal): Promise<void>;
   syncReviews(signal: AbortSignal): Promise<void>;
@@ -97,7 +101,10 @@ export default async function plugin(bb: BbPluginApi) {
     commands: SUBCOMMANDS,
     async run(argv, ctx) {
       // Storage answers in maintenance too, where the reviews move between backends.
-      if (argv[0] === "storage") return storageCommand(argv.slice(1), ctx);
+      if (argv[0] === "storage") {
+        if (served && ctx.threadId && await served.isFocusThread(ctx.threadId)) return { exitCode: 1, stderr: "Focus threads cannot run bb review." };
+        return storageCommand(argv.slice(1), ctx);
+      }
       if (served) return served.run(argv, ctx);
       const { state, problem } = storage.status;
       if (state === "maintenance") return { exitCode: 1, stderr: problem! };
@@ -272,7 +279,8 @@ function servePlugin(bb: BbPluginApi, { configured, store, interrupted }: Awaite
   };
   void settleOutlivedWaits(0).catch((error) => bb.log.warn(`Could not settle reviews waiting on their assistants: ${String(error)}`));
   const updates = createPluginUpdates(bb, () => hasGuideGenerations(bb));
-  bb.onDispose(() => { stopGuideGenerations(bb); });
+  bb.onDispose(() => { stopGuideGenerations(bb); disposeFocusRuns(bb); });
+  void recoverFocusRuns(bb, store).catch((error) => bb.log.warn(`Could not recover focus runs: ${String(error)}`));
 
   bb.log.info("code-review-workspace loaded");
 
@@ -306,7 +314,11 @@ function servePlugin(bb: BbPluginApi, { configured, store, interrupted }: Awaite
   // order, and gives its RPC handlers, its listeners to BB's events, and the bb review subcommands it runs.
   // Who's asking in a review agent's turn. The plugin's own agents, by their recorded ids, never count as you: read from
   // configure's view and the former workers' kv, as it's asked inside the store's blocks too.
-  const ownThread = async (threadId: string) => !!configured.threadRole({ id: threadId, title: null }) || await formerWorkerReview(bb, threadId) !== null;
+  const isFocusThread = async (threadId: string) => {
+    const recorded = configured.threadRole({ id: threadId, title: null });
+    return recorded ? recorded === "focus" : configured.threadRole({ id: threadId, title: await focusInFlightTitle(bb, threadId) }) === "focus";
+  };
+  const ownThread = async (threadId: string) => !!configured.threadRole({ id: threadId, title: null }) || !!configured.threadRole({ id: threadId, title: await focusInFlightTitle(bb, threadId) }) || await formerWorkerReview(bb, threadId) !== null;
   const moduleDeps: ServeDeps = { ...deps, receipts, submitReview, githubWrites, notifications, suggester, sync, changed, refreshThreads, reviewOwners, classify: createClassifier(bb, ownThread), fromOwnAgent: fromOwnAgent(bb, ownThread) };
   const settings = settingsRpc.register(moduleDeps);
   const reviews = reviewsRpc.register(moduleDeps);
@@ -331,6 +343,7 @@ function servePlugin(bb: BbPluginApi, { configured, store, interrupted }: Awaite
   const status = reviewStatus.register(moduleDeps);
   const pushing = pushModule.register(moduleDeps);
   const watching = prWatch.register(moduleDeps);
+  focusTools.register(moduleDeps);
   const stubs = rpcStubs.register();
   const handlers: RpcHandlers = merge(settings.handlers, reviews.handlers, githubThreads.handlers, draft.handlers, assistant.handlers, turn.handlers, agents.handlers, feature.handlers, opening.handlers, relays.handlers, sends.handlers, reports.handlers, own.handlers, threadPages.handlers, pushing.handlers, watching.handlers, stubs.handlers);
   const published: PublicHandlers = merge(status.published, feature.published);
@@ -350,7 +363,7 @@ function servePlugin(bb: BbPluginApi, { configured, store, interrupted }: Awaite
     experimental_discoverable: true,
     experimental_description: "Code Review Workspace for other plugins: where each review stands, who it waits on, whether you've approved the code as it is now and since when; and starting a review of a thread's changes.",
   });
-  listen(bb, [events.events, agents.events, feature.events, ledgerEvents(bb), sends.events, reports.events, own.events, pushing.events, watching.events]);
+  listen(bb, [events.events, agents.events, feature.events, ledgerEvents(bb), sends.events, reports.events, own.events, pushing.events, watching.events, focusEvents(bb, store)]);
   const subcommands: Subcommands = merge(reviews.commands, draft.commands, relays.commands, reports.commands);
 
   // Tools go only to THIS plugin's own spawned threads, by the role each is recorded with: a thread can retitle
@@ -360,6 +373,7 @@ function servePlugin(bb: BbPluginApi, { configured, store, interrupted }: Awaite
     // A guided-review install's threads came over with its reviews; they still get tools only by their recorded role.
     if (context.origin?.pluginId !== bb.pluginId && context.origin?.pluginId !== FORMER_PLUGIN_ID) return { tools: [], skills: configured.preferences().knobs.reviewCommandInThreads ? ["code-review-workspace"] : [] };
     const role = context.thread ? configured.threadRole(context.thread) : null;
+    if (role === "focus") return { tools: [...focusTools.FOCUS_TOOLS], skills: [] };
     if (role === "writer") {
       return { tools: [...WRITER_TOOL_NAMES], skills: ["code-review-workspace-generate"] };
     }
@@ -371,8 +385,10 @@ function servePlugin(bb: BbPluginApi, { configured, store, interrupted }: Awaite
       // Its own review, never the metadata its agent can write.
       const targetKey = configured.threadReview(context.thread!);
       const review = targetKey ? configured.review(targetKey) : null;
+      const focuses = configured.preferences().focuses.enabled || review?.focusRun?.state === "merging";
+      recordFocusTools(bb, context.thread!.id, focuses);
       return {
-        tools: [...ASSISTANT_TOOL_NAMES, ...(configured.preferences().knobs.reviewAgentActs ? ASSISTANT_WRITE_TOOL_NAMES : [])], skills: [],
+        tools: [...ASSISTANT_TOOL_NAMES, ...(configured.preferences().knobs.reviewAgentActs ? ASSISTANT_WRITE_TOOL_NAMES : []), ...(focuses ? focusTools.FOCUS_MERGE_TOOLS : [])], skills: [],
         ...(review ? { instructions: assistantInstructions(review.targetKey, configured.guide(review.targetKey), configured.preferences(), mayRunChecks(review, configured.preferences()) ? review.number : undefined, review) } : {}),
       };
     }
@@ -389,10 +405,12 @@ function servePlugin(bb: BbPluginApi, { configured, store, interrupted }: Awaite
   return {
     store,
     configure,
+    isFocusThread,
     async run(argv, ctx) {
       return updates.run(async () => {
         // A review's own assistant or guide writer, by its recorded identity, may change only that review, as may
         // one it replaced; the Suggest instructions worker, none.
+        if (ctx.threadId && await isFocusThread(ctx.threadId)) return { exitCode: 1, stderr: "Focus threads cannot run bb review." };
         const ownReview = (ctx.threadId ? await toolThreadReview(bb, store, ctx.threadId) ?? await formerWorkerReview(bb, ctx.threadId) : null) ?? undefined;
         // A subcommand a module runs, by its name; anything else is a PR or ref to review.
         const subcommand = Object.hasOwn(subcommands, argv[0]) ? subcommands[argv[0]] : undefined;

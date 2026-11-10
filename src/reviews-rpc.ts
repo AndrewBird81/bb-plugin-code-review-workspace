@@ -1,5 +1,6 @@
 // Reviews: the list, a review's page, and what it reads of the PR (checks, generated files, CODEOWNERS, file contents);
 // starting, rebuilding, stopping, archiving, pinning, renaming and deleting a review. Also bb review list.
+import { hasFocusWorkers } from "./focus-run";
 import { forgetBefore } from "./fix-undo";
 import { changedFiles, splitPatchByFile } from "./patch";
 import { readFileContents, readGeneratedFiles } from "./file-contents";
@@ -290,6 +291,7 @@ export function register(deps: ServeDeps) {
       if (!review) return { ok: true };
       // A guide worker can't be cancelled per review, and an answer in progress is the reviewer's to finish.
       if (review.status === "generating") return { ok: false, error: "Wait for the guide to finish generating, then delete the review." };
+      if (review.focusRun?.state === "finding" || review.focusRun?.state === "merging" || hasFocusWorkers(bb, targetKey)) return { ok: false, error: "Wait for the focus run to finish, then delete the review." };
       if (await isAssistantAnswering(bb, store, targetKey)) return { ok: false, error: "Wait for the assistant to finish answering, then delete the review." };
       // Its guide writers too: the current one, and older ones left archived, by their exact title.
       const writers = await pluginThreadsTitled(bb, `${GUIDE_WORKER_TITLE}${targetKey}`).catch((error) => {
@@ -297,7 +299,9 @@ export function register(deps: ServeDeps) {
         return [];
       });
       // Its threads are read in the turn that deletes it, so a thread recorded meanwhile is stopped with them.
-      const { writerIds, threadIds } = await store.exclusive(async (tx) => {
+      const deleted = await store.exclusive(async (tx) => {
+        const run = (await tx.getReview(targetKey))?.focusRun;
+        if (run?.state === "finding" || run?.state === "merging" || hasFocusWorkers(bb, targetKey)) return { error: "Wait for the focus run to finish, then delete the review." };
         const writerIds = new Set([await tx.generationWorker(targetKey), ...writers]);
         const threadIds = new Set([await tx.getAssistantThread(targetKey), await tx.getAgentThread(targetKey), ...writerIds]);
         await tx.deleteReview(targetKey);
@@ -305,6 +309,8 @@ export function register(deps: ServeDeps) {
         if (review.kind === "pr") await tx.ignoreDiscovery(targetKey);
         return { writerIds, threadIds };
       });
+      if ("error" in deleted) return { ok: false, error: deleted.error };
+      const { writerIds, threadIds } = deleted;
       await notifications.dismiss(targetKey).catch(() => {});
       changed(targetKey);
       await notifications.forget(targetKey).catch(() => {});

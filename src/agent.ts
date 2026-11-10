@@ -1,3 +1,4 @@
+import { focusRuntimeSpawned, focusRuntimeStopped, startFocusRun } from "./focus-run";
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import type { AgentMessage, ReviewMeta } from "./store";
 import type { Guide } from "./guide";
@@ -270,6 +271,7 @@ async function spawnConversation(bb: BbPluginApi, store: AsyncStore, args: { tar
       // The default's permission mode applies only to the provider it was chosen for.
       ...spawnExecution({ ...args.agent, ...(assistantAgent?.providerId === args.agent.providerId ? { permissionMode: assistantAgent.permissionMode } : {}) }),
     }, { kind: args.kind, ...(args.from === undefined ? {} : { from: args.from }), ...(args.said === undefined ? {} : { said: args.said }), ...(args.inserted ? { inserted: true } : {}) });
+    focusRuntimeSpawned(bb, worker.id);
     await store.setAssistantThread(args.targetKey, worker.id);
     // The review's rows and page show this thread's status in BB (src/agent-status.ts) once it's recorded: its first turn
     // began before, unheard.
@@ -356,6 +358,7 @@ export async function startAutomaticReview(bb: BbPluginApi, store: AsyncStore, t
       { type: "text", text: prompt, mentions: [] },
       ...(notes ? [{ type: "text" as const, text: notes, mentions: [], visibility: "agent-only" as const }] : []),
     ] }, { kind: "automatic" });
+    await startFocusRun(bb, store, targetKey);
     return "sent";
   }
   // A conversation the reviewer is starting comes first; your click sends the review to it once it's up.
@@ -366,6 +369,7 @@ export async function startAutomaticReview(bb: BbPluginApi, store: AsyncStore, t
     return startAutomaticReview(bb, store, targetKey, newCommits, { clicked });
   }
   await startConversation(bb, store, { targetKey, text: prompt, agent: defaults!, ...(notes ? { context: notes } : {}), kind: "automatic" });
+  await startFocusRun(bb, store, targetKey);
   return "started";
 }
 
@@ -515,11 +519,19 @@ export async function isAssistantAnswering(bb: BbPluginApi, store: AsyncStore, t
  * Stop idle assistant runtimes so their next message starts one with current
  * instructions. A busy worker keeps its turn and refreshes on a later restart.
  */
-export async function refreshAssistants(bb: BbPluginApi, store: AsyncStore, targetKeys?: readonly string[]): Promise<void> {
+export async function refreshAssistants(bb: BbPluginApi, store: AsyncStore, targetKeys?: readonly string[]): Promise<string[]> {
+  const stopped: string[] = [];
   for (const { targetKey, threadId } of await store.listAssistantThreads()) {
     if (targetKeys && !targetKeys.includes(targetKey)) continue;
     try {
-      if ((await bb.sdk.threads.get({ threadId })).status === "idle") await bb.sdk.threads.stop({ threadId });
+      if ((await bb.sdk.threads.get({ threadId })).status === "idle") {
+        await bb.sdk.threads.stop({ threadId });
+        if ((await bb.sdk.threads.get({ threadId })).status === "idle") {
+          focusRuntimeStopped(bb, threadId);
+          stopped.push(threadId);
+        }
+      }
     } catch { /* Best effort: bb also stops idle runtimes after 30 minutes. */ }
   }
+  return stopped;
 }
