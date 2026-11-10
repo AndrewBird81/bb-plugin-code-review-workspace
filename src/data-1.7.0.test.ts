@@ -10,6 +10,7 @@ import { createStore } from "./store";
 import { queueStore } from "./store-queue";
 import { toGithubReviewPayload } from "./draft";
 import { dumpDatabase } from "../scripts/store-reads";
+import { defaultFocusSettings } from "../lib/review-preferences";
 
 // The fixture is a data.db's rows: the Store reads it on SQLite, whatever the test backend.
 vi.unmock("./store");
@@ -28,7 +29,7 @@ function host() {
   return made;
 }
 
-test("every Store read of reviews 1.7.0 wrote gives what 1.7.0's gave, but the knobs 1.8.0 adds, at their defaults", async () => {
+test("every Store read of reviews 1.7.0 wrote gives what 1.7.0's gave, but the new knobs and focuses at their defaults", async () => {
   const { bb, harness } = host();
   const dir = mkdtempSync(join(tmpdir(), "data-1.7.0-"));
   dirs.push(dir);
@@ -39,6 +40,9 @@ test("every Store read of reviews 1.7.0 wrote gives what 1.7.0's gave, but the k
   // 1.7.0's settings turned Code owners off; 1.8.0's switches read on, and 1.12.0's paces at their defaults.
   expect(read170.global.getPreferences.preferences.knobs.codeOwners).toBe(false);
   read170.global.getPreferences.preferences.knobs = { ...read170.global.getPreferences.preferences.knobs, reviewAgentActs: true, reviewChangesLine: true, trackOwnPrs: true, approveGuardTestsPace: 2000, approveGuardDocsPace: 2000 };
+  expect(read170.global.getPreferences.preferences).not.toHaveProperty("focuses");
+  expect(reads.global.getPreferences.preferences.focuses).toEqual(defaultFocusSettings);
+  read170.global.getPreferences.preferences.focuses = defaultFocusSettings;
   expect(reads).toEqual(read170);
 });
 

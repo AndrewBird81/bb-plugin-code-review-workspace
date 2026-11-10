@@ -150,10 +150,11 @@ export function register(deps: ServeDeps) {
       if (changed) bb.realtime.publish(`draft:${targetKey}`, {});
       return { ok: true };
     },
-    async saveDraftComment({ targetKey, comment: { startLine, startSide, severity, body, id, state, sendN, claim, editedBy: _editedBy, ...input }, revision, replaces, restore }) {
+    async saveDraftComment({ targetKey, comment: { startLine, startSide, severity, body, focus, id, state, sendN, claim, editedBy: _editedBy, ...input }, revision, replaces, restore }) {
       return store.exclusive(async (tx) => {
         await requireReviewRevision(tx, targetKey, revision);
-        const comment = { ...input, ...rangeOf({ ...input, startLine, startSide }), ...severityOf(body, severity) };
+        // Only Undo after Remove restores attribution; a normal save is the reviewer's comment.
+        const comment = { ...input, ...(restore && replaces === null && focus !== undefined ? { focus } : {}), ...rangeOf({ ...input, startLine, startSide }), ...severityOf(body, severity) };
         // A LOCAL comment is on Not pushed yet's new side, as it last showed (src/own-pr.ts), all its lines there.
         const local = isLocal(comment) ? await tx.getSnapshot(targetKey, NOT_PUSHED) ?? "" : null;
         // GitHub refuses a comment on a line the diff doesn't show; say so now, not at submit.

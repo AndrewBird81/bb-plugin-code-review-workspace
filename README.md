@@ -252,3 +252,4 @@ Maintained by [Andrew Bird](https://github.com/AndrewBird81). Code Review Worksp
 - The icons are from Hugeicons' free set, copied into `components/ui/icon-data.ts` under its MIT license.
 
 Released under the [MIT License](LICENSE).
+Third-party template licenses and attribution: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

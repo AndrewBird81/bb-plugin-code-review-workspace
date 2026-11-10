@@ -6,7 +6,7 @@ import { join } from "node:path";
 import Database from "better-sqlite3";
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
 import { createStore } from "../src/store";
-import { canonical, dumpDatabase, tableChecksums } from "./store-reads";
+import { canonical, dumpDatabase, storeEntities, tableChecksums } from "./store-reads";
 import { queueStore } from "../src/store-queue";
 
 // The dump reads a data.db through SQLite's own store.
@@ -70,6 +70,27 @@ test("dumping the same database twice gives identical output, from a copy, with 
   expect(dumped).toEqual({ bytes: bytes.length, sha256: sha256(bytes) });
   const changed = Object.keys(before).filter((table) => before[table].sha256 !== after[table].sha256);
   expect(changed).toEqual(["discussion_entries", "discussion_waits", "file_views", "patches"]);
+});
+
+test("focus identities and finding locations enter the dump, and both tables are checksummed", async () => {
+  const source = await snapshot();
+  const db = new Database(source);
+  db.prepare(`INSERT INTO focus_threads (thread_id,target_key,run_id,focus_id,label,created_at) VALUES (?,?,?,?,?,?)`).run("focus-1", "focus-only", "run-1", "docs", "Docs", 1);
+  db.prepare(`INSERT INTO focus_findings (target_key,run_id,id,focus_id,label,file,line,side,severity,body,evidence,status,draft_file,draft_line,draft_side) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+    .run("focus-only", "run-1", "f1", "docs", "Docs", "docs.ts", 2, "RIGHT", "nit", "Wrong docs", "docs.ts:2", "folded", "other.ts", 3, "LEFT");
+  const entities = storeEntities(db);
+  expect(entities.threadIds).toContain("focus-1");
+  expect(entities.reviews.find((review) => review.targetKey === "focus-only")?.locations).toEqual([
+    { file: "docs.ts", line: 2, side: "RIGHT" }, { file: "other.ts", line: 3, side: "LEFT" },
+  ]);
+  db.close();
+  const dumped = await dumpDatabase(source);
+  expect(JSON.parse(dumped.reads).global.generationOf["focus-1"]).toBeNull();
+  const { before, after } = JSON.parse(dumped.checksums);
+  for (const table of ["focus_threads", "focus_findings"]) {
+    expect(before[table].rows).toBe(1);
+    expect(after[table]).toEqual(before[table]);
+  }
 });
 
 test("a database with a WAL file isn't dumped", async () => {

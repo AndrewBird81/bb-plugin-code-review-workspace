@@ -60,6 +60,7 @@ function comment(r: Rng): DraftComment {
     ...(r.bool(0.5) ? { author: "agent" as const } : {}),
     ...(r.bool(0.5) ? { severity: r.pick(["blocking", "should-fix", "question", "nit"] as const) } : {}),
     ...(r.bool(0.3) ? { evidence: r.pick(TEXTS) } : {}),
+    ...(r.bool(0.3) ? { focus: r.pick(["Docs", "API docs", "Ä notes"]) } : {}),
     ...(r.bool(0.2) ? { introduced: false as const } : {}),
     ...(r.bool(0.2) ? { chapterId: `c${r.int(1, 3)}` } : {}),
     // The server's own fields, which a save keeps from the comment there.
@@ -245,10 +246,10 @@ function randomCall(r: Rng, made: Made): Call {
     default: {
       if (r.bool(0.5)) {
         // Mostly at the saved revision; otherwise a stale one, which is refused.
-        const text = r.pick(TEXTS), stale = r.bool(0.2);
+        const text = r.pick(TEXTS), stale = r.bool(0.2), focusesEnabled = r.bool();
         return r.bool()
           ? call("saveReviewerNotes", async (s) => s.saveReviewerNotes(k, text, (await s.getReviewerNotes(k)).revision - (stale ? 1 : 0)))
-          : call("savePreferences", async (s) => s.savePreferences({ ...defaultPreferences, assistantInstructions: text.slice(0, 2000) }, (await s.getPreferences()).revision - (stale ? 1 : 0)));
+          : call("savePreferences", async (s) => s.savePreferences({ ...defaultPreferences, assistantInstructions: text.slice(0, 2000), focuses: { ...defaultPreferences.focuses, enabled: focusesEnabled } }, (await s.getPreferences()).revision - (stale ? 1 : 0)));
       }
       const outcomes = FILES.filter(() => r.bool(0.3)).map((file) => ({ repo: "acme/web", file, outcome: r.pick(["kept", "edited", "removed"] as const), body: r.pick(TEXTS), edited: r.pick([null, "Edited"]) }));
       return call("recordAgentOutcomes", (s) => s.recordAgentOutcomes(k, outcomes));
@@ -305,6 +306,9 @@ describe.skipIf(!testPgUrl)("the Store on SQLite and on Postgres (CRW_TEST_PG_UR
     // Rows from before conversations moved into bb threads, which the store only reads and clears.
     await same(0, async ({ sql }) => {
       for (const k of KEYS) {
+        await sql.run(`INSERT INTO focus_threads (thread_id,target_key,run_id,focus_id,label,created_at) VALUES (?,?,?,?,?,?)`, [`focus-${k}`, k, "run-1", "docs", "Docs", T0]);
+        await sql.run(`INSERT INTO focus_findings (target_key,run_id,id,focus_id,label,file,line,side,severity,body,evidence,introduced,status,draft_file,draft_line,draft_side,decided_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+          [k, "run-1", "f1", "docs", "Docs", "a.ts", 2, "RIGHT", "nit", "Wrong docs", "a.ts:2", 1, "kept", "a.ts", 3, "RIGHT", T0]);
         await sql.run(`INSERT INTO agent_threads (target_key,thread_id,created_at) VALUES (?,?,1)`, [k, "legacy-1"]);
         await sql.run(`INSERT INTO agent_messages (target_key,role,text,context,created_at) VALUES (?,'user',?,?,1)`, [k, "Earlier question", JSON.stringify({ file: "a.ts", startLine: 1 })]);
       }

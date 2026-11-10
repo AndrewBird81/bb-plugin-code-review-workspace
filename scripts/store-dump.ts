@@ -1,6 +1,7 @@
 /**
  * Dump every Store read of a plugin database, and its tables' checksums, to compare the store's behaviour before and
  * after a change (scripts/store-reads.ts). The database is copied first, since some reads write; it is never opened.
+ * Checksums include focus_threads and focus_findings even before they have Store read methods.
  *
  * Run from the repo root: `npx vite-node scripts/store-dump.ts <data.db> <reads.json> <checksums.json>`.
  * `<data.db>` must be a consistent single-file snapshot (VACUUM INTO or the backup API), not a live database with a WAL.
