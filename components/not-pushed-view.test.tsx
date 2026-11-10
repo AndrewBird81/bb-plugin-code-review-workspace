@@ -3,7 +3,7 @@
 // that the PR's head doesn't, in the review's diff, with Refresh; a new line takes a LOCAL comment there, a removed one
 // the PR's head still has a comment in the PR's diff, and one outside it says where to comment instead.
 import { afterEach, expect, test, vi } from "vitest";
-import { cleanup, fireEvent, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import { toast } from "sonner";
 import { defaultPreferences } from "../src/preferences";
@@ -172,15 +172,20 @@ test("Viewed on Not pushed yet is kept for the file's revision there, as the ser
   page.lifecycle.unmount();
 });
 
-test("Not pushed yet ends saying its comments go with Send, not Submit, with Push, which shows how it goes in Finish review, and Finish review", async () => {
+test("Not pushed yet ends saying its comments go with Send, not Submit, with Push, which shows how it goes in Finish review, and Finish review until it shows", async () => {
   const push = vi.fn(() => ({ ok: true, delivery: "sent", asked: "commit" }));
   const { page } = await renderReview({ push }, "not-pushed", [], { head: "retry-uploads" });
   const view = await notPushed(page);
   const end = (await view.findByText("Comments here go with Send, not Submit.")).parentElement!;
-  expect(within(end).getAllByRole("button").map((button) => button.textContent)).toEqual(["Push", "Finish review"]);
+  const buttons = () => within(end).queryAllByRole("button").map((button) => button.textContent);
+  expect(buttons()).toEqual(["Push", "Finish review"]);
   fireEvent.click(within(end).getByRole("button", { name: "Push" }));
   await waitFor(() => expect(push).toHaveBeenCalledWith({ targetKey: review.targetKey }));
   expect(await page.findByRole("heading", { name: "Finish review" })).toBeTruthy();
+  // While it shows, its own button is the one filled; closed, the end leads to it again.
+  expect(buttons()).toEqual(["Push"]);
+  fireEvent.click(page.getByRole("button", { name: "Close panel" }));
+  await waitFor(() => expect(buttons()).toEqual(["Push", "Finish review"]));
   page.lifecycle.unmount();
   cleanup();
 
@@ -191,4 +196,43 @@ test("Not pushed yet ends saying its comments go with Send, not Submit, with Pus
   fireEvent.click(within(alone).getByRole("button", { name: "Finish review" }));
   expect(await none.page.findByRole("heading", { name: "Finish review" })).toBeTruthy();
   none.page.lifecycle.unmount();
+});
+
+test("Review changes opens Not pushed yet on a review open already once it reloads with the folder that joined it, not before", async () => {
+  const { askToShowNotPushed } = await import("../lib/workspace-store");
+  // Open with no main thread in a folder, as a PR's review before a thread's folder joins it.
+  let over: Record<string, unknown> = { mainThread: null };
+  const { page } = await renderReview({ getReviewBundle: () => ({ review: { ...review, ...over }, guide: structuredClone(guide), patch, revision: "r1" }) });
+  act(() => askToShowNotPushed(review.targetKey));
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  expect(page.queryByRole("region", { name: "Not pushed yet" })).toBeNull();
+  // The join reloads the review, which now reads the folder: the ask still stands, and opens it.
+  over = {};
+  await page.emitRealtime(`review:${review.targetKey}`, {});
+  expect(await notPushed(page)).toBeTruthy();
+  page.lifecycle.unmount();
+});
+
+// Last: what it reads stays in the page's count of Not pushed yet's files, which the tests above start without.
+test("Review changes on a thread whose folder joined the PR's review opens the review on Not pushed yet, once, whether it opens now or is open already", async () => {
+  const { askToShowNotPushed } = await import("../lib/workspace-store");
+  askToShowNotPushed(review.targetKey);
+  const { page } = await renderReview();
+  expect(await (await notPushed(page)).findByRole("heading", { name: "1 file on MaxBook isn’t on GitHub yet" })).toBeTruthy();
+  fireEvent.click(page.getByRole("button", { name: /Retry/ }));
+  await waitFor(() => expect(page.queryByRole("region", { name: "Not pushed yet" })).toBeNull());
+  act(() => askToShowNotPushed(review.targetKey));
+  expect(await notPushed(page)).toBeTruthy();
+  // Left on its chapter, as the page a remount carries on.
+  fireEvent.click(page.getByRole("button", { name: /Retry/ }));
+  await waitFor(() => expect(page.queryByRole("region", { name: "Not pushed yet" })).toBeNull());
+  page.lifecycle.unmount();
+  cleanup();
+
+  // A review with no folder to show stays where it was.
+  askToShowNotPushed(review.targetKey);
+  const elsewhere = await renderReview({}, "c1", [], { mainThread: null });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  expect(elsewhere.page.queryByRole("region", { name: "Not pushed yet" })).toBeNull();
+  elsewhere.page.lifecycle.unmount();
 });

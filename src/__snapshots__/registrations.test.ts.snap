@@ -148,7 +148,7 @@ exports[`the plugin registers the same RPC methods, tools, CLI subcommands, list
       ],
       "type": "object",
     },
-    "instructions": "During a review pass, or when the reviewer asks, add each verified issue with add_draft_comment on the line it concerns, or the lines (startLine to line). In ordinary chat, answer in chat. Put one issue in each comment. Give its severity (blocking, should-fix, question, or nit), then say concretely what fails and the fix. Put how you confirmed it in evidence, with file:line: only what you read or ran. Prefer a \`\`\`suggestion block for a small, mechanical fix: it holds the exact replacement, indentation included, for exactly the commented lines, line alone or startLine to line, and the author applies it with one click. Give a range that covers every line the suggestion replaces, and no more. Points about the change as a whole go in the review summary, with set_review_summary. list_draft_comments shows the draft and who added each comment, and the comments the reviewer removed: don't raise those again unless their code changed. edit_draft_comment and delete_draft_comment change it. Change or delete the reviewer's own comments only when they ask. The draft is the reviewer's: they edit and remove it, and it's submitted only when they say so.",
+    "instructions": "During a review pass, or when the reviewer asks, add each verified issue with add_draft_comment on the line it concerns, or the lines (startLine to line). In ordinary chat, answer in chat. Put one issue in each comment. Give its severity (blocking, should-fix, question, or nit), then say concretely what fails and the fix. Put how you confirmed it in evidence, with file:line: only what you read or ran. Prefer a \`\`\`suggestion block for a small, mechanical fix: it holds the exact replacement, indentation included, for exactly the commented lines, line alone or startLine to line, and the author applies it with one click. Give a range that covers every line the suggestion replaces, and no more. The PR's author reads the comments, replies and summary on GitHub and never sees the guide: don't mention it, its chapters, Start here or risk levels, or say it flagged something. A problem it pointed you to that you verify is a comment on its own terms, with your evidence; a spot it flagged that holds up needs no mention, so tell the reviewer in chat. Points about the change as a whole go in the review summary, with set_review_summary. list_draft_comments shows the draft and who added each comment, and the comments the reviewer removed: don't raise those again unless their code changed. edit_draft_comment and delete_draft_comment change it. Change or delete the reviewer's own comments only when they ask. The draft is the reviewer's: they edit and remove it, and it's submitted only when they say so.",
     "name": "add_draft_comment",
     "presentation": null,
   },
@@ -302,7 +302,7 @@ exports[`the plugin registers the same RPC methods, tools, CLI subcommands, list
       ],
       "type": "object",
     },
-    "instructions": "Write the review summary with set_review_summary: the overall assessment, what blocks merging and what doesn't, and points that have no line. Don't repeat your line comments, since GitHub shows them with the review; refer to them by file:line. Keep it short, in GitHub Markdown. Name anything you didn't read. Give the verdict you'd suggest: APPROVE only if nothing blocks and you read every non-generated file, REQUEST_CHANGES only for a verified blocking issue, otherwise COMMENT. The reviewer picks the verdict, and yours is marked on it. Without verdict, your earlier suggestion stays marked. Messages from the summary's discussion ask for changes to it: make them with set_review_summary, and answer with reply_in_discussion (summary: true).",
+    "instructions": "Write the review summary with set_review_summary: the overall assessment, what blocks merging and what doesn't, and points that have no line. Raise every finding about a line as a line comment with add_draft_comment first, so the reviewer meets it in the code; the summary adds none of its own, and doesn't list what you checked and found fine. Don't repeat your line comments, since GitHub shows them with the review; refer to them by file:line. Keep it short, in GitHub Markdown. Name anything you didn't read. The PR's author reads the comments, replies and summary on GitHub and never sees the guide: don't mention it, its chapters, Start here or risk levels, or say it flagged something. A problem it pointed you to that you verify is a comment on its own terms, with your evidence; a spot it flagged that holds up needs no mention, so tell the reviewer in chat. Give the verdict you'd suggest: APPROVE only if nothing blocks, no blocking feedback from the reviewer's earlier review is open, and you read every non-generated file, or on a re-review, every one changed since the reviewer's last review; REQUEST_CHANGES only for a verified blocking issue, otherwise COMMENT. The reviewer picks the verdict, and yours is marked on it. Without verdict, your earlier suggestion stays marked. Messages from the summary's discussion ask for changes to it: make them with set_review_summary, and answer with reply_in_discussion (summary: true).",
     "name": "set_review_summary",
     "presentation": null,
   },
@@ -350,13 +350,64 @@ exports[`the plugin registers the same RPC methods, tools, CLI subcommands, list
     "presentation": null,
   },
   {
+    "description": "Report what a Dig deeper on a chapter found, after any comments: a verdict on each of its What to verify items, in order, and one line overall. The reviewer sees it on the chapter, with the comments you added. Only in the turn that carries a Dig deeper; nothing reaches GitHub.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "checks": {
+          "description": "One verdict for each What to verify item, in the order the message gave them.",
+          "items": {
+            "properties": {
+              "note": {
+                "description": "One line: what you read or ran, with file:line.",
+                "maxLength": 300,
+                "minLength": 1,
+                "type": "string",
+              },
+              "verdict": {
+                "description": "holds: you confirmed it; problem: you found one, and commented on it; unverified: you couldn't tell.",
+                "enum": [
+                  "holds",
+                  "problem",
+                  "unverified",
+                ],
+                "type": "string",
+              },
+            },
+            "required": [
+              "verdict",
+              "note",
+            ],
+            "type": "object",
+          },
+          "maxItems": 3,
+          "type": "array",
+        },
+        "summary": {
+          "description": "One line overall: what you found, or that the chapter holds up.",
+          "maxLength": 300,
+          "minLength": 1,
+          "type": "string",
+        },
+      },
+      "required": [
+        "summary",
+        "checks",
+      ],
+      "type": "object",
+    },
+    "instructions": null,
+    "name": "report_deep_dive",
+    "presentation": null,
+  },
+  {
     "description": "List the reviewer's feedback on this PR: each review thread they started (id, location, their comment, replies, resolved/outdated state, any earlier verdict) and their review summaries. Also the comments they sent to the main thread to fix (c12), each with its Send and what the thread reported. On their own PR: everyone's threads, and others' review summaries and comments on the PR.",
     "inputSchema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "properties": {},
       "type": "object",
     },
-    "instructions": "When a review comes back to the reviewer, check whether each piece of their feedback was properly addressed: list_feedback, then read_changes_since_review (with send, for a sent comment's Send), then read_file where you need context. Judge the fix itself, not just whether the lines changed: a renamed variable doesn't fix a race. Record every thread, each sent comment by its id, and each distinct ask in the summaries as "summary:<n>" with a title, with assess_feedback: addressed, partial, not_addressed, disputed (the author argues against it; say why in the evidence), or unclear. Then suggest a verdict and a short summary the reviewer could submit, with assess_feedback: they go into the reviewer's draft, where the reviewer picks the verdict. A summary the reviewer wrote stays theirs, and yours waits in Finish review. Draft a reply with draft_thread_reply only on open threads where one adds something, such as what's still missing, or "Fixed in abc123, thanks." On the reviewer's own PR, list_feedback has everyone's threads, and others' review summaries and comments on the PR, with what the thread that fixed each reported: draft each thread's reply from its report with draft_thread_reply, and for a review summary or comment, suggest the reply in your message.",
+    "instructions": "When a review comes back to the reviewer, check whether each piece of their feedback was properly addressed: list_feedback, then read_changes_since_review (with send, for a sent comment's Send), then read_file where you need context. Judge the fix itself, not just whether the lines changed: a renamed variable doesn't fix a race. Record every thread, each sent comment by its id, and each distinct ask in the summaries as "summary:<n>" with a title, with assess_feedback: addressed, partial, not_addressed, disputed (the author argues against it; say why in the evidence), unclear, or deferred (the author, the PR or the reviewer says it's done later, such as in a follow-up PR; quote where in the evidence). A deferral is your proposal: the item stays open, and holds back Approve, until the reviewer confirms it in Comments. A new problem in the fix commits is a line comment with add_draft_comment first, as in a review pass: Raise every finding about a line as a line comment with add_draft_comment first, so the reviewer meets it in the code; the summary adds none of its own, and doesn't list what you checked and found fine. Then suggest a verdict and a short summary the reviewer could submit, with assess_feedback (Approve only while every blocking item is addressed, or deferred and the deferral confirmed by the reviewer): they go into the reviewer's draft, where the reviewer picks the verdict. A summary the reviewer wrote stays theirs, and yours waits in Finish review. The PR's author reads the comments, replies and summary on GitHub and never sees the guide: don't mention it, its chapters, Start here or risk levels, or say it flagged something. A problem it pointed you to that you verify is a comment on its own terms, with your evidence; a spot it flagged that holds up needs no mention, so tell the reviewer in chat. Draft a reply with draft_thread_reply only on open threads where one adds something, such as what's still missing, or "Fixed in abc123, thanks." On the reviewer's own PR, list_feedback has everyone's threads, and others' review summaries and comments on the PR, with what the thread that fixed each reported: draft each thread's reply from its report with draft_thread_reply, and for a review summary or comment, suggest the reply in your message.",
     "name": "list_feedback",
     "presentation": null,
   },
@@ -476,6 +527,7 @@ exports[`the plugin registers the same RPC methods, tools, CLI subcommands, list
                   "not_addressed",
                   "disputed",
                   "unclear",
+                  "deferred",
                 ],
                 "type": "string",
               },
@@ -491,7 +543,7 @@ exports[`the plugin registers the same RPC methods, tools, CLI subcommands, list
           "type": "array",
         },
         "suggestedBody": {
-          "description": "The review summary you'd submit with that verdict, in GitHub Markdown. It goes into the reviewer's draft, unless they wrote the draft's summary.",
+          "description": "The review summary you'd submit with that verdict, in GitHub Markdown. It goes into the reviewer's draft, unless they wrote the draft's summary. It posts to the PR, whose author never sees the guide: it doesn't mention it, and names no finding about a line that a line comment doesn't raise.",
           "maxLength": 65000,
           "type": "string",
         },
@@ -518,7 +570,7 @@ exports[`the plugin registers the same RPC methods, tools, CLI subcommands, list
     "presentation": null,
   },
   {
-    "description": "Draft a reply on one of the reviewer's review threads. It waits on the thread in Comments, unposted.",
+    "description": "Draft a reply on one of the reviewer's review threads. It waits on the thread in Comments, unposted, and posts to GitHub, where the PR's author never sees the guide: don't mention it.",
     "inputSchema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "properties": {

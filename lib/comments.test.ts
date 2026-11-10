@@ -361,7 +361,7 @@ test("the words for every state, thread flag, check, reply draft and summary", (
     "summary-ask": "From your review summary",
   });
   expect(THREAD_FLAG_LABEL).toEqual({ outdated: "Outdated", fileComment: "File comment" });
-  expect(CHECK_LABEL).toEqual({ addressed: "Addressed", partial: "Partly addressed", not_addressed: "Not addressed", disputed: "Author disagrees", unclear: "Unclear" });
+  expect(CHECK_LABEL).toEqual({ addressed: "Addressed", partial: "Partly addressed", not_addressed: "Not addressed", disputed: "Author disagrees", unclear: "Unclear", deferred: "Deferred" });
   expect(REPLY_DRAFT_LABEL).toEqual({ reviewer: "Reply draft · not sent", agent: "Agent reply draft · not sent" });
   expect(SUMMARY_LABEL).toEqual({ reviewer: "Summary · not submitted", agent: "Agent summary · not submitted" });
   expect(GROUP_TITLE).toEqual({ "needs-you": "Needs you", "not-submitted": "Not submitted · only in BB", fixes: "Sent to fix · won’t post", "on-github": "On GitHub", private: "Private · with the agent" });

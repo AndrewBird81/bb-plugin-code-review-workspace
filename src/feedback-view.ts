@@ -8,7 +8,8 @@ import { diffTooLarge, readFilesPatch, readPrDiff } from "./pr-snapshot";
 import { ensureGitHeaders, splitPatchByFile } from "./patch";
 import { diffFilesHead } from "./env-diff";
 import { interdiff, type FileInterdiff } from "./interdiff";
-import { firstLine, type AssessmentItem, type FeedbackItem, type FeedbackView } from "../lib/feedback";
+import { firstLine, settled, type AssessmentItem, type AssessmentVerdict, type FeedbackItem, type FeedbackView } from "../lib/feedback";
+import type { FeedbackThread } from "./github/types";
 import { baselineOf, type AssessmentSummary } from "../lib/turn";
 import { localSendKey, sendBaselineOf, sendKey, sendOf } from "../lib/send-baseline";
 import type { Verdict } from "./draft";
@@ -205,7 +206,9 @@ export async function feedbackView(store: AsyncStore, review: ReviewMeta): Promi
     // The check of the head now; otherwise the latest check, marked as older.
     const checkedHead = head && (await tx.getAssessment(review.targetKey, head)).items.length ? head : latest?.headSha ?? null;
     const assessment = checkedHead ? await tx.getAssessment(review.targetKey, checkedHead) : { items: [], run: null };
-    const byId = new Map(assessment.items.map((item) => [item.id, item]));
+    // A deferral you confirmed says so.
+    const confirmed = review.deferralsConfirmed ?? {};
+    const byId = new Map(assessment.items.map((item) => [item.id, item.verdict === "deferred" && confirmed[item.id] ? { ...item, confirmed: true as const } : item]));
     const drafts = await tx.listReplyDrafts(review.targetKey);
     const url = (commentId: number) => review.url ? `${review.url}#discussion_r${commentId}` : null;
     const items: FeedbackItem[] = threads.map(({ resolvedSeenAt: _, ...thread }) => {
@@ -217,7 +220,7 @@ export async function feedbackView(store: AsyncStore, review: ReviewMeta): Promi
       };
     });
     for (const item of assessment.items) {
-      if (isSummaryItem(item.id)) items.push({ id: item.id, kind: "summary", title: item.title ?? "From your review summary", thread: null, assessment: item, replyDraft: null });
+      if (isSummaryItem(item.id)) items.push({ id: item.id, kind: "summary", title: item.title ?? "From your review summary", thread: null, assessment: byId.get(item.id)!, replyDraft: null });
     }
     const run = assessment.run ?? (checkedHead ? null : latest);
     const suggested = run?.suggestedBody.trim();
@@ -230,20 +233,52 @@ export async function feedbackView(store: AsyncStore, review: ReviewMeta): Promi
   });
 }
 
-/** Counts for the list and the turn rules, over every thread plus the summary asks checked. */
-export function summarize(headSha: string, items: AssessmentItem[], threadIds: readonly string[]): AssessmentSummary {
+/**
+ * Counts for the list and the turn rules, over every thread plus the summary asks checked. `deferred` counts only the
+ * deferrals you confirmed (`confirmed`, by item id); one the agent proposed counts in no bucket until you do.
+ */
+export function summarize(headSha: string, items: AssessmentItem[], threadIds: readonly string[], confirmed: Readonly<Record<string, number>> = {}): AssessmentSummary {
   const byId = new Map(items.map((item) => [item.id, item]));
   const ids = [...new Set([...threadIds, ...items.filter((item) => isSummaryItem(item.id)).map((item) => item.id)])];
-  const count = (verdict: AssessmentItem["verdict"]) => ids.filter((id) => byId.get(id)?.verdict === verdict).length;
+  const count = (verdict: AssessmentItem["verdict"]) => ids.filter((id) => byId.get(id)?.verdict === verdict && (verdict !== "deferred" || !!confirmed[id])).length;
   return {
     headSha, total: ids.length, addressed: count("addressed"), partial: count("partial"), notAddressed: count("not_addressed"),
-    disputed: count("disputed"), unclear: count("unclear"), assessedAt: Math.max(0, ...items.map((item) => item.assessedAt)),
+    disputed: count("disputed"), unclear: count("unclear"), deferred: count("deferred"), assessedAt: Math.max(0, ...items.map((item) => item.assessedAt)),
   };
 }
 
-/** A Request changes summary listing the blocking feedback that isn't addressed yet. */
+/**
+ * The blocking items an Approve would leave open, as Request what's left counts them, each as "t1 (not_addressed)": a
+ * blocking thread whose verdict doesn't settle it, or with none, unless it's resolved; and each summary ask whose verdict
+ * doesn't. `verdicts` by item id; a deferral settles one only once you confirmed it (`confirmed`, by item id).
+ */
+export function openBlocking(threads: readonly FeedbackThread[], verdicts: ReadonlyMap<string, AssessmentVerdict>, confirmed: Readonly<Record<string, number>> = {}): string[] {
+  const said = (id: string, verdict: AssessmentVerdict | undefined) => `${id} (${!verdict ? "no verdict" : verdict === "deferred" ? "deferred, not confirmed by the reviewer" : verdict})`;
+  const open = threads.filter((t) => !threadLabel(t.body)?.nonBlocking).filter((t) => {
+    const verdict = verdicts.get(t.id);
+    return verdict ? !settled(verdict, !!confirmed[t.id]) : !t.isResolved;
+  }).map((t) => said(t.id, verdicts.get(t.id)));
+  return [...open, ...[...verdicts].filter(([id, verdict]) => isSummaryItem(id) && !settled(verdict, !!confirmed[id])).map(([id, verdict]) => said(id, verdict))];
+}
+
+/** Blocking items open, said to an agent that suggested Approve. */
+export const openSaid = (open: readonly string[]) => `${open.length === 1 ? "1 blocking item is" : `${open.length} blocking items are`} still open: ${open.join(", ")}`;
+
+/**
+ * Why an agent's Approve can't be suggested for the review now, or null: blocking feedback the check, at the commit it
+ * checks, leaves open, so Finish review would suggest Approve beside Request what's left.
+ */
+export async function approveRefused(tx: AsyncStore, review: ReviewMeta): Promise<string | null> {
+  const head = review.verifyingSince && review.verifyingHead ? review.verifyingHead : headOf(review);
+  if (review.kind !== "pr" || !head) return null;
+  const verdicts = new Map((await tx.getAssessment(review.targetKey, head)).items.map((item) => [item.id, item.verdict]));
+  const open = openBlocking(await tx.listFeedbackThreads(review.targetKey), verdicts, review.deferralsConfirmed);
+  return open.length ? `You suggested Approve, but ${openSaid(open)}. Suggest Request changes or Comment instead, or check the feedback again with assess_feedback. Nothing was changed.` : null;
+}
+
+/** A Request changes summary listing the blocking feedback that isn't addressed yet, deferrals you confirmed aside. */
 export function remainingBody(view: FeedbackView): string {
-  const open = view.items.filter((item) => !item.nonBlocking && (item.assessment ? item.assessment.verdict !== "addressed" : item.thread?.status !== "resolved"));
+  const open = view.items.filter((item) => !item.nonBlocking && (item.assessment ? !settled(item.assessment.verdict, item.assessment.confirmed) : item.thread?.status !== "resolved"));
   if (!open.length) return "";
   const line = (item: FeedbackItem) => {
     const where = item.thread?.path ? ` (\`${item.thread.path}${item.thread.line ? `:${item.thread.line}` : ""}\`)` : "";

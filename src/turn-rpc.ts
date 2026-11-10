@@ -7,7 +7,8 @@ import { PAGE_BUDGET_MS, refusalText } from "./github-writes";
 import { requireReviewRevision } from "./review-revision";
 import { forgetPostedReply, postDraftedReply } from "./post-receipts";
 import { rerunReview } from "./rereview";
-import { baselineOf, feedbackView, guideBehind, headOf, prCommits, remainingBody, sinceReview } from "./feedback-view";
+import { baselineOf, feedbackView, guideBehind, headOf, prCommits, remainingBody, sinceReview, summarize } from "./feedback-view";
+import { threadLabel } from "./github/threads";
 import { startVerification } from "./verification";
 import { approve } from "../lib/trust";
 import { automaticReviewPrompt, reReviewCheckPrompt } from "./preferences";
@@ -157,6 +158,29 @@ export function register(deps: ServeDeps) {
       async getReplyDrafts({ targetKey }: { targetKey: string }) {
         return { drafts: [...await store.listReplyDrafts(targetKey)].map(([threadId, draft]) => ({ threadId, ...draft })) };
       },
+      async confirmDeferral({ targetKey, itemId, confirmed }: { targetKey: string; itemId: string; confirmed: boolean }) {
+        const result = await store.exclusive(async (tx) => {
+          const review = await tx.getReview(targetKey);
+          const feedback = review && await view(tx, targetKey);
+          if (!review || !feedback) return { ok: false, error: "This review no longer exists." };
+          if (feedback.items.find((item) => item.id === itemId)?.assessment?.verdict !== "deferred") return { ok: false, error: "The agent's check didn't defer that item." };
+          const { [itemId]: _, ...rest } = review.deferralsConfirmed ?? {};
+          const deferralsConfirmed = confirmed ? { ...rest, [itemId]: Date.now() } : rest;
+          await tx.setLifecycle(targetKey, { deferralsConfirmed });
+          // Counted again, for the list's progress and whose turn it is.
+          const head = review.assessment?.headSha;
+          if (head) {
+            const blocking = (await tx.listFeedbackThreads(targetKey)).filter((t) => !threadLabel(t.body)?.nonBlocking).map((t) => t.id);
+            await tx.setLifecycle(targetKey, { assessment: summarize(head, (await tx.getAssessment(targetKey, head)).items, blocking, deferralsConfirmed) });
+          }
+          return { ok: true };
+        });
+        if (!result.ok) return result;
+        bb.realtime.publish(`feedback:${targetKey}`, { ts: Date.now() });
+        await sync.evaluate(targetKey);
+        changed(targetKey);
+        return { ok: true };
+      },
       async useSuggestedVerdict({ targetKey, revision, mode }: { targetKey: string; revision?: string; mode: "suggested" | "remaining" }) {
         return store.exclusive(async (tx) => {
           try { await requireReviewRevision(tx, targetKey, revision); } catch (error) { return { ok: false, error: (error as Error).message }; }
@@ -173,9 +197,12 @@ export function register(deps: ServeDeps) {
             if (!body) return { ok: false, error: "Nothing is left open. Consider approving." };
             verdict = "REQUEST_CHANGES";
           }
-          // You chose the verdict; the words are still the assistant's until you edit them. You've settled the summary.
+          // You chose the verdict. The assistant's suggested words are its own until you edit them; what's left, listed at
+          // your ask, is yours. You've settled the summary.
           await tx.setLifecycle(targetKey, { summaryAsk: null });
-          const draft = await tx.updateSummary(targetKey, { verdict, verdictChosen: true, body, bodyAuthor: "agent", written: { verdict, comments: commentsKey((await tx.getDraft(targetKey)).comments) } });
+          const draft = await tx.updateSummary(targetKey, mode === "suggested"
+            ? { verdict, verdictChosen: true, body, bodyAuthor: "agent", written: { verdict, comments: commentsKey((await tx.getDraft(targetKey)).comments) } }
+            : { verdict, verdictChosen: true, body, bodyAuthor: undefined, written: undefined });
           bb.realtime.publish(`draft:${targetKey}`, {});
           return { ok: true, draft };
         });

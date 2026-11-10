@@ -80,6 +80,9 @@ export const PG_MIGRATIONS: readonly string[] = [
   `ALTER TABLE review_preferences ADD COLUMN knobs TEXT`,
   `ALTER TABLE agent_comment_changes ADD COLUMN reason TEXT`,
   `CREATE TABLE IF NOT EXISTS filter_views (id TEXT COLLATE "C" PRIMARY KEY, name TEXT NOT NULL, filters TEXT NOT NULL, created_at BIGINT NOT NULL)`,
+  `CREATE TABLE IF NOT EXISTS chapter_reads (
+    target_key TEXT COLLATE "C" NOT NULL, chapter_id TEXT COLLATE "C" NOT NULL, open_ms BIGINT NOT NULL, fine_at BIGINT,
+    PRIMARY KEY (target_key, chapter_id))`,
 ];
 
 const statementHash = (statement: string) => createHash("sha256").update(statement).digest("hex");

@@ -124,7 +124,7 @@ export const AgentDock = memo(function AgentDock({ targetKey, reviewId, reviewNa
       if (quote) {
         quoted.current.push(quote);
         setInput((typed) => typed.trim() ? `${typed.trimEnd()}\n\n${quote}` : quote);
-      } else setChip(injection.context);
+      } else if (injection.context.file) setChip(injection.context);
       requestAnimationFrame(() => composerRef.current?.focus());
       return;
     }

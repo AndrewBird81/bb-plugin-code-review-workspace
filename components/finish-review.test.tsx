@@ -106,7 +106,8 @@ test("it lists what goes to GitHub: the comments and their severities, who wrote
   expect(view.getByText("1 written by the agent")).toBeTruthy();
   expect(view.getByText("1 reply draft not sent: replies post on their own")).toBeTruthy();
   expect(submit(view).textContent).toBe("Submit to GitHub · Comment");
-  expect(view.getByText("Posts to acme/web#42 as @me.")).toBeTruthy();
+  // Said of the draft: nothing of it goes before Submit.
+  expect(view.getByText("Your draft stays in BB until you submit, then posts to acme/web#42 as @me.")).toBeTruthy();
   // Each row opens Comments on what it counts.
   fireEvent.click(view.getByRole("button", { name: "Show the comments to send" }));
   const list = within(await slot.findByRole("region", { name: "Comments" }));
@@ -223,36 +224,92 @@ test("doubts sit above Submit beside their fixes, and Submit still asks once mor
   slot.lifecycle.unmount();
 });
 
-test("approving with a high-risk file not viewed, or a chapter marked viewed too fast, says so and asks once more, never blocking", async () => {
-  const lines = (file: string, n: number) => `diff --git a/${file} b/${file}\n--- a/${file}\n+++ b/${file}\n@@ -0,0 +1,${n} @@\n${Array.from({ length: n }, (_, i) => `+row ${i}`).join("\n")}\n`;
-  const risky = { ...guide, sections: [
-    { id: "c1", title: "Parsing", overview: "Reads rows.", risk: "medium", diffs: [{ file: "src/b.ts" }, { file: "src/d.ts" }] },
-    { id: "c2", title: "Auth", overview: "Checks tokens.", risk: "high", diffs: [{ file: "src/a.ts" }] },
-    { id: "c3", title: "Docs", overview: "Says how.", risk: "low", diffs: [{ file: "src/c.ts" }] },
-  ] };
+const added = (file: string, n: number) => `diff --git a/${file} b/${file}\n--- a/${file}\n+++ b/${file}\n@@ -0,0 +1,${n} @@\n${Array.from({ length: n }, (_, i) => `+row ${i}`).join("\n")}\n`;
+const pr42 = { targetKey: "pr-42", kind: "pr", status: "ready", createdAt: 1, title: "Parse rows", headSha: "new", url: "https://github.com/acme/web/pull/42", repo: "acme/web", number: 42 };
+// The review opens on the first chapter, where a file to read draws.
+const risky = { ...guide, sections: [
+  { id: "c1", title: "Setup", overview: "Adds config.", risk: "low", diffs: [{ file: "src/e.ts" }] },
+  { id: "c2", title: "Parsing", overview: "Reads rows.", risk: "medium", focus: ["Check that an empty row is refused."], diffs: [{ file: "src/b.ts" }, { file: "src/d.ts" }] },
+  { id: "c3", title: "Auth", overview: "Checks tokens.", risk: "high", focus: ["Check that an expired token is refused."], diffs: [{ file: "src/a.ts" }] },
+  { id: "c4", title: "Docs", overview: "Says how.", risk: "low", diffs: [{ file: "src/c.ts" }] },
+] };
+const riskyPatch = added("src/a.ts", 5) + added("src/b.ts", 60) + added("src/c.ts", 5) + added("src/d.ts", 5) + added("src/e.ts", 5);
+// The docs, then Parsing's 65 lines a minute later.
+const readQuickly = [{ file: "src/c.ts", viewed: true, stale: false, viewedAt: now - 120_000 }, { file: "src/b.ts", viewed: true, stale: false, viewedAt: now - 60_000 }, { file: "src/d.ts", viewed: true, stale: false, viewedAt: now - 60_000 }];
+
+test("approving with a high-risk file not viewed says so under Before you approve and asks once more, never blocking; a chapter read quickly is listed, not asked about", async () => {
   let draft = draftOf({ verdict: "APPROVE", verdictChosen: true, body: "Fine.", comments: [] });
   const { slot, rpc } = await renderWorkspace({ rpc: {
-    getReviewBundle: () => ({ review: { targetKey: "pr-42", kind: "pr", status: "ready", createdAt: 1, title: "Parse rows", headSha: "new", url: "https://github.com/acme/web/pull/42", repo: "acme/web", number: 42 }, guide: risky, patch: lines("src/a.ts", 5) + lines("src/b.ts", 60) + lines("src/c.ts", 5) + lines("src/d.ts", 5), revision: "r1" }),
-    // The docs, then Parsing's 60 lines a minute later.
-    getFileViews: () => ({ views: [{ file: "src/c.ts", viewed: true, stale: false, viewedAt: now - 120_000 }, { file: "src/b.ts", viewed: true, stale: false, viewedAt: now - 60_000 }] }),
+    getReviewBundle: () => ({ review: pr42, guide: risky, patch: riskyPatch, revision: "r1" }),
+    getFileViews: () => ({ views: readQuickly }),
     getDraft: vi.fn(() => ({ draft, stale: [] })),
     getFeedback: () => ({ feedback: feedbackOf({ items: [] }) }),
     submitReview: vi.fn(() => { draft = draftOf({ comments: [] }); return { ok: true }; }),
   } });
   const view = await finish(slot);
-  expect(view.getByText("1 file in a high-risk chapter not viewed.")).toBeTruthy();
-  expect(view.getByText("Chapter 1 (medium risk): 60 lines marked viewed in 1 min.")).toBeTruthy();
+  const before = within(view.getByRole("heading", { name: "Before you approve" }).closest("section")!);
+  expect(before.getByText("1 file in a high-risk chapter not viewed.")).toBeTruthy();
+  expect(before.getByText("Read quickly: chapter 2 · 65 lines in 1 min")).toBeTruthy();
+  expect(before.getByText("Chapter 2: Check that an empty row is refused.")).toBeTruthy();
+  // Neither goes to GitHub, and the quick read is plain, not a warning.
+  expect(within(view.getByRole("heading", { name: "Goes to GitHub" }).closest("section")!).queryByText(/not viewed|Read quickly/)).toBeNull();
+  expect(before.getByText("Read quickly: chapter 2 · 65 lines in 1 min").closest("li")!.className).not.toMatch(/warning/);
   fireEvent.click(submit(view));
-  expect((await view.findByRole("alert")).textContent).toContain("Submit Approve? 1 file in a high-risk chapter not viewed. Chapter 1 (medium risk): 60 lines marked viewed in 1 min.");
+  const ask = (await view.findByRole("alert")).textContent;
+  expect(ask).toContain("Submit Approve? 1 file in a high-risk chapter not viewed.");
+  expect(ask).not.toContain("quickly");
   expect(rpc.submitReview).not.toHaveBeenCalled();
   fireEvent.click(view.getByRole("button", { name: "Cancel" }));
-  // Show opens the file, in its chapter.
+  // Show opens the file, in its chapter; the quick read's Show, its chapter.
   expect(slot.container.querySelector('[data-file="src/a.ts"]')).toBeNull();
-  fireEvent.click(view.getByRole("button", { name: "Show" }));
+  fireEvent.click(before.getByRole("button", { name: "Show the high-risk files not viewed" }));
   await waitFor(() => expect(slot.container.querySelector('[data-file="src/a.ts"]')).toBeTruthy());
+  // Viewed, and folded, its files open to read again.
+  fireEvent.click(before.getByRole("button", { name: "Show chapter 2" }));
+  await waitFor(() => expect(slot.container.querySelector('[data-file="src/b.ts"] [data-testid="filediff"]')).toBeTruthy());
   fireEvent.click(submit(view));
   fireEvent.click(await view.findByRole("button", { name: "Submit anyway" }));
   await waitFor(() => expect(rpc.submitReview).toHaveBeenCalledWith(expect.objectContaining({ verdict: "APPROVE" })));
+  slot.lifecycle.unmount();
+});
+
+test("approving with only a chapter read quickly submits in one click, and a chapter you said was fine isn't listed", async () => {
+  const fine = { chapterId: "c2", openMs: 0, fineAt: now };
+  let chapters: unknown[] = [];
+  const { slot, rpc } = await renderWorkspace({ rpc: {
+    getReviewBundle: () => ({ review: pr42, guide: risky, patch: riskyPatch, revision: "r1" }),
+    getFileViews: () => ({ views: [...readQuickly, { file: "src/a.ts", viewed: true, stale: false, viewedAt: now - 30_000 }], chapters }),
+    getDraft: () => ({ draft: draftOf({ verdict: "APPROVE", verdictChosen: true, body: "Fine.", comments: [] }), stale: [] }),
+    getFeedback: () => ({ feedback: feedbackOf({ items: [] }) }),
+  } });
+  const view = await finish(slot);
+  expect(view.getByText("Read quickly: chapter 2 · 65 lines in 1 min")).toBeTruthy();
+  expect(view.queryByText(/not viewed/)).toBeNull();
+  // Said fine in another window: read again, it's gone, and with it Before you approve.
+  chapters = [fine];
+  await slot.emitRealtime("review:pr-42", {});
+  await waitFor(() => expect(view.queryByRole("heading", { name: "Before you approve" })).toBeNull());
+  fireEvent.click(submit(view));
+  await waitFor(() => expect(rpc.submitReview).toHaveBeenCalledWith(expect.objectContaining({ verdict: "APPROVE" })));
+  expect(view.queryByRole("alert")).toBeNull();
+  slot.lifecycle.unmount();
+});
+
+test("approving with a flagged file not viewed says what flags it and asks once more", async () => {
+  const weak = "diff --git a/src/a.test.ts b/src/a.test.ts\n--- a/src/a.test.ts\n+++ b/src/a.test.ts\n@@ -1,2 +1,1 @@\n it(\"parses\", () => {\n-  expect(parse()).toBe(1);\n";
+  const { slot, rpc } = await renderWorkspace({ rpc: {
+    getReviewBundle: () => ({ review: pr42, guide: { ...guide, sections: [{ ...guide.sections[0], risk: "low" }, { id: "c2", title: "Tests", overview: "Tests parsing.", risk: "low", diffs: [{ file: "src/a.test.ts" }] }] }, patch: patch + weak, revision: "r1" }),
+    getDraft: () => ({ draft: draftOf({ verdict: "APPROVE", verdictChosen: true, body: "Fine.", comments: [] }), stale: [] }),
+    getFeedback: () => ({ feedback: feedbackOf({ items: [] }) }),
+  } });
+  const view = await finish(slot);
+  expect(view.getByText("1 flagged file not viewed: tests weakened.")).toBeTruthy();
+  fireEvent.click(submit(view));
+  expect((await view.findByRole("alert")).textContent).toContain("Submit Approve? 1 flagged file not viewed: tests weakened.");
+  expect(rpc.submitReview).not.toHaveBeenCalled();
+  fireEvent.click(view.getByRole("button", { name: "Cancel" }));
+  fireEvent.click(view.getByRole("button", { name: "Show the flagged files not viewed" }));
+  await waitFor(() => expect(slot.container.querySelector('[data-file="src/a.test.ts"]')).toBeTruthy());
   slot.lifecycle.unmount();
 });
 
@@ -476,23 +533,25 @@ test("with nothing else waiting, the receipt says so, and All reviews goes back 
   slot.lifecycle.unmount();
 });
 
-test("an earlier review is a line above the next one's draft, so Finish stays open for it", async () => {
-  const { slot } = await renderWorkspace({ review: { submittedVerdict: "REQUEST_CHANGES", submittedAt: now - 2 * 86_400_000 }, rpc: { getDraft: () => ({ draft: draftOf({ comments: [] }), stale: [] }) } });
+test("an earlier review is a neutral line above the next one's draft, with the commits since, so Finish stays open for it", async () => {
+  const { slot } = await renderWorkspace({ review: { submittedVerdict: "REQUEST_CHANGES", submittedAt: now - 2 * 86_400_000, signals: { lastReviewAt: now - 2 * 86_400_000, commitsSince: 2 } }, rpc: { getDraft: () => ({ draft: draftOf({ comments: [] }), stale: [] }) } });
   fireEvent.keyDown(document.body, { key: "s" });
-  const last = within(await slot.findByRole("region", { name: "Submitted review" }));
-  expect(last.getByText("Changes requested")).toBeTruthy();
-  expect(last.getByText("· your last review, 2d ago")).toBeTruthy();
+  const region = await slot.findByRole("region", { name: "Submitted review" });
+  const last = within(region);
+  // History, not where the PR stands: it isn't success-tinted.
+  expect(region.textContent?.replace(/\s+/g, " ")).toBe("Your last review: Changes requested · 2d ago · 2 commits sinceView on GitHub");
+  expect(region.className).not.toMatch(/success/);
   // Its link is a line of text, with a 44px target on a touch screen.
   expect(last.getByRole("link", { name: "View on GitHub" }).className.split(" ")).toEqual(expect.arrayContaining(["relative", "pointer-coarse:after:h-11"]));
   expect(slot.getByRole("group", { name: "Review verdict" })).toBeTruthy();
   slot.lifecycle.unmount();
 });
 
-test("an earlier review sent moments ago says just now, not now ago", async () => {
-  const { slot } = await renderWorkspace({ review: { submittedVerdict: "COMMENT", submittedAt: Date.now() - 10_000 }, rpc: { getDraft: () => ({ draft: draftOf({ comments: [] }), stale: [] }) } });
+test("an earlier review sent moments ago says just now, not now ago, and no commits since that GitHub counted from the review before", async () => {
+  const { slot } = await renderWorkspace({ review: { submittedVerdict: "COMMENT", submittedAt: Date.now() - 10_000, signals: { lastReviewAt: now - 86_400_000, commitsSince: 2 } }, rpc: { getDraft: () => ({ draft: draftOf({ comments: [] }), stale: [] }) } });
   fireEvent.keyDown(document.body, { key: "s" });
-  const last = within(await slot.findByRole("region", { name: "Submitted review" }));
-  expect(last.getByText("· your last review, just now")).toBeTruthy();
+  const region = await slot.findByRole("region", { name: "Submitted review" });
+  expect(region.textContent?.replace(/\s+/g, " ")).toBe("Your last review: Commented · just nowView on GitHub");
   slot.lifecycle.unmount();
 });
 
@@ -550,6 +609,16 @@ test("on your own PR, Finish counts only the comments that post: one sent to fix
   slot.lifecycle.unmount();
 });
 
+test("on someone else's PR whose review your folder joined, a comment sent to your thread there still posts with Submit, as on any PR of theirs", async () => {
+  const sentToFix = [{ ...comments[0], id: "c1", state: "sent", sendN: 1 }, comments[1]];
+  const joined = { ownPr: false, author: "dana", feature: { ...folderReview.feature, joinedAt: 2 }, mainThread: { threadId: "coder", environmentId: "env1", origin: "adopted", since: 2 } };
+  const { slot } = await renderWorkspace({ review: joined, rpc: { getDraft: vi.fn(() => ({ draft: draftOf({ comments: structuredClone(sentToFix) }), stale: [] })) } });
+  const view = await finish(slot);
+  expect(view.getByText("2 comments").parentElement!.textContent).toContain("1 blocking");
+  expect(view.queryByText(/sent to fix won’t post/)).toBeNull();
+  slot.lifecycle.unmount();
+});
+
 test("comments not on GitHub yet are said in Finish to go with Send, not Submit, and aren't counted as posting or sent to fix", async () => {
   const local = (line: number) => ({ file: "src/a.ts", line, side: "LOCAL", body: "Only in the folder." });
   for (const [draft, said] of [
@@ -588,8 +657,13 @@ test("a closed PR's last chapter ends at its archived review, not at finishing i
   fireEvent.click(main.getByRole("button", { name: "Mark viewed" }));
   await waitFor(() => expect(setFilesViewed).toHaveBeenCalledWith({ targetKey: "pr-42", files: ["src/a.ts"] }));
   expect(slot.queryByRole("region", { name: "Archived review" })).toBeNull();
-  fireEvent.click(main.getByRole("button", { name: "Archived review" }));
+  const open = main.getByRole("button", { name: "Archived review" });
+  open.focus();
+  fireEvent.click(open);
   expect(within(await slot.findByRole("region", { name: "Archived review" })).getByText("Merged · Archived")).toBeTruthy();
+  // Showing, it needs no button to it, and the panel's title takes the focus that button had.
+  expect(main.queryByRole("button", { name: "Archived review" })).toBeNull();
+  await waitFor(() => expect(document.activeElement).toBe(slot.getByRole("heading", { name: "Archived review" })));
   slot.lifecycle.unmount();
 });
 
@@ -646,10 +720,49 @@ test("an Approve suggestion from an agent that didn't read every file is a doubt
   expect(within(view.getByRole("region", { name: "Agent’s suggestion" })).getByText("Read 0 of 1 file")).toBeTruthy();
   const row = view.getByText("The agent suggests Approve but read 0 of 1 file").closest("li")!;
   expect(within(row).getByRole("button", { name: "Show" })).toBeTruthy();
+  // It's a doubt before you approve, not something that posts.
+  expect(row.closest("section")!.querySelector("h3")!.textContent).toBe("Before you approve");
   fireEvent.click(submit(view));
   const ask = await view.findByRole("alert");
   expect(ask.textContent).toContain("The agent suggests Approve but read 0 of 1 file.");
   expect(rpc.submitReview).not.toHaveBeenCalled();
+  slot.lifecycle.unmount();
+}, 15_000);
+
+test("on a re-review, what the agent read counts against the files changed since your review, or every file when that can't be read", async () => {
+  const rereview = { submittedHeadSha: "old", submittedAt: now - 86_400_000, agentReads: { head: "new", files: [] } };
+  const approve = vi.fn(() => ({ draft: draftOf({ verdict: "APPROVE", verdictChosen: true, suggestedVerdict: "APPROVE", comments: [] }), stale: [] }));
+  const since = (status: string) => () => ({ baseline: { sha: "old", at: now - 86_400_000, verdict: null }, files: [{ file: "src/a.ts", status, newLines: [], newDeletions: [], patch: "", dropped: "" }] });
+  // The diff shows all changes, whatever changed since.
+  const getPreferences = () => ({ preferences: { ...defaultPreferences, rereviewShows: "all" }, revision: 0 });
+  let { slot } = await renderWorkspace({ review: rereview, rpc: { getDraft: approve, getSinceReview: since("changed"), getPreferences } });
+  let view = await finish(slot);
+  expect(await within(view.getByRole("region", { name: "Agent’s suggestion" })).findByText("Read 0 of 1 file changed since your review")).toBeTruthy();
+  expect(view.getByText("The agent suggests Approve but read 0 of 1 file changed since your review")).toBeTruthy();
+  slot.lifecycle.unmount();
+
+  // Nothing changed since your review but a rebase: nothing new to read, and nothing to doubt.
+  ({ slot } = await renderWorkspace({ review: rereview, rpc: { getDraft: approve, getSinceReview: since("unchanged"), getPreferences } }));
+  view = await finish(slot);
+  await waitFor(() => expect(view.queryByText(/^Read /)).toBeNull());
+  expect(view.queryByText(/The agent suggests Approve but read/)).toBeNull();
+  slot.lifecycle.unmount();
+
+  ({ slot } = await renderWorkspace({ review: rereview, rpc: { getDraft: approve, getSinceReview: () => ({ baseline: null, files: [], error: "gh: not found" }), getPreferences } }));
+  view = await finish(slot);
+  expect(await within(view.getByRole("region", { name: "Agent’s suggestion" })).findByText("Read 0 of 1 file")).toBeTruthy();
+  slot.lifecycle.unmount();
+}, 20_000);
+
+test("a deferral you confirmed isn't left open: beside an Approve suggestion, there's no Request what's left", async () => {
+  const deferred = feedbackOf({ run: { ...run, suggestedVerdict: "APPROVE", suggestedBody: "Nothing outstanding." } });
+  deferred.items[0]!.assessment = { id: "t1", verdict: "deferred", evidence: "Author: staging fixtures come in the next PR.", assessedAt: now, confirmed: true };
+  const { slot } = await renderWorkspace({ rpc: { getFeedback: vi.fn(() => ({ feedback: deferred })) } });
+  const view = await finish(slot);
+  const suggestion = within(view.getByRole("region", { name: "Agent’s suggestion" }));
+  expect(suggestion.getByText("Agent suggests Approve")).toBeTruthy();
+  expect(suggestion.getByRole("button", { name: "Use as draft" })).toBeTruthy();
+  expect(suggestion.queryByRole("button", { name: "Request what’s left" })).toBeNull();
   slot.lifecycle.unmount();
 }, 15_000);
 
@@ -907,6 +1020,21 @@ test("a commit that isn't what you reviewed: Not pushed, which files, the secret
   expect(toast.success).toHaveBeenCalledWith("Updated. Review what changed, then Push.");
   expect(await within(again.part()).findByRole("button", { name: "Push" })).toBeTruthy();
   again.slot.lifecycle.unmount();
+});
+
+test("on someone else's PR whose review your folder joined, Push says first that the commit goes to their branch, with Push anyway and Cancel, not Update first", async () => {
+  const joined = { kind: "pr", repo: "acme/web", number: 7, url: "https://github.com/acme/web/pull/7", headSha: "c0ffee", head: "feat/qa", author: "dana", ownPr: false, feature: { ...folderReview.feature, joinedAt: 2 }, mainThread: { threadId: "coder", environmentId: "env1", origin: "adopted", since: 2 } };
+  const theirs = { state: "mismatch", at: now, threadId: "coder", repo: "acme/web", head: "feat/qa", theirs: true, warning: "This is @dana’s PR: Push puts the commit on their branch, `feat/qa`. Push anyway to go on." };
+  const { slot, state, calls, part } = await renderPush(theirs, {}, joined);
+  const alert = within(part()).getByRole("alert");
+  expect(alert.textContent).toContain("Not pushed. This is @dana’s PR: Push puts the commit on their branch, feat/qa. Push anyway to go on.");
+  expect(within(alert).getAllByRole("button").map((b) => b.textContent)).toEqual(["Push anyway", "Cancel"]);
+  const { warning: _warning, theirs: _theirs, ...rest } = theirs;
+  state.push = { ...rest, state: "committing", pastTheirs: true };
+  fireEvent.click(within(alert).getByRole("button", { name: "Push anyway" }));
+  await waitFor(() => expect(calls.push).toHaveBeenCalledWith({ targetKey: "pr-42", force: true, at: now }));
+  expect((await within(part()).findByRole("status")).textContent).toBe("Waiting for the main thread to commit. The review checks the commit before anything is pushed.");
+  slot.lifecycle.unmount();
 });
 
 test("pushed says so; GitHub not at the commit, or a push no one asked for, is flagged in Finish and on the review, until Got it", async () => {
@@ -1172,5 +1300,92 @@ test("on your PR with a fixer, new commits on GitHub that didn't come from Push 
   const said = "feat/qa has new commits on GitHub (now abc1234) that didn’t come from Push. The fixer, a teammate or CI may have pushed them.";
   expect(within(part()).getByRole("status").textContent).toContain(said);
   expect(slot.getByRole("status", { name: "New commits on GitHub" }).textContent).toContain(said);
+  slot.lifecycle.unmount();
+});
+
+test("a deferral the agent proposes waits for you: it needs you, Request what's left still lists it, and Confirm deferral settles it", async () => {
+  let confirmed = false;
+  const deferred = () => feedbackOf({ run: { ...run, suggestedVerdict: "COMMENT" }, items: [{ ...feedbackOf().items[0]!, assessment: { id: "t1", verdict: "deferred", evidence: "Author: \"in the next PR\"", assessedAt: now, ...confirmed ? { confirmed: true as const } : {} } }] });
+  const confirmDeferral = vi.fn(async ({ confirmed: on }: { confirmed: boolean }) => { confirmed = on; return { ok: true }; });
+  const { slot } = await renderWorkspace({ rpc: { getFeedback: vi.fn(() => ({ feedback: deferred() })), confirmDeferral } });
+  const view = await finish(slot);
+  // Not settled yet: what's left still has it.
+  expect(await view.findByRole("button", { name: "Request what’s left" })).toBeTruthy();
+  fireEvent.click(slot.getByRole("button", { name: /^Comments/ }));
+  const list = within(await slot.findByRole("region", { name: "Comments" }));
+  // Its row says so; opened, its card says what to do.
+  const row = list.getAllByRole("button").find((button) => button.textContent?.includes("Handle the empty list"))!;
+  expect(row.textContent).toContain("Deferred · not confirmed");
+  fireEvent.click(list.getByRole("button", { name: /^Expand GitHub thread/ }));
+  const card = await list.findByRole("article", { name: /^GitHub thread on/ });
+  expect(within(card).getByText("The agent proposes deferring this. It holds back approving until you confirm it.")).toBeTruthy();
+  expect(list.getByRole("radio", { name: "Needs you, 1" })).toBeTruthy();
+  fireEvent.click(within(card).getByRole("button", { name: "Confirm deferral" }));
+  await waitFor(() => expect(confirmDeferral).toHaveBeenCalledWith({ targetKey: "pr-42", itemId: "t1", confirmed: true }));
+  await slot.emitRealtime("feedback:pr-42", { ts: Date.now() });
+  const settledCard = await list.findByText("You confirmed the deferral.");
+  // Settled, it no longer needs you.
+  expect(list.queryByRole("radio", { name: "Needs you, 1" })).toBeNull();
+  fireEvent.click(within(settledCard.closest("article")!).getByRole("button", { name: "Reopen" }));
+  await waitFor(() => expect(confirmDeferral).toHaveBeenLastCalledWith({ targetKey: "pr-42", itemId: "t1", confirmed: false }));
+  slot.lifecycle.unmount();
+}, 15_000);
+
+/** IntersectionObserver, which jsdom lacks: each one observed, to say its card came into view. */
+function observers() {
+  const made: Array<{ callback: IntersectionObserverCallback; targets: Element[] }> = [];
+  vi.stubGlobal("IntersectionObserver", class {
+    targets: Element[] = [];
+    constructor(public callback: IntersectionObserverCallback) { made.push(this); }
+    observe(target: Element) { this.targets.push(target); }
+    unobserve() {}
+    disconnect() { this.targets = []; }
+    takeRecords() { return []; }
+  });
+  /** Every card observed now comes into view, wholly. */
+  const show = () => { for (const observer of made) for (const target of observer.targets) observer.callback([{ target, isIntersecting: true, intersectionRatio: 1, intersectionRect: target.getBoundingClientRect() } as unknown as IntersectionObserverEntry], observer as unknown as IntersectionObserver); };
+  return { show };
+}
+
+test("a comment the agent added is New from agent—not yet reviewed, under the summary that cites it and on its card, until its card was in view", async () => {
+  const seen = observers();
+  const agentComment = { file: "src/a.ts", line: 1, side: "RIGHT", author: "agent", severity: "should-fix", body: "Spacing breaks the parser." };
+  let unseen: unknown[] | undefined = [{ file: "src/a.ts", line: 1, side: "RIGHT" }];
+  const markCommentsSeen = vi.fn(async () => { unseen = undefined; return { ok: true }; });
+  const getDraft = vi.fn(() => ({ draft: draftOf({ comments: [agentComment], body: "One thing: `src/a.ts:1` breaks parsing.", bodyAuthor: "agent", ...unseen ? { unseen } : {} }), stale: [] }));
+  const { slot } = await renderWorkspace({ rpc: { getDraft, markCommentsSeen } });
+  const view = await finish(slot);
+  const cited = within(view.getByRole("list", { name: "Lines the summary cites" }));
+  expect(cited.getByRole("button", { name: "Show src/a.ts:1, New from agent—not yet reviewed, Should fix comment" }).textContent).toContain("New from agent—not yet reviewed");
+  fireEvent.click(slot.getByRole("button", { name: /^Comments/ }));
+  const list = within(await slot.findByRole("region", { name: "Comments" }));
+  const row = list.getAllByRole("button").find((button) => button.textContent?.includes("Spacing breaks the parser."))!;
+  expect(row.textContent).toContain("New from agent—not yet reviewed");
+  // A row isn't the comment read: nothing's marked yet.
+  seen.show();
+  await new Promise((resolve) => setTimeout(resolve, 1200));
+  expect(markCommentsSeen).not.toHaveBeenCalled();
+  fireEvent.click(list.getByRole("button", { name: /^Expand Draft comment/ }));
+  const card = await list.findByRole("article", { name: "Draft comment on src/a.ts:1" });
+  expect(card.textContent).toContain("New from agent—not yet reviewed");
+  // Its card in view for a moment is a review of it.
+  seen.show();
+  await waitFor(() => expect(markCommentsSeen).toHaveBeenCalledWith({ targetKey: "pr-42", at: [{ file: "src/a.ts", line: 1, side: "RIGHT" }] }), { timeout: 3000 });
+  await waitFor(() => expect(list.getByRole("article", { name: "Draft comment on src/a.ts:1" }).textContent).not.toContain("New from agent"));
+  vi.unstubAllGlobals();
+  slot.lifecycle.unmount();
+}, 15_000);
+
+test("in Finish review, Move to summary's Move and Replace summary are outlined, so Submit is the one filled button", async () => {
+  const filled = (scope: HTMLElement) => within(scope).getAllByRole("button").filter((button) => button.className.includes("bg-primary ")).map((button) => button.textContent);
+  const moving = await renderWorkspace({ rpc: movedRpc() });
+  const view = await finish(moving.slot);
+  fireEvent.click(view.getByRole("button", { name: "Move to summary" }));
+  expect(filled(await moving.slot.findByRole("dialog", { name: "Move to summary" }))).toEqual([]);
+  moving.slot.lifecycle.unmount();
+  cleanup();
+  const { slot } = await renderWorkspace({ rpc: { getDraft: vi.fn(() => ({ draft: draftOf({ body: "My summary." }), stale: [] })), getFeedback: () => ({ feedback: feedbackOf({ run }) }) } });
+  fireEvent.click((await finish(slot)).getByRole("button", { name: "Request what’s left" }));
+  expect(filled(await slot.findByRole("dialog", { name: "Replace your summary?" }))).toEqual([]);
   slot.lifecycle.unmount();
 });

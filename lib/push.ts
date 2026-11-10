@@ -18,22 +18,25 @@ type Pushable = Pick<ReviewMeta, "feature" | "mainThread" | "repo" | "number" | 
 
 /**
  * The review's Push target, or why it has none: a local review of a folder's branch in a GitHub repo, from its folder, a
- * re-homed worktree too; or your own PR with a thread fixing it in a folder, a fixer or the folder it became a PR from.
- * Never someone else's PR.
+ * re-homed worktree too; your own PR with a thread fixing it in a folder, a fixer or the folder it became a PR from; or
+ * a PR whose review a folder joined, someone else's too, from that folder, which Push asks about first (src/push.ts).
+ * Never someone else's PR otherwise.
  */
 export function pushTarget(review: Pushable | null): PushTarget | string {
   if (!review) return "This review no longer exists.";
   const unsafe = (head: string) => `Push can’t write a safe command for ${JSON.stringify(head)}: its name has a quote. Push it from a terminal.`;
   if (review.kind === "pr") {
     const fixer = usesFixer(review);
-    if (review.ownPr !== true || !fixer && !review.feature) return "Push works on a local review, or on your own PR with a thread fixing it.";
-    // The folder it became a PR from, its main thread there: its own origin and branch, a fork's too.
     const feature = review.feature;
+    if (review.ownPr !== true && !feature?.joinedAt || !fixer && !feature) return "Push works on a local review, on your own PR with a thread fixing it, or on a PR whose review your thread’s folder joined.";
+    // The folder it became a PR from, or that joined its review, its main thread there: a fork's head goes to that fork.
     if (!fixer && feature && review.repo && review.number && review.mainThread?.environmentId === feature.environmentId) {
       const head = feature.remoteBranch ?? feature.branch;
       if (pushCommand("HEAD", head) === null) return unsafe(head);
-      return { repo: review.repo, head, environmentId: feature.environmentId, remote: "origin", fixer: false, pr: review.number };
+      const fork = !!feature.joinedAt && review.headFork != null;
+      return { repo: review.repo, head, environmentId: feature.environmentId, remote: fork ? "<remote>" : "origin", ...fork && review.headFork ? { forkOf: review.headFork } : {}, fixer: false, pr: review.number };
     }
+    if (review.ownPr !== true) return "Push works on someone else’s PR only from the folder that joined its review, while BB has it.";
     const environmentId = review.mainThread?.environmentId;
     if (!review.repo || !review.number || !review.head || !environmentId) return "No thread is working on this PR in a folder, so there’s nothing to push.";
     if (pushCommand("HEAD", review.head) === null) return unsafe(review.head);
@@ -83,10 +86,13 @@ export function mismatchText(files: readonly string[], secrets: readonly string[
  * Whether a Push waits on Push anyway: a mismatch with a commit the check placed, or GitHub ahead of the folder before
  * any commit. The page, the review agent and the server all ask this.
  */
-export const pushAnywayOffered = (run: PushRun | null | undefined): run is PushRun => run?.state === "mismatch" && (!!run.sha || !!run.behind);
+export const pushAnywayOffered = (run: PushRun | null | undefined): run is PushRun => run?.state === "mismatch" && (!!run.sha || !!run.behind || !!run.theirs);
 
 /** What Push says when GitHub has commits the folder doesn't: a push without force would be refused. */
 export const behindText = (head: string) => `GitHub has commits on ${code(head)} that this folder doesn’t. Pull first, or Push anyway to try.`;
+
+/** What Push says first on someone else's PR, whose review your folder joined: the commit goes to their branch. */
+export const theirsText = (author: string | null | undefined, head: string) => `This is ${author ? `@${author}’s` : "someone else’s"} PR: Push puts the commit on their branch, ${code(head)}. Push anyway to go on.`;
 
 /** The review agent's PR draft while it waits in the Post form in its chat (ReviewMeta.prDraft); null once it closed or timed out. */
 export const prDraftWaiting = (review: Pick<ReviewMeta, "prDraft">, now = Date.now()) => review.prDraft && review.prDraft.until > now ? review.prDraft : null;

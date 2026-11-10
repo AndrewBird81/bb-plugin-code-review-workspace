@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { test, expect, vi, afterEach } from "vitest";
-import { render, screen, fireEvent, cleanup, within } from "@testing-library/react";
+import { render, screen, fireEvent, cleanup, within, waitFor } from "@testing-library/react";
 
 // Render only our chrome and annotations, not @pierre/diffs' internals. Like
 // pierre, the gutter "+" reports a line selection right after its own click.
@@ -137,6 +137,30 @@ test("draft comments show under their lines with who added them, and the file's 
   expect(screen.getByText("1 not submitted")).toBeTruthy();
 });
 
+test("an agent's comment you haven't reviewed says New from agent—not yet reviewed in the code until its card was in view a moment", async () => {
+  const observed: Array<{ callback: IntersectionObserverCallback; target?: Element }> = [];
+  vi.stubGlobal("IntersectionObserver", class {
+    callback: IntersectionObserverCallback; target?: Element;
+    constructor(callback: IntersectionObserverCallback) { this.callback = callback; observed.push(this); }
+    observe(target: Element) { this.target = target; }
+    disconnect() {}
+  });
+  const markSeen = vi.fn();
+  renderWithDraft({ comments: [comment, { ...comment, line: 1, author: undefined, body: "Mine." }], unseen: [{ file: "src/a.ts", line: 2, side: "RIGHT" }], markSeen });
+  const shown = screen.getByRole("article", { name: "Draft comment on src/a.ts:2" });
+  expect(within(shown).getByText("New from agent—not yet reviewed")).toBeTruthy();
+  expect(within(screen.getByRole("article", { name: "Draft comment on src/a.ts:1" })).queryByText("New from agent—not yet reviewed")).toBeNull();
+  // Only the new one is watched; a glimpse doesn't count, a moment in view does.
+  const watcher = observed.find((o) => o.target === shown)!;
+  expect(observed.filter((o) => o.target)).toHaveLength(1);
+  watcher.callback([{ isIntersecting: true, intersectionRatio: 0.2, intersectionRect: { height: 20 } } as any], watcher as any);
+  await new Promise((resolve) => setTimeout(resolve, 900));
+  expect(markSeen).not.toHaveBeenCalled();
+  watcher.callback([{ isIntersecting: true, intersectionRatio: 1, intersectionRect: { height: 80 } } as any], watcher as any);
+  await waitFor(() => expect(markSeen).toHaveBeenCalledWith(comment), { timeout: 2000 });
+  vi.unstubAllGlobals();
+});
+
 test("a comment's Edit and Remove act on it, and a collapsed file still counts it", () => {
   const draft = renderWithDraft({ comments: [comment] });
   const shown = screen.getByRole("article", { name: "Draft comment on src/a.ts:2" });
@@ -216,11 +240,71 @@ test("Undo under a line puts back the agent's latest change there, except while 
   expect(within(screen.getByRole("region", { name: "Discussion with agent on src/a.ts:2" })).queryByRole("button", { name: "Undo" })).toBeNull();
 });
 
+test("Show changes under the agent's edit marks the words it took out and put in; a change with no text before it has none", () => {
+  const at = { file: "src/a.ts", line: 2, side: "RIGHT" as const };
+  const discussion = { ...at, waiting: false, entries: [
+    { author: "reviewer" as const, kind: "message" as const, body: "Plain English?", createdAt: 1 },
+    { author: "agent" as const, kind: "edited" as const, body: "A path with .. gets through.", before: "Rooted paths silently collapse upward traversal.", createdAt: 2 },
+    { author: "agent" as const, kind: "removed" as const, body: "", createdAt: 3 },
+  ] };
+  renderWithDraft({ comments: [comment], discussions: [discussion] });
+  const thread = screen.getByRole("region", { name: "Discussion with agent on src/a.ts:2" });
+  const show = within(thread).getByRole("button", { name: "Show changes" });
+  expect(show.getAttribute("aria-expanded")).toBe("false");
+  fireEvent.click(show);
+  const changes = within(thread).getByLabelText("Changes");
+  expect(changes.querySelectorAll("del").length).toBeGreaterThan(0);
+  expect(changes.querySelectorAll("ins").length).toBeGreaterThan(0);
+  // Read without its struck words, it's the new text; without its inserted ones, the old.
+  const without = (tag: string) => Array.from(changes.childNodes).filter((node) => node.nodeName.toLowerCase() !== tag).map((node) => node.textContent).join("");
+  expect(without("del")).toBe("A path with .. gets through.");
+  expect(without("ins")).toBe("Rooted paths silently collapse upward traversal.");
+  expect(within(thread).getByRole("button", { name: "Hide changes" }).getAttribute("aria-expanded")).toBe("true");
+});
+
 test("Undo under a line waits while the panel's box edits that comment", () => {
   const at = { file: "src/a.ts", line: 2, side: "RIGHT" as const };
   const discussion = { ...at, waiting: false, undoable: true, entries: [{ author: "agent" as const, kind: "edited" as const, body: comment.body, createdAt: 2 }] };
   renderWithDraft({ comments: [comment], discussions: [discussion], editingAt: at });
   expect(within(screen.getByRole("region", { name: "Discussion with agent on src/a.ts:2" })).queryByRole("button", { name: "Undo" })).toBeNull();
+});
+
+// Ask agent sat above the discussion, so it didn't look like it could go on (ted-2026-11-03 01).
+test("a discussion goes on from Reply at its foot, as a GitHub thread does, in Ask agent's place, until a box opens there", () => {
+  const at = { file: "src/a.ts", line: 2, side: "RIGHT" as const };
+  const discussion = { ...at, waiting: false, entries: [
+    { author: "reviewer" as const, kind: "message" as const, body: "Is it a map?", createdAt: 1 },
+    { author: "agent" as const, kind: "message" as const, body: "Yes.", createdAt: 2 },
+  ] };
+  const draft = renderWithDraft({ comments: [comment], discussions: [discussion] });
+  const card = screen.getByRole("article", { name: "Draft comment on src/a.ts:2" });
+  expect(within(card).getByRole("button", { name: "Edit" })).toBeTruthy();
+  expect(within(card).queryByRole("button", { name: "Ask agent" })).toBeNull();
+  const thread = screen.getByRole("region", { name: "Discussion with agent on src/a.ts:2" });
+  // The last thing in it, after the agent's answer.
+  const reply = within(thread).getByRole("button", { name: "Reply" });
+  expect(thread.lastElementChild!.contains(reply)).toBe(true);
+  fireEvent.click(reply);
+  expect(draft.ask).toHaveBeenCalledWith(comment);
+  cleanup();
+  // Another box holding text holds it; one open here takes its place.
+  renderWithDraft({ comments: [comment], discussions: [discussion], writing: true });
+  expect((within(screen.getByRole("region", { name: "Discussion with agent on src/a.ts:2" })).getByRole("button", { name: "Reply" }) as HTMLButtonElement).disabled).toBe(true);
+  cleanup();
+  renderWithDraft({ comments: [comment], discussions: [discussion], composer: { ...at, editing: false, asking: true } }, {}, { body: "", change: vi.fn(), save: vi.fn(), askAgent: vi.fn(), cancel: vi.fn(), textareaRef: { current: null } });
+  expect(screen.getByRole("textbox", { name: "Message to agent" })).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Reply" })).toBeNull();
+  cleanup();
+  // A question with no comment: Dismiss heads it, and Reply ends it.
+  const asked = renderWithDraft({ discussions: [discussion] });
+  const bare = screen.getByText("Private · with the agent").closest<HTMLElement>("[data-draft-at]")!;
+  expect(within(bare).getAllByRole("button").map((button) => button.textContent)).toEqual(["Dismiss", "Reply"]);
+  fireEvent.click(within(bare).getByRole("button", { name: "Reply" }));
+  expect(asked.ask).toHaveBeenCalledWith(discussion);
+  cleanup();
+  // A draft that can't change has none.
+  renderWithDraft({ comments: [comment], discussions: [discussion], editable: false });
+  expect(screen.queryByRole("button", { name: "Reply" })).toBeNull();
 });
 
 test("a viewed file, folded, dims its path alone, not its row's other text", () => {

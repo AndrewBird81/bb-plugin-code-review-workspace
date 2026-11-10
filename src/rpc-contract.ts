@@ -86,7 +86,8 @@ const syncHealth = z.object({
 });
 const discussion = z.object({
   ...location,
-  entries: z.array(z.object({ author: z.enum(["reviewer", "agent"]), kind: z.enum(["message", "added", "edited", "removed", "restored"]), body: z.string(), createdAt: z.number() })),
+  // An edit's text before it, which Show changes compares (src/draft.ts DiscussionEntry before).
+  entries: z.array(z.object({ author: z.enum(["reviewer", "agent"]), kind: z.enum(["message", "added", "edited", "removed", "restored"]), body: z.string(), before: z.string().optional(), createdAt: z.number() })),
   startLine: z.number().int().optional(),
   waiting: z.boolean(),
   undoable: z.boolean().optional(),
@@ -101,7 +102,7 @@ const draftOutput = z.object({
   stale: z.array(z.object(location)),
   discussions: z.array(discussion),
   // What the review agent's check found of each sent comment, by its id, against the Send that last carried it.
-  checks: z.record(z.string(), z.object({ verdict: z.enum(["addressed", "partial", "not_addressed", "disputed", "unclear"]), evidence: z.string() })).optional(),
+  checks: z.record(z.string(), z.object({ verdict: z.enum(["addressed", "partial", "not_addressed", "disputed", "unclear", "deferred"]), evidence: z.string() })).optional(),
 });
 
 export const rpcContract = defineRpcContract({
@@ -253,6 +254,11 @@ export const rpcContract = defineRpcContract({
 
   // Draft and submit
   getDraft: { input: targetKey, output: draftOutput },
+  /** The agent's comments at `at` were reviewed: a card of each was in view. They're no longer New from agent. */
+  markCommentsSeen: {
+    input: z.object({ targetKey: z.string(), at: z.array(z.object(location)).max(500) }).strict(),
+    output: z.object({ ok: z.boolean() }),
+  },
   saveDraftComment: {
     // `replaces`: the line's comment the box saw, null for none; a save over another one, written since, is refused.
     // `restore`, Undo after Remove with replaces null: the comment keeps its id, and where its fix stood, as sent back.
@@ -325,11 +331,13 @@ export const rpcContract = defineRpcContract({
     }),
   },
 
-  // Per-file "Viewed" state
+  // Per-file "Viewed" state, and how long each chapter showed and when its quick read was said to be fine
+  // (lib/chapter-reads.ts), which a server before 1.12.0 doesn't send.
   getFileViews: {
     input: targetKey,
     output: z.object({
       views: z.array(z.object({ file: z.string(), viewed: z.boolean(), stale: z.boolean(), viewedAt: z.number() })),
+      chapters: z.array(z.object({ chapterId: z.string(), openMs: z.number(), fineAt: z.number().nullable() })).optional(),
     }),
   },
   setFileViewed: {
@@ -341,6 +349,17 @@ export const rpcContract = defineRpcContract({
   setFilesViewed: {
     input: z.object({ targetKey: z.string(), files: z.array(z.string()), viewed: z.boolean().optional(), previous: z.array(fileView).optional() }).strict(),
     output: z.object({ ok: z.boolean(), previous: z.array(fileView).optional() }),
+  },
+  // Time a chapter showed in a window in view, added to what it had: a minute or so at a time, never more than an hour.
+  // Returns its total.
+  addChapterOpenTime: {
+    input: z.object({ targetKey: z.string(), chapterId: z.string().min(1), ms: z.number().int().min(1).max(3_600_000) }).strict(),
+    output: z.object({ ok: z.boolean(), openMs: z.number().optional() }),
+  },
+  // It's fine: the chapter's quick read, as it's marked now. Returns when, by the server's clock, which marks files viewed.
+  setChapterFine: {
+    input: z.object({ targetKey: z.string(), chapterId: z.string().min(1) }).strict(),
+    output: z.object({ ok: z.boolean(), fineAt: epochMs.optional() }),
   },
 
   // Review assistant: one hidden bb thread per review, shown with ThreadChat
@@ -369,7 +388,7 @@ export const rpcContract = defineRpcContract({
     input: z.object({ targetKey: z.string(), comments: z.array(z.object(location).strict()).min(1), force: z.boolean().optional() }).strict(),
     output: z.union([z.object({ ok: z.literal(true), threadId: z.string(), title: z.string(), keptLocal: z.number().int().optional() }), sendWarning]),
   },
-  // The review's main thread, which its Sends go to (src/loop.ts): the top thread in its folder, or the thread `bb review`
+  // The review's main thread, which its Sends go to (src/loop.ts): the thread that started it in its folder, or the thread `bb review`
   // ran in, and the machine it works on when that's known.
   getSourceThread: {
     input: targetKey,
@@ -627,6 +646,14 @@ export const rpcContract = defineRpcContract({
   getReplyDrafts: {
     input: targetKey,
     output: z.object({ drafts: z.array(z.object({ threadId: z.string(), body: z.string(), author: z.enum(["agent", "reviewer"]), updatedAt: z.number() })) }),
+  },
+  /**
+   * Confirm, or take back, a deferral the agent's check proposed for one item of your feedback: until you confirm it,
+   * the item holds back an Approve and stays in Request what's left. Refused for an item the check didn't defer.
+   */
+  confirmDeferral: {
+    input: z.object({ targetKey: z.string(), itemId: z.string(), confirmed: z.boolean() }).strict(),
+    output: z.object({ ok: z.boolean(), error: z.string().optional() }),
   },
   /**
    * Put the assistant's suggested verdict and summary in the draft ("suggested"), or a

@@ -3,6 +3,7 @@ import type { ThreadItem } from "../../lib/comments";
 import { REPLY_DRAFT_LABEL } from "../../lib/comments";
 import { setReplyWriting } from "../../lib/comments-fold";
 import { cn } from "../../lib/utils";
+import { useFill } from "../../lib/workspace-context";
 import { CommentBody, composerKeys } from "../InlineDraft";
 import { TOUCH_CONTROL } from "../touch";
 import { Button } from "../ui/button";
@@ -34,6 +35,7 @@ export function ReplyBox({ targetKey, item, where, actions, busy, writing, onClo
   /** Reply, which takes the focus back when the box closes. */
   replyButton: RefObject<HTMLButtonElement | null>;
 }) {
+  const fill = useFill();
   const key = `${targetKey}:${item.id}`;
   const draft = item.replyDraft?.body ?? "";
   const [text, setText] = useState(() => unsaved.get(key) ?? draft);
@@ -149,7 +151,7 @@ export function ReplyBox({ targetKey, item, where, actions, busy, writing, onClo
         : <CommentBody body={text} link={agent} />}
       <div className="flex flex-wrap items-center gap-1">
         {/* While it posts, Send keeps the focus it was pressed with. */}
-        <Button size="sm" data-reply-action="send" className={cn(action, "aria-disabled:pointer-events-none aria-disabled:bg-muted/60 aria-disabled:text-subtle-foreground aria-disabled:shadow-none")} disabled={!busy && !text.trim()} aria-disabled={busy || undefined} onClick={() => { if (!busy) void send(); }}>
+        <Button size="sm" variant={fill} data-reply-action="send" className={cn(action, "aria-disabled:pointer-events-none aria-disabled:bg-muted/60 aria-disabled:text-subtle-foreground aria-disabled:shadow-none")} disabled={!busy && !text.trim()} aria-disabled={busy || undefined} onClick={() => { if (!busy) void send(); }}>
           {busy ? <Icon name="Loading" className="size-3.5 animate-spin motion-reduce:animate-none" aria-hidden /> : <Icon name="Github" className="size-3.5" aria-hidden />}Send reply
         </Button>
         {!editing && <Button variant="ghost" size="sm" className={action} disabled={busy} onClick={() => { focusBox.current = true; setEditing(true); }}>Edit</Button>}

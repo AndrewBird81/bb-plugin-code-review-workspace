@@ -472,7 +472,8 @@ async function renderSettings(preferences: Record<string, unknown> = { ...defaul
   await slot.findByRole("textbox", { name: "Guide instructions" });
   const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const toggle = (label: string) => slot.getByRole("checkbox", { name: new RegExp(`^${escape(label)}`) }) as HTMLInputElement;
-  const pace = () => slot.getByRole("spinbutton", { name: "Flag chapters read faster than lines an hour" }) as HTMLInputElement;
+  /** Check before you approve's pace for code and config, tests, or docs. */
+  const pace = (label = "Code and config") => slot.getByRole("spinbutton", { name: `${label} lines an hour` }) as HTMLInputElement;
   const saveButton = () => slot.getByRole("button", { name: "Save settings" }) as HTMLButtonElement;
   return { slot, saved, save, toggle, pace, saveButton };
 }
@@ -485,16 +486,18 @@ test("every knob shows in its section, and each saves its non-default value", as
   const { slot, saved, toggle, pace, saveButton } = await renderSettings();
   for (const control of KNOB_CONTROLS) {
     const section = slot.getByRole("heading", { name: SECTION_TITLES[control.section] }).closest("section")!;
-    const input = control.unit ? pace() : toggle(control.label);
+    const input = control.unit ? pace(control.label) : toggle(control.label);
     expect({ id: control.id, inSection: section.contains(input) }).toEqual({ id: control.id, inSection: true });
   }
-  // The pace first: it's disabled once Check before you approve is off.
+  // The paces first: they're disabled once Check before you approve is off.
   fireEvent.change(pace(), { target: { value: "800" } });
+  fireEvent.change(pace("Tests"), { target: { value: "3000" } });
+  fireEvent.change(pace("Docs"), { target: { value: "2500" } });
   for (const control of KNOB_CONTROLS) if (!control.unit) fireEvent.click(toggle(control.label));
   fireEvent.click(saveButton());
   await slot.findByText("Settings saved");
   const off = Object.fromEntries(Object.keys(defaultKnobs).map((id) => [id, false]));
-  expect(saved.record.preferences).toEqual({ ...defaultPreferences, knobs: { ...off, approveGuardPace: 800 } });
+  expect(saved.record.preferences).toEqual({ ...defaultPreferences, knobs: { ...off, approveGuardPace: 800, approveGuardTestsPace: 3000, approveGuardDocsPace: 2500 } });
   slot.lifecycle.unmount();
 });
 
@@ -523,18 +526,18 @@ test("a setting that depends on another is disabled while that one is off, and T
   const authors = () => within(slot.getByRole("group", { name: "Run agents on their own for PRs from" })).getAllByRole("button") as HTMLButtonElement[];
   const dependents = () => ({
     automaticReview: automaticReview.disabled, check: check.disabled, pushes: pushes().every((button) => button.disabled),
-    reviewed: toggle("Include PRs you’ve reviewed").disabled, own: toggle("Include your own PRs").disabled, team: toggle("Include team requests").disabled, pace: pace().disabled,
+    reviewed: toggle("Include PRs you’ve reviewed").disabled, own: toggle("Include your own PRs").disabled, team: toggle("Include team requests").disabled, paces: [pace(), pace("Tests"), pace("Docs")].map((input) => input.disabled),
     authors: authors().some((button) => button.disabled),
   });
-  expect(dependents()).toEqual({ automaticReview: false, check: false, pushes: false, reviewed: false, own: false, team: false, pace: false, authors: false });
+  expect(dependents()).toEqual({ automaticReview: false, check: false, pushes: false, reviewed: false, own: false, team: false, paces: [false, false, false], authors: false });
   // A disabled dependent's label and description dim with its control, still readable.
   const texts = ["Automatic review", /^Sent to the review agent when a guide is ready/, "Re-review check", /^Sent to the review agent when a review comes back/,
     "After the author pushes", /^The review agent checks once the author’s pushes settle/, "Include team requests", /^Also show PRs that ask a team/,
-    "Include PRs you’ve reviewed", /^Open PRs you’ve reviewed on GitHub/, "Include your own PRs", /^Your open PRs on GitHub/, "Flag chapters read faster than", "lines an hour", /^Medium- and high-risk chapters of 50 lines/];
+    "Include PRs you’ve reviewed", /^Open PRs you’ve reviewed on GitHub/, "Include your own PRs", /^Your open PRs on GitHub/, "Reading pace", /^A medium- or high-risk chapter that takes 6 minutes or more/, "Code and config", "Tests", "Docs"];
   const dimmed = () => texts.map((text) => slot.getByText(text).closest(".opacity-80") !== null);
   expect(dimmed()).toEqual(texts.map(() => false));
   for (const label of ["Run the automatic review", "Run the re-review check", "Track reviews from GitHub", "Check before you approve", "Start agents on their own"]) fireEvent.click(toggle(label));
-  expect(dependents()).toEqual({ automaticReview: true, check: true, pushes: true, reviewed: true, own: true, team: true, pace: true, authors: false });
+  expect(dependents()).toEqual({ automaticReview: true, check: true, pushes: true, reviewed: true, own: true, team: true, paces: [true, true, true], authors: false });
   expect(dimmed()).toEqual(texts.map(() => true));
   expect(slot.getByText("Run the automatic review").closest(".opacity-80")).toBeNull();
   expect(slot.getByText(/^Start agents on their own is off: on other people’s PRs, nothing starts until you click\. This choice still decides whose PRs the repo’s tests and linters may run on\.$/)).toBeTruthy();
@@ -599,6 +602,20 @@ test("a pace that isn't a whole number from 100 to 2,000 holds Save, and Discard
   slot.lifecycle.unmount();
 });
 
+test("the paces for tests and docs take a whole number from 100 to 10,000", async () => {
+  const { slot, saved, pace, saveButton } = await renderSettings();
+  const error = "Use a whole number from 100 to 10,000.";
+  for (const label of ["Tests", "Docs"]) {
+    fireEvent.change(pace(label), { target: { value: "10001" } });
+    expect({ label, invalid: pace(label).getAttribute("aria-invalid"), error: !!slot.queryByText(error), save: saveButton().getAttribute("aria-disabled") }).toEqual({ label, invalid: "true", error: true, save: "true" });
+    fireEvent.change(pace(label), { target: { value: "10000" } });
+  }
+  fireEvent.click(saveButton());
+  await slot.findByText("Settings saved");
+  expect(saved.record.preferences.knobs).toMatchObject({ approveGuardPace: 500, approveGuardTestsPace: 10_000, approveGuardDocsPace: 10_000 });
+  slot.lifecycle.unmount();
+});
+
 test("how to set up Needs You shows while settings load and when they can't, and its toggles once they have", async () => {
   await loadPluginApp(() => import("../app"));
   const { ReviewSettings } = await import("./ReviewSettings");
@@ -630,11 +647,11 @@ test("every settings checkbox keeps its size beside a description that wraps", a
   slot.lifecycle.unmount();
 });
 
-test("the pace's number and its unit wrap as one, so the unit never sits alone on a phone", async () => {
+test("each pace's number and its unit wrap as one, so the unit never sits alone on a phone", async () => {
   const { slot, pace } = await renderSettings();
-  const unit = slot.getByText("lines an hour");
-  expect(unit.parentElement).toBe(pace().parentElement);
-  expect(unit.parentElement!.classList.contains("whitespace-nowrap")).toBe(true);
+  const units = slot.getAllByText("lines an hour");
+  expect(units.map((unit) => unit.parentElement)).toEqual([pace().parentElement, pace("Tests").parentElement, pace("Docs").parentElement]);
+  for (const unit of units) expect(unit.parentElement!.classList.contains("whitespace-nowrap")).toBe(true);
   slot.lifecycle.unmount();
 });
 
@@ -696,7 +713,7 @@ test("settings from a server without knobs show each at its default, with nothin
   const { knobs: _none, ...older } = defaultPreferences;
   const { slot, toggle, pace, saveButton } = await renderSettings(older);
   expect(toggle("Single-key shortcuts").checked).toBe(true);
-  expect(pace().value).toBe("500");
+  expect([pace().value, pace("Tests").value, pace("Docs").value]).toEqual(["500", "2000", "2000"]);
   expect(slot.queryByText("Unsaved changes")).toBeNull();
   expect(saveButton().getAttribute("aria-disabled")).toBe("true");
   slot.lifecycle.unmount();

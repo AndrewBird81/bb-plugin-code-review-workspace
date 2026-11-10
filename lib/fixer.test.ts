@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { isFixer, usesFixer } from "./fixer";
+import { isFixer, usesFixer, yoursByFolder } from "./fixer";
 
 const feature = { environmentId: "env1", hostId: "h", machine: "MaxBook", path: "/src/web", branch: "feat", baseRef: "main", repo: "acme/web" };
 const adopted = { threadId: "coder", environmentId: "env1", origin: "adopted" as const, since: 1 };
@@ -21,4 +21,15 @@ test("one answer to whether a review's Sends go to a fixer, for every route and 
   // A fixer is one by its record, not its branch, which BB says only later.
   expect(isFixer({ ...adopted, origin: "fresh", branch: "bb/fix" })).toBe(false);
   expect(isFixer(null)).toBe(false);
+});
+
+test("a folder makes the change yours where the review began as it, not where it joined a PR's review, for Send, Submit and the comments' status alike", () => {
+  const cases: Array<[string, Parameters<typeof yoursByFolder>[0], boolean]> = [
+    ["a local review", { kind: "ref", feature }, true],
+    ["a folder's review that became its PR's", { kind: "pr", feature }, true],
+    ["a PR's review a folder joined", { kind: "pr", feature: { ...feature, joinedAt: 2 } }, false],
+    ["a PR's review with no folder", { kind: "pr", feature: null }, false],
+    ["no review", null, false],
+  ];
+  for (const [what, review, expected] of cases) expect(yoursByFolder(review), what).toBe(expected);
 });

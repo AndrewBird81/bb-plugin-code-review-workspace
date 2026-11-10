@@ -289,10 +289,10 @@ test("the title bar's Finish review says what the draft would submit, and opens 
   // In the band, where BB's title bar didn't take it.
   const open = await slot.findByRole("button", { name: "Finish review: Request changes, 1 comment" });
   expect(open.textContent).toBe("Finish· 1");
-  expect(open.getAttribute("aria-pressed")).toBe("false");
+  // It opens Finish review, never closes it: no pressed state.
+  expect(open.getAttribute("aria-pressed")).toBeNull();
   fireEvent.click(open);
   await slot.findByRole("heading", { name: "Finish review" });
-  expect(open.getAttribute("aria-pressed")).toBe("true");
   await waitFor(() => expect(document.activeElement?.getAttribute("aria-label")).toBe("Review summary"));
   slot.lifecycle.unmount();
 });

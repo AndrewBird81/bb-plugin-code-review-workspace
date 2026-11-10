@@ -4,6 +4,7 @@ import { useRealtime, useRpc } from "@get-bb/plugin-sdk/app";
 import { toast } from "sonner";
 import type { rpcContract } from "../src/rpc-contract";
 import type { ReviewItem } from "../lib/review-state";
+import { yoursByFolder } from "../lib/fixer";
 import type { CommentChecks } from "../lib/comments";
 import type { FixChange } from "./comments/FixTracking";
 import { commentsKey, isPreExisting, isSummary, linesOf, postable, rangeOf, sameLocation, SEVERITIES, severityCounts, SEVERITY_LABEL, sideOrder, summaryChanges, SUMMARY_AT, VERDICT_LABEL, type CommentLocation, type Discussion, type Draft, type DraftComment, type Severity, type Verdict } from "../src/draft";
@@ -315,6 +316,25 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
     });
   }
   /**
+   * Once a message to the agent is sent or cancelled: Reply under its discussion, in the diff, this panel's list, or the
+   * summary, as a GitHub thread's Reply takes the focus back; else the comment's card, or the summary. Only while the
+   * focus went with the box, not to something you chose since.
+   */
+  function focusReply(at: CommentLocation, inDiff: boolean, frames = 10) {
+    requestAnimationFrame(() => {
+      if (document.activeElement && document.activeElement !== document.body) return;
+      const key = locationKey(at);
+      const summary = isSummary(at);
+      const scope = summary ? summaryRef.current : inDiff ? document : listRef.current;
+      const reply = Array.from(scope?.querySelectorAll<HTMLButtonElement>(inDiff && !summary ? "[data-draft-at] [data-agent-reply]" : "[data-agent-reply]") ?? []).find((el) => el.dataset.agentReply === key);
+      // It may not show yet, or still wait on the draft's save.
+      if (reply && !reply.disabled) reply.focus();
+      else if (frames > 1) focusReply(at, inDiff, frames - 1);
+      else if (summary) focusSummary();
+      else focusComment(at, inDiff);
+    });
+  }
+  /**
    * Before a comment is removed: where the focus goes once its card, which has it, is gone. In the code, to the next
    * comment's card in its file, else the file's row; in the list, to the next row, else the one before, else the filter.
    */
@@ -351,12 +371,13 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
       }
     });
   }
-  /** Close a line's box unsaved, and return focus to where it was opened, or else to the comment it edited. */
+  /** Close a line's box unsaved, and return focus to where it was opened, or else to Reply, or the comment it edited. */
   function cancelComposer() {
     const at = { file, line: Number(line), side };
     closeComposer();
     const from = opener.current;
     if (from?.isConnected) requestAnimationFrame(() => from.focus());
+    else if (asking) focusReply(at, inline);
     else focusComment(at, inline);
   }
   /** Close the summary's box, unsaved text and all, unless it holds a message to the agent. */
@@ -417,6 +438,7 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
     await mutate(async () => {
       const result = await enqueue(() => rpc.call("askAgent", { targetKey, file, line: Number(line), side, ...(startLine ? { startLine } : {}), body: body.trim(), inserted }));
       apply(result as { draft: Draft }); closeComposer();
+      focusReply({ file, line: Number(line), side }, inline);
     });
   }
   /** A message to the agent from the summary, without the box: write it, or update it. The plugin wrote it. */
@@ -655,7 +677,7 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
   }, [positionsOf, showComposer, summaryBox, asking, file, line, side, startLine, startSide]);
   const boxLines = linesOf({ line: Number(line), side, startLine, startSide });
   // On your own change only open comments post: a Send took the rest to the main thread (src/draft.ts postable). A local review posts none.
-  const own = isLocal || ownPr || !!review?.feature;
+  const own = isLocal || ownPr || yoursByFolder(review);
   const posting = useMemo(() => draft.comments.filter((comment) => postable(comment, own)), [draft.comments, own]);
   // What Submit sends as shown posting, read as it posts.
   const shownPosting = useRef(posting); shownPosting.current = posting;
@@ -696,6 +718,12 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
   const undoAt = useCallback((at: CommentLocation) => { void latest.current.undo(at); }, []);
   const markAt = useCallback((comment: DraftComment, preExisting: boolean) => { void latest.current.markPreExisting(comment, preExisting); }, []);
   const fixAt = useCallback((comment: DraftComment, state: FixChange) => latest.current.setFix(comment, state), []);
+  // A card of the agent's new comment was in view: it's reviewed, here at once, and on the server.
+  const markSeen = useCallback((at: CommentLocation) => {
+    const place = { file: at.file, line: at.line, side: at.side };
+    setDraft((previous) => previous.unseen?.some((u) => sameLocation(u, place)) ? { ...previous, unseen: previous.unseen.filter((u) => !sameLocation(u, place)) } : previous);
+    void rpc.call("markCommentsSeen", { targetKey, at: [place] }).catch(() => {});
+  }, [rpc, targetKey]);
   const editable = loaded && !loadError && !closed;
   // On your own PR, Comment is the only verdict GitHub takes.
   useEffect(() => { if (ownPr && editable && !isLocal && draft.verdict !== "COMMENT" && !pendingVerdict.current) chooseVerdict("COMMENT"); }, [ownPr, editable, isLocal, draft.verdict]);
@@ -722,6 +750,14 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
     setLine(String(comment.line)); setStartLine(comment.startLine); setStartSide(comment.startSide);
     setEditing(comment);
   }, [draft.comments]); // eslint-disable-line react-hooks/exhaustive-deps
+  // What an ask at a line sends the agent besides your words, as src/discussions.ts gives it: the comment there and the lines.
+  const askSees = useMemo(() => {
+    if (!showComposer || !asking || summaryBox) return undefined;
+    const at = { file, line: Number(line), side };
+    const from = startLine ?? discussions.find((d) => sameLocation(d, at))?.startLine ?? at.line;
+    const lines = from === at.line ? `line ${at.line}` : `lines ${Math.min(from, at.line)}–${Math.max(from, at.line)}`;
+    return draft.comments.some((c) => sameLocation(c, at)) ? `It sees this comment and ${lines}.` : `It sees ${lines}.`;
+  }, [showComposer, asking, summaryBox, file, line, side, startLine, discussions, draft.comments]);
   const composerInDiff = editable && showComposer && inline;
   const chat = useMemo(() => onOpenPanel ? () => onOpenPanel("agent") : null, [onOpenPanel]);
   const editingLine = showComposer && !summaryBox && !asking;
@@ -730,26 +766,27 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
     const here = (at: Pick<CommentLocation, "side">) => (at.side === "LOCAL") === local;
     return {
       targetKey, comments: draft.comments.filter(here), stale, discussions: lineDiscussions.filter(here), editable, busy, writing, hideNits, open, ask, remove, dismiss, undo: undoAt, markPreExisting: markAt, chat, checks, setFix: fixAt,
+      unseen: draft.unseen, markSeen,
       composer: composerInDiff && here({ side }) ? { file, line: Number(line), side, ...(startLine ? { startLine } : {}), editing: editing !== null, asking } : null,
       editingAt: editingLine && here({ side }) ? { file, line: Number(line), side } : null,
     };
   };
-  const inlineDeps = [targetKey, draft.comments, stale, lineDiscussions, editable, busy, writing, hideNits, open, ask, remove, dismiss, undoAt, markAt, chat, checks, fixAt, composerInDiff, editingLine, file, line, side, startLine, editing, asking];
+  const inlineDeps = [targetKey, draft.comments, draft.unseen, markSeen, stale, lineDiscussions, editable, busy, writing, hideNits, open, ask, remove, dismiss, undoAt, markAt, chat, checks, fixAt, composerInDiff, editingLine, file, line, side, startLine, editing, asking];
   const inlineDraft = useMemo(() => inlineOn(false), inlineDeps); // eslint-disable-line react-hooks/exhaustive-deps
   const localDraft = useMemo(() => inlineOn(true), inlineDeps); // eslint-disable-line react-hooks/exhaustive-deps
   const canSuggest = !!suggestable;
   const inlineComposer = useMemo<InlineComposer | null>(() => composerInDiff ? {
-    body, edited, replacing, changedWhileEditing, textareaRef: bodyRef, error: composerError, rebuilding, keepOnCurrentDiff: olderDiff ? () => latest.current.keepOnCurrentDiff() : null,
+    body, edited, replacing, changedWhileEditing, askSees, textareaRef: bodyRef, error: composerError, rebuilding, keepOnCurrentDiff: olderDiff ? () => latest.current.keepOnCurrentDiff() : null,
     change: (text) => latest.current.changeBody(text),
     severity, changeSeverity: setSeverity,
     save: () => { void latest.current.addComment(); },
     askAgent: () => { void latest.current.askAgent(); },
     cancel: () => latest.current.cancelComposer(),
     suggest: canSuggest ? () => latest.current.suggestChange() : null,
-  } : null, [composerInDiff, body, edited, replacing, changedWhileEditing, severity, composerError, rebuilding, olderDiff, canSuggest]);
+  } : null, [composerInDiff, body, edited, replacing, changedWhileEditing, askSees, severity, composerError, rebuilding, olderDiff, canSuggest]);
   const summaryComposer = editable && onSummary ? {
     mode: asking ? "ask" as const : "edit" as const, body, edited, textareaRef: bodyRef,
-    change: changeBody, save: () => { void saveSummary(body.trim()); }, askAgent: () => { void askAgent(); }, cancel: () => { closeComposer(); focusSummary(); },
+    change: changeBody, save: () => { void saveSummary(body.trim()); }, askAgent: () => { void askAgent(); }, cancel: () => { closeComposer(); if (asking) focusReply(SUMMARY_AT, false); else focusSummary(); },
   } : null;
   // A folder's review in a GitHub repo becomes its PR's once the branch has one; a checkout's never does.
   const hint = isLocal ? review?.feature?.repo ? "Nothing goes to GitHub yet. Once it has a PR, this review becomes the PR’s." : "Local review. Comments and notes stay in this BB installation."
@@ -767,12 +804,12 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
     const box = composerControls.current?.parentElement;
     if (box?.contains(document.activeElement)) box.scrollIntoView?.({ block: "nearest" });
   }, [hint]);
-  // Approving with high-risk files not viewed, or chapters marked viewed faster than they read.
-  const approval = draft.verdict === "APPROVE" && approveGuard && (approveGuard.unviewed.length || approveGuard.rushed.length) ? approveGuard : null;
+  // Approving with high-risk or flagged files not viewed, or chapters marked viewed faster than they read.
+  const approval = draft.verdict === "APPROVE" && approveGuard && (approveGuard.unviewed.length || approveGuard.flagged.length || approveGuard.rushed.length) ? approveGuard : null;
   // The agent suggests Approve without having read every file worth reading.
   const unreadApproval = suggested === "APPROVE" && !ownPr && agentCoverage && agentCoverage.read < agentCoverage.total ? agentCoverage : null;
-  // Why Submit asks once more: the agent suggested another verdict, its summary no longer fits, what an approval
-  // skipped, or what the agent's suggested approval didn't read.
+  // Why Submit asks once more: the agent suggested another verdict, its summary no longer fits, files an approval
+  // didn't view, or what the agent's suggested approval didn't read. Chapters read quickly Finish review only lists.
   const doubts = [
     ...(suggested && suggested !== draft.verdict && !ownPr ? [`The agent suggested ${VERDICT_LABEL[suggested]}.`] : []),
     ...(changes.comments && changes.verdict ? [`Your comments changed, and the summary was written for ${VERDICT_LABEL[changes.verdict]}.`]
@@ -795,7 +832,7 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
   return {
     targetKey, loadError, load, refresh, loaded, closed, review, draft, posting, checks, setFix, completed, submittedVerdict, receiptUrl, setWriteAnother, status,
     summaryRef, summaryDiscussion, editable, busy, submitting, writing, onSummary, summaryComposer, isLocal, chat, asking, summaryBase, openComposer, saveSummary, revisionRef, undo, requestSummary,
-    showComposer, inline, edited, replacing, counts, preExistingCount, blocks, markPreExisting, hideNits, nitCount, toggleNits, removeNits, listRef, sortedComments, stale, discussions, body, removeComment, setCommentSeverity, moveToSummary,
+    showComposer, inline, edited, replacing, askSees, counts, preExistingCount, blocks, markPreExisting, markSeen, hideNits, nitCount, toggleNits, removeNits, listRef, sortedComments, stale, discussions, body, removeComment, setCommentSeverity, moveToSummary,
     file, boxLines, line, side, files, setFile, editing, showBoxInDiff, startLine, setLine, setSide, bodyRef, changeBody, canAdd, addComment, cancelComposer, composerError, rebuilding, olderDiff, keepOnCurrentDiff, composerControls, severity, setSeverity, suggestable, suggestChange,
     changedWhileEditing, ownPr, suggested, chooseVerdict, confirming, setConfirming, warned, setWarned, approval, agentCoverage, unreadApproval, approvingBlocked, blockingCount, commentCount, doubts, hasReview, needsSummary, staleComments, submit, confirmCancelRef, submitRef, hint,
     inlineDraft, localDraft, notOnGithub, inlineComposer, askAgent, patch, account, why, setWhy,

@@ -17,7 +17,7 @@ import { IconTile } from "./ui/icon-tile";
 import type { Tone } from "./ui/badge";
 import { AccountBar } from "./AccountBar";
 import { PageBar } from "./PageBar";
-import { DISABLED_TEXT, KnobControl, enabledNumberText, type KnobNumberText } from "./SettingsKnobs";
+import { DISABLED_TEXT, KnobControl, PaceGroup, enabledNumberText, type KnobNumberText } from "./SettingsKnobs";
 import { TOUCH_CONTROL, TOUCH_TARGET } from "./touch";
 
 /** An aria-disabled primary button, drawn as a disabled one (ui/button). */
@@ -288,7 +288,7 @@ export function ReviewSettings({ onBack, back }: { onBack?: () => void; back?: s
     setSaved(false);
     setRecord((current) => current && { ...current, preferences: { ...current.preferences, knobs: { ...current.preferences.knobs, [id]: value } } });
   }
-  const knob = (id: KnobId) => record && <KnobControl id={id} record={record.preferences} onChange={setKnob} numberText={numberText}
+  const knob = (id: KnobId, labelClassName?: string) => record && <KnobControl id={id} record={record.preferences} onChange={setKnob} numberText={numberText} labelClassName={labelClassName}
     onNumberText={(key, text) => { setSaved(false); setNumberText(({ [key]: _previous, ...rest }) => text === undefined ? rest : { ...rest, [key]: text }); }} />;
   async function customize(key: "guideAgent" | "assistantAgent") {
     // Without defaults, the guide writer starts at bb's lowest mode.
@@ -421,7 +421,11 @@ export function ReviewSettings({ onBack, back }: { onBack?: () => void; back?: s
             {knob("askAboutSelection")}
             {knob("moveToSummary")}
             {knob("approveGuard")}
-            {knob("approveGuardPace")}
+            <PaceGroup enabled={knobs.approveGuard}>
+              {knob("approveGuardPace", "min-w-28")}
+              {knob("approveGuardTestsPace", "min-w-28")}
+              {knob("approveGuardDocsPace", "min-w-28")}
+            </PaceGroup>
             {knob("preExistingFindings")}
             {knob("agentCoverage")}
           </section>

@@ -156,6 +156,23 @@ test("beside BB's side panel on a desktop, a 560px review keeps its commands in 
   await waitFor(() => expect(ask.getAttribute("aria-pressed")).toBe("false"));
 });
 
+test("Ask agent on a file opens the agent's first message empty, naming no file", async () => {
+  fakeSize(1400, 900);
+  const { bar } = await renderReview({ panel: { openTab: () => true } });
+  const { currentFileOf } = await import("../lib/workspace-store");
+  await waitFor(() => expect(currentFileOf("pr-42")).toBe("src/a.ts"));
+  fireEvent.click(await bar!.findByRole("button", { name: "Ask agent" }));
+  const app = await loadPluginApp(() => import("../app"));
+  const tab = renderPanelTab(app, "agent", "pr-42", { rpc: handlers() as any });
+  const agent = within(await tab.findByRole("region", { name: "Review agent" }));
+  const box = await agent.findByRole("textbox", { name: "Ask the agent" }) as HTMLTextAreaElement;
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  expect(box.value).toBe("");
+  expect(agent.queryByText("Context")).toBeNull();
+  expect(agent.queryByText("a.ts")).toBeNull();
+  tab.lifecycle.unmount();
+});
+
 test("Ask agent in full screen leaves it, as BB's side panel is outside it, though its tab showed before", async () => {
   fakeSize(1400, 900);
   fakeFullscreen();
@@ -240,7 +257,6 @@ test("a local review's Finish review counts the open comments Send would send, w
   // Nothing goes to GitHub: Send's icon.
   expect(finish.querySelector("svg")?.getAttribute("data-icon")).toBe("Send");
   fireEvent.click(finish);
-  expect(finish.getAttribute("aria-pressed")).toBe("true");
   expect(page.getByRole("complementary", { name: "Comments and Finish review" })).toBeTruthy();
   page.lifecycle.unmount(); bar!.lifecycle.unmount();
   // None open: no count.

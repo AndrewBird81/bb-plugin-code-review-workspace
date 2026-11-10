@@ -237,3 +237,14 @@ test("a reply a 0.5 tab was writing in Threads moves to the server once, over th
   expect(sessionStorage.getItem("gr:thread-reply:pr-42:t1")).toBeNull();
   slot.lifecycle.unmount();
 });
+
+test("with Finish review showing, Send reply is outlined, so Submit is the one filled button", async () => {
+  const { slot } = await renderWorkspace();
+  const send = () => within(slot.getByRole("group", { name: "Agent reply draft · not sent on src/a.ts:2" })).getByRole("button", { name: "Send reply" });
+  await card(slot, 2);
+  expect(send().className).toContain("bg-primary");
+  fireEvent.click(await slot.findByRole("button", { name: /^Finish review:/ }, { timeout: 5000 }));
+  await slot.findByRole("heading", { name: "Finish review" });
+  await waitFor(() => expect(send().className).not.toContain("bg-primary"));
+  slot.lifecycle.unmount();
+}, 15_000);

@@ -94,14 +94,14 @@ export const SUBCOMMANDS: PluginCliCommandInfo[] = [
 export const WRITER_TOOL_NAMES = ["read_review_patch", "list_review_files", "read_changes_since_review", "read_pr_context", "generate_review_guide"];
 /** The tools a review's assistant gets. When they change, raise ASSISTANT_TOOLS, so idle assistants restart with them. */
 export const ASSISTANT_TOOL_NAMES = ["read_review_patch", "list_review_files", "list_draft_comments", "add_draft_comment", "edit_draft_comment", "delete_draft_comment", "set_review_summary", "reply_in_discussion",
-  "list_feedback", "read_changes_since_review", "read_pr_context", "read_file", "assess_feedback", "draft_thread_reply"];
+  "report_deep_dive", "list_feedback", "read_changes_since_review", "read_pr_context", "read_file", "assess_feedback", "draft_thread_reply"];
 /**
  * The tools that act on GitHub or send to other threads, given besides only while Settings lets the review agent act
  * when asked (reviewAgentActs). Each also checks the knob when it runs, since a running agent keeps the tools it started with.
  */
 export const ASSISTANT_WRITE_TOOL_NAMES = ["submit_review", "post_reply", "resolve_thread", "github_pr", "open_pr", "send_now", "push"];
 // Raise when the review assistant's tools, or their instructions, change.
-export const ASSISTANT_TOOLS = 19;
+export const ASSISTANT_TOOLS = 20;
 
 /** A tool's answer that it failed, with why. */
 export const failed = (text: string): PluginAgentToolResult => ({ content: [{ type: "text", text }], isError: true });

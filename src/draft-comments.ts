@@ -101,6 +101,15 @@ async function placeProblem(store: AsyncStore, targetKey: string, at: CommentLoc
   });
 }
 
+/** Mark the agent's comments at `places` reviewed: a card of each was in view, or you saved it. Whether any was new. */
+export async function seeComments(tx: AsyncStore, targetKey: string, places: readonly CommentLocation[]): Promise<boolean> {
+  const { unseen } = await tx.getDraft(targetKey);
+  const left = unseen?.filter((at) => !places.some((place) => sameLocation(place, at)));
+  if (!unseen || left!.length === unseen.length) return false;
+  await tx.updateSummary(targetKey, { unseen: left!.length ? left : undefined });
+  return true;
+}
+
 /** Add an agent's comment. It must sit on lines of the current diff whose text matches `code`, where the draft has no comment yet. */
 export async function addComment(store: AsyncStore, targetKey: string, input: NewComment): Promise<DraftResult> {
   return store.exclusive(async (tx) => {
@@ -114,7 +123,9 @@ export async function addComment(store: AsyncStore, targetKey: string, input: Ne
     if (existing) return { ok: false, error: `${where(at)} already has a draft comment: "${existing.body.slice(0, 300)}". Edit it instead, or make your point elsewhere. Nothing was added.` };
     const { body, severity } = severityOf(input.body.trim(), input.severity);
     const evidence = input.evidence?.trim();
-    await tx.upsertDraftComment(targetKey, { ...at, ...range, author: "agent", ...(severity ? { severity } : {}), body, ...(evidence ? { evidence } : {}), ...(input.introduced === false ? { introduced: false as const } : {}) });
+    const draft = await tx.upsertDraftComment(targetKey, { ...at, ...range, author: "agent", ...(severity ? { severity } : {}), body, ...(evidence ? { evidence } : {}), ...(input.introduced === false ? { introduced: false as const } : {}) });
+    // New to you until you've seen it, as one added while it updates the summary is.
+    await tx.updateSummary(targetKey, { unseen: [...draft.unseen ?? [], { file: at.file, line: at.line, side: at.side }] });
     await tx.noteDiscussionChange(targetKey, at, "added", { body: postedBody({ body, severity }), previous: null });
     return { ok: true, text: `Added a draft comment on ${where({ ...at, ...range })}. It stays in bb until the reviewer submits the review.` };
   });

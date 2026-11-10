@@ -160,6 +160,16 @@ test("Ask agent with nothing to quote, as with no file in view, focuses bb's com
   error.mockRestore();
 });
 
+test("Ask agent alone, before the conversation starts, opens an empty first message with no context chip", async () => {
+  const { inject } = await renderDock({}, { getConversation: unstarted });
+  await screen.findByText("Ask about this change.");
+  inject({ chapterId: "c1" });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  expect(screen.queryByText("Context")).toBeNull();
+  expect(screen.queryByText("whole change")).toBeNull();
+  expect((screen.getByRole("textbox", { name: "Ask the agent" }) as HTMLTextAreaElement).value).toBe("");
+});
+
 test("an image in the agent's earlier answers shows as a link to it, and yours as you wrote it", async () => {
   const earlier = { threadId: "th-1", legacy: [{ id: 1, role: "user", text: "See ![mine](https://a.example/mine.png)", context: null, createdAt: 1 }, { id: 2, role: "assistant", text: "Here: ![chart](https://attacker.example/c.png)", context: null, createdAt: 2 }], defaults: null };
   await renderDock({}, { getConversation: async () => earlier });

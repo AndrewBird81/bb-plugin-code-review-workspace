@@ -11,7 +11,7 @@ import type { CommentLocation, Discussion, Draft } from "../src/draft";
 import { buildItems, type CommentItem } from "../lib/comments";
 import { useReviewLinks } from "../lib/review-links";
 import type { ReviewItem } from "../lib/review-state";
-import { askToShowComment } from "../lib/workspace-store";
+import { askToShowComment, askToShowNotPushed } from "../lib/workspace-store";
 import { AgentDock } from "./AgentDock";
 import { SettingsProvider } from "../lib/settings";
 import { noteThreadEnvironment, threadReview, useFolderStatus, useThreadLinks } from "../lib/thread-links";
@@ -97,7 +97,11 @@ export function ReviewChangesSegment({ threadId, environment }: ExperimentalThre
     setBusy(true);
     try {
       const started = await rpc.call("reviewThreadChanges", { threadId });
-      if (started.ok && started.targetKey) show(started.targetKey);
+      if (started.ok && started.targetKey) {
+        // The folder joined its PR's review: its changes not on GitHub yet are that review's Not pushed yet.
+        if (started.joined) askToShowNotPushed(started.targetKey);
+        show(started.targetKey);
+      }
       else toast.error(started.error ?? "Couldn’t start the review. Try again.");
     } catch {
       toast.error("Couldn’t reach Code Review Workspace to start the review. Try again.");

@@ -43,6 +43,8 @@ export const knobsSchema = z.object({
   commentKeys: z.boolean(), removalReasons: z.boolean(), moveToSummary: z.boolean(),
   askAboutSelection: z.boolean(), approveGuard: z.boolean(),
   approveGuardPace: z.number().int().min(KNOB_RANGES.approveGuardPace.min).max(KNOB_RANGES.approveGuardPace.max),
+  approveGuardTestsPace: z.number().int().min(KNOB_RANGES.approveGuardTestsPace.min).max(KNOB_RANGES.approveGuardTestsPace.max),
+  approveGuardDocsPace: z.number().int().min(KNOB_RANGES.approveGuardDocsPace.min).max(KNOB_RANGES.approveGuardDocsPace.max),
   preExistingFindings: z.boolean(), agentCoverage: z.boolean(), testWeakening: z.boolean(), lockfileDigest: z.boolean(),
   runAutomaticReview: z.boolean(), recheckOnNewCommits: z.boolean(),
   digDeeper: z.boolean(), checkFailureActions: z.boolean(),
@@ -89,8 +91,9 @@ export function readKnobs(saved: unknown): Knobs {
 }
 
 // Saved only while they differ from their defaults, so a release that changes one's default, as a 1.8.1 that turns the
-// review agent's posting off would, reaches everyone who left it as it was, Settings saved or not.
-const SAVED_WHEN_CHANGED: readonly KnobId[] = ["reviewAgentActs", "reviewChangesLine", "trackOwnPrs"];
+// review agent's posting off would, or one that tunes 1.12.0's paces for tests and docs, reaches everyone who left it as it
+// was, Settings saved or not.
+const SAVED_WHEN_CHANGED: readonly KnobId[] = ["reviewAgentActs", "reviewChangesLine", "trackOwnPrs", "approveGuardTestsPace", "approveGuardDocsPace"];
 
 /** The knobs as the column keeps them: 1.8.0's switches only while they differ from their defaults. */
 export function savedKnobs(knobs: Knobs): Partial<Knobs> {

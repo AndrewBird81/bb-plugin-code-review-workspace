@@ -6,7 +6,7 @@ For reviewers who need to understand a change before they approve it, often one 
 - **Requirements, checked.** What the PR's description and linked issues ask for, each marked covered, partial, missing, or unclear, with evidence.
 - **A drafted review you edit.** Line comments with a severity (Blocking, Should fix, Question, or Nit), a summary, and a suggested verdict. Each draft says how the agent confirmed the problem.
 - **Ask agent.** Ask about the whole change, a line, a selection, or a failing check, in BB's side panel.
-- **Finish review.** The summary, your verdict, and exactly what will be posted. Before you approve, it flags blocking comments, unviewed files in high-risk chapters, and chapters read faster than your set pace.
+- **Finish review.** The summary, your verdict, and exactly what will be posted. Before you approve, it flags blocking comments, unviewed high-risk or flagged files, and chapters read faster than your pace.
 
 ## Whose turn and re-review
 

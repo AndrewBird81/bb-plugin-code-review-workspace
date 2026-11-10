@@ -1,6 +1,6 @@
 // A review's local draft and its Submit: comments, discussions and asks, the summary and verdict, and the files you
 // marked Viewed. Also bb review comment and bb review summary.
-import { undoable, undoChange } from "./draft-comments";
+import { seeComments, undoable, undoChange } from "./draft-comments";
 import { z } from "zod";
 import { isLocal, isSummary, rangeOf, sameLocation, severityOf, type CommentLocation, type Draft, type DraftComment } from "./draft";
 import { summaryLine, withSummaryLine } from "../lib/move-to-summary";
@@ -144,6 +144,12 @@ export function register(deps: ServeDeps) {
       return await draftState(store, targetKey);
     },
     // The server's own fields a page sends back with a comment it read: the saved comment's stand.
+    async markCommentsSeen({ targetKey, at }) {
+      const changed = await store.exclusive(async (tx) => await tx.getReview(targetKey) ? await seeComments(tx, targetKey, at) : false);
+      // Other windows drop the mark too.
+      if (changed) bb.realtime.publish(`draft:${targetKey}`, {});
+      return { ok: true };
+    },
     async saveDraftComment({ targetKey, comment: { startLine, startSide, severity, body, id, state, sendN, claim, editedBy: _editedBy, ...input }, revision, replaces, restore }) {
       return store.exclusive(async (tx) => {
         await requireReviewRevision(tx, targetKey, revision);
@@ -165,6 +171,8 @@ export function register(deps: ServeDeps) {
         await setAsk(tx, targetKey, comment, null);
         await noteReviewerSave(tx, targetKey, comment);
         let draft = await tx.upsertDraftComment(targetKey, comment);
+        // Saved by you, it's reviewed.
+        if (await seeComments(tx, targetKey, [comment])) draft = await tx.getDraft(targetKey);
         if (restore && replaces === null) {
           await restoreTracking(tx, targetKey, comment, { id, state, sendN, claim });
           await settleFixes(tx, targetKey);
@@ -307,12 +315,12 @@ export function register(deps: ServeDeps) {
       return { ok, ...(error ? { error } : {}), ...(url ? { url } : {}), ...(warning ? { warning } : {}), ...(warnings ? { warnings } : {}), ...(offers ? { offers } : {}), ...(newCommits ? { newCommits } : {}) };
     },
 
-    // Per-file "Viewed" state (viewed/stale computed against the patch)
+    // Per-file "Viewed" state (viewed/stale computed against the patch), and each chapter's reading
     async getFileViews({ targetKey }) {
       return store.exclusive(async (tx) => {
         // Not pushed yet's are its own (src/own-pr.ts).
         const views = (await tx.getFileViews(targetKey)).filter((view) => !view.file.startsWith(notPushedView("")));
-        return { views: computeFileViewState(views, await tx.fileHashes(targetKey)) };
+        return { views: computeFileViewState(views, await tx.fileHashes(targetKey)), chapters: await tx.getChapterReads(targetKey) };
       });
     },
     async setFileViewed({ targetKey, file, viewed }) {
@@ -344,6 +352,18 @@ export function register(deps: ServeDeps) {
         const replaced = (await tx.getFileViews(targetKey)).filter((view) => hashes.has(view.file));
         for (const [file, hash] of hashes) await tx.setFileViewed(targetKey, file, hash);
         return { ok: hashes.size === new Set(files).size, previous: replaced };
+      });
+    },
+    async addChapterOpenTime({ targetKey, chapterId, ms }) {
+      return store.exclusive(async (tx) => {
+        if (!await tx.getReview(targetKey)) return { ok: false };
+        return { ok: true, openMs: await tx.addChapterOpenTime(targetKey, chapterId, ms) };
+      });
+    },
+    async setChapterFine({ targetKey, chapterId }) {
+      return store.exclusive(async (tx) => {
+        if (!await tx.getReview(targetKey)) return { ok: false };
+        return { ok: true, fineAt: await tx.setChapterFine(targetKey, chapterId) };
       });
     },
   } satisfies Partial<RpcHandlers>;

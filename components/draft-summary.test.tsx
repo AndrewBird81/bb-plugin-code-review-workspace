@@ -109,7 +109,7 @@ test("Ask agent on the summary talks in its discussion, and Undo puts the agent'
   let draft = draftOf({ body: "Long summary.", bodyAuthor: "agent" });
   const discussion = (extra: Record<string, unknown> = {}) => ({ ...SUMMARY_AT, waiting: false, entries: [
     { author: "reviewer", kind: "message", body: "Shorter, please.", createdAt: 1 },
-    { author: "agent", kind: "edited", body: "Short.", createdAt: 2 },
+    { author: "agent", kind: "edited", body: "Short.", before: "Long summary.", createdAt: 2 },
     { author: "agent", kind: "message", body: "Cut it down.", createdAt: 3 },
   ], ...extra });
   const askAgent = vi.fn(() => { draft = { ...draft, body: "Short." }; return { draft, stale: [], discussions: [discussion({ undoable: true })] }; });
@@ -121,11 +121,19 @@ test("Ask agent on the summary talks in its discussion, and Undo puts the agent'
   });
   const slot = await renderTray("ask", { getDraft: () => ({ draft }), askAgent, undoAgentChange });
   fireEvent.click(summary(slot).getByRole("button", { name: "Ask agent about the review summary" }));
+  expect(summary(slot).getByText("Goes to the agent, not GitHub. It sees the summary and the draft comments.")).toBeTruthy();
   fireEvent.change(summary(slot).getByRole("textbox", { name: "Message to agent" }), { target: { value: "Shorter, please." } });
   fireEvent.click(summary(slot).getByRole("button", { name: "Send to agent" }));
   await waitFor(() => expect(askAgent).toHaveBeenCalledWith({ targetKey: "ask", file: "", line: 0, side: "RIGHT", body: "Shorter, please.", inserted: false }));
   await summary(slot).findByText("Agent edited the summary.");
   expect(summary(slot).getByText("Short.")).toBeTruthy();
+  // Show changes strikes what the edit took out and marks what it put in.
+  fireEvent.click(summary(slot).getByRole("button", { name: "Show changes" }));
+  const changes = summary(slot).getByLabelText("Changes");
+  expect(Array.from(changes.querySelectorAll("del")).map((el) => el.textContent)).toEqual(["Long summary"]);
+  expect(Array.from(changes.querySelectorAll("ins")).map((el) => el.textContent)).toEqual(["Short"]);
+  fireEvent.click(summary(slot).getByRole("button", { name: "Hide changes" }));
+  expect(summary(slot).queryByLabelText("Changes")).toBeNull();
   fireEvent.click(summary(slot).getByRole("button", { name: "Undo" }));
   await waitFor(() => expect(undoAgentChange).toHaveBeenCalledWith({ targetKey: "ask", file: "", line: 0, side: "RIGHT" }));
   await summary(slot).findByText("You undid that change.");
@@ -144,6 +152,35 @@ test("an agent's summary written before your comments changed offers to update i
   // While the agent works on it, the hint steps aside.
   await summary(slot).findByText("Waiting for agent…");
   expect(summary(slot).queryByText("Your comments changed since the agent wrote this.")).toBeNull();
+  slot.lifecycle.unmount();
+});
+
+// Ask agent sat above the discussion, so it didn't look like it could go on (ted-2026-11-03 01).
+test("the summary's discussion goes on from Reply at its foot, in Ask agent's place, which has the focus back once its box closes", async () => {
+  const draft = draftOf({ body: "One issue.", bodyAuthor: "agent" });
+  let discussions = [{ ...SUMMARY_AT, waiting: false, entries: [
+    { author: "reviewer", kind: "message", body: "Why one?", createdAt: 1 },
+    { author: "agent", kind: "message", body: "The rest are nits.", createdAt: 2 },
+  ] }];
+  const askAgent = vi.fn(({ body }: { body: string }) => {
+    discussions = [{ ...discussions[0], waiting: true, entries: [...discussions[0].entries, { author: "reviewer", kind: "message", body, createdAt: 3 }] }];
+    return { draft, stale: [], discussions };
+  });
+  const slot = await renderTray("reply", { getDraft: () => ({ draft, stale: [], discussions }), askAgent });
+  const thread = within(await summary(slot).findByRole("region", { name: "Discussion with agent on the review summary" }));
+  expect(summary(slot).queryByRole("button", { name: "Ask agent about the review summary" })).toBeNull();
+  fireEvent.click(thread.getByRole("button", { name: "Reply" }));
+  const box = summary(slot).getByRole("textbox", { name: "Message to agent" });
+  expect(thread.queryByRole("button", { name: "Reply" })).toBeNull();
+  // Left empty, the box closes and Reply has the focus.
+  fireEvent.keyDown(box, { key: "Escape" });
+  await waitFor(() => expect(document.activeElement).toBe(thread.getByRole("button", { name: "Reply" })));
+  fireEvent.click(thread.getByRole("button", { name: "Reply" }));
+  fireEvent.change(summary(slot).getByRole("textbox", { name: "Message to agent" }), { target: { value: "Name them." } });
+  fireEvent.click(summary(slot).getByRole("button", { name: "Send to agent" }));
+  await waitFor(() => expect(askAgent).toHaveBeenCalledWith({ targetKey: "reply", ...SUMMARY_AT, body: "Name them.", inserted: false }));
+  await thread.findByText("Waiting for agent…");
+  await waitFor(() => expect(document.activeElement).toBe(thread.getByRole("button", { name: "Reply" })));
   slot.lifecycle.unmount();
 });
 
@@ -292,5 +329,20 @@ test("summary text kept from before this update waits for the box, then opens in
   fireEvent.click(slot.getByRole("button", { name: "Cancel" }));
   expect((summary(slot).getByRole("textbox", { name: "Review summary" }) as HTMLTextAreaElement).value).toBe("An unsaved summary");
   expect(JSON.parse(sessionStorage.getItem("code-review-workspace:draft-recovery:kept")!)).toEqual({ composer: expect.objectContaining({ body: "An unsaved summary", summary: true }) });
+  slot.lifecycle.unmount();
+});
+
+// A point only the summary raised read as if the walkthrough had missed it (ted-2026-11-03 06).
+test("the summary's cited lines open in the code, and say which no comment raises", async () => {
+  const body = "- Should fix at `src/a.ts:2`.\n- `findSegment` fails fast (`src/a.ts:30`).";
+  const draft = draftOf({ body, bodyAuthor: "agent", comments: [{ ...comment, severity: "should-fix", author: "agent" }] });
+  const onShowComment = vi.fn();
+  const showLocation = vi.fn();
+  const slot = await renderTray("cited", { getDraft: () => ({ draft }) }, { onShowComment, workspace: { showLocation } });
+  const cited = within(await summary(slot).findByRole("list", { name: "Lines the summary cites" }));
+  fireEvent.click(cited.getByRole("button", { name: "Show src/a.ts:2, Should fix comment" }));
+  expect(onShowComment).toHaveBeenCalledWith({ file: "src/a.ts", line: 2, side: "RIGHT" });
+  fireEvent.click(cited.getByRole("button", { name: "Show src/a.ts:30, not in your comments" }));
+  expect(showLocation).toHaveBeenCalledWith("src/a.ts", 30, "RIGHT");
   slot.lifecycle.unmount();
 });

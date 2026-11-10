@@ -140,6 +140,8 @@ export interface DiscussionEntry {
   kind: "message" | "added" | "edited" | "removed" | "restored";
   /** A message's text. For a change, the text the agent left; empty for a removal. */
   body: string;
+  /** For an edit, the text it replaced, as `body` has it. */
+  before?: string;
   createdAt: number;
 }
 
@@ -173,6 +175,11 @@ export interface Draft {
   verdictChosen?: true;
   /** What the agent says it didn't read or run, shown beside its verdict; never posted. */
   unchecked?: string[];
+  /**
+   * The agent's comments you haven't reviewed yet, by place: "New from agent—not yet reviewed" until a card of each was
+   * in view, or you saved it. Only those still the agent's comments count (writeDraft drops the rest).
+   */
+  unseen?: CommentLocation[];
 }
 
 type Keyed = Pick<DraftComment, "file" | "line" | "side" | "body" | "startLine" | "startSide" | "severity" | "introduced">;

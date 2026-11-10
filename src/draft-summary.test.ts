@@ -62,7 +62,7 @@ test("a summary the reviewer wrote is refused, unless they asked on it; then it 
   const { store, tool, error, ask } = await host();
   await store.updateSummary("pr-1", { body: "My summary." });
   const refused = error(await tool("set_review_summary", { body: "Better summary.", verdict: "APPROVE" }));
-  expect(refused).toBe("The reviewer wrote the review summary, so it stays as they wrote it. Put your suggested summary in your reply instead; the reviewer can ask on the summary (Ask agent on the review summary, in Finish review) to apply it. Nothing was changed.");
+  expect(refused).toBe("The reviewer wrote the review summary, so it stays as they wrote it. Put your suggested summary in your reply instead; the reviewer can ask on the summary (Ask agent on the review summary in Finish review, or Reply in its discussion there) to apply it. Nothing was changed.");
   expect(await store.getDraft("pr-1")).toEqual({ targetKey: "pr-1", verdict: "COMMENT", body: "My summary.", comments: [] });
   // A discussion on a line isn't a request about the summary.
   await ask(at, "Comment here?");

@@ -36,9 +36,10 @@ const started = await bb.sdk.plugins.callRpc({
 });
 ```
 
-- It does what **Review changes** above the thread's message box does, and `bb review` with no arguments in the thread: it reviews the folder the thread works in, at the branch it's on now, committed, uncommitted and new files alike. A folder and branch has one review, whichever thread asks, and its main thread, which Send goes to, is the top thread working there.
-- With none yet, it starts one, which runs the guide writer on your BB agent provider, as any review does; the review is listed at once, its guide being written. With one, it opens it as it is: back from Archive if you archived it, and with the top thread working there as its main thread if the one it had was archived or deleted. Nothing else changes.
-- `ok` true: `targetKey` is the review's key, as `reviews.v1.status` lists it. `ok` false: `error` says why, in words to show the user, as when the thread has no folder yet, its folder isn't a git repository, isn't on a branch or has no changes, its machine is offline, or the thread is one of Code Review Workspace's own agents or works under one.
+- It does what **Review changes** above the thread's message box does, and `bb review` with no arguments in the thread: it reviews the folder the thread works in, at the branch it's on now, committed, uncommitted and new files alike. A folder and branch has one review, whichever thread asks, and its main thread, which Send goes to, is the thread that started it: the calling thread, a sub-thread included, or for a hidden one, the nearest thread you see working in that folder; where sibling sub-threads work in the folder, the parent they share there (1.12.0).
+- With none yet, it starts one, which runs the guide writer on your BB agent provider, as any review does; the review is listed at once, its guide being written. With one, it opens it as it is: back from Archive if you archived it, and with the calling thread as its main thread if the one it had was archived or deleted. Nothing else changes.
+- On the branch of an open PR the plugin reviews already, with a guide or one being written, a folder with no review of its own joins the PR's review instead (1.12.0): nothing is rebuilt, the thread becomes its main thread, and the answer adds `joined: true`, the review showing the folder's changes not on GitHub yet in its Not pushed yet. `targetKey` is then the PR's review's.
+- `ok` true: `targetKey` is the review's key, as `reviews.v1.status` lists it, and `joined` is `true` where the folder joined its PR's review. `ok` false: `error` says why, in words to show the user, as when the thread has no folder yet, its folder isn't a git repository, isn't on a branch or has no changes, its machine is offline, or the thread is one of Code Review Workspace's own agents or works under one.
 - Calling it starts a review, so don't call it to tell whether it's there. It has taken `{ threadId }` and answered `{ ok, error, targetKey }` since 1.8.0, so wherever `reviews.v1.status` answers, it does. BB's RPC discovery lists it from 1.10.1.
 
 ## Each review
@@ -50,7 +51,7 @@ const started = await bb.sdk.plugins.callRpc({
 | `createdAt` | When the review was started, or found on GitHub. Epoch ms. |
 | `pr` | The PR it reviews, `{ repo, number, url, author }`, `author` the PR's author's login; null for a local review. |
 | `branch` | The branch it reviews: a PR's head branch, else a local review's branch. Null for a local review of a ref. |
-| `folder` | `{ environmentId }`: the BB environment a local review reads, which a PR's review that began as one keeps, while BB has it; null otherwise. |
+| `folder` | `{ environmentId }`: the BB environment a local review reads, which a PR's review that began as one keeps, or that joined a PR's review, while BB has it; null otherwise. |
 | `mainThreadId` | The thread its comments go to with Send, its main thread; null for none. |
 | `threadIds` | Every thread it's linked to: its main thread, those before it, the threads its Sends went to, and the thread `bb review` ran in. |
 | `waitsOn` | Who it waits on now: `user`, `agent`, `author` or `nobody` (below). |
@@ -109,6 +110,6 @@ A review that becomes its PR's keeps its `targetKey`: only its `id` and `pr` cha
 ## What stays
 
 - Within v1, a field may be added, never removed or changed in meaning, and `waitsOn` keeps its four values. A change that would break a reader comes as `reviews.v2.status`, beside it.
-- `reviewThreadChanges` keeps its name, takes `{ threadId }`, and answers `{ ok, error, targetKey }`. Its answer may gain fields, as `reviews.v1.status`'s may. A change that would break a caller comes under a new name, beside it.
+- `reviewThreadChanges` keeps its name, takes `{ threadId }`, and answers `{ ok, error, targetKey }`. Its answer may gain fields, as `reviews.v1.status`'s may, and has: `joined`, from 1.12.0. A change that would break a caller comes under a new name, beside it.
 - The schemas are in [src/public-contract.ts](../src/public-contract.ts), and published to BB's RPC discovery.
 - Rolling Code Review Workspace back below 1.10.0 removes `reviews.v1.status`: readers get `unknown_method` again. `reviewThreadChanges` answers as it does from 1.8.0, though discovery doesn't list it before 1.10.1.

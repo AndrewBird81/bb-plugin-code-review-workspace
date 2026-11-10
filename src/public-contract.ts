@@ -21,7 +21,7 @@ const reviewStatus = z.looseObject({
   }).nullable().describe("The PR it reviews; null for a local review."),
   branch: z.string().nullable().describe("The branch it reviews: a PR's head branch, else a local review's branch. Null for a local review of a ref."),
   folder: z.object({ environmentId: z.string().describe("BB's environment for the folder.") }).nullable()
-    .describe("The folder a local review reads, which a PR's review that began as one keeps, while BB has it; null otherwise."),
+    .describe("The folder a local review reads, which a PR's review that began as one keeps, or that joined a PR's review, while BB has it; null otherwise."),
   mainThreadId: z.string().nullable().describe("The thread the review's comments go to with Send, its main thread; null for none."),
   threadIds: z.array(z.string()).describe("Every thread the review is linked to: its main thread, those before it, the threads its Sends went to, and the thread bb review ran in."),
   waitsOn: z.enum(["user", "agent", "author", "nobody"]).describe("Who it waits on now. user: you, as All reviews' Needs review lists it. agent: a thread working on it, fixing the comments you sent until it reports them all or runs bb review ready, or committing and pushing for Push; idle alone isn't done. author: the PR's author, on someone else's PR you requested changes on, or commented on with threads open. nobody: approved, reviewed, snoozed, a draft PR, a folder on another branch or removed, or archived."),
@@ -42,12 +42,13 @@ export const publicContract = defineRpcContract({
   // Review changes, above a thread's message box, calls it too (components/ThreadSurfaces.tsx). Its name, input and answer
   // are as they were from 1.8.0, when it was the panel's alone: plugins call it by that name.
   reviewThreadChanges: {
-    experimental_description: "Review a thread's changes, as Review changes above its message box and bb review in it do: the review of the folder the thread works in, at the branch it's on now. With none yet, it starts one, whose guide writer runs on your BB agent provider; with one, it opens it as it is. Calling it starts a review, so don't call it to tell whether it's there: wherever reviews.v1.status answers, it does.",
+    experimental_description: "Review a thread's changes, as Review changes above its message box and bb review in it do: the review of the folder the thread works in, at the branch it's on now. With none yet, it starts one, whose guide writer runs on your BB agent provider, unless the branch is an open PR's that has a review already, which the folder joins; with one, it opens it as it is. Calling it starts a review, so don't call it to tell whether it's there: wherever reviews.v1.status answers, it does.",
     input: z.object({ threadId: z.string().min(1).describe("The BB thread whose folder to review.") }).strict(),
     output: z.looseObject({
       ok: z.boolean().describe("The review was started, or found and opened."),
       error: z.string().optional().describe("With ok false, why, in words to show the user: as the thread has no folder yet, its folder isn't a git repository, isn't on a branch or has no changes, or the thread is one of Code Review Workspace's own agents."),
       targetKey: z.string().optional().describe("With ok true, the review's key, as reviews.v1.status lists it."),
+      joined: z.literal(true).optional().describe("With ok true, the folder joined the review its branch's open PR had, where what the folder has that GitHub doesn't shows in Not pushed yet; absent otherwise."),
     }),
   },
 });

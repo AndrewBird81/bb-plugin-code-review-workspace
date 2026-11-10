@@ -1,5 +1,7 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
-import { Markdown, useBbNavigate } from "@get-bb/plugin-sdk/app";
+import { Markdown, useBbNavigate, useRpc } from "@get-bb/plugin-sdk/app";
+import { toast } from "sonner";
+import type { rpcContract } from "../../src/rpc-contract";
 import { linesOf, sameLocation, type CommentLocation } from "../../src/draft";
 import { withLineBreaks } from "../../src/line-breaks";
 import { topLevelLabel, type AskItem, type CommentItem, type DraftItem, type PrivateItem, type ThreadItem, type ThreadMessage } from "../../lib/comments";
@@ -11,7 +13,8 @@ import { useKnob } from "../../lib/settings";
 import { cn } from "../../lib/utils";
 import { useWorkspaceFor } from "../../lib/workspace-store";
 import { useDraft } from "../DraftProvider";
-import { AgentEvidence, CommentBody, ComposerFields, DiscussionView, NotOnGithubBadge, SeverityBadge, type InlineComposer } from "../InlineDraft";
+import { AgentEvidence, AgentReply, CommentBody, ComposerFields, DiscussionView, NewFromAgentBadge, NotOnGithubBadge, SeverityBadge, type InlineComposer } from "../InlineDraft";
+import { useSeenInView } from "../../lib/use-seen-in-view";
 import { age } from "../time-ago";
 import { TOUCH_CONTROL } from "../touch";
 import { Avatar } from "../ui/avatar";
@@ -92,6 +95,32 @@ function Evidence({ item, onFix }: { item: ThreadItem | AskItem; onFix?: () => v
     <Icon name="Sparkles" className="mt-0.5 size-3.5 shrink-0 text-(--ansi-13)" aria-label="Agent" />
     <Markdown content={linkImages(item.check.evidence)} className="min-w-0 flex-1 text-sm leading-relaxed" />
     {item.check.fix && onFix && <Button variant="link" size="sm" className={cn("h-auto shrink-0 self-start p-0 text-xs", TOUCH_CONTROL)} onClick={onFix}>Show the fix<Icon name="ArrowRight" className="size-3" aria-hidden /></Button>}
+  </div>;
+}
+
+/**
+ * A deferral the agent's check proposed: it holds back approving until you confirm it, with Confirm deferral; once
+ * confirmed, it says so, with Reopen. Either click is yours alone.
+ */
+function Deferral({ targetKey, item }: { targetKey: string; item: ThreadItem | AskItem }) {
+  const rpc = useRpc<typeof rpcContract>();
+  const [busy, setBusy] = useState(false);
+  if (item.check?.verdict !== "deferred") return null;
+  const confirmed = !!item.check.confirmed;
+  const change = async (on: boolean) => {
+    setBusy(true);
+    try {
+      const result = await rpc.call("confirmDeferral", { targetKey, itemId: item.id, confirmed: on });
+      if (!result.ok) toast.error(result.error ?? "Couldn’t change the deferral.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Couldn’t change the deferral.");
+    } finally { setBusy(false); }
+  };
+  return <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+    <span className="min-w-0 flex-1">{confirmed ? "You confirmed the deferral." : "The agent proposes deferring this. It holds back approving until you confirm it."}</span>
+    <Button variant={confirmed ? "ghost" : "outline"} size="sm" className={cn("h-7 shrink-0 px-2 text-xs", TOUCH_CONTROL)} disabled={busy} onClick={() => void change(!confirmed)}>
+      <Icon name={confirmed ? "RotateCcw" : "CircleCheck"} className="size-3.5" aria-hidden />{confirmed ? "Reopen" : "Confirm deferral"}
+    </Button>
   </div>;
 }
 
@@ -187,6 +216,7 @@ function ThreadCard({ targetKey, item, variant }: { targetKey: string; item: Thr
         {first && <Clamped body={first.body} link />}
         <Replies replies={replies} />
         <Evidence item={item} onFix={item.check?.fix && api ? () => api.showLocation(item.check!.fix!.file, item.check!.fix!.line, "RIGHT") : undefined} />
+        <Deferral targetKey={targetKey} item={item} />
         {item.sendStatus && <SendStatus status={item.sendStatus} />}
         {sendNote}
         {actions && replyShows && <ReplyBox targetKey={targetKey} item={item} where={where} actions={actions} busy={busy} writing={writing} onClose={() => setWriting(false)} replyButton={replyButton} />}
@@ -237,6 +267,7 @@ function AskCard({ targetKey, item, variant }: { targetKey: string; item: AskIte
       <div className="space-y-2.5 px-3 pb-2.5">
         <p className="text-sm">{item.title}</p>
         <Evidence item={item} onFix={item.check?.fix && api ? () => api.showLocation(item.check!.fix!.file, item.check!.fix!.line, "RIGHT") : undefined} />
+        <Deferral targetKey={targetKey} item={item} />
       </div>
     </article>
   );
@@ -246,7 +277,7 @@ function AskCard({ targetKey, item, variant }: { targetKey: string; item: AskIte
 export function usePanelComposer(): InlineComposer {
   const draft = useDraft();
   return {
-    body: draft.body, edited: draft.edited, replacing: draft.replacing, changedWhileEditing: draft.changedWhileEditing, change: draft.changeBody, textareaRef: draft.bodyRef, error: draft.composerError, rebuilding: draft.rebuilding,
+    body: draft.body, edited: draft.edited, replacing: draft.replacing, changedWhileEditing: draft.changedWhileEditing, askSees: draft.askSees, change: draft.changeBody, textareaRef: draft.bodyRef, error: draft.composerError, rebuilding: draft.rebuilding,
     keepOnCurrentDiff: draft.olderDiff ? draft.keepOnCurrentDiff : null, severity: draft.severity, changeSeverity: draft.setSeverity,
     save: () => { void draft.addComment(); }, askAgent: () => { void draft.askAgent(); }, cancel: draft.cancelComposer,
     suggest: draft.suggestable ? draft.suggestChange : null,
@@ -278,8 +309,11 @@ function DraftCard({ targetKey, item }: { targetKey: string; item: DraftItem }) 
   const sendable = useSendable(draft.editable ? targetKey : undefined, comment);
   // What Send now warned, or why it failed, under the comment.
   const [sendNote, setSendNote] = useState<ReactNode>(null);
+  // The agent's, new to you until its card has been in view.
+  const cardRef = useRef<HTMLElement>(null);
+  useSeenInView(cardRef, !!item.unseen, () => draft.markSeen(comment));
   return (
-    <article data-comment-at={`${comment.file}:${comment.line}:${comment.side}`} tabIndex={-1} aria-label={`Draft comment on ${where}`} className={cn("overflow-hidden rounded-lg bg-card text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/50", frameOf(item))}>
+    <article ref={cardRef} data-comment-at={`${comment.file}:${comment.line}:${comment.side}`} tabIndex={-1} aria-label={`Draft comment on ${where}`} className={cn("overflow-hidden rounded-lg bg-card text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/50", frameOf(item))}>
       {box === "edit" ? <>
         {draft.showBoxInDiff && <p className="flex justify-end px-1.5 pt-1.5"><ShowBoxInDiff /></p>}
         {comment.startLine !== undefined && <p className="px-2.5 pt-2.5 text-xs text-muted-foreground tabular-nums">Lines {linesOf(comment)}</p>}
@@ -287,6 +321,7 @@ function DraftCard({ targetKey, item }: { targetKey: string; item: DraftItem }) 
       </> : <div className="space-y-2 px-3 pb-2.5 pt-2.5">
         {/* The row above says its status; right after Resolve or Dismiss, Undo is here. */}
         <FixUndo targetKey={targetKey} comment={comment} onFix={draft.setFix} label />
+        {item.unseen && <p className="flex"><NewFromAgentBadge /></p>}
         {(comment.startLine !== undefined || comment.side !== "RIGHT") && <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
           {comment.startLine !== undefined && <span className="tabular-nums">Lines {linesOf(comment)}</span>}
           {comment.side === "LEFT" && <Badge size="sm">Old line</Badge>}
@@ -300,7 +335,8 @@ function DraftCard({ targetKey, item }: { targetKey: string; item: DraftItem }) 
         {draft.editable && <div className="-mb-1 -ml-2 flex flex-wrap gap-0.5">
           <FixButtons targetKey={targetKey} comment={comment} checks={draft.checks} busy={draft.busy} posts={facts.posts && postable(comment, facts.own)} className={ACTION} onFix={draft.setFix} />
           <Button variant="ghost" size="sm" aria-label={`Edit comment on ${where}`} className={ACTION} {...whileBusy(draft.busy, draft.writing)} onClick={() => { if (!draft.busy && !draft.writing) draft.openComposer(comment, false); }}><Icon name="Edit" className="size-3.5" aria-hidden />Edit</Button>
-          <Button variant="ghost" size="sm" aria-label={`Ask agent about the comment on ${where}`} className={cn(ACTION, "text-(--ansi-13) hover:text-(--ansi-13)")} {...whileBusy(draft.busy, draft.writing)} onClick={() => { if (!draft.busy && !draft.writing) draft.openComposer(comment, false, true); }}><Icon name="Sparkles" className="size-3.5" aria-hidden />Ask agent</Button>
+          {/* Once it has a discussion, Reply at its foot goes on with it. */}
+          {!item.discussion && <Button variant="ghost" size="sm" aria-label={`Ask agent about the comment on ${where}`} className={cn(ACTION, "text-(--ansi-13) hover:text-(--ansi-13)")} {...whileBusy(draft.busy, draft.writing)} onClick={() => { if (!draft.busy && !draft.writing) draft.openComposer(comment, false, true); }}><Icon name="Sparkles" className="size-3.5" aria-hidden />Ask agent</Button>}
           {sendable && <SendNow targetKey={targetKey} comment={comment} to={sendable} className={ACTION} onNote={setSendNote} />}
           {preExisting && item.state !== "older-diff" && marksPreExisting(comment) && <Button variant="ghost" size="sm" className={ACTION} {...whileBusy(draft.busy)} onClick={() => { if (!draft.busy) void draft.markPreExisting(comment, comment.introduced !== false); }}>
             <Icon name="History" className="size-3.5" aria-hidden />{comment.introduced === false ? "Mark as from this PR" : "Mark as pre-existing"}
@@ -310,7 +346,8 @@ function DraftCard({ targetKey, item }: { targetKey: string; item: DraftItem }) 
           <CommentEditorMenu comment={comment} />
         </div>}
       </div>}
-      {item.discussion && <DiscussionView discussion={item.discussion} titled chat={draft.chat} busy={draft.busy} onUndo={draft.editable && !box ? () => void draft.undo(item.discussion!) : undefined} />}
+      {item.discussion && <DiscussionView discussion={item.discussion} titled chat={draft.chat} busy={draft.busy} writing={draft.writing} onUndo={draft.editable && !box ? () => void draft.undo(item.discussion!) : undefined}
+        onReply={draft.editable && !box ? () => draft.openComposer(comment, false, true) : undefined} />}
       {box === "ask" && <ComposerFields mode="ask" divided busy={draft.busy} composer={composer} />}
     </article>
   );
@@ -326,7 +363,7 @@ function PrivateCard({ item }: { item: PrivateItem }) {
     <article aria-label={`Private discussion on ${whereOf(item)}`} className={cn("overflow-hidden rounded-lg text-sm", frameOf(item))}>
       <DiscussionView discussion={discussion} titled={false} chat={draft.chat} busy={draft.busy} onUndo={draft.editable && !box ? () => void draft.undo(discussion) : undefined} />
       {box === "ask" ? <ComposerFields mode="ask" divided busy={draft.busy} composer={composer} /> : draft.editable && <div className="flex flex-wrap gap-0.5 px-1 pb-1.5">
-        <Button variant="ghost" size="sm" className={cn(ACTION, "text-(--ansi-13) hover:text-(--ansi-13)")} disabled={draft.busy || draft.writing} onClick={() => draft.openComposer(discussion, false, true)}><Icon name="Sparkles" className="size-3.5" aria-hidden />Reply</Button>
+        <AgentReply at={discussion} disabled={draft.busy || draft.writing} onClick={() => draft.openComposer(discussion, false, true)} />
         <Button variant="ghost" size="sm" className={ACTION} disabled={draft.busy} onClick={() => draft.inlineDraft.dismiss(discussion)}>Dismiss</Button>
       </div>}
     </article>
