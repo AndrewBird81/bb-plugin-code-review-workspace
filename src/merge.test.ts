@@ -49,6 +49,12 @@ async function setup({ agentOnBoth = true } = {}) {
   await store.saveSnapshot(P, "send:1", PATCH_P);
   await store.saveSnapshotFiles(P, "send:1", { revisions: { "a.ts": "r1" }, hidden: [] });
 
+  for (const key of [P, S]) {
+    await sql.run(`INSERT INTO focus_threads (thread_id,target_key,run_id,focus_id,label,created_at) VALUES (?,?,?,?,?,?)`, [`focus-${key}`, key, "run", "docs", "Docs", 1]);
+    await sql.run(`INSERT INTO focus_findings (target_key,run_id,id,focus_id,label,file,line,side,severity,body,evidence,status,draft_file,draft_line,draft_side) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      [key, "run", "f1", "docs", "Docs", "a.ts", 2, "RIGHT", "nit", "Wrong docs", "a.ts:2", "kept", "a.ts", 2, "RIGHT"]);
+  }
+
   // two (line 2) moves to 4; three (3) lands on S's same comment; four (4) on S's other one; gone.ts's is lost.
   await store.upsertDraftComment(P, comment(2, "Why two?", { author: "agent" }));
   await store.upsertDraftComment(P, comment(3, "Same"));
@@ -194,6 +200,11 @@ test("merging the PR's own review into the folder's moves every table's rows, or
   // How long its guide's chapters showed stays with that guide; this review's are its own guide's.
   expect(await store.getChapterReads(P)).toEqual([{ chapterId: "c1", openMs: 60_000, fineAt: null }]);
   expect(await store.getChapterReads(S)).toEqual([{ chapterId: "c1", openMs: 30_000, fineAt: null }]);
+  expect(await rows(sql, "focus_threads", P)).toBe(0);
+  expect(await rows(sql, "focus_threads", S)).toBe(2);
+  expect(await rows(sql, "focus_findings", P)).toBe(0);
+  expect(await sql.all(`SELECT draft_file,draft_line,draft_side FROM focus_findings WHERE target_key=?`, [S])).toEqual([{ draft_file: "a.ts", draft_line: 2, draft_side: "RIGHT" }]);
+  covered("focus_threads", "focus_findings");
   covered("reviews", "patches", "guides", "guide_backups", "generations", "agent_threads", "agent_messages", "chapter_reads");
   expect([...tables].sort()).toEqual([...REVIEW_TABLES].sort());
 });

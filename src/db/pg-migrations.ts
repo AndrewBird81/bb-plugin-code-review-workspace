@@ -83,6 +83,16 @@ export const PG_MIGRATIONS: readonly string[] = [
   `CREATE TABLE IF NOT EXISTS chapter_reads (
     target_key TEXT COLLATE "C" NOT NULL, chapter_id TEXT COLLATE "C" NOT NULL, open_ms BIGINT NOT NULL, fine_at BIGINT,
     PRIMARY KEY (target_key, chapter_id))`,
+  `CREATE TABLE IF NOT EXISTS focus_threads (
+    thread_id TEXT COLLATE "C" PRIMARY KEY, target_key TEXT COLLATE "C" NOT NULL, run_id TEXT NOT NULL, focus_id TEXT NOT NULL,
+    label TEXT NOT NULL, created_at BIGINT NOT NULL)`,
+  `CREATE TABLE IF NOT EXISTS focus_findings (
+    target_key TEXT COLLATE "C" NOT NULL, run_id TEXT COLLATE "C" NOT NULL, id TEXT COLLATE "C" NOT NULL, focus_id TEXT NOT NULL, label TEXT NOT NULL,
+    file TEXT NOT NULL, line INTEGER NOT NULL, side TEXT NOT NULL, start_line INTEGER, start_side TEXT,
+    severity TEXT NOT NULL, body TEXT NOT NULL, evidence TEXT NOT NULL, introduced SMALLINT,
+    status TEXT NOT NULL, reason TEXT, note TEXT, draft_file TEXT, draft_line INTEGER, draft_side TEXT, decided_at BIGINT,
+    PRIMARY KEY (target_key, run_id, id))`,
+  `ALTER TABLE review_preferences ADD COLUMN focuses TEXT`,
 ];
 
 const statementHash = (statement: string) => createHash("sha256").update(statement).digest("hex");

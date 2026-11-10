@@ -92,6 +92,9 @@ test("deleteReview clears every per-review table and leaves other reviews intact
     await s.setFileViewed(key, "a.ts", "hash");
     await s.addChapterOpenTime(key, "c1", 60_000);
     await s.setAssistantThread(key, `th-${key}`);
+    await testSql(bb).run(`INSERT INTO focus_threads (thread_id,target_key,run_id,focus_id,label,created_at) VALUES (?,?,?,?,?,?)`, [`focus-${key}`, key, "run", "docs", "Docs", 1]);
+    await testSql(bb).run(`INSERT INTO focus_findings (target_key,run_id,id,focus_id,label,file,line,side,severity,body,evidence,status) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+      [key, "run", "f1", "docs", "Docs", "a.ts", 1, "RIGHT", "nit", "Wrong docs", "a.ts:1", "found"]);
     // Legacy conversation rows, from before conversations moved into bb threads.
     await testSql(bb).run(`INSERT INTO agent_threads (target_key,thread_id,created_at) VALUES (?,?,1)`, [key, `legacy-${key}`]);
     await testSql(bb).run(`INSERT INTO agent_messages (target_key,role,text,context,created_at) VALUES (?,'user','question',NULL,1)`, [key]);

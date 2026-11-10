@@ -57,6 +57,8 @@ export interface DraftComment {
   chapterId?: string;
   /** Added by an agent, through a tool or `bb review comment`. Absent once the reviewer writes or edits it in the panel. */
   author?: "agent";
+  /** The focus label when raised; gone once the reviewer edits it in the panel. */
+  focus?: string;
   severity?: Severity;
   /** The text, without its severity's label. */
   body: string;

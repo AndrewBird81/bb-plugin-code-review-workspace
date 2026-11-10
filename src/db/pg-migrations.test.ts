@@ -26,7 +26,7 @@ function change(statement: string) {
 
 test("each Postgres migration makes the change the SQLite migration at its index makes", () => {
   const sqlite = sqliteMigrations();
-  expect(PG_MIGRATIONS).toHaveLength(40);
+  expect(PG_MIGRATIONS).toHaveLength(43);
   expect(PG_MIGRATIONS.map(change)).toEqual(sqlite.map(change));
   expect(PG_MIGRATIONS.map(change)).not.toContain(undefined);
 });
@@ -171,8 +171,8 @@ describe.skipIf(!testUrl)("against Postgres (CRW_TEST_PG_URL)", () => {
       const where = `${table}.${column}`;
       const key = column === "target_key" || shape[table]!.primaryKey.includes(column) || shape[table]!.indexes.some((index) => index.columns.includes(column));
       if (type === "text") expect(collation, where).toBe(key ? "C" : null);
-      else if (column === "recorded") expect(type, where).toBe("smallint");
-      else if (["line", "start_line", "number"].includes(column) || where === "review_preferences.id") expect(type, where).toBe("integer");
+      else if (["recorded", "introduced"].includes(column)) expect(type, where).toBe("smallint");
+      else if (["line", "start_line", "draft_line", "number"].includes(column) || where === "review_preferences.id") expect(type, where).toBe("integer");
       else expect(type, where).toBe("bigint");
     }
     expect(columns.filter((column) => column.data_type === "bigint").map((column) => column.column_name)).toEqual(expect.arrayContaining(

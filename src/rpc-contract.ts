@@ -40,6 +40,7 @@ const commentShape = z
     chapterId: z.string().optional(),
     // Undo after Remove puts an agent's comment back as the agent's.
     author: z.literal("agent").optional(),
+    focus: z.string().max(24).optional(),
     // A label the body starts with sets it instead (src/draft.ts severityOf).
     severity: z.enum(SEVERITIES).optional(),
     body: z.string().min(1),
@@ -118,8 +119,8 @@ export const rpcContract = defineRpcContract({
   savePreferences: {
     // Pages open from before 0.5.1 send settings without threadListReviews, from before 0.6.0 without rereviewShows,
     // and from before 1.5.0 without markdownFiles; the saved value stands. Pages from before knobs send none, and any page may send some: the saved
-    // ones stand for the rest.
-    input: z.object({ preferences: preferencesSchema.extend({ knobs: knobsSchema.partial().optional() }).partial({ threadListReviews: true, rereviewShows: true, markdownFiles: true }), revision: z.number().int().min(0) }).strict(),
+    // ones stand for the rest. Pages from before focuses leave its saved value intact.
+    input: z.object({ preferences: preferencesSchema.extend({ knobs: knobsSchema.partial().optional() }).partial({ threadListReviews: true, rereviewShows: true, markdownFiles: true, focuses: true }), revision: z.number().int().min(0) }).strict(),
     output: z.object({ preferences: preferencesSchema, revision: z.number().int() }),
   },
   // Seeds a custom agent selection with the panel project's remembered defaults, and a custom guide writer with the

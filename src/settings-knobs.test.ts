@@ -36,7 +36,7 @@ test("knobs save and load through the RPC in their own column, and a stale edit 
   // value stays what 0.6.0's strict schema reads.
   const value = JSON.parse((await row()).value);
   expect(value).not.toHaveProperty("knobs");
-  expect(() => preferencesSchema.omit({ knobs: true }).parse(value)).not.toThrow();
+  expect(() => preferencesSchema.omit({ knobs: true, focuses: true }).parse(value)).not.toThrow();
   expect(JSON.parse((await row()).knobs!)).toEqual(withoutSwitches(knobs));
 });
 

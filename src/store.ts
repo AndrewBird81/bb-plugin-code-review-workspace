@@ -706,7 +706,7 @@ export type SummaryChange = Partial<Pick<Draft, "verdict" | "body" | "bodyAuthor
  * change that suggested a verdict, `suggested` is that verdict and `suggestedVerdict` the one before (null for none).
  * For a comment's edit, `startCode` is the code its first line was drafted on.
  */
-export type PreviousState = { body: string; author?: "agent"; severity?: Severity; evidence?: string; introduced?: false; chapterId?: string; startLine?: number; startSide?: "LEFT" | "RIGHT"; startCode?: string; relined?: true; written?: Draft["written"]; suggestedVerdict?: Verdict | null; suggested?: Verdict } | null;
+export type PreviousState = { body: string; focus?: string; author?: "agent"; severity?: Severity; evidence?: string; introduced?: false; chapterId?: string; startLine?: number; startSide?: "LEFT" | "RIGHT"; startCode?: string; relined?: true; written?: Draft["written"]; suggestedVerdict?: Verdict | null; suggested?: Verdict } | null;
 
 /**
  * The statements bb.storage.migrate applies to the plugin's SQLite database, each at its index for good, and mirrored
@@ -794,6 +794,17 @@ export const SQLITE_MIGRATIONS: readonly string[] = [
     `CREATE TABLE IF NOT EXISTS chapter_reads (
       target_key TEXT NOT NULL, chapter_id TEXT NOT NULL, open_ms INTEGER NOT NULL, fine_at INTEGER,
       PRIMARY KEY (target_key, chapter_id))`,
+    `CREATE TABLE IF NOT EXISTS focus_threads (
+      thread_id TEXT PRIMARY KEY, target_key TEXT NOT NULL, run_id TEXT NOT NULL, focus_id TEXT NOT NULL,
+      label TEXT NOT NULL, created_at INTEGER NOT NULL)`,
+    `CREATE TABLE IF NOT EXISTS focus_findings (
+      target_key TEXT NOT NULL, run_id TEXT NOT NULL, id TEXT NOT NULL, focus_id TEXT NOT NULL, label TEXT NOT NULL,
+      file TEXT NOT NULL, line INTEGER NOT NULL, side TEXT NOT NULL, start_line INTEGER, start_side TEXT,
+      severity TEXT NOT NULL, body TEXT NOT NULL, evidence TEXT NOT NULL, introduced INTEGER,
+      status TEXT NOT NULL, reason TEXT, note TEXT, draft_file TEXT, draft_line INTEGER, draft_side TEXT, decided_at INTEGER,
+      PRIMARY KEY (target_key, run_id, id))`,
+    // Separate from value so older builds' settings saves leave it intact.
+    `ALTER TABLE review_preferences ADD COLUMN focuses TEXT`,
 ];
 
 /** The plugin's SQLite database, a former install brought in and SQLITE_MIGRATIONS applied, as the Store opens it. */
@@ -903,22 +914,22 @@ export function storeOn(sql: Sql): Store {
   return {
     ...agentCommentStore(sql),
     async getPreferences() {
-      const row = await sql.get<{ value: string; revision: number; knobs: string | null }>(`SELECT value, revision, knobs FROM review_preferences WHERE id=1`);
+      const row = await sql.get<{ value: string; revision: number; knobs: string | null; focuses: string | null }>(`SELECT value, revision, knobs, focuses FROM review_preferences WHERE id=1`);
       // No row, or a value that won't parse: defaults, as fresh copies.
       let value = {};
       try { if (row) value = JSON.parse(row.value); } catch { /* reads as defaults */ }
-      const preferences = readPreferences(value, row?.knobs ?? null);
+      const preferences = readPreferences(value, row?.knobs ?? null, row?.focuses ?? null);
       return { preferences, revision: row?.revision ?? 0 };
     },
     async savePreferences(preferences, revision) {
       const parsed = preferencesSchema.parse(preferences);
-      const { knobs, ...rest } = parsed;
+      const { knobs, focuses, ...rest } = parsed;
       // Knobs this version doesn't know, saved by a newer one before a rollback, stay for it.
       const raw = (await sql.get<{ knobs: string | null }>(`SELECT knobs FROM review_preferences WHERE id=1`))?.knobs;
       const value = JSON.stringify(rest), saved = JSON.stringify({ ...unknownKnobs(raw ?? null), ...savedKnobs(knobs) });
       const result = revision === 0
-        ? await sql.run(`INSERT INTO review_preferences (id,value,revision,knobs) VALUES (1,?,1,?) ON CONFLICT DO NOTHING`, [value, saved])
-        : await sql.run(`UPDATE review_preferences SET value=?,knobs=?,revision=revision+1 WHERE id=1 AND revision=?`, [value, saved, revision]);
+        ? await sql.run(`INSERT INTO review_preferences (id,value,revision,knobs,focuses) VALUES (1,?,1,?,?) ON CONFLICT DO NOTHING`, [value, saved, JSON.stringify(focuses)])
+        : await sql.run(`UPDATE review_preferences SET value=?,knobs=?,focuses=?,revision=revision+1 WHERE id=1 AND revision=?`, [value, saved, JSON.stringify(focuses), revision]);
       if (!result.changes) throw new Error("Settings changed in another window. Reload settings before saving.");
       return { preferences: parsed, revision: revision + 1 };
     },
@@ -1105,6 +1116,9 @@ export function storeOn(sql: Sql): Store {
         await sql.run(`INSERT INTO reply_drafts (target_key,thread_id,body,author,updated_at) SELECT ?, thread_id, body, author, updated_at FROM reply_drafts WHERE target_key=? ON CONFLICT(target_key,thread_id) DO NOTHING`, [into, from]);
         // The reviewer's removals of its agent's comments, so this review's agent doesn't raise them again.
         await sql.run(`UPDATE agent_comment_changes SET target_key=? WHERE target_key=?`, [into, from]);
+        // Focus identities follow the review; findings belong to another head, so only this review's survive.
+        await sql.run(`UPDATE focus_threads SET target_key=? WHERE target_key=?`, [into, from]);
+        await sql.run(`DELETE FROM focus_findings WHERE target_key=?`, [from]);
         // Its agent's conversation goes on here, unless this review has one: then it's kept apart, named in mergedFrom.
         const agentThreadId = await this.getAssistantThread(from);
         const adopted = !!agentThreadId && !await this.getAssistantThread(into);
@@ -1784,7 +1798,7 @@ export const REVIEW_TABLES = [
   "reviews", "patches", "guides", "drafts", "file_views", "agent_threads", "agent_messages",
   "generations", "draft_comment_revisions", "review_lifecycle", "reviewer_notes", "assistant_threads", "review_context",
   "discussion_entries", "discussion_waits", "review_snapshots", "feedback_threads", "feedback_fetches",
-  "assessment_items", "assessment_runs", "reply_drafts", "guide_backups", "agent_comment_changes", "chapter_reads",
+  "assessment_items", "assessment_runs", "reply_drafts", "guide_backups", "agent_comment_changes", "chapter_reads", "focus_threads", "focus_findings",
 ] as const;
 
 type Placement = { at: CommentLocation; line: number; startLine?: number; side?: "RIGHT" | "LOCAL" };

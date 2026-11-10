@@ -13,6 +13,7 @@ import { reviewNamed } from "./targets";
 import { localIdOf } from "../lib/review-identity";
 import { folderHost } from "./env-diff.test-support";
 import { dumpDatabase } from "../scripts/store-reads";
+import { defaultFocusSettings } from "../lib/review-preferences";
 
 // The fixture is a data.db's rows: the Store reads it on SQLite, whatever the test backend.
 vi.unmock("./store");
@@ -42,7 +43,7 @@ function host(branch: string) {
   return { ...made, store, deps };
 }
 
-test("every Store read of reviews 1.8.1 wrote gives what 1.8.1's gave", async () => {
+test("every Store read of reviews 1.8.1 wrote gives what 1.8.1's gave, but the new knobs and focuses at their defaults", async () => {
   const { bb, harness } = host("main");
   const dir = mkdtempSync(join(tmpdir(), "data-1.8.1-"));
   dirs.push(dir);
@@ -51,7 +52,11 @@ test("every Store read of reviews 1.8.1 wrote gives what 1.8.1's gave", async ()
   const read181 = JSON.parse(fixture("reads.json"));
   // 1.12.0's paces read at their defaults.
   read181.global.getPreferences.preferences.knobs = { ...read181.global.getPreferences.preferences.knobs, approveGuardTestsPace: 2000, approveGuardDocsPace: 2000 };
-  expect(JSON.parse((await dumpDatabase(join(dir, "data.db"))).reads)).toEqual(read181);
+  const reads = JSON.parse((await dumpDatabase(join(dir, "data.db"))).reads);
+  expect(read181.global.getPreferences.preferences).not.toHaveProperty("focuses");
+  expect(reads.global.getPreferences.preferences.focuses).toEqual(defaultFocusSettings);
+  read181.global.getPreferences.preferences.focuses = defaultFocusSettings;
+  expect(reads).toEqual(read181);
 });
 
 test("each draft 1.8.1 wrote posts the same review, byte for byte, as a teammate's PR's and as your own", async () => {
