@@ -1,5 +1,5 @@
 import { test, expect } from "vitest";
-import { commentsKey, sameComments, severityCounts, severityOf, sideOrder, toGithubReviewPayload, type Draft, type Severity } from "./draft";
+import { postedBody, SEVERITIES, SEVERITY_LABEL, commentsKey, sameComments, severityCounts, severityOf, sideOrder, toGithubReviewPayload, type Draft, type Severity } from "./draft";
 
 const draft: Draft = {
   targetKey: "pr-1",
@@ -7,6 +7,21 @@ const draft: Draft = {
   body: "Overall looks close.",
   comments: [{ file: "src/a.ts", line: 42, side: "RIGHT", chapterId: "s1", body: "rename this" }],
 };
+
+test("GitHub focus labels cover severity × pre-existing × focus × setting, without changing other postedBody callers", () => {
+  for (const severity of [undefined, ...SEVERITIES]) for (const preExisting of [true, false]) for (const introduced of [undefined, false] as const) for (const focus of [undefined, "Docs"]) for (const githubLabel of [true, false]) {
+    const comment = { ...draft.comments[0], body: "Wrong docs.", severity, introduced, focus };
+    const label = severity ? `${SEVERITY_LABEL[severity]}${focus && githubLabel ? ` (${focus})` : ""}` : githubLabel ? focus : undefined;
+    const expected = [preExisting && introduced === false ? "**Pre-existing:**" : "", label ? `**${label}:**` : "", comment.body].filter(Boolean).join(" ");
+    expect(toGithubReviewPayload({ ...draft, comments: [comment] }, preExisting, false, githubLabel).comments[0].body).toBe(expected);
+    expect(postedBody(comment, true)).not.toContain("Docs");
+  }
+});
+
+test("focus labels keep suggestion blocks on their own line, including without a severity", () => {
+  const comment = { ...draft.comments[0], focus: "Docs", body: "\`\`\`suggestion\nx\n\`\`\`" };
+  expect(toGithubReviewPayload({ ...draft, comments: [comment] }, false, false).comments[0].body).toBe("**Docs:**\n\n" + comment.body);
+});
 
 test("maps a draft to the gh reviews API body", () => {
   expect(toGithubReviewPayload(draft, false, false)).toEqual({

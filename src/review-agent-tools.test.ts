@@ -94,6 +94,21 @@ test("with the review agent acting, each write tool's instructions say it posts 
   expect(ONLY_WITH_THESE_TOOLS).toBe("Post, approve, merge, close or push only with these tools, never with gh, gh api or git push in your shell.");
 });
 
+test.each([true, false])("the Post form and GitHub payload use githubLabel=%s, even after focuses are disabled", async (githubLabel) => {
+  const { harness, store, tool, form } = await setup();
+  const settings = await store.getPreferences();
+  await store.savePreferences({ ...settings.preferences, focuses: { ...settings.preferences.focuses, githubLabel } }, settings.revision);
+  await store.upsertDraftComment(KEY, { file: "a.ts", line: 1, side: "RIGHT", author: "agent", focus: "Docs", severity: "should-fix", introduced: false, body: "Wrong docs." });
+  const call = tool("submit_review", { verdict: "COMMENT", body: "One ask." });
+  const waiting = await form();
+  const body = `**Pre-existing:** **Should fix${githubLabel ? " (Docs)" : ""}:** Wrong docs.`;
+  expect(waiting).toMatchObject({ payload: { parts: [{ label: "Summary", body: "One ask." }, { label: "a.ts:1", body, path: true }] } });
+  harness.behavior.submitInteraction(waiting.id, { post: true });
+  expect(toolText(await call)).toMatch(/^Posted the review to GitHub/);
+  const [post] = runGh.mock.calls.filter(([args]) => args.includes("repos/acme/web/pulls/1/reviews"));
+  expect(JSON.parse(post[1].stdin).comments[0].body).toBe(body);
+});
+
 test("on your own PR, submit_review shows and posts only the open comments: one sent to the main thread stays in BB", async () => {
   const { harness, store, tool, form } = await setup({ author: "me", ownPr: true });
   await store.upsertDraftComment(KEY, { file: "a.ts", line: 1, side: "LEFT", body: "Sent to the main thread." });

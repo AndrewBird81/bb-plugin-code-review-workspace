@@ -65,8 +65,11 @@ test("each draft 1.8.1 wrote posts the same review, byte for byte, as a teammate
   expect(Object.keys(payloads)).toHaveLength(8);
   for (const [k, posted] of Object.entries(payloads)) {
     const draft = await store.getDraft(k);
-    expect({ k, plain: JSON.stringify(toGithubReviewPayload(draft, false, false)), preExisting: JSON.stringify(toGithubReviewPayload(draft, true, false)), own: JSON.stringify(toGithubReviewPayload(draft, false, true)) })
-      .toEqual({ k, ...posted as object });
+    for (const githubLabel of [true, false]) {
+      const posting = githubLabel ? draft : { ...draft, comments: draft.comments.map((c) => ({ ...c, focus: "Docs" })) };
+      expect({ k, plain: JSON.stringify(toGithubReviewPayload(posting, false, false, githubLabel)), preExisting: JSON.stringify(toGithubReviewPayload(posting, true, false, githubLabel)), own: JSON.stringify(toGithubReviewPayload(posting, false, true, githubLabel)) })
+        .toEqual({ k, ...posted as object });
+    }
   }
 });
 

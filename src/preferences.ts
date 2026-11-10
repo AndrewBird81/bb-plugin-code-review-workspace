@@ -58,6 +58,7 @@ export const knobsSchema = z.object({
 
 export const focusSettingsSchema = z.object({
   enabled: z.boolean(),
+  githubLabel: z.boolean(),
   focuses: z.array(z.object({
     id: z.string().min(1).max(200), label: z.string().min(1).max(24), enabled: z.boolean(),
     template: z.string().min(1).max(200).optional(),

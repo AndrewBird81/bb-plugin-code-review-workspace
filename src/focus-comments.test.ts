@@ -2,6 +2,9 @@ import { expect, test, vi } from "vitest";
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
 import { startPlugin } from "./plugin-store.test-support";
 import { deleteComment, editComment, undoChange } from "./draft-comments";
+import { fixMessage } from "./fix-handoff";
+import { summaryLine } from "../lib/move-to-summary";
+import { toGithubReviewPayload } from "./draft";
 import { reviewRevision } from "./review-revision";
 
 vi.mock("./store-queue", async (original) => {
@@ -51,7 +54,25 @@ test("panel Remove + Undo restores focus through the RPC; a panel edit drops it"
     await store.upsertDraftComment("pr-1", comment);
     await harness.behavior.callRpc("saveDraftComment", { targetKey: "pr-1", revision, ...flags, comment: { ...at, body: "My words", focus: "Docs" } });
     expect((await store.getDraft("pr-1")).comments).toEqual([{ ...at, body: "My words" }]);
+    expect(toGithubReviewPayload(await store.getDraft("pr-1"), false, false).comments[0].body).toBe("My words");
   }
+  await harness.lifecycle.dispose();
+});
+
+test("Send, discussion changes, learning, and move to summary never carry the GitHub focus label", async () => {
+  const { store, harness, revision } = await setup();
+  const focused = { ...comment, severity: "should-fix" as const };
+  await store.upsertDraftComment("pr-1", focused);
+  const text = "**Should fix:** Wrong docs";
+  const review = (await store.getReview("pr-1"))!;
+  expect(fixMessage(review, [focused], patch, [])).toContain(text);
+  expect(fixMessage(review, [focused], patch, [])).not.toContain("Docs");
+  expect(summaryLine(focused)).toContain(text);
+  expect(summaryLine(focused)).not.toContain("Docs");
+  await editComment(store, "pr-1", { ...at, body: "Reworded" });
+  expect((await store.lastDiscussionChange("pr-1", at))?.body).toBe("**Should fix:** Reworded");
+  await harness.behavior.callRpc("saveDraftComment", { targetKey: "pr-1", revision, comment: { ...at, body: "My words" } });
+  expect(await store.agentCommentChanges("pr-1")).toEqual([expect.objectContaining({ body: "**Should fix:** Reworded" })]);
   await harness.lifecycle.dispose();
 });
 

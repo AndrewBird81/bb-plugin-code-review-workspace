@@ -232,7 +232,7 @@ export function createReviewSubmitter(store: AsyncStore, run: typeof runGh, rece
       }
       if (held.length) return warning;
       // Checked again as it posts, in one turn.
-      const preExistingFindings = await store.exclusive(async (tx) => {
+      const preferences = await store.exclusive(async (tx) => {
         const now = await tx.getReview(targetKey);
         if ((now?.status === "generating" && !allowed("generating")) || now?.headSha !== m.headSha) return null;
         if (revision && !allowed("revision") && revision !== await reviewRevision(tx, targetKey)) return null;
@@ -243,14 +243,15 @@ export function createReviewSubmitter(store: AsyncStore, run: typeof runGh, rece
           const now = (await tx.getDraft(targetKey)).comments;
           if ((!ownership.needed && now.some(tracked)) || !sameLocations(draft.comments, now.filter(posts))) return DRAFT_CHANGED;
         }
-        return (await tx.getPreferences()).preferences.knobs.preExistingFindings;
+        return (await tx.getPreferences()).preferences;
       });
-      if (preExistingFindings === DRAFT_CHANGED || preExistingFindings === SENDING) return { ok: false, error: preExistingFindings };
-      if (preExistingFindings === null) return { ok: false, error: "The review changed during submission. Wait for generation and review the draft again." };
+      if (preferences === DRAFT_CHANGED || preferences === SENDING) return { ok: false, error: preferences };
+      if (preferences === null) return { ok: false, error: "The review changed during submission. Wait for generation and review the draft again." };
+      const preExistingFindings = preferences.knobs.preExistingFindings;
       // Comments GitHub can't place, once you submit anyway, go in the summary instead, as one bad comment likely fails the whole review.
       const sending = { ...draft, ...moveToSummary(draft, [...(allowed("older-diff") ? checked.stale : []), ...(allowed("outside-diff") ? checked.outside : [])], preExistingFindings) };
       // On the version you reviewed, past new commits: GitHub takes an older commit.
-      const payload = { ...toGithubReviewPayload(sending, preExistingFindings, own), commit_id: m.headSha ?? current };
+      const payload = { ...toGithubReviewPayload(sending, preExistingFindings, own, preferences.focuses.githubLabel), commit_id: m.headSha ?? current };
       const attempted = Date.now();
       const args = ghSubmitReviewArgs(m.repo, m.number);
       const result = await pace(() => authenticatedRun(args, { timeoutMs: POST_TIMEOUT_MS, stdin: JSON.stringify(payload) }), PAGE_BUDGET_MS);
