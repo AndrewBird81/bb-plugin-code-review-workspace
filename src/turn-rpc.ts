@@ -29,8 +29,7 @@ export function register(deps: ServeDeps) {
   return {
     handlers: {
       async rerunFocusRun({ targetKey }: { targetKey: string }) {
-        const ok = await startFocusRun(bb, store, targetKey);
-        return ok ? { ok } : { ok, error: "The focuses couldn’t start. Check Review settings, trust, and whether a run is already active." };
+        return startFocusRun(bb, store, targetKey);
       },
       stopFocusRun: async ({ targetKey }: { targetKey: string }) => ({ ok: await stopFocusRun(bb, store, targetKey) }),
       async snoozeReview({ targetKey, snoozed, until }: { targetKey: string; snoozed: boolean; until?: number | null }) {

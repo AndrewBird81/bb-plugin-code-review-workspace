@@ -544,3 +544,15 @@ test("Run again and Check again use a fresh focus run, not the general review; s
   expect((await s.store.getReview("r"))!.focusRun!.id).toBe(before);
   expect(await handler({ targetKey: "missing" })).toMatchObject({ ok: false });
 });
+
+test("fresh-run refusals say which safety gate prevented the run", async () => {
+  const s = await setup(false);
+  expect(await startFocusRun(s.bb, s.store, "r")).toEqual({ ok: false, error: "Review with focuses is off. Turn it on in Review settings." });
+  const { preferences, revision } = await s.store.getPreferences();
+  await s.store.savePreferences({ ...preferences, focuses: { ...preferences.focuses, enabled: true } }, revision);
+  const handler = turnRpc({ ...s, changed: vi.fn() } as unknown as ServeDeps).handlers.rerunFocusRun;
+  expect(await handler({ targetKey: "missing" })).toEqual({ ok: false, error: "This review no longer exists." });
+  await s.store.setLifecycle("r", { prState: "CLOSED" });
+  expect(await handler({ targetKey: "r" })).toEqual({ ok: false, error: "This PR is closed, so its focuses don’t run." });
+  expect(s.harness.inspection.sdk.callsTo("threads.spawn")).toHaveLength(0);
+});
