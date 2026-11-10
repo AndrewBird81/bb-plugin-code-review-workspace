@@ -47,8 +47,11 @@ test("panel Remove + Undo restores focus through the RPC; a panel edit drops it"
   expect(restored.draft.comments).toEqual([comment]);
   expect((await store.getDraft("pr-1")).comments).toEqual([comment]);
   await expect(harness.behavior.callRpc("saveDraftComment", { targetKey: "pr-1", revision, comment: { ...comment, focus: "x".repeat(25) } })).rejects.toThrow();
-  await harness.behavior.callRpc("saveDraftComment", { targetKey: "pr-1", revision, comment: { ...at, body: "My words" } });
-  expect((await store.getDraft("pr-1")).comments).toEqual([{ ...at, body: "My words" }]);
+  for (const flags of [{}, { restore: true }, { restore: true, replaces: comment.body }]) {
+    await store.upsertDraftComment("pr-1", comment);
+    await harness.behavior.callRpc("saveDraftComment", { targetKey: "pr-1", revision, ...flags, comment: { ...at, body: "My words", focus: "Docs" } });
+    expect((await store.getDraft("pr-1")).comments).toEqual([{ ...at, body: "My words" }]);
+  }
   await harness.lifecycle.dispose();
 });
 
