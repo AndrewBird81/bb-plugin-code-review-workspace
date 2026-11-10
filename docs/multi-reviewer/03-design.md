@@ -50,7 +50,7 @@ Vocabulary:
 - Optional fields on a draft comment: plain JSON, `JSON.parse`, no strict schema in the store (`src/store.ts:1294` [V]). The RPC `commentShape` **is** strict (`src/rpc-contract.ts:31-54` [V]) and must list `focus`.
 - Run status: `ReviewLifecycle` JSON, no migration [01 §5].
 - Merge turn: `messageAssistant` queues behind a busy agent and can raise effort (`src/agent.ts:422-440` [V]). `kind: "automatic"` → `unattended` (`src/asking.ts:32` [V]); every act tool refuses unattended, draft tools don't [05 §1c].
-- Turn-end detection: the mark ledger's `dispatchedAt` (`src/asking.ts:43,136` [V]) plus the agent's next idle.
+- Turn-end detection: persist `focusRun.mergeDispatchedAt`, then the agent's next idle. Not the asking ledger: `ledgerEvents` clears dispatched marks at idle and cancelled marks on cancellation (`src/asking.ts:174-183` [V]).
 - Token counts: `thread/tokenUsage/updated` events carry `{ last, total }` (SDK:2838-2865 [V]), read with `threads.events.list` (SDK:18790 [V]). Optional `cost` on `thread/contextWindowUsage/updated` [05].
 - One draft per location (`src/draft-comments.ts:123` [05]) **stays**. Findings are staged elsewhere.
 - `storage-copy` lists tables from the database (`src/storage-copy.ts:80-110` [05]); nothing to do beyond parity tests. `REVIEW_TABLES` completeness is test-enforced (`src/merge.test.ts:198` [V]).
@@ -120,7 +120,7 @@ guide ready ──┬─ startAutomaticReview (sends the review) ─► review a
 - When every focus has settled (submitted, failed, timed out, stopped):
   - review head ≠ run head → every finding `not-checked: diff changed`, no merge turn, strip offers Run again
   - no findings and nothing failed → run done, no merge turn
-  - otherwise → `messageAssistant`, kind `automatic`, `queue-if-active`. Visible text: "Check the focuses' findings (Docs: 7)", marked as the plugin's. Agent-only context: the merge rules. Queued message id stored in `focusRun.mergeMessageId`.
+  - otherwise → `messageAssistant`, kind `automatic`, `queue-if-active`. Visible text: "Check the focuses' findings (Docs: 7)", marked as the plugin's. Agent-only context: the merge rules. Store `queuedMessageId` in `focusRun.mergeMessageId`; no `queuedMessageId` → persist `focusRun.mergeDispatchedAt = Date.now()` (`src/agent.ts:422-453` [V]). For a queued merge, persist that timestamp on `message.dispatched` when `entry.id === focusRun.mergeMessageId`; `entry` is a `ThreadQueuedMessage` with `id` and `threadId` (SDK:4534-4691, 19597-19599 [V]).
 - **Findings cap:** at most 20 go to the merge, ordered Blocking → Should fix → Question → Nit, then by focus order. The rest are `not-checked: over the limit`.
 - **Tools, granted in `configure` only while focuses are on** (as `reviewAgentActs` gates write tools, `server.ts:375` [V]). Existing tools unchanged:
   - `list_focus_findings()`: this run's `found` findings, fenced `untrusted()`
@@ -136,8 +136,9 @@ guide ready ──┬─ startAutomaticReview (sends the review) ─► review a
   6. Keep every confirmed Blocking and Should fix; at most 5 Nits per focus.
   7. Then `set_review_summary` again, with what the focuses didn't check.
 - **The plugin attributes, not the agent.** The agent can't name a focus.
-- **Accounting:** merge turn ends (its mark's `dispatchedAt` set, then the agent idle) with findings still `found` → one nudge. After that, leftovers are `not-checked`: not drafted, counted, with Check again. Fail closed.
-- **Watchdog:** agent idle, merge message neither in `queuedMessages` nor dispatched (the user deleted or edited it in BB's queue) → leftovers `not-checked: merge message removed`, run `done`. Checked on the agent's idle event and at plugin start.
+- **Accounting:** `focusRun.mergeDispatchedAt` set, then the agent idle, with findings still `found` → one nudge. After that, leftovers are `not-checked`: not drafted, counted, with Check again. Fail closed. Dispatch evidence comes only from `focusRun`, never the asking ledger.
+- **Watchdog:** agent idle, `focusRun.mergeDispatchedAt` unset, `focusRun.mergeMessageId` absent from `queuedMessages` → leftovers `not-checked: merge message removed`, run `done`. Checked on the agent's idle event and at plugin start; never infer dispatch from the asking ledger.
+- **Listener order:** SDK says `message.dispatched` precedes its turn (SDK:19593-19599 [V]); serialize merge send-result, dispatch persistence and idle checks per review, buffering dispatch events until `mergeMessageId` is stored. Idle checks await earlier dispatch writes; asking-ledger cleanup order cannot affect them.
 - **No score in release 1.** Binary kept / dropped (04 §4).
 - **Effort:** merge turn at the review agent's level, or High (`messageAssistant({effort})`).
 - **Tokens:** at run end, read each focus thread's last `thread/tokenUsage/updated` `total`, and the agent's delta across the merge turn. Best-effort: absent → not shown.
@@ -154,7 +155,7 @@ guide ready ──┬─ startAutomaticReview (sends the review) ─► review a
 | Merge message deleted or edited in BB's queue | Watchdog (§4.3) |
 | Guide rebuild mid-run | `beginGuide` stops the run, as Stop. Not restarted |
 | Push mid-run, no rebuild | Run continues; at settle or at any keep call, head ≠ run head → `not-checked: diff changed`, Run again |
-| Plugin restart mid-run | On start: run `finding` → `stopped`, its threads stopped and archived, findings `not-checked: interrupted`, strip offers Run again. Run `merging` → watchdog. No merge is sent after restart: trust and PR state would need re-checking, and the agent's own review may be mid-turn |
+| Plugin restart mid-run | On start: run `finding` → `stopped`, its threads stopped and archived, findings `not-checked: interrupted`, strip offers Run again. Run `merging` → read persisted `mergeDispatchedAt`: set + agent idle → accounting; unset → watchdog (only if idle and `mergeMessageId` absent from `queuedMessages`). A dispatched merge is never classified as removed. No merge is sent after restart: trust and PR state would need re-checking, and the agent's own review may be mid-turn |
 | Orphan (crash between spawn and row) | Same start sweep: hidden plugin threads titled `Focus: …` with no `focus_threads` row are stopped and archived, paging as `pluginThreadsTitled` does (`src/thread-review.ts:50` [V]) |
 | Review agent chat replaced mid-run | The merge message starts the new conversation, as `messageAssistant` does today |
 | Run ends | Focus threads stopped and **deleted** (`threads.delete`, SDK:18832 [V]); `focus_threads` rows kept for identity. Not recorded in `former-workers` |
@@ -337,7 +338,7 @@ focus_findings(target_key, run_id, id, focus_id, label,
 focusRun?: {
   id: string; head: string; startedAt: number; endedAt?: number
   state: "finding" | "merging" | "done" | "stopped"
-  mergeMessageId?: string; nudged?: true
+  mergeMessageId?: string; mergeDispatchedAt?: number; nudged?: true
   focuses: { focusId: string; label: string
              state: "queued" | "running" | "done" | "failed" | "stopped"
              activeAt?: number                       // first left BB's pending: the deadline's start
@@ -455,6 +456,8 @@ Release 1 = Phases 0–4. Each is one PR. `npm run check` passes in all; checks 
   - keep sets `focus`; fold keeps the target's; other-run id refused; head changed → `not-checked: diff changed`
   - 25 findings → 20 sent, 5 `not-checked: over the limit`
   - unsettled → `not-checked`, not drafted
+  - immediate and queued merges persist `mergeDispatchedAt`; a merge that ran is not reported as removed after idle clears its ledger mark or after restart; remaining `found` findings get the accounting nudge
+  - dispatch persistence precedes idle checks even with delayed writes or dispatch before the send result; ledger listener order changes neither accounting nor watchdog
   - Stop while finding, Stop with queued merge (message deleted), deleted merge message (watchdog), rebuild, push, restart in `finding` and `merging`, orphan thread swept
   - `src/registrations.test.ts -u` reviewed line by line; `src/agent-sends.test.ts` green
 - Verify (manual): a PR with one comment made false by the diff → one "Docs" draft with evidence; no focus thread in BB's sidebar, thread list or `bb review list --json`; token count shown if the provider reports it.
@@ -482,6 +485,8 @@ Release 1 = Phases 0–4. Each is one PR. `npm run check` passes in all; checks 
 - Verifier stage, if Decision 3's trigger fires.
 
 ## What I verified vs. only read
+
+- **c25 correction, opened and checked:** `src/asking.ts:115-183` (ledger dispatch, cancellation and idle cleanup), `src/agent.ts:422-453` (`messageAssistant` result); SDK:4534-4691 (`ThreadQueuedMessage.id`, `threadId`), 19532-19623 (idle, dispatch and cancellation events). Listener serialization above is a design requirement, not a verified host implementation.
 
 - **Opened and checked (this revision):** `server.ts:305-312, 366-400`, `src/comment-command.ts:74-82`, `src/generate.ts:44-52, 122-126, 250-268`, `src/draft-comments.ts:77`, `src/store.ts:696-700, 1748-1758`, `src/rpc-contract.ts:31-56`, `src/former-workers.ts:8-16`, `src/agent.ts:314-320`, `src/thread-review.ts:48-52`, `src/feedback-tools.ts:52-56, 79-83`, `src/machines.ts:38-42`, `src/merge.test.ts:196-200`, `src/asking.ts:30-43, 136`, `src/reviews-rpc.ts:288-292`, `src/untrusted.ts:5`, `src/draft.ts:55-66`, `lib/review-preferences.ts:69-72`, `docs/guide.md:666-669`, `package.json`, `.gitignore`; SDK spawn args (12504-12709), `pluginMetadata` trust note (20320-20325), interactions/events/queuedMessages/delete areas (18783-18832), token event (2838-2872).
 - **Earlier revision, checked then:** `src/draft-comments.ts:114-134`, `src/generate.ts:150-340`, `src/agent.ts:296-456`, `src/store.ts:786-787, 906-921, 1294`, `src/preferences.ts:135-168`, `src/agent-reads.ts:14-30`, `src/thread-review.ts:1-48`.
