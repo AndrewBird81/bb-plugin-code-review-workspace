@@ -8,6 +8,7 @@ import { agentPlacement } from "./machines";
 import { mayRunUnattended } from "../lib/trust";
 import { docs } from "../lib/focus-templates/docs";
 import { focusSpawningFor } from "./focus-identity";
+import { isMissingThread } from "./thread-errors";
 import { uncheckedFindings } from "./focus-tools";
 import { untrusted } from "./untrusted";
 import type { AsyncStore } from "./store-queue";
@@ -84,9 +85,11 @@ function pump(bb: BbPluginApi) {
   }
 }
 async function cleanup(bb: BbPluginApi, threadId: string, remove = true) {
-  await bb.sdk.threads.archive({ threadId }).catch(() => {});
-  await bb.sdk.threads.stop({ threadId }).catch(() => {});
-  if (remove) await bb.sdk.threads.delete({ threadId, childThreadsConfirmed: true }).catch((error) => bb.log.warn(`Could not delete focus ${threadId}; left archived: ${String(error)}`));
+  try { await bb.sdk.threads.archive({ threadId }); } catch (error) { if (isMissingThread(error)) return; }
+  try { await bb.sdk.threads.stop({ threadId }); } catch (error) { if (isMissingThread(error)) return; }
+  if (remove) await bb.sdk.threads.delete({ threadId, childThreadsConfirmed: true }).catch((error) => {
+    if (!isMissingThread(error)) bb.log.warn(`Could not delete focus ${threadId}; left archived: ${String(error)}`);
+  });
 }
 async function tokens(bb: BbPluginApi, threadId: string): Promise<FocusTokens | undefined> {
   try {
@@ -166,6 +169,7 @@ export async function startFocusRun(bb: BbPluginApi, store: AsyncStore, key: str
           if ((await bb.sdk.threads.interactions.list({ threadId })).length) { failure = "asked for permission"; break; }
           const thread = await bb.sdk.threads.get({ threadId });
           if (thread.status !== "pending" && focus.activeAt === undefined) {
+            // Polling can observe departure from pending up to STEP late; the run cap starts at that observation.
             focus.activeAt = Date.now();
             await store.exclusive(async (tx) => {
               const current = (await tx.getReview(key))?.focusRun;

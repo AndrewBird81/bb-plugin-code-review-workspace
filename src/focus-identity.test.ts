@@ -136,3 +136,18 @@ test("repeated configure after enabling cannot give an old busy session fresh gr
   expect((await store.getReview("r"))?.focusRun?.mergeDispatchedAt).toBeDefined();
   await harness.lifecycle.dispose();
 });
+
+test("CLI identity uses the cached roles while off, still refusing ended focuses without a focus-table read", async () => {
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: { threads: { list: async () => [] } } });
+  const store = await startPlugin(bb);
+  await vi.waitFor(() => expect(harness.inspection.sdk.callsTo("threads.list")).toHaveLength(2));
+  const reads = vi.spyOn(store, "listFocusThreads");
+  expect(await harness.behavior.runCli(["list", "--json"], { threadId: "ordinary" })).toMatchObject({ exitCode: 0 });
+  expect(reads).not.toHaveBeenCalled();
+  await store.saveReview({ targetKey: "r", kind: "pr", status: "ready", createdAt: 1 });
+  await store.recordFocusThread({ threadId: "ended-focus", targetKey: "r", runId: "old", focusId: "docs", label: "Docs", createdAt: 1 });
+  for (const argv of [["list", "--json"], ["storage", "status"]]) expect(await harness.behavior.runCli(argv, { threadId: "ended-focus" })).toMatchObject({ exitCode: 1, stderr: expect.stringContaining("Focus threads cannot run bb review") });
+  expect(reads).not.toHaveBeenCalled();
+  expect(harness.inspection.sdk.callsTo("threads.get")).toEqual([]);
+  await harness.lifecycle.dispose();
+});

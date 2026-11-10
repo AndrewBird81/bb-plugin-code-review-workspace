@@ -497,3 +497,14 @@ test("live idle sends the merge nudge text once, then accounts leftovers without
   expect((await s.store.getReview("r"))?.focusRun?.state).toBe("done");
   expect((await s.store.focusFindings("r", id))[0]).toMatchObject({ status: "not-checked", reason: "unsettled" });
 });
+
+test.each(["archive", "stop", "delete"] as const)("cleanup tolerates a focus already deleted before %s", async (method) => {
+  const s = await setup();
+  await s.store.setLifecycle("r", { focusRun: run({ state: "finding" }) });
+  await s.store.recordFocusThread({ threadId: "gone", targetKey: "r", runId: "run", focusId: "docs", label: "Docs", createdAt: 1 });
+  s.harness.sdk.stub(`threads.${method}`, async () => { throw { status: 404 }; });
+  await recoverFocusRuns(s.bb, s.store);
+  if (method === "archive") expect(s.harness.inspection.sdk.callsTo("threads.stop")).toEqual([]);
+  if (method !== "delete") expect(s.harness.inspection.sdk.callsTo("threads.delete")).toEqual([]);
+  expect(s.harness.inspection.logEntries.filter((entry) => entry.level === "warn")).toEqual([]);
+});
