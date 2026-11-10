@@ -315,7 +315,7 @@ DraftComment {
 - Label, not id: survives rename and removal. Ids live in `focus_findings`.
 - Set only by `keep_focus_finding`. Kept through agent edits (`editDraftComment` mutates in place, `src/store.ts:1318-1333` [05]) and relines (`src/draft-comments.ts:167` [05]).
 - **Gone on a reviewer edit in the panel**, like `author` and `evidence` (`src/draft.ts:58,63` [V]). Panel save goes through `savedOver`, which keeps only `TRACKING` keys from the stored comment (`src/store.ts:698, 1750-1757` [V]), so a page that doesn't send `focus` drops it. A reviewer-written comment never posts as `(Docs)`.
-- `commentShape` (`src/rpc-contract.ts:31-54` [V]) gains `focus: z.string().max(24).optional()`, so Undo after Remove restores it. Discussion undo: `before()` (`src/draft-comments.ts:134` [01]) carries it too.
+- `commentShape` (`src/rpc-contract.ts:31-54` [V]) gains `focus: z.string().max(24).optional()`. Undo after Remove also needs `components/DraftProvider.tsx:564-567` [V] to destructure and pass `focus` in its field-by-field restore call; the RPC shape alone doesn't restore it. Discussion undo: `before()` (`src/draft-comments.ts:134` [01]) carries it too.
 - No `alsoFlaggedBy` in release 1: a fold is recorded on the finding row (`draft_file`, `draft_line`, `draft_side`), shown in Finish review.
 - GitHub: `toGithubReviewPayload` passes `focus` to `postedBody` when `githubLabel` is on. `postedBody`'s other callers (Send, discussions, learning, move to summary) don't.
 
@@ -438,9 +438,11 @@ Release 1 = Phases 0–4. Each is one PR. `npm run check` passes in all; checks 
 **Phase 0. Groundwork. No visible change.**
 - Both tables in both migration lists; `REVIEW_TABLES`, `mergeReview`, store scripts.
 - `focuses` column; `FocusSettings` with Phase 1's fields, default off; Store read and save.
-- `DraftComment.focus`; `commentShape` lists it; `before()` carries it; panel edit drops it.
+- `DraftComment.focus`; `commentShape` lists it; `components/DraftProvider.tsx` restore destructures and passes it; `before()` carries it; panel edit drops it.
 - `lib/focus-templates/docs.ts`, `THIRD_PARTY_NOTICES.md`, `LICENSES/`, notices test.
 - Verify: `src/data-1.7.0.test.ts`, `src/data-1.8.1.test.ts` unchanged and green; `scripts/test-postgres.sh`; store-backends parity; round-trips for a comment with `focus` through agent edit, reline, panel edit (dropped), Remove + Undo (kept), merge, delete; a save by a build without the column leaves it intact.
+
+- Verify (frontend): extend `components/draft-review.test.tsx` Remove + Undo coverage for an agent comment with `focus`; assert the restore RPC payload and restored comment keep `focus`, not only an RPC round-trip test.
 
 **Phase 1. Docs focus end to end, safe to release.**
 - Settings: switch, description incl. the permission sentence, fixed list (General, Docs). No editor.
@@ -495,6 +497,8 @@ Release 1 = Phases 0–4. Each is one PR. `npm run check` passes in all; checks 
 - Verifier stage, if Decision 3's trigger fires.
 
 ## What I verified vs. only read
+
+- **c29 correction, opened and checked:** `components/DraftProvider.tsx:553-568` [V] (restore rebuilds the comment field by field); `components/draft-review.test.tsx` Remove + Undo test locations. Passing `focus` and frontend coverage above are design requirements, not implemented or runtime-tested.
 
 - **c28 correction, opened and checked:** `src/draft.ts:47-68`, `src/loop.ts:405-410` (ids assigned at Send); `src/draft-tools.ts:39-45, 84-86` [V] (edit location includes optional RIGHT/LEFT/LOCAL side, default RIGHT). Location-based folding and storage above are design requirements, not implemented or runtime-tested.
 
