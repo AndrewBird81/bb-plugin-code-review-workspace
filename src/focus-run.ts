@@ -298,7 +298,13 @@ export function focusEvents(bb: BbPluginApi, store: AsyncStore): EventListeners 
       const run = (await store.getReview(key))?.focusRun;
       if (run?.state !== "merging" || run.mergeMessageId !== id) return;
       run[field] = Date.now();
+      if (field === "mergeDispatchedAt") {
+        const before = await tokens(bb, threadId);
+        if (before) runtime(bb).mergeBefore.set(run.id, before);
+        else runtime(bb).mergeBefore.delete(run.id);
+      }
       await store.setLifecycle(key, { focusRun: run });
+      if (field === "mergeCancelledAt") await account(bb, store, key);
     });
   };
   return {
@@ -326,16 +332,16 @@ export async function stopFocusRun(bb: BbPluginApi, store: AsyncStore, key: stri
 
 /** Also used inside beginGuide's store block: never wait on this review's outer serial queue there. */
 export async function stopFocusRunIn(bb: BbPluginApi, store: AsyncStore, key: string, reason = "stopped", force = false): Promise<boolean> {
-    const run = (await store.getReview(key))?.focusRun;
-    if (!run || run.state === "done" || run.state === "stopped" || !force && run.state === "merging" && run.mergeDispatchedAt !== undefined) return false;
-    runtime(bb).queue = runtime(bb).queue.filter((entry) => entry.runId !== run.id);
-    for (const focus of run.focuses) runtime(bb).workers.get(workerKey(run.id, focus.focusId))?.abort.abort();
-    if (run.mergeMessageId && run.mergeDispatchedAt === undefined) {
-      const threadId = await store.getAssistantThread(key);
-      if (threadId) await bb.sdk.threads.queuedMessages.delete({ threadId, queuedMessageId: run.mergeMessageId });
-    }
-    await finish(bb, store, key, run, reason, true);
-    return true;
+  const run = (await store.getReview(key))?.focusRun;
+  if (!run || run.state === "done" || run.state === "stopped" || !force && run.state === "merging" && run.mergeDispatchedAt !== undefined) return false;
+  runtime(bb).queue = runtime(bb).queue.filter((entry) => entry.runId !== run.id);
+  for (const focus of run.focuses) runtime(bb).workers.get(workerKey(run.id, focus.focusId))?.abort.abort();
+  if (run.mergeMessageId && run.mergeDispatchedAt === undefined) {
+    const threadId = await store.getAssistantThread(key);
+    if (threadId) await bb.sdk.threads.queuedMessages.delete({ threadId, queuedMessageId: run.mergeMessageId });
+  }
+  await finish(bb, store, key, run, reason, true);
+  return true;
 }
 export async function recoverFocusRuns(bb: BbPluginApi, store: AsyncStore) {
   const reviews = await store.listReviews();

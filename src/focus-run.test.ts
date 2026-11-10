@@ -22,7 +22,7 @@ async function setup(on = true) {
       list: async () => [],
       interactions: { list: async () => [] },
       queuedMessages: { list: async () => queued, delete: async () => ({ ok: true }) },
-      events: { list: async () => ({ events: [] }) },
+      events: { list: async () => [] },
       send: async () => ({ delivery: "queued", queuedMessage: makeQueueEntry({ id: "merge", threadId: "assistant" }) }),
     },
     projects: { defaultExecutionOptions: async () => ({ providerId: "codex" }) },
@@ -173,7 +173,7 @@ async function complete(s: Awaited<ReturnType<typeof setup>>, count = 1) {
   current.focuses[0].findings = count;
   await s.store.setLifecycle("r", { focusRun: current });
   focusReported(s.bb, current.id, "docs");
-  await vi.waitFor(async () => expect((await s.store.getReview("r"))!.focusRun!.state).toBe("merging"));
+  await vi.waitFor(async () => expect((await s.store.getReview("r"))!.focusRun!.state).not.toBe("finding"));
   return current.id;
 }
 const idle = async (s: Awaited<ReturnType<typeof setup>>) => {
@@ -315,4 +315,44 @@ test("a failed wait settles the focus instead of spinning on a live thread", asy
   s.harness.sdk.stub("threads.wait", async () => { throw new Error("connection lost"); });
   await startFocusRun(s.bb, s.store, "r");
   await vi.waitFor(async () => expect((await s.store.getReview("r"))?.focusRun?.focuses[0].state).toBe("failed"));
+});
+
+test("a cancelled queued merge settles immediately without waiting for another assistant idle", async () => {
+  const s = await setup();
+  recordFocusTools(s.bb, "assistant", true);
+  const id = await complete(s);
+  await vi.waitFor(async () => expect((await s.store.getReview("r"))?.focusRun?.mergeMessageId).toBe("merge"));
+  const events = focusEvents(s.bb, s.store);
+  for (const handler of events["message.cancelled"] ?? []) await (handler as any)({ entry: makeQueueEntry({ id: "merge", threadId: "assistant" }) });
+  expect((await s.store.getReview("r"))?.focusRun?.state).toBe("done");
+  expect((await s.store.focusFindings("r", id))[0].reason).toBe("merge message removed");
+});
+
+test("an empty successful report ends without a merge", async () => {
+  const s = await setup();
+  await startFocusRun(s.bb, s.store, "r");
+  await vi.waitFor(async () => expect(await s.store.listFocusThreads()).toHaveLength(1));
+  const current = (await s.store.getReview("r"))!.focusRun!;
+  current.focuses[0].state = "done";
+  current.focuses[0].findings = 0;
+  await s.store.setLifecycle("r", { focusRun: current });
+  focusReported(s.bb, current.id, "docs");
+  await vi.waitFor(async () => expect((await s.store.getReview("r"))?.focusRun?.state).toBe("done"));
+  expect(s.harness.inspection.sdk.callsTo("threads.send")).toEqual([]);
+});
+
+test("queued merge tokens exclude the General review's remaining work before dispatch", async () => {
+  const s = await setup();
+  let input = 10;
+  s.harness.sdk.stub("threads.events.list", async () => [{ type: "thread/tokenUsage/updated", data: { tokenUsage: { total: { inputTokens: input, outputTokens: input } } } }]);
+  recordFocusTools(s.bb, "assistant", true);
+  const id = await complete(s);
+  await vi.waitFor(async () => expect((await s.store.getReview("r"))?.focusRun?.mergeMessageId).toBe("merge"));
+  input = 70;
+  for (const handler of focusEvents(s.bb, s.store)["message.dispatched"] ?? []) await (handler as any)({ entry: makeQueueEntry({ id: "merge", threadId: "assistant" }) });
+  const [finding] = await s.store.focusFindings("r", id);
+  await s.store.saveFocusFinding({ ...finding, status: "dropped", reason: "not confirmed" });
+  input = 100;
+  await idle(s);
+  expect((await s.store.getReview("r"))?.focusRun?.mergeTokens).toEqual({ input: 30, output: 30 });
 });
