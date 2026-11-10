@@ -260,7 +260,7 @@ test("the plugin registers the same RPC methods, tools, CLI subcommands, listene
       "thread.active": 2,
       "thread.archived": 2,
       "thread.deleted": 3,
-      "thread.failed": 6,
+      "thread.failed": 7,
       "thread.idle": 7,
       "thread.unarchived": 1,
     }

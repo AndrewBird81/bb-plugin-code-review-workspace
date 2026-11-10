@@ -508,3 +508,17 @@ test.each(["archive", "stop", "delete"] as const)("cleanup tolerates a focus alr
   if (method !== "delete") expect(s.harness.inspection.sdk.callsTo("threads.delete")).toEqual([]);
   expect(s.harness.inspection.logEntries.filter((entry) => entry.level === "warn")).toEqual([]);
 });
+
+test.each([false, true])("restart accounts a dispatched merge whose assistant is in error, nudged=%s", async (nudged) => {
+  const s = await setup();
+  s.statuses.set("assistant", "error");
+  s.harness.sdk.stub("threads.send", async () => { throw new Error("Do not nudge a failed thread"); });
+  await s.store.setLifecycle("r", { focusRun: run({ mergeDispatchedAt: 1, ...(nudged ? { nudged: true } : {}) }) });
+  await stage(s);
+  await recoverFocusRuns(s.bb, s.store);
+  expect((await s.store.getReview("r"))?.focusRun?.state).toBe("done");
+  expect((await s.store.getReview("r"))?.focusRun?.nudged).toBe(nudged ? true : undefined);
+  expect((await s.store.focusFindings("r", "run"))[0]).toMatchObject({ status: "not-checked", reason: "unsettled" });
+  expect(s.harness.inspection.sdk.callsTo("threads.send")).toEqual([]);
+  expect(await stopFocusRun(s.bb, s.store, "r")).toBe(false);
+});

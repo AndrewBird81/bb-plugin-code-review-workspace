@@ -4,7 +4,7 @@ import { startPlugin } from "./plugin-store.test-support";
 import { focusSpawningFor, focusThread } from "./focus-identity";
 import { toolThreadReview } from "./thread-review";
 import { defaultPreferences } from "./preferences";
-import { focusEvents, startFocusRun } from "./focus-run";
+import { focusEvents, recoverFocusRuns, startFocusRun } from "./focus-run";
 
 vi.mock("./store-queue", async (original) => {
   const actual = await original<typeof import("./store-queue")>();
@@ -149,5 +149,32 @@ test("CLI identity uses the cached roles while off, still refusing ended focuses
   for (const argv of [["list", "--json"], ["storage", "status"]]) expect(await harness.behavior.runCli(argv, { threadId: "ended-focus" })).toMatchObject({ exitCode: 1, stderr: expect.stringContaining("Focus threads cannot run bb review") });
   expect(reads).not.toHaveBeenCalled();
   expect(harness.inspection.sdk.callsTo("threads.get")).toEqual([]);
+  await harness.lifecycle.dispose();
+});
+
+test("a failed merge turn settles without a nudge, so Stop is a no-op and Delete is allowed", async () => {
+  let status: "active" | "error" = "active";
+  const send = vi.fn(async () => { throw new Error("Do not nudge a failed thread"); });
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: { threads: {
+    get: async ({ threadId }: any) => makeThreadResponse({ id: threadId, status }),
+    list: async () => [], send, stop: async () => ({ ok: true }), delete: async () => ({ ok: true }),
+    events: { list: async () => [] }, queuedMessages: { list: async () => [] },
+  } } });
+  const store = await startPlugin(bb);
+  await store.saveReview({ targetKey: "r", kind: "pr", status: "ready", createdAt: 1, headSha: "head" });
+  await store.setAssistantThread("r", "assistant");
+  await store.setLifecycle("r", { focusRun: { id: "run", head: "head", state: "merging", startedAt: 1, mergeDispatchedAt: 2, focuses: [{ focusId: "docs", label: "Docs", state: "done", queuedAt: 1 }] } });
+  await store.saveFocusFinding({ targetKey: "r", runId: "run", id: "finding", focusId: "docs", label: "Docs", file: "a.ts", line: 1, side: "RIGHT", severity: "nit", body: "Wrong docs", evidence: "a.ts:1", status: "found" });
+  await recoverFocusRuns(bb, store);
+  expect((await store.getReview("r"))?.focusRun?.state).toBe("merging");
+  status = "error";
+  await harness.behavior.emitThreadEvent("thread.failed", { thread: makeThreadResponse({ id: "assistant", status: "error" }), error: "Provider failed" });
+  expect((await store.getReview("r"))?.focusRun).toMatchObject({ state: "done" });
+  expect((await store.getReview("r"))?.focusRun?.nudged).toBeUndefined();
+  expect((await store.focusFindings("r", "run"))[0]).toMatchObject({ status: "not-checked", reason: "unsettled" });
+  expect(send).not.toHaveBeenCalled();
+  expect(await harness.behavior.callRpc("stopFocusRun", { targetKey: "r" })).toEqual({ ok: false });
+  expect(await harness.behavior.callRpc("deleteReview", { targetKey: "r" })).toEqual({ ok: true });
+  expect(await store.getReview("r")).toBeNull();
   await harness.lifecycle.dispose();
 });

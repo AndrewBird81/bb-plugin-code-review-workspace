@@ -297,11 +297,11 @@ async function sendMerge(bb: BbPluginApi, store: AsyncStore, key: string, run: F
     changed(bb, key);
   } catch { await finish(bb, store, key, run, "merge tools unavailable"); }
 }
-async function account(bb: BbPluginApi, store: AsyncStore, key: string, restarting = false) {
+async function account(bb: BbPluginApi, store: AsyncStore, key: string, restarting = false, failed = false) {
   const run = (await store.getReview(key))?.focusRun;
   if (run?.state !== "merging") return;
   if (run.mergeAwaitingTools) {
-    if (restarting) return finish(bb, store, key, run, "interrupted");
+    if (restarting || failed) return finish(bb, store, key, run, restarting ? "interrupted" : "unsettled");
     return sendMerge(bb, store, key, run);
   }
   if (run.mergeCancelledAt !== undefined) return finish(bb, store, key, run, "merge message removed");
@@ -312,7 +312,8 @@ async function account(bb: BbPluginApi, store: AsyncStore, key: string, restarti
     return finish(bb, store, key, run, "interrupted");
   }
   const findings = await store.focusFindings(key, run.id);
-  if (findings.some((finding) => finding.status === "found") && !run.nudged) {
+  // Do not turn a failed merge into another unattended turn.
+  if (!failed && findings.some((finding) => finding.status === "found") && !run.nudged) {
     const nudge = await store.exclusive(async (tx) => {
       const current = (await tx.getReview(key))?.focusRun;
       if (current?.id !== run.id || current.state !== "merging" || current.nudged) return false;
@@ -369,6 +370,11 @@ export function focusEvents(bb: BbPluginApi, store: AsyncStore): EventListeners 
       const key = runtime(bb).assistants.get(thread.id);
       if (key) return serial(bb, key, () => account(bb, store, key));
     }],
+    // A failed merge turn goes to `error`, never `idle`.
+    "thread.failed": [({ thread }) => {
+      const key = runtime(bb).assistants.get(thread.id);
+      if (key) return serial(bb, key, () => account(bb, store, key, false, true));
+    }],
   };
 }
 export async function stopFocusRun(bb: BbPluginApi, store: AsyncStore, key: string, reason = "stopped", force = false): Promise<boolean> {
@@ -408,7 +414,8 @@ export async function recoverFocusRuns(bb: BbPluginApi, store: AsyncStore) {
       if (threadId) runtime(bb).assistants.set(threadId, review.targetKey);
       await serial(bb, review.targetKey, async () => {
         if (run.mergeAwaitingTools || run.mergeDispatchedAt === undefined || run.mergeCancelledAt !== undefined) return account(bb, store, review.targetKey, true);
-        if (!threadId || (await bb.sdk.threads.get({ threadId })).status === "idle") await account(bb, store, review.targetKey, true);
+        const status = threadId ? (await bb.sdk.threads.get({ threadId })).status : null;
+        if (!threadId || status === "idle" || status === "error") await account(bb, store, review.targetKey, true, status === "error");
       });
     }
   }
