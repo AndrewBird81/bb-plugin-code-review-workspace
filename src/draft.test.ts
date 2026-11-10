@@ -20,11 +20,15 @@ test("GitHub focus labels cover severity × pre-existing × focus × setting, wi
 
 test("focus labels keep suggestion blocks on their own line, including without a severity", () => {
   const comment = { ...draft.comments[0], focus: "Docs", body: "\`\`\`suggestion\nx\n\`\`\`" };
-  expect(toGithubReviewPayload({ ...draft, comments: [comment] }, false, false).comments[0].body).toBe("**Docs:**\n\n" + comment.body);
+  expect(toGithubReviewPayload({ ...draft, comments: [comment] }, false, false, true).comments[0].body).toBe("**Docs:**\n\n" + comment.body);
+});
+
+test("GitHub payload requires all four posting choices", () => {
+  expect(toGithubReviewPayload.length).toBe(4);
 });
 
 test("maps a draft to the gh reviews API body", () => {
-  expect(toGithubReviewPayload(draft, false, false)).toEqual({
+  expect(toGithubReviewPayload(draft, false, false, true)).toEqual({
     event: "REQUEST_CHANGES",
     body: "Overall looks close.",
     comments: [{ path: "src/a.ts", line: 42, side: "RIGHT", body: "rename this" }],
@@ -60,7 +64,7 @@ test("GitHub gets each comment with its severity's label in front", () => {
     { file: "a.ts", line: 4, side: "RIGHT", severity: "nit", body: "```suggestion\nconst x = 1;\n```" },
     { file: "a.ts", line: 5, side: "RIGHT", body: "No label." },
   ] };
-  expect(toGithubReviewPayload(labeled, false, false).comments.map((c) => c.body)).toEqual([
+  expect(toGithubReviewPayload(labeled, false, false, true).comments.map((c) => c.body)).toEqual([
     "**Blocking:** Drops writes.",
     "**Should fix:** Rename.",
     "**Question:** Why?",

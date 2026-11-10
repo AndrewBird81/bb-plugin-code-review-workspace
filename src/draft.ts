@@ -227,7 +227,7 @@ export type GithubReviewComment = { path: string; line: number; side: string; st
  * `preExisting`: mark the problems the PR didn't introduce, as postedBody does. `own`: your own change, as postable reads
  * it: always said, as a caller that forgot it would post comments sent to fix.
  */
-export function toGithubReviewPayload(draft: Draft, preExisting: boolean, own: boolean, githubLabel = true): {
+export function toGithubReviewPayload(draft: Draft, preExisting: boolean, own: boolean, githubLabel: boolean): {
   event: Verdict;
   body: string;
   comments: GithubReviewComment[];
