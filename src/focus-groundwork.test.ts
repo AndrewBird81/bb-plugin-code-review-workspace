@@ -17,6 +17,24 @@ test("focus settings default off, read fields independently, and discard unknown
   expect(readPreferences({}, null, { ...defaults, focuses: [{ id: "docs", label: 1 }] }).focuses).toEqual(defaults);
 });
 
+test.each(["**", "\n", "@x"])("unsafe focus label %j is rejected on save and defaults independently on read", async (label) => {
+  const focuses = { enabled: true, githubLabel: false, focuses: [{ ...defaults.focuses[0], label }] };
+  expect(readPreferences({}, null, focuses).focuses).toEqual({ ...focuses, focuses: defaults.focuses });
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
+  await plugin(bb);
+  await expect(harness.behavior.callRpc("savePreferences", { preferences: { ...defaultPreferences, focuses }, revision: 0 })).rejects.toThrow();
+  await harness.lifecycle.dispose();
+});
+
+test("focus labels are trimmed and accept letters, numbers and safe punctuation", async () => {
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
+  await plugin(bb);
+  const focuses = { ...defaults, focuses: [{ ...defaults.focuses[0], label: "  文档 2._-  " }] };
+  const result = await harness.behavior.callRpc("savePreferences", { preferences: { ...defaultPreferences, focuses }, revision: 0 }) as any;
+  expect(result.preferences.focuses.focuses[0].label).toBe("文档 2._-");
+  await harness.lifecycle.dispose();
+});
+
 test("githubLabel defaults per field; a page from Phase 0/1 keeps the saved label setting", async () => {
   expect(readPreferences({}, null, { enabled: true, githubLabel: "bad", focuses: [] }).focuses).toEqual({ enabled: true, githubLabel: true, focuses: [] });
   const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });

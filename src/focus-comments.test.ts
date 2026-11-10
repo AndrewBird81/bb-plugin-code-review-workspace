@@ -76,6 +76,22 @@ test("Send, discussion changes, learning, and move to summary never carry the Gi
   await harness.lifecycle.dispose();
 });
 
+test.each(["**", "\n", "@x"])("save and restore reject unsafe DraftComment.focus %j", async (focus) => {
+  const { harness, revision } = await setup();
+  for (const restore of [false, true]) {
+    await expect(harness.behavior.callRpc("saveDraftComment", { targetKey: "pr-1", revision, restore, replaces: null, comment: { ...comment, focus } })).rejects.toThrow();
+  }
+  await harness.lifecycle.dispose();
+});
+
+test("restore trims safe DraftComment.focus", async () => {
+  const { harness, revision } = await setup();
+  await harness.behavior.callRpc("removeDraftComment", { targetKey: "pr-1", ...at });
+  const restored = await harness.behavior.callRpc("saveDraftComment", { targetKey: "pr-1", revision, restore: true, replaces: null, comment: { ...comment, focus: "  文档 2._-  " } }) as any;
+  expect(restored.draft.comments[0].focus).toBe("文档 2._-");
+  await harness.lifecycle.dispose();
+});
+
 test("merge keeps comment focus and review delete removes the comment", async () => {
   const { store, harness } = await setup();
   await store.saveReview({ targetKey: "pr-2", kind: "pr", number: 1, repo: "acme/web", status: "ready", createdAt: 2 });

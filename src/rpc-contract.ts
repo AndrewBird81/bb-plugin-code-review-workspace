@@ -5,7 +5,7 @@ import { COMMENT_STATES, SEVERITIES, SUBMIT_WARNINGS } from "./draft";
 import { REMOVAL_NOTE_LIMIT, REMOVAL_REASONS } from "../lib/removal-reasons";
 import { NAME_LIMIT } from "../lib/review-name";
 import { DATE_FIELDS, VALUE_FIELDS, VIEW_NAME_LIMIT } from "../lib/filter-fields";
-import { agentChoiceSchema, agentExecutionSchema, focusSettingsSchema, knobsSchema, preferencesSchema } from "./preferences";
+import { agentChoiceSchema, agentExecutionSchema, focusLabelSchema, focusSettingsSchema, knobsSchema, preferencesSchema } from "./preferences";
 
 // The RPC data plane between the panel (app.tsx) and the backend (server.ts).
 // app.tsx imports the TYPE of this contract only; the backend module never enters the frontend bundle.
@@ -40,7 +40,7 @@ const commentShape = z
     chapterId: z.string().optional(),
     // Undo after Remove puts an agent's comment back as the agent's.
     author: z.literal("agent").optional(),
-    focus: z.string().max(24).optional(),
+    focus: focusLabelSchema.optional(),
     // A label the body starts with sets it instead (src/draft.ts severityOf).
     severity: z.enum(SEVERITIES).optional(),
     body: z.string().min(1),
