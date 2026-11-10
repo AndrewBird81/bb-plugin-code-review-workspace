@@ -90,6 +90,17 @@ async function finish(slot: Slot) {
 }
 const submit = (view: ReturnType<typeof within>) => view.getByRole("button", { name: /^Submit to GitHub/ });
 
+test.each([true, false])("Goes to GitHub shows the exact focus comment with githubLabel=%s", async (githubLabel) => {
+  const { slot } = await renderWorkspace({ rpc: {
+    getPreferences: () => ({ preferences: { ...defaultPreferences, focuses: { ...defaultPreferences.focuses, githubLabel } }, revision: 0 }),
+    getDraft: () => ({ draft: draftOf({ comments: [{ ...comments[0], author: "agent", focus: "Docs", introduced: false }] }), stale: [] }),
+  } });
+  const view = await finish(slot);
+  const goes = within(view.getByRole("heading", { name: "Goes to GitHub" }).closest("section")!);
+  expect(goes.getByText(`**Pre-existing:** **Blocking${githubLabel ? " (Docs)" : ""}:** Upper case reads as a constant.`)).toBeTruthy();
+  slot.lifecycle.unmount();
+});
+
 test("a reply draft whose thread isn't listed, as when GitHub's threads didn't load, isn't counted as one to send", async () => {
   const { slot } = await renderWorkspace({ rpc: { getReplyDrafts: () => ({ drafts: [{ threadId: "gone", body: "Still throws for me.", author: "reviewer", updatedAt: now }] }) } });
   const view = await finish(slot);

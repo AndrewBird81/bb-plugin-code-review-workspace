@@ -17,11 +17,21 @@ test("Focuses is explicit-save opt-in, with a fixed General/Docs list and permis
   expect(slot.getByText("General")).toBeTruthy();
   expect(slot.getAllByText("Docs").some((element) => element.tagName === "STRONG")).toBe(true);
   expect(slot.queryByRole("button", { name: "Edit focus" })).toBeNull();
+  const label = slot.getByRole("checkbox", { name: "Label comments on GitHub with their focus" }) as HTMLInputElement;
+  expect(label.checked).toBe(true);
+  expect(label.disabled).toBe(true);
   fireEvent.click(toggle);
+  expect(label.disabled).toBe(false);
+  fireEvent.click(label);
+  fireEvent.click(toggle);
+  expect(label.disabled).toBe(true);
+  expect(label.checked).toBe(false);
+  fireEvent.click(toggle);
+  expect((slot.getByRole("checkbox", { name: "Label comments on GitHub with their focus" }) as HTMLInputElement).checked).toBe(false);
   expect(save).not.toHaveBeenCalled();
   fireEvent.click(slot.getByRole("button", { name: "Save settings" }));
   await slot.findByText("Settings saved");
-  expect(save.mock.calls[0][0].preferences.focuses).toEqual({ ...defaultPreferences.focuses, enabled: true });
+  expect(save.mock.calls[0][0].preferences.focuses).toEqual({ ...defaultPreferences.focuses, enabled: true, githubLabel: false });
 });
 const run: FocusRun = { id: "run", head: "head", startedAt: 1, state: "finding", focuses: [{ focusId: "docs", label: "Docs", state: "running", queuedAt: 1 }] };
 

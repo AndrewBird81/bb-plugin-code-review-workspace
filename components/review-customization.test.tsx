@@ -434,10 +434,11 @@ test("an assistant's comment appears in an open draft, and Submit sends only the
   const slot = renderSlot({ component: (props: any) => <DraftTray {...props} /> }, { targetKey: "live", activeChapterId: "c1", activeFiles: ["a.ts"], reviewRevision: "r1", account: "reviewer" }, { rpc: {
     setReviewPresence: () => ({ ok: true }), getReviewerNotes: () => ({ body: "", revision: 0 }), getDraft: () => ({ draft: structuredClone(stored) }), submitReview,
   } });
-  await slot.findByText("My comment");
+  const goes = within((await slot.findByRole("heading", { name: "Goes to GitHub" })).closest("section")!);
+  await goes.findByText("My comment");
   stored.comments.push(theirs);
   await slot.emitRealtime("draft:live", {});
-  await slot.findByText("The assistant's comment");
+  await goes.findByText("The assistant's comment");
   fireEvent.click(slot.getByRole("button", { name: /^Submit to GitHub/ }));
   await waitFor(() => expect(submitReview).toHaveBeenCalledWith({ targetKey: "live", revision: "r1", account: "reviewer", comments: [mine, theirs], posting: [{ file: "a.ts", line: 1, side: "RIGHT" }, { file: "a.ts", line: 2, side: "RIGHT" }], body: "", verdict: "COMMENT" }));
   slot.lifecycle.unmount();

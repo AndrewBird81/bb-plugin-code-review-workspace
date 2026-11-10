@@ -2,14 +2,14 @@ import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "rea
 import { UrlLink, useBbNavigate, useRpc } from "@get-bb/plugin-sdk/app";
 import { toast } from "sonner";
 import type { rpcContract } from "../../src/rpc-contract";
-import { SUMMARY_AT, VERDICT_LABEL, verdictPicked, type Verdict } from "../../src/draft";
+import { SUMMARY_AT, VERDICT_LABEL, verdictPicked, toGithubReviewPayload, type Verdict } from "../../src/draft";
 import type { CommentFilter, CommentItem } from "../../lib/comments";
 import { flaggedDoubt, quickRead, riskiest, unviewedDoubt } from "../../lib/approve-guard";
 import { readOf } from "../../lib/agent-coverage";
 import { summaryLines, type SummaryLine } from "../../lib/summary-lines";
 import { settled } from "../../lib/feedback";
 import { readDraftRecovery } from "../../lib/draft-recovery";
-import { useKnob } from "../../lib/settings";
+import { useKnob, useSettings } from "../../lib/settings";
 import { needsOrder, reviewState, type ReviewItem } from "../../lib/review-state";
 import { reviewIdentity } from "../../lib/review-identity";
 import { prDraftWaiting, pushAnywayOffered, pushFlagText, pushTarget } from "../../lib/push";
@@ -516,6 +516,8 @@ function GoesToGitHub({ items, replyDrafts, onList }: { items: readonly CommentI
   const d = useDraft();
   const { reveal, showLocation } = useWorkspace();
   const comments = d.posting;
+  const { preferences } = useSettings();
+  const payload = toGithubReviewPayload({ ...d.draft, comments }, preferences.knobs.preExistingFindings, false, preferences.focuses.githubLabel);
   // Sent to fix from your own change, resolved or dismissed: they stay in BB. Those not on GitHub yet go with Send.
   const held = d.draft.comments.length - comments.length - d.notOnGithub;
   const agent = comments.filter((comment) => comment.author === "agent").length;
@@ -548,6 +550,12 @@ function GoesToGitHub({ items, replyDrafts, onList }: { items: readonly CommentI
           Approving with {plural(d.blockingCount, "blocking comment")}.
         </Row>}
       </ul>
+      {payload.comments.length > 0 && <ul className="mt-3 space-y-3">
+        {payload.comments.map((comment, index) => <li key={index} className="space-y-1">
+          <p className="break-all font-mono text-xs text-muted-foreground">{comment.path}:{comment.line}</p>
+          <p className="whitespace-pre-wrap break-words text-sm">{comment.body}</p>
+        </li>)}
+      </ul>}
       {held > 0 && <p className="px-0.5 text-xs text-muted-foreground">{held} sent to fix won’t post to GitHub. Reopen {held === 1 ? "it" : "one"} to post it.</p>}
       {d.notOnGithub > 0 && <p className="px-0.5 text-xs text-muted-foreground">{d.notOnGithub === 1 ? "1 comment isn’t on GitHub yet. It goes" : `${d.notOnGithub} comments aren’t on GitHub yet. They go`} with Send, not Submit.</p>}
     </Part>
