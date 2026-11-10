@@ -1,5 +1,6 @@
 // Reviews: the list, a review's page, and what it reads of the PR (checks, generated files, CODEOWNERS, file contents);
 // starting, rebuilding, stopping, archiving, pinning, renaming and deleting a review. Also bb review list.
+import { hasFocusWorkers } from "./focus-run";
 import { forgetBefore } from "./fix-undo";
 import { changedFiles, splitPatchByFile } from "./patch";
 import { readFileContents, readGeneratedFiles } from "./file-contents";
@@ -290,6 +291,7 @@ export function register(deps: ServeDeps) {
       if (!review) return { ok: true };
       // A guide worker can't be cancelled per review, and an answer in progress is the reviewer's to finish.
       if (review.status === "generating") return { ok: false, error: "Wait for the guide to finish generating, then delete the review." };
+      if (review.focusRun?.state === "finding" || review.focusRun?.state === "merging" || hasFocusWorkers(bb, targetKey)) return { ok: false, error: "Wait for the focus run to finish, then delete the review." };
       if (await isAssistantAnswering(bb, store, targetKey)) return { ok: false, error: "Wait for the assistant to finish answering, then delete the review." };
       // Its guide writers too: the current one, and older ones left archived, by their exact title.
       const writers = await pluginThreadsTitled(bb, `${GUIDE_WORKER_TITLE}${targetKey}`).catch((error) => {

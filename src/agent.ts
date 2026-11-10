@@ -1,3 +1,4 @@
+import { startFocusRun } from "./focus-run";
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import type { AgentMessage, ReviewMeta } from "./store";
 import type { Guide } from "./guide";
@@ -356,6 +357,7 @@ export async function startAutomaticReview(bb: BbPluginApi, store: AsyncStore, t
       { type: "text", text: prompt, mentions: [] },
       ...(notes ? [{ type: "text" as const, text: notes, mentions: [], visibility: "agent-only" as const }] : []),
     ] }, { kind: "automatic" });
+    await startFocusRun(bb, store, targetKey);
     return "sent";
   }
   // A conversation the reviewer is starting comes first; your click sends the review to it once it's up.
@@ -366,6 +368,7 @@ export async function startAutomaticReview(bb: BbPluginApi, store: AsyncStore, t
     return startAutomaticReview(bb, store, targetKey, newCommits, { clicked });
   }
   await startConversation(bb, store, { targetKey, text: prompt, agent: defaults!, ...(notes ? { context: notes } : {}), kind: "automatic" });
+  await startFocusRun(bb, store, targetKey);
   return "started";
 }
 
@@ -515,11 +518,16 @@ export async function isAssistantAnswering(bb: BbPluginApi, store: AsyncStore, t
  * Stop idle assistant runtimes so their next message starts one with current
  * instructions. A busy worker keeps its turn and refreshes on a later restart.
  */
-export async function refreshAssistants(bb: BbPluginApi, store: AsyncStore, targetKeys?: readonly string[]): Promise<void> {
+export async function refreshAssistants(bb: BbPluginApi, store: AsyncStore, targetKeys?: readonly string[]): Promise<string[]> {
+  const stopped: string[] = [];
   for (const { targetKey, threadId } of await store.listAssistantThreads()) {
     if (targetKeys && !targetKeys.includes(targetKey)) continue;
     try {
-      if ((await bb.sdk.threads.get({ threadId })).status === "idle") await bb.sdk.threads.stop({ threadId });
+      if ((await bb.sdk.threads.get({ threadId })).status === "idle") {
+        await bb.sdk.threads.stop({ threadId });
+        if ((await bb.sdk.threads.get({ threadId })).status === "idle") stopped.push(threadId);
+      }
     } catch { /* Best effort: bb also stops idle runtimes after 30 minutes. */ }
   }
+  return stopped;
 }

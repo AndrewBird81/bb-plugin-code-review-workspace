@@ -6,6 +6,7 @@ import { readGeneratedFiles } from "./file-contents";
 import { recordAgentReads } from "./agent-reads";
 import { runGh, runGit } from "./gh";
 import { toolThreadReview } from "./thread-review";
+import { focusThread } from "./focus-identity";
 import { mergedAway } from "./draft-comments";
 import { withPrNote } from "./agent";
 import { failed, type ServeDeps } from "./server-modules";
@@ -17,7 +18,7 @@ export function register(deps: ServeDeps) {
    * was merged into another. Null when it may.
    */
   async function notOwnReview(threadId: string, targetKey: string): Promise<string | null> {
-    const own = await toolThreadReview(bb, store, threadId);
+    const own = (await focusThread(bb, store, threadId))?.targetKey ?? await toolThreadReview(bb, store, threadId);
     return own === targetKey ? await mergedAway(store, own) : `This conversation can read only its own review's diff${own ? `, targetKey ${own}` : ""}.`;
   }
   bb.agents.registerTool({

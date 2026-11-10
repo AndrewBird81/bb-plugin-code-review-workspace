@@ -9,6 +9,7 @@ import { recordAgentReads } from "./agent-reads";
 import { writeSummary } from "./draft-summary";
 import { runGh, runGit } from "./gh";
 import { toolThreadReview } from "./thread-review";
+import { focusThread } from "./focus-identity";
 import { withPrNote } from "./agent";
 import { assess, changesSinceReview, changesSinceSend, describeFeedback, readFileAt } from "./verification";
 import { baselineOf } from "../lib/turn";
@@ -78,7 +79,7 @@ export function register(deps: ServeDeps) {
     instructions: "Start a guide or a review with read_pr_context. If the title, branch, or description names a ticket (like ABC-123) and you have a tool that reads it, read it, unless read_pr_context says the PR's author isn't trusted. Read tickets only: never write to an issue tracker or chat.",
     parameters: z.object({}),
     async execute(_input, { threadId }) {
-      const targetKey = await toolThreadReview(bb, store, threadId);
+      const targetKey = (await focusThread(bb, store, threadId))?.targetKey ?? await toolThreadReview(bb, store, threadId);
       const away = await mergedAway(store, targetKey);
       if (away) return failed(away);
       const read = await store.exclusive(async (tx) => {
@@ -114,8 +115,9 @@ export function register(deps: ServeDeps) {
     }),
     async execute({ path, ref, startLine, endLine }, { threadId }) {
       // Local reviews too, unlike the feedback tools.
+      const focus = await focusThread(bb, store, threadId);
       const review = await store.exclusive(async (tx) => {
-        const targetKey = await assistantReview(tx, threadId);
+        const targetKey = focus?.targetKey ?? await assistantReview(tx, threadId);
         return targetKey ? await tx.getReview(targetKey) : null;
       });
       if (!review) return failed("This conversation is no longer a review's assistant.");

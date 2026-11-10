@@ -1,4 +1,5 @@
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
+import { stopFocusRunIn } from "./focus-run";
 import { completionNotifications } from "./completion-notifications";
 import { defaultPreferences, guidePreferencesPrompt, reReviewCheckPrompt, spawnExecution, type ReviewPreferences } from "./preferences";
 import { refreshAssistants, skipRun, startAutomaticReview } from "./agent";
@@ -161,6 +162,7 @@ export async function beginGuide(
   /** unattended: started with no click from you, so it doesn't approve agents on the PR's head. */
   options: { notify?: boolean; unattended?: boolean } = {},
 ): Promise<() => Promise<void>> {
+  await stopFocusRunIn(bb, tx, targetKey, "stopped", true);
   let generationId: string | undefined;
   let workerId: string | undefined;
   let threads: BbPluginApi["sdk"]["threads"] | undefined;
