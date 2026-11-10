@@ -8,7 +8,7 @@ import { createHash } from "node:crypto";
 import type { PluginAgentToolResult } from "@get-bb/plugin-sdk";
 import { z } from "zod";
 import { assistantReview, mergedAway } from "./draft-comments";
-import { linesOf, sameComments, toGithubReviewPayload, VERDICT_LABEL, type CommentLocation, type DraftComment, type Verdict } from "./draft";
+import { linesOf, postedBody, sameComments, VERDICT_LABEL, type CommentLocation, type DraftComment, type Verdict } from "./draft";
 import { writeSummary } from "./draft-summary";
 import { ghReplyThreadArgs, ghResolveThreadArgs, ghUnresolveThreadArgs, runGh } from "./gh";
 import { readReviewThreads } from "./github-threads-rpc";
@@ -465,12 +465,11 @@ export function register(deps: ServeDeps, { submit }: {
         : checked.texts?.[kind] ?? "");
       if (checked.warning && !force) return failed(`Nothing was posted. ${notes.join(" ")} Tell the reviewer; if they want it posted anyway, call submit_review again with force: true.`);
       const posting = checked.posting ?? { body: summary, comments: draft.comments };
-      const payload = toGithubReviewPayload({ ...draft, ...posting }, preferences.knobs.preExistingFindings, !!review.ownPr, preferences.focuses.githubLabel);
       // comments: the draft's, as Submit checks the draft against them; posts: those that post as line comments.
       const w: Write = { kind: "review", verdict, body: summary, comments, was: { body: draft.body, verdict: draft.verdict }, force: checked.warnings ?? [], headSha: review.headSha ?? null, posts: posting.comments.length, posting: checked.posts ?? [] };
       return previewed(threadId, signal, review, turn, w, verdict === "APPROVE" ? "approve" : verdict === "REQUEST_CHANGES" ? "request-changes" : "post", (account) => ({
         title: `${verdict === "APPROVE" ? "Approve" : verdict === "REQUEST_CHANGES" ? "Request changes on" : "Post to"} ${where(review)}${by(account)}`, action: VERDICT_LABEL[verdict], button: VERDICT_BUTTON[verdict],
-        parts: [...posting.body.trim() ? [{ label: "Summary", body: posting.body }] : [], ...payload.comments.map((c, index) => ({ label: `${c.path}:${linesOf(posting.comments[index])}`, body: c.body, path: true }))],
+        parts: [...posting.body.trim() ? [{ label: "Summary", body: posting.body }] : [], ...posting.comments.map((c) => ({ label: `${c.file}:${linesOf(c)}`, body: postedBody(c, preferences.knobs.preExistingFindings, preferences.focuses.githubLabel ? c.focus : undefined), path: true }))],
         notes: [...notes, ...!posting.body.trim() && !posting.comments.length ? ["No summary or comments: the verdict alone."] : []],
       }), answer);
     },

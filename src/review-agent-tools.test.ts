@@ -17,6 +17,7 @@ vi.mock("./store-queue", async (original) => {
 });
 
 import { startPlugin } from "./plugin-store.test-support";
+import * as draftPayload from "./draft";
 import { ONLY_WITH_THESE_TOOLS } from "./review-agent-tools";
 import { ASSISTANT_WRITE_TOOL_NAMES } from "./server-modules";
 import { agentChat } from "./agent-chat.test-support";
@@ -107,6 +108,21 @@ test.each([true, false])("the Post form and GitHub payload use githubLabel=%s, e
   expect(toolText(await call)).toMatch(/^Posted the review to GitHub/);
   const [post] = runGh.mock.calls.filter(([args]) => args.includes("repos/acme/web/pulls/1/reviews"));
   expect(JSON.parse(post[1].stdin).comments[0].body).toBe(body);
+});
+
+test("Post form parts are built directly from posting comments, not paired with a filtered payload", async () => {
+  const { harness, store, tool, form } = await setup();
+  await store.upsertDraftComment(KEY, { file: "a.ts", line: 1, side: "RIGHT", author: "agent", focus: "Docs", severity: "nit", body: "Wrong docs." });
+  const payload = vi.spyOn(draftPayload, "toGithubReviewPayload");
+  try {
+    const call = tool("submit_review", { verdict: "COMMENT", body: "One ask." });
+    const waiting = await form();
+    const callsBeforePost = payload.mock.calls.length;
+    expect(waiting).toMatchObject({ payload: { parts: [{ label: "Summary", body: "One ask." }, { label: "a.ts:1", body: "**Nit (Docs):** Wrong docs.", path: true }] } });
+    harness.behavior.submitInteraction(waiting.id, { post: true });
+    expect(toolText(await call)).toMatch(/^Posted the review to GitHub/);
+    expect(callsBeforePost).toBe(0);
+  } finally { payload.mockRestore(); }
 });
 
 test("on your own PR, submit_review shows and posts only the open comments: one sent to the main thread stays in BB", async () => {
