@@ -561,10 +561,10 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
     if (!free.length) return;
     await mutate(async () => {
       for (const comment of free) {
-        const { file, line, side, chapterId, author, severity, body, evidence, introduced, id, state, sendN, claim } = comment;
+        const { file, line, side, chapterId, author, focus, severity, body, evidence, introduced, id, state, sendN, claim } = comment;
         // With its id, and where its fix stood: a sent comment is still the one the main thread reports on.
         const tracking = { ...(id ? { id } : {}), ...(state ? { state } : {}), ...(sendN !== undefined ? { sendN } : {}), ...(claim ? { claim } : {}) };
-        apply(await enqueue(() => rpc.call("saveDraftComment", { targetKey, ...(revision ? { revision } : {}), replaces: null, restore: true, comment: { file, line, side, ...rangeOf(comment), ...(chapterId ? { chapterId } : {}), ...(author ? { author } : {}), ...(severity ? { severity } : {}), body, ...(evidence ? { evidence } : {}), ...(introduced === false ? { introduced } : {}), ...tracking } })) as { draft: Draft });
+        apply(await enqueue(() => rpc.call("saveDraftComment", { targetKey, ...(revision ? { revision } : {}), replaces: null, restore: true, comment: { file, line, side, ...rangeOf(comment), ...(chapterId ? { chapterId } : {}), ...(author ? { author } : {}), ...(focus ? { focus } : {}), ...(severity ? { severity } : {}), body, ...(evidence ? { evidence } : {}), ...(introduced === false ? { introduced } : {}), ...tracking } })) as { draft: Draft });
       }
     });
   }
