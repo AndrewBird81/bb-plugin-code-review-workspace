@@ -131,9 +131,10 @@ export async function createConfigureView(bb: BbPluginApi, backend: Store): Prom
       guides = "all";
     },
     threadRole(thread) {
-      if (snapshot.focuses.some((focus) => focus.threadId === thread.id) || focusSpawnTitled(bb, thread.title)) return "focus";
+      if (snapshot.focuses.some((focus) => focus.threadId === thread.id)) return "focus";
       if (assistantReview(thread.id)) return "assistant";
       if (generationOf(thread.id)) return "writer";
+      if (focusSpawnTitled(bb, thread.title)) return "focus";
       for (const { title } of spawnsTitled(bb, thread.title)) {
         if (title.startsWith(GUIDE_WORKER_TITLE)) return "writer";
         if (title.startsWith(ASSISTANT_TITLE)) return "assistant";

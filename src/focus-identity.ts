@@ -1,6 +1,7 @@
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import type { FocusThread } from "./focus-model";
 import type { AsyncStore } from "./store-queue";
+import { assistantReview } from "./draft-comments";
 
 type Identity = Pick<FocusThread, "targetKey" | "runId" | "focusId" | "label">;
 const focusSpawning = new WeakMap<BbPluginApi, Set<Identity & { title: string }>>();
@@ -24,5 +25,11 @@ export async function focusThread(bb: BbPluginApi, store: AsyncStore, threadId: 
   const recorded = (await store.listFocusThreads()).find((thread) => thread.threadId === threadId);
   if (recorded) return recorded;
   const title = await focusInFlightTitle(bb, threadId);
-  return focusSpawnTitled(bb, title);
+  if (!focusSpawnTitled(bb, title)) return null;
+  return store.exclusive(async (tx) => {
+    const committed = (await tx.listFocusThreads()).find((thread) => thread.threadId === threadId);
+    if (committed) return committed;
+    if (await assistantReview(tx, threadId) || await tx.generationOf(threadId)) return null;
+    return focusSpawnTitled(bb, title);
+  });
 }

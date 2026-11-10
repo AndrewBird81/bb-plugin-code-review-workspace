@@ -40,3 +40,24 @@ test("focusSpawning covers only an exact title until the row commits, and clears
   expect(await focusThread(bb, store, "unknown")).toBeNull();
   await harness.lifecycle.dispose();
 });
+
+test.each(["configure", "id lookup"])("%s: a recorded assistant or writer cannot become another review's focus by retitling during spawn", async (via) => {
+  const title = "Focus: Docs · other";
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: { threads: { get: async () => ({ title }) } } });
+  const view = await createConfigureView(bb, createStore(bb));
+  const store = queueStore(view.backend, { afterTurn: view.afterTurn });
+  await store.saveReview({ targetKey: "r", kind: "pr", status: "ready", createdAt: 1 });
+  await store.setAssistantThread("r", "assistant");
+  const generation = await store.beginGeneration("r");
+  await store.setGenerationWorker("r", generation, "writer");
+  await focusSpawningFor(bb, title, { targetKey: "other", runId: "run", focusId: "docs", label: "Docs" }, async () => {
+    for (const role of ["assistant", "writer"] as const) {
+      if (via === "configure") expect(view.threadRole({ id: role, title })).toBe(role);
+      else expect(await focusThread(bb, store, role)).toBeNull();
+      expect(view.threadReview({ id: role, title })).toBe("r");
+    }
+    expect(view.threadRole({ id: "new-focus", title })).toBe("focus");
+    expect(await focusThread(bb, store, "new-focus")).toMatchObject({ targetKey: "other" });
+  });
+  await harness.lifecycle.dispose();
+});
