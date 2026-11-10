@@ -1,6 +1,6 @@
 import { afterEach, expect, test, vi } from "vitest";
 import { createFakePluginHost, makeThreadResponse, makeQueueEntry } from "@get-bb/plugin-sdk/testing";
-import { testStore } from "./test-store.test-support";
+import { failingCall, testStore } from "./test-store.test-support";
 import { defaultPreferences } from "./preferences";
 import { startFocusRun, stopFocusRun, recoverFocusRuns, focusEvents, recordFocusTools, focusReported, focusRuntimeSpawned } from "./focus-run";
 import type { FocusRun } from "./focus-model";
@@ -465,4 +465,14 @@ test("a rebuild while dispatch evidence reads tokens cannot revive the run", asy
   expect((await s.store.getReview("r"))?.focusRun?.state).toBe("stopped");
   expect((await s.store.getReview("r"))?.focusRun?.mergeDispatchedAt).toBeUndefined();
   expect(s.harness.inspection.sdk.callsTo("threads.send")).toHaveLength(1);
+});
+
+test("a focus whose identity row fails after spawn is stopped, archived and deleted", async () => {
+  const s = await setup();
+  await startFocusRun(s.bb, failingCall(s.store, "recordFocusThread"), "r");
+  await vi.waitFor(async () => expect((await s.store.getReview("r"))?.focusRun?.focuses[0]).toMatchObject({ state: "failed", error: "Connection terminated unexpectedly" }));
+  for (const method of ["threads.archive", "threads.stop", "threads.delete"] as const) {
+    expect(s.harness.inspection.sdk.callsTo(method).some(([args]) => (args as any).threadId === "focus-1"), method).toBe(true);
+  }
+  expect(await s.store.listFocusThreads()).toEqual([]);
 });

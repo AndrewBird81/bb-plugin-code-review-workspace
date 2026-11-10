@@ -149,10 +149,15 @@ export async function startFocusRun(bb: BbPluginApi, store: AsyncStore, key: str
         ].join("\n\n");
         const spawned = await focusSpawningFor(bb, title, { targetKey: key, runId: run.id, focusId: focus.focusId, label: focus.label }, async () => {
           const thread = await bb.sdk.threads.spawn({ ...placement, ...(execution ? spawnExecution(execution) : {}), ...mode, executionInputSources: { ...(execution ? spawnExecution(execution).executionInputSources : {}), ...mode.executionInputSources }, title, prompt, visibility: "hidden", pluginMetadata: { focusRun: run.id, focusId: focus.focusId } });
-          await store.exclusive(async (tx) => {
-            const targetKey = (await tx.getReview(key))?.mergedInto ?? key;
-            await tx.recordFocusThread({ threadId: thread.id, targetKey, runId: run.id, focusId: focus.focusId, label: focus.label, createdAt: Date.now() });
-          });
+          try {
+            await store.exclusive(async (tx) => {
+              const targetKey = (await tx.getReview(key))?.mergedInto ?? key;
+              await tx.recordFocusThread({ threadId: thread.id, targetKey, runId: run.id, focusId: focus.focusId, label: focus.label, createdAt: Date.now() });
+            });
+          } catch (error) {
+            await cleanup(bb, thread.id);
+            throw error;
+          }
           return thread;
         });
         threadId = spawned.id;
