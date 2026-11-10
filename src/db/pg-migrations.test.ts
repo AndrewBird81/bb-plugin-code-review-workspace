@@ -160,7 +160,7 @@ describe.skipIf(!testUrl)("against Postgres (CRW_TEST_PG_URL)", () => {
     expect((await recorded(schema)).map((row) => row.id)).toEqual([...PG_MIGRATIONS.keys()]);
   });
 
-  test("timestamps, counters and ids are BIGINT, lines and PR numbers INTEGER, the flag SMALLINT, and only key text columns COLLATE \"C\"", async () => {
+  test("timestamps, counters and ids are BIGINT, lines and PR numbers INTEGER, the flag SMALLINT, and key text and focus run ids COLLATE \"C\"", async () => {
     const schema = newSchema();
     await migratePg(connect(schema), schema);
     const { rows: columns } = await admin.query<{ table_name: string; column_name: string; data_type: string; collation_name: string | null }>(
@@ -169,7 +169,7 @@ describe.skipIf(!testUrl)("against Postgres (CRW_TEST_PG_URL)", () => {
     const shape = await pgShape(schema);
     for (const { table_name: table, column_name: column, data_type: type, collation_name: collation } of columns) {
       const where = `${table}.${column}`;
-      const key = column === "target_key" || shape[table]!.primaryKey.includes(column) || shape[table]!.indexes.some((index) => index.columns.includes(column));
+      const key = column === "target_key" || where === "focus_threads.run_id" || shape[table]!.primaryKey.includes(column) || shape[table]!.indexes.some((index) => index.columns.includes(column));
       if (type === "text") expect(collation, where).toBe(key ? "C" : null);
       else if (["recorded", "introduced"].includes(column)) expect(type, where).toBe("smallint");
       else if (["line", "start_line", "draft_line", "number"].includes(column) || where === "review_preferences.id") expect(type, where).toBe("integer");
