@@ -3,6 +3,8 @@ import { createFakePluginHost, makeThreadResponse, makeQueueEntry } from "@get-b
 import { failingCall, testStore } from "./test-store.test-support";
 import { defaultPreferences } from "./preferences";
 import { startFocusRun, stopFocusRun, recoverFocusRuns, focusEvents, recordFocusTools, focusReported, focusRuntimeSpawned } from "./focus-run";
+import { register as turnRpc } from "./turn-rpc";
+import type { ServeDeps } from "./server-modules";
 import type { FocusRun } from "./focus-model";
 
 const disposers: (() => Promise<void>)[] = [];
@@ -521,4 +523,24 @@ test.each([false, true])("restart accounts a dispatched merge whose assistant is
   expect((await s.store.focusFindings("r", "run"))[0]).toMatchObject({ status: "not-checked", reason: "unsettled" });
   expect(s.harness.inspection.sdk.callsTo("threads.send")).toEqual([]);
   expect(await stopFocusRun(s.bb, s.store, "r")).toBe(false);
+});
+
+test("Run again and Check again use a fresh focus run, not the general review; safety gates still apply", async () => {
+  const s = await setup();
+  await s.store.setLifecycle("r", { focusRun: run({ state: "done" }) });
+  await stage(s);
+  const handler = turnRpc({ ...s, changed: vi.fn() } as unknown as ServeDeps).handlers.rerunFocusRun;
+  expect(await handler({ targetKey: "r" })).toEqual({ ok: true });
+  const next = (await s.store.getReview("r"))!.focusRun!;
+  expect(next.id).not.toBe("run");
+  expect(await s.store.focusFindings("r", "run")).toEqual([]);
+  expect(s.harness.inspection.sdk.callsTo("threads.send")).toHaveLength(0);
+  expect(await handler({ targetKey: "r" })).toMatchObject({ ok: false });
+  await stopFocusRun(s.bb, s.store, "r");
+  const before = (await s.store.getReview("r"))!.focusRun!.id;
+  const { preferences, revision } = await s.store.getPreferences();
+  await s.store.savePreferences({ ...preferences, focuses: { ...preferences.focuses, enabled: false } }, revision);
+  expect(await handler({ targetKey: "r" })).toMatchObject({ ok: false });
+  expect((await s.store.getReview("r"))!.focusRun!.id).toBe(before);
+  expect(await handler({ targetKey: "missing" })).toMatchObject({ ok: false });
 });

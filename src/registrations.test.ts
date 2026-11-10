@@ -104,6 +104,7 @@ test("the plugin registers the same RPC methods, tools, CLI subcommands, listene
       "replyToFeedback",
       "replyToThread",
       "rereview",
+      "rerunFocusRun",
       "resolveComment",
       "resolveThread",
       "reviewFolderBranch",

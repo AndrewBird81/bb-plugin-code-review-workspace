@@ -100,8 +100,8 @@ async function tokens(bb: BbPluginApi, threadId: string): Promise<FocusTokens | 
   } catch { /* Usage is optional across providers. */ }
 }
 
-/** Called only after the automatic review was sent, not after a conversation or feedback check. */
-export async function startFocusRun(bb: BbPluginApi, store: AsyncStore, key: string): Promise<void> {
+/** After an automatic review, or an explicit fresh focus run; never after a conversation or feedback check. */
+export async function startFocusRun(bb: BbPluginApi, store: AsyncStore, key: string): Promise<boolean> {
   const begun = await store.exclusive(async (tx) => {
     const preferences = (await tx.getPreferences()).preferences;
     if (!preferences.focuses.enabled || !automaticReviewPrompt(preferences)) return null;
@@ -115,7 +115,7 @@ export async function startFocusRun(bb: BbPluginApi, store: AsyncStore, key: str
     await tx.setLifecycle(key, { focusRun: run });
     return { run, preferences, review, guide: await tx.getGuide(key), bytes: (await tx.patch(key)).length };
   });
-  if (!begun) return;
+  if (!begun) return false;
   const { run, preferences, review, guide, bytes } = begun;
   for (const focus of run.focuses) {
     runtime(bb).queue.push({ key, runId: run.id, focusId: focus.focusId, async start() {
@@ -215,6 +215,7 @@ export async function startFocusRun(bb: BbPluginApi, store: AsyncStore, key: str
   }
   changed(bb, key);
   pump(bb);
+  return true;
 }
 
 const MERGE_RULES = [

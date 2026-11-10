@@ -116,6 +116,10 @@ export function register(deps: ServeDeps) {
         const all = await tx.listReviews();
         const stacks = findStacks(all);
         const review = owned && await decorate(owned, turnOptions((await tx.getPreferences()).preferences), stacks, reviewPlaces(facts, all), await guideTitles(tx, [owned]), agents);
+        if (review?.focusRun) {
+          review.focusFindings = await tx.focusFindings(targetKey, review.focusRun.id);
+          review.focusHead = await agentReadsHead(tx, targetKey);
+        }
         // Reads of a local review's earlier diff don't count toward its rebuilt one, which the client can't tell apart.
         if (review?.agentReads && review.agentReads.head !== await agentReadsHead(tx, targetKey)) review.agentReads = null;
         // A folder's review of a branch that isn't the PR's, by any of its names, as one Make it PR #n's review linked: by its branch.

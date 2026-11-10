@@ -168,6 +168,7 @@ export const rpcContract = defineRpcContract({
     output: z.object({ ok: z.boolean(), error: z.string().optional(), targetKey: z.string().optional() }),
   },
 
+  rerunFocusRun: { input: targetKey, output: z.object({ ok: z.boolean(), error: z.string().optional() }) },
   stopFocusRun: { input: z.object({ targetKey: z.string() }).strict(), output: z.object({ ok: z.boolean() }) },
   // Read. sync: how reading GitHub went (src/review-lifecycle.ts SyncHealth).
   listReviews: { input: z.null(), output: z.object({ reviews: z.array(z.any()), sync: syncHealth.optional() }) },
