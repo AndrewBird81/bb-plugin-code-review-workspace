@@ -26,7 +26,7 @@ const threads = [
   ] },
 ];
 
-async function renderWorkspace() {
+async function renderWorkspace(focus?: string) {
   patchReviewState("pr-42", { activeId: "c1" });
   const app = await loadPluginApp(() => import("../app"));
   const slot = renderSlot(app.navPanels[0]!, { subPath: "pr-42" }, { rpc: {
@@ -38,7 +38,7 @@ async function renderWorkspace() {
     getFileViews: () => ({ views: [] }),
     checkRepoAccess: () => ({ accessible: true, repo: "acme/web", account: "me" }),
     checkForUpdates: () => ({ hasNewCommits: false }),
-    getDraft: () => ({ draft: { targetKey: "pr-42", verdict: "COMMENT", body: "", comments: [{ file: "src/a.ts", line: 2, side: "RIGHT", author: "agent", severity: "blocking", body: "An entry that expires now is still served." }] }, stale: [] }),
+    getDraft: () => ({ draft: { targetKey: "pr-42", verdict: "COMMENT", body: "", comments: [{ file: "src/a.ts", line: 2, side: "RIGHT", author: "agent", ...(focus ? { focus } : {}), severity: "blocking", body: "An entry that expires now is still served." }] }, stale: [] }),
     getReviewerNotes: () => ({ body: "", revision: 0 }),
     getConversation: () => ({ threadId: null, legacy: [], defaults: null }),
     getSinceReview: () => ({ baseline: null, files: [] }),
@@ -192,4 +192,16 @@ test("under 600px wide, a pill with Not on GitHub yet takes two lines, its secon
   expect(second!.classList.contains("gap-1.5")).toBe(true);
   expect(Array.from(second!.children).filter((part) => part.textContent === "·")).toEqual([dot]);
   expect(second!.querySelector(".truncate")?.textContent).toBe("An entry that expires now is still served, and its replacement waits for the next read.");
+});
+
+test("Docs attribution reaches the inline card, folded pill and Comments row", async () => {
+  const { slot, diff } = await renderWorkspace("Docs");
+  const words = "Agent draft · Docs · not submitted";
+  expect(diff().getByRole("article", { name: "Draft comment on src/a.ts:2" }).textContent).toContain(words);
+  press("i");
+  expect((await diff().findByRole("group", { name: "Draft comment on src/a.ts:2, folded" })).textContent).toContain(words);
+  fireEvent.click(await slot.findByRole("button", { name: /^Comments/ }));
+  const list = within(slot.getByRole("region", { name: "Comments" }));
+  expect(await list.findByRole("button", { name: /^Agent draft · Docs · not submitted · src\/a\.ts:2/ })).toBeTruthy();
+  slot.lifecycle.unmount();
 });
