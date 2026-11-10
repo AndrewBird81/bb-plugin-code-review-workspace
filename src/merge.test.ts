@@ -209,6 +209,20 @@ test("merging the PR's own review into the folder's moves every table's rows, or
   expect([...tables].sort()).toEqual([...REVIEW_TABLES].sort());
 });
 
+test("merge moves the archived review's focus identities but discards its findings, keeping the surviving findings unchanged", async () => {
+  const { store, sql, harness } = await setup();
+  const threads = await sql.all<Record<string, unknown>>(`SELECT * FROM focus_threads WHERE target_key=?`, [P]);
+  const findings = await sql.all(`SELECT * FROM focus_findings WHERE target_key=?`, [S]);
+  expect(threads).toHaveLength(1);
+  expect(await rows(sql, "focus_findings", P)).toBe(1);
+  await store.mergeReview(P, S);
+  expect(await sql.all(`SELECT * FROM focus_threads WHERE target_key=?`, [P])).toEqual([]);
+  expect(await sql.all(`SELECT * FROM focus_threads WHERE thread_id=?`, [threads[0].thread_id as string])).toEqual([{ ...threads[0], target_key: S }]);
+  expect(await sql.all(`SELECT * FROM focus_findings WHERE target_key=?`, [P])).toEqual([]);
+  expect(await sql.all(`SELECT * FROM focus_findings WHERE target_key=?`, [S])).toEqual(findings);
+  await harness.lifecycle.dispose();
+});
+
 test("the review that stays keeps its own Not pushed yet and its diffs at commits; only the other's Sends' diffs move over its", async () => {
   const { store } = await setup();
   await store.saveSnapshot(S, "not-pushed", "S's folder");
