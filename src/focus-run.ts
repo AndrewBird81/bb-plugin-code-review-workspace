@@ -21,21 +21,38 @@ interface Worker { key: string; abort: AbortController; reported: AbortControlle
 interface QueueEntry { key: string; runId: string; focusId: string; start(): Promise<void> }
 interface Runtime {
   queue: QueueEntry[]; running: number; workers: Map<string, Worker>;
-  assistants: Map<string, string>; grants: Map<string, boolean>; tails: Map<string, Promise<unknown>>;
+  assistants: Map<string, string>; grants: Map<string, boolean | "next">; firstSelections: Map<string, boolean>; tails: Map<string, Promise<unknown>>;
   mergeBefore: Map<string, FocusTokens>; disposed: boolean;
 }
 const runtimes = new WeakMap<BbPluginApi, Runtime>();
 function runtime(bb: BbPluginApi): Runtime {
   let current = runtimes.get(bb);
   if (!current) {
-    current = { queue: [], running: 0, workers: new Map(), assistants: new Map(), grants: new Map(), tails: new Map(), mergeBefore: new Map(), disposed: false };
+    current = { queue: [], running: 0, workers: new Map(), assistants: new Map(), grants: new Map(), firstSelections: new Map(), tails: new Map(), mergeBefore: new Map(), disposed: false };
     runtimes.set(bb, current);
   }
   return current;
 }
 const workerKey = (runId: string, focusId: string) => `${runId}:${focusId}`;
 export function hasFocusWorkers(bb: BbPluginApi, key: string) { return [...runtime(bb).workers.values()].some((worker) => worker.key === key); }
-export function recordFocusTools(bb: BbPluginApi, threadId: string, granted: boolean) { runtime(bb).grants.set(threadId, granted); }
+/** Configure selects tools on every turn, not just session construction. Ordinary calls never promote a grant. */
+export function recordFocusTools(bb: BbPluginApi, threadId: string, selected: boolean) {
+  const current = runtime(bb);
+  if (!current.firstSelections.has(threadId)) current.firstSelections.set(threadId, selected);
+  if (current.grants.get(threadId) === "next" || !selected) current.grants.set(threadId, selected);
+}
+/** A new assistant's first configuration belongs to a new session, even if spawn returned after configure. */
+export function focusRuntimeSpawned(bb: BbPluginApi, threadId: string) {
+  const current = runtime(bb);
+  const selected = current.firstSelections.get(threadId);
+  current.grants.set(threadId, selected === undefined ? "next" : selected && current.grants.get(threadId) !== false);
+}
+/** A confirmed idle stop forces the next session to use its next configuration. */
+export function focusRuntimeStopped(bb: BbPluginApi, threadId: string) {
+  const current = runtime(bb);
+  current.firstSelections.delete(threadId);
+  current.grants.set(threadId, "next");
+}
 export function focusReported(bb: BbPluginApi, runId: string, focusId: string) { runtime(bb).workers.get(workerKey(runId, focusId))?.reported.abort(); }
 export function focusRejected(bb: BbPluginApi, runId: string, focusId: string, text: string) {
   const worker = runtime(bb).workers.get(workerKey(runId, focusId));
@@ -204,6 +221,7 @@ async function finish(bb: BbPluginApi, store: AsyncStore, key: string, run: Focu
     if (current?.id !== run.id || current.state === "done" || current.state === "stopped") return;
     if (reason) await uncheckedFindings(tx, key, current, reason);
     current.state = stopped ? "stopped" : "done";
+    delete current.mergeAwaitingTools;
     current.endedAt = Date.now();
     for (const focus of current.focuses) if (focus.state === "queued" || focus.state === "running") focus.state = "stopped";
     await tx.setLifecycle(key, { focusRun: current });
@@ -228,7 +246,8 @@ async function sendMerge(bb: BbPluginApi, store: AsyncStore, key: string, run: F
   const threadId = await store.getAssistantThread(key);
   if (threadId) runtime(bb).assistants.set(threadId, key);
   try {
-    if (threadId && runtime(bb).grants.get(threadId) !== true) {
+    const grant = threadId ? runtime(bb).grants.get(threadId) : undefined;
+    if (threadId && grant !== true && grant !== "next") {
       if ((await bb.sdk.threads.get({ threadId })).status !== "idle") {
         run.mergeAwaitingTools = true;
         await store.setLifecycle(key, { focusRun: run });
@@ -236,7 +255,6 @@ async function sendMerge(bb: BbPluginApi, store: AsyncStore, key: string, run: F
       }
       const stopped = await refreshAssistants(bb, store, [key]);
       if (!stopped.includes(threadId)) return finish(bb, store, key, run, "merge tools unavailable");
-      runtime(bb).grants.delete(threadId);
     }
     delete run.mergeAwaitingTools;
     if (threadId) {
@@ -358,9 +376,11 @@ export async function recoverFocusRuns(bb: BbPluginApi, store: AsyncStore) {
     }
   }
   const recorded = new Set((await store.listFocusThreads()).map((thread) => thread.threadId));
+  const orphans = new Set<string>();
   for (const archived of [false, true]) for (let offset = 0; ; offset += 200) {
     const page = await bb.sdk.threads.list({ originPluginId: bb.pluginId, includeHidden: true, archived, limit: 200, offset });
-    for (const thread of page) if (thread.originPluginId === bb.pluginId && thread.visibility === "hidden" && thread.title?.startsWith("Focus: ") && !recorded.has(thread.id)) await cleanup(bb, thread.id, false);
+    for (const thread of page) if (thread.originPluginId === bb.pluginId && thread.visibility === "hidden" && thread.title?.startsWith("Focus: ") && !recorded.has(thread.id)) orphans.add(thread.id);
     if (page.length < 200) break;
   }
+  for (const threadId of orphans) await cleanup(bb, threadId, false);
 }

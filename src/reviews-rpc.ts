@@ -299,7 +299,9 @@ export function register(deps: ServeDeps) {
         return [];
       });
       // Its threads are read in the turn that deletes it, so a thread recorded meanwhile is stopped with them.
-      const { writerIds, threadIds } = await store.exclusive(async (tx) => {
+      const deleted = await store.exclusive(async (tx) => {
+        const run = (await tx.getReview(targetKey))?.focusRun;
+        if (run?.state === "finding" || run?.state === "merging" || hasFocusWorkers(bb, targetKey)) return { error: "Wait for the focus run to finish, then delete the review." };
         const writerIds = new Set([await tx.generationWorker(targetKey), ...writers]);
         const threadIds = new Set([await tx.getAssistantThread(targetKey), await tx.getAgentThread(targetKey), ...writerIds]);
         await tx.deleteReview(targetKey);
@@ -307,6 +309,8 @@ export function register(deps: ServeDeps) {
         if (review.kind === "pr") await tx.ignoreDiscovery(targetKey);
         return { writerIds, threadIds };
       });
+      if ("error" in deleted) return { ok: false, error: deleted.error };
+      const { writerIds, threadIds } = deleted;
       await notifications.dismiss(targetKey).catch(() => {});
       changed(targetKey);
       await notifications.forget(targetKey).catch(() => {});

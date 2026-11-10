@@ -97,7 +97,7 @@ guide ready ──┬─ startAutomaticReview (sends the review) ─► review a
 - **Trigger:** only when `startAutomaticReview` actually sends the review: after a first guide (`src/generate.ts:320` [V]) and on Run review (`src/turn-rpc.ts:59` [01]). When it returns `"conversation"` without reviewing (`src/agent.ts:314-319` [V]), no focus run. Gates checked once: automatic review on and prompt non-blank, `mayRunUnattended`, PR open, focuses enabled with ≥ 1 on.
 - **Parallel, independent.** Focuses and the agent don't see each other's output until the merge (anchoring, 02 §1.2).
 - **Concurrency:** at most 2 focus threads running plugin-wide; the rest wait in a plugin-side queue (FIFO across reviews), not in BB. Plugin-queue time has no deadline of its own; it is bounded by the running focuses' start + run deadlines (each ≤ 15 min + `waitCap`). Hidden threads otherwise take host slots the user can't see (default one per processor, `bb concurrency-limit` skill [V]).
-- **Spawn** per focus through `spawnAgent` inside a separate `focusSpawning` scope: exact title → `{ targetKey, runId, focusId }`, registered before spawn. Never register focus spawns in `spawning` (`src/thread-review.ts:5-47` [V]).
+- **Spawn** per focus through raw `bb.sdk.threads.spawn`, as for the guide writer, inside a separate `focusSpawning` scope: exact title → `{ targetKey, runId, focusId }`, registered before spawn. A focus is a one-shot worker, not a review agent: no `spawnAgent` provenance mark or asking-ledger entry. Never register focus spawns in `spawning` (`src/thread-review.ts:5-47` [V]).
   - title `Focus: <label> · <targetKey>`; `visibility: "hidden"`; placement = the review agent's (`agentPlacement`, `src/machines.ts:39` [V])
   - execution = the focus's override, else `assistantAgent`, else the project default, via `spawnExecution`
   - permission mode = `guideWriterMode` (`src/generate.ts:104` [05]) with `known: { providerId }` set to the **focus's** provider, so the mode is one that provider supports
@@ -124,7 +124,7 @@ guide ready ──┬─ startAutomaticReview (sends the review) ─► review a
   - review head ≠ run head → every finding `not-checked: diff changed`, no merge turn, strip offers Run again
   - no findings and nothing failed → run done, no merge turn
   - otherwise → check tool grants below, then `messageAssistant`, kind `automatic`, `queue-if-active`. Visible text: "Check the focuses' findings (Docs: 7)", marked as the plugin's. Agent-only context: the merge rules. Store `queuedMessageId` in `focusRun.mergeMessageId`; no `queuedMessageId` → persist `focusRun.mergeDispatchedAt = Date.now()` (`src/agent.ts:422-453` [V]). For a queued merge, persist that timestamp on `message.dispatched` when `entry.id === focusRun.mergeMessageId`; `entry` is a `ThreadQueuedMessage` with `id` and `threadId` (SDK:4534-4691, 19597-19599 [V]).
-- **Tool-grant gate:** at each assistant `configure`, record `focusToolsGranted` per assistant thread. An existing runtime keeps its starting tools (`server.ts:381-382` [V]); missing/unknown grant is stale. Before sending a merge:
+- **Tool-grant gate:** keep `focusToolsGranted` per assistant thread, separate from the run. `configure` runs on every `thread.start` / `turn.submit`, but tools change only when a provider session is constructed (SDK 0.6.104:20768–20786 [V]). Its context identifies no runtime/session construction. An ordinary `configure` may mark a grant stale, never fresh. Only a new assistant spawn or a confirmed idle stop/refresh establishes freshness: use the new spawn's first configuration, or the next configuration after the stop. Missing/unknown evidence is stale; never promote an old busy session just because a later configure selects merge tools. Before sending a merge:
   - fresh → send as above, including `queue-if-active`.
   - idle and stale → await `refreshAssistants(bb, store, [targetKey])`, confirm the idle runtime stopped, then send so the next runtime configures with merge tools.
   - busy and stale → set `focusRun.mergeAwaitingTools`, don't queue a message; at its next idle, refresh, then send. Clear the flag on send or failure. Preserve the dispatch timestamps above; waiting for tools is not dispatch.
@@ -364,7 +364,7 @@ focusRun?: {
 }
 ```
 
-- Per assistant thread: `focusToolsGranted: boolean`, recorded at `configure` for the current runtime; absent/unknown is stale. Keep it separate from `focusRun`; never reuse an earlier runtime's grant.
+- Per assistant thread: `focusToolsGranted: boolean`, backed by a new spawn or confirmed idle stop/refresh, never by an ordinary configure alone. Track the spawn's first selection even if configure precedes the spawn result; a confirmed stop invalidates the old selection and requires the next session's configuration. A later configure can downgrade, not upgrade, the evidence. Absent/unknown is stale. Keep it separate from `focusRun`; never reuse an earlier runtime's grant. SDK 0.6.104:20768–20786 [V]: configure also runs at `turn.submit`, while a live provider session keeps its starting tools.
 
 ### 6.4 Focus config: global, a third column on `review_preferences`
 

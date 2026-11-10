@@ -1,4 +1,4 @@
-import { startFocusRun } from "./focus-run";
+import { focusRuntimeSpawned, focusRuntimeStopped, startFocusRun } from "./focus-run";
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import type { AgentMessage, ReviewMeta } from "./store";
 import type { Guide } from "./guide";
@@ -271,6 +271,7 @@ async function spawnConversation(bb: BbPluginApi, store: AsyncStore, args: { tar
       // The default's permission mode applies only to the provider it was chosen for.
       ...spawnExecution({ ...args.agent, ...(assistantAgent?.providerId === args.agent.providerId ? { permissionMode: assistantAgent.permissionMode } : {}) }),
     }, { kind: args.kind, ...(args.from === undefined ? {} : { from: args.from }), ...(args.said === undefined ? {} : { said: args.said }), ...(args.inserted ? { inserted: true } : {}) });
+    focusRuntimeSpawned(bb, worker.id);
     await store.setAssistantThread(args.targetKey, worker.id);
     // The review's rows and page show this thread's status in BB (src/agent-status.ts) once it's recorded: its first turn
     // began before, unheard.
@@ -525,7 +526,10 @@ export async function refreshAssistants(bb: BbPluginApi, store: AsyncStore, targ
     try {
       if ((await bb.sdk.threads.get({ threadId })).status === "idle") {
         await bb.sdk.threads.stop({ threadId });
-        if ((await bb.sdk.threads.get({ threadId })).status === "idle") stopped.push(threadId);
+        if ((await bb.sdk.threads.get({ threadId })).status === "idle") {
+          focusRuntimeStopped(bb, threadId);
+          stopped.push(threadId);
+        }
       }
     } catch { /* Best effort: bb also stops idle runtimes after 30 minutes. */ }
   }

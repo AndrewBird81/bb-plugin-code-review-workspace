@@ -2,7 +2,7 @@ import { afterEach, expect, test, vi } from "vitest";
 import { createFakePluginHost, makeThreadResponse, makeQueueEntry } from "@get-bb/plugin-sdk/testing";
 import { testStore } from "./test-store.test-support";
 import { defaultPreferences } from "./preferences";
-import { startFocusRun, stopFocusRun, recoverFocusRuns, focusEvents, recordFocusTools, focusReported } from "./focus-run";
+import { startFocusRun, stopFocusRun, recoverFocusRuns, focusEvents, recordFocusTools, focusReported, focusRuntimeSpawned } from "./focus-run";
 import type { FocusRun } from "./focus-model";
 
 const disposers: (() => Promise<void>)[] = [];
@@ -184,6 +184,7 @@ const idle = async (s: Awaited<ReturnType<typeof setup>>) => {
 test("25 findings are capped at 20, severity first; fresh busy runtime queues the merge", async () => {
   const s = await setup();
   recordFocusTools(s.bb, "assistant", true);
+  focusRuntimeSpawned(s.bb, "assistant");
   const id = await complete(s, 25);
   await vi.waitFor(async () => expect((await s.store.getReview("r"))?.focusRun?.mergeMessageId).toBe("merge"));
   const rows = await s.store.focusFindings("r", id);
@@ -213,6 +214,7 @@ test("swallowed refresh stop failure sends no merge and marks findings not check
   await idle(s);
   const current = (await s.store.getReview("r"))!.focusRun!;
   expect(current.state).toBe("done");
+  expect(current.mergeAwaitingTools).toBeUndefined();
   expect((await s.store.focusFindings("r", current.id))[0].reason).toBe("merge tools unavailable");
   expect(s.harness.inspection.sdk.callsTo("threads.send")).toEqual([]);
 });
@@ -226,6 +228,7 @@ test.each(["message.dispatched", "message.cancelled"] as const)("%s arriving bef
     return { delivery: "queued", queuedMessage: makeQueueEntry({ id: "merge", threadId: "assistant" }) };
   });
   recordFocusTools(s.bb, "assistant", true);
+  focusRuntimeSpawned(s.bb, "assistant");
   const id = await complete(s);
   await vi.waitFor(async () => expect((await s.store.getReview("r"))?.focusRun?.mergeMessageId).toBe("merge"));
   await delivered;
@@ -246,6 +249,7 @@ test("immediate merge persists dispatch; idle accounts once and captures token d
   s.harness.sdk.stub("threads.events.list", async () => [{ type: "thread/tokenUsage/updated", data: { tokenUsage: { total: { inputTokens: input, outputTokens: input * 2 } } } }]);
   s.harness.sdk.stub("threads.send", async () => ({ delivery: "sent" }));
   recordFocusTools(s.bb, "assistant", true);
+  focusRuntimeSpawned(s.bb, "assistant");
   await complete(s);
   await vi.waitFor(async () => expect((await s.store.getReview("r"))?.focusRun?.mergeDispatchedAt).toBeDefined());
   await idle(s);
@@ -257,6 +261,7 @@ test("immediate merge persists dispatch; idle accounts once and captures token d
 test("push before settle prevents merging, no findings and no failure ends without a merge", async () => {
   const s = await setup();
   recordFocusTools(s.bb, "assistant", true);
+  focusRuntimeSpawned(s.bb, "assistant");
   await startFocusRun(s.bb, s.store, "r");
   await vi.waitFor(async () => expect(await s.store.listFocusThreads()).toHaveLength(1));
   const current = (await s.store.getReview("r"))!.focusRun!;
@@ -320,6 +325,7 @@ test("a failed wait settles the focus instead of spinning on a live thread", asy
 test("a cancelled queued merge settles immediately without waiting for another assistant idle", async () => {
   const s = await setup();
   recordFocusTools(s.bb, "assistant", true);
+  focusRuntimeSpawned(s.bb, "assistant");
   const id = await complete(s);
   await vi.waitFor(async () => expect((await s.store.getReview("r"))?.focusRun?.mergeMessageId).toBe("merge"));
   const events = focusEvents(s.bb, s.store);
@@ -346,6 +352,7 @@ test("queued merge tokens exclude the General review's remaining work before dis
   let input = 10;
   s.harness.sdk.stub("threads.events.list", async () => [{ type: "thread/tokenUsage/updated", data: { tokenUsage: { total: { inputTokens: input, outputTokens: input } } } }]);
   recordFocusTools(s.bb, "assistant", true);
+  focusRuntimeSpawned(s.bb, "assistant");
   const id = await complete(s);
   await vi.waitFor(async () => expect((await s.store.getReview("r"))?.focusRun?.mergeMessageId).toBe("merge"));
   input = 70;
@@ -355,4 +362,17 @@ test("queued merge tokens exclude the General review's remaining work before dis
   input = 100;
   await idle(s);
   expect((await s.store.getReview("r"))?.focusRun?.mergeTokens).toEqual({ input: 30, output: 30 });
+});
+
+test("the orphan sweep collects every page before archiving changes list offsets", async () => {
+  const s = await setup(false);
+  const archived = new Set<string>();
+  const stopped = new Set<string>();
+  const orphans = Array.from({ length: 451 }, (_, n) => makeThreadResponse({ id: `orphan-${n}`, title: "Focus: Docs · r", visibility: "hidden", originPluginId: s.bb.pluginId }));
+  s.harness.sdk.stub("threads.list", async ({ archived: wanted, limit, offset }: any) => orphans.filter((thread) => archived.has(thread.id) === wanted).slice(offset, offset + limit));
+  s.harness.sdk.stub("threads.archive", async ({ threadId }: any) => { archived.add(threadId); return { ok: true }; });
+  s.harness.sdk.stub("threads.stop", async ({ threadId }: any) => { stopped.add(threadId); return { ok: true }; });
+  await recoverFocusRuns(s.bb, s.store);
+  expect(stopped.size).toBe(451);
+  expect(s.harness.inspection.sdk.callsTo("threads.delete")).toEqual([]);
 });

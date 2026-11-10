@@ -1,9 +1,10 @@
 import { expect, test, vi } from "vitest";
-import { createFakePluginHost, makePluginAgentConfigurationContext } from "@get-bb/plugin-sdk/testing";
+import { createFakePluginHost, makePluginAgentConfigurationContext, makeThreadResponse } from "@get-bb/plugin-sdk/testing";
 import { startPlugin } from "./plugin-store.test-support";
 import { focusSpawningFor, focusThread } from "./focus-identity";
 import { toolThreadReview } from "./thread-review";
 import { defaultPreferences } from "./preferences";
+import { focusEvents, startFocusRun } from "./focus-run";
 
 vi.mock("./store-queue", async (original) => {
   const actual = await original<typeof import("./store-queue")>();
@@ -65,5 +66,73 @@ test("deletion refuses an active focus run before touching any threads", async (
     expect(await harness.behavior.callRpc("deleteReview", { targetKey: "r" })).toMatchObject({ ok: false, error: expect.stringContaining("focus") });
     expect(await store.getReview("r")).not.toBeNull();
   }
+  await harness.lifecycle.dispose();
+});
+
+test("a run starting while delete reads BB is refused in the deletion's store turn", async () => {
+  let release = () => {};
+  let reading = false;
+  let started = false;
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: { threads: {
+    get: async () => { if (reading) { started = true; await new Promise<void>((resolve) => { release = resolve; }); } return { status: "idle" }; },
+    list: async () => [], stop: async () => ({ ok: true }), delete: async () => ({ ok: true }),
+  } } });
+  const store = await startPlugin(bb);
+  await store.saveReview({ targetKey: "r", kind: "pr", status: "ready", createdAt: 1 });
+  await store.setAssistantThread("r", "assistant");
+  reading = true;
+  const deleting = harness.behavior.callRpc("deleteReview", { targetKey: "r" });
+  await vi.waitFor(() => expect(started).toBe(true));
+  await store.setLifecycle("r", { focusRun: { id: "run", head: "head", startedAt: 1, state: "finding", focuses: [] } });
+  release();
+  expect(await deleting).toMatchObject({ ok: false, error: expect.stringContaining("focus") });
+  expect(await store.getReview("r")).not.toBeNull();
+  await harness.lifecycle.dispose();
+});
+
+test("repeated configure after enabling cannot give an old busy session fresh grants; idle refresh rebuilds before merge", async () => {
+  let status: "active" | "idle" = "active";
+  let loaded = true;
+  let tools: unknown[] = [];
+  let configure: ReturnType<typeof createFakePluginHost>["harness"]["inspection"]["registrations"]["agentConfigurationProvider"];
+  const context = makePluginAgentConfigurationContext({ thread: { id: "assistant" }, origin: { pluginId: "code-review-workspace" } });
+  const send = vi.fn(async () => {
+    if (!loaded) { tools = [...configure!(context).tools!]; loaded = true; }
+    return { delivery: "sent" };
+  });
+  const stop = vi.fn(async ({ threadId }: { threadId: string }) => { if (threadId === "assistant") loaded = false; return { ok: true }; });
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: {
+    threads: {
+      get: async ({ threadId }: any) => makeThreadResponse({ id: threadId, status: threadId === "assistant" ? status : "active" }),
+      spawn: async () => ({ id: "focus" }), send, stop,
+      archive: async () => ({ ok: true }), delete: async () => ({ ok: true }),
+      interactions: { list: async () => [] }, events: { list: async () => [] },
+      wait: async ({ signal }: any) => new Promise((_, reject) => { signal.addEventListener("abort", () => reject(new Error("aborted")), { once: true }); }),
+    },
+    projects: { defaultExecutionOptions: async () => ({ providerId: "codex" }) },
+    providers: { list: async () => [{ id: "codex", capabilities: { permissionModes: ["auto"] } }] },
+  } });
+  const store = await startPlugin(bb);
+  await store.saveReview({ targetKey: "r", kind: "pr", status: "ready", createdAt: 1, projectId: "p", headSha: "head" });
+  await store.setLifecycle("r", { ownPr: true });
+  await store.savePatch("r", "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1 +1 @@\n-old\n+new\n");
+  await store.setAssistantThread("r", "assistant");
+  configure = harness.inspection.registrations.agentConfigurationProvider!;
+  tools = [...configure(context).tools!];
+  await harness.behavior.callRpc("savePreferences", { preferences: { ...defaultPreferences, focuses: { ...defaultPreferences.focuses, enabled: true } }, revision: 0 });
+  for (let n = 0; n < 3; n++) expect(configure(context).tools).toContain("keep_focus_finding");
+  expect(tools).not.toContain("keep_focus_finding");
+  await startFocusRun(bb, store, "r");
+  await vi.waitFor(async () => expect(await store.listFocusThreads()).toHaveLength(1));
+  await harness.behavior.callAgentTool("submit_focus_findings", { findings: [{ file: "a.ts", line: 1, code: "new", body: "Wrong docs", evidence: "a.ts:1", severity: "should-fix" }], unchecked: [] }, { threadId: "focus" });
+  await vi.waitFor(async () => expect((await store.getReview("r"))?.focusRun?.mergeAwaitingTools).toBe(true));
+  expect(send).not.toHaveBeenCalled();
+  expect(stop.mock.calls.some(([args]) => args.threadId === "assistant")).toBe(false);
+  status = "idle";
+  await (focusEvents(bb, store)["thread.idle"]![0] as any)({ thread: makeThreadResponse({ id: "assistant", status: "idle" }), lastAssistantText: null });
+  expect(stop).toHaveBeenCalledWith({ threadId: "assistant" });
+  expect(send).toHaveBeenCalledTimes(1);
+  expect(tools).toContain("keep_focus_finding");
+  expect((await store.getReview("r"))?.focusRun?.mergeDispatchedAt).toBeDefined();
   await harness.lifecycle.dispose();
 });
