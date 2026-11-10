@@ -51,5 +51,5 @@ test("focus strip runs with Stop, hides Stop during dispatched merge, and shows 
   expect(slot.getByRole("status").textContent).toContain("Docs didn't finish: didn't start");
   slot.lifecycle.unmount();
   slot = render({ ...run, state: "done", focuses: [{ ...run.focuses[0], state: "done" }] });
-  expect(slot.queryByRole("status")).toBeNull();
+  expect(slot.getByRole("status").textContent).toBe("");
 });
