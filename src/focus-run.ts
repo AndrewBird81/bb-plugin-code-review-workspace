@@ -262,7 +262,7 @@ async function sendMerge(bb: BbPluginApi, store: AsyncStore, key: string, run: F
       if (before) runtime(bb).mergeBefore.set(run.id, before);
     }
     const count = (await store.focusFindings(key, run.id)).filter((finding) => finding.status === "found").length;
-    const sent = await messageAssistant(bb, store, key, `Check the focuses' findings (${run.focuses.map((focus) => `${focus.label}: ${focus.findings ?? 0}`).join(", ")})`, `${MERGE_RULES}\n${count} findings to check.\n${run.focuses.filter((focus) => focus.error || focus.unchecked?.length).map((focus) => `${focus.label}: ${focus.error ?? focus.unchecked!.join(", ")}`).join("\n")}`, { kind: "automatic" });
+    const sent = await messageAssistant(bb, store, key, `Check the focuses' findings (${run.focuses.map((focus) => `${focus.label}: ${focus.findings ?? 0}`).join(", ")})`, `${MERGE_RULES}\n${count} findings to check.\n${untrusted("focus coverage", run.focuses.filter((focus) => focus.error || focus.unchecked?.length).map((focus) => `${focus.label}: ${focus.error ?? focus.unchecked!.join(", ")}`).join("\n"))}`, { kind: "automatic" });
     runtime(bb).assistants.set(sent.threadId, key);
     if (sent.queuedMessageId) run.mergeMessageId = sent.queuedMessageId;
     else run.mergeDispatchedAt = Date.now();
