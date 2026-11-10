@@ -96,7 +96,7 @@ guide ready ──┬─ startAutomaticReview (sends the review) ─► review a
 
 - **Trigger:** only when `startAutomaticReview` actually sends the review: after a first guide (`src/generate.ts:320` [V]) and on Run review (`src/turn-rpc.ts:59` [01]). When it returns `"conversation"` without reviewing (`src/agent.ts:314-319` [V]), no focus run. Gates checked once: automatic review on and prompt non-blank, `mayRunUnattended`, PR open, focuses enabled with ≥ 1 on.
 - **Parallel, independent.** Focuses and the agent don't see each other's output until the merge (anchoring, 02 §1.2).
-- **Concurrency:** at most 2 focus threads running plugin-wide; the rest wait in a plugin-side queue (FIFO across reviews), not in BB. The start deadline bounds time in that queue. Hidden threads otherwise take host slots the user can't see (default one per processor, `bb concurrency-limit` skill [V]).
+- **Concurrency:** at most 2 focus threads running plugin-wide; the rest wait in a plugin-side queue (FIFO across reviews), not in BB. Plugin-queue time has no deadline of its own; it is bounded by the running focuses' start + run deadlines (each ≤ 15 min + `waitCap`). Hidden threads otherwise take host slots the user can't see (default one per processor, `bb concurrency-limit` skill [V]).
 - **Spawn** per focus through `spawnAgent` inside a separate `focusSpawning` scope: exact title → `{ targetKey, runId, focusId }`, registered before spawn. Never register focus spawns in `spawning` (`src/thread-review.ts:5-47` [V]).
   - title `Focus: <label> · <targetKey>`; `visibility: "hidden"`; placement = the review agent's (`agentPlacement`, `src/machines.ts:39` [V])
   - execution = the focus's override, else `assistantAgent`, else the project default, via `spawnExecution`
@@ -115,7 +115,7 @@ guide ready ──┬─ startAutomaticReview (sends the review) ─► review a
 - **Repo rules** reach a focus from the PR's base through `read_pr_context`. No repo-defined focuses.
 - **`submit_focus_findings({ findings[], unchecked[] })`:** each finding is `{file, line, side?, startLine?, code, severity, body, evidence, introduced?}`, placed with the draft's own check (`placeProblem`, `src/draft-comments.ts:77` [05]). A rejected call says why; one nudge, as for a rejected guide (`src/generate.ts:262-266` [V]). Accepted call ends the wait.
 - **Timeout:** two deadlines; the start deadline is a fixed constant, not a setting.
-  - **Start deadline:** 15 min from `queuedAt`, when the focus enters the plugin queue; covers that queue and BB `pending`. If `activeAt` is still unset, focus `failed: didn't start`; stop and archive its thread (if spawned), free its plugin slot (if held), and start the next queued focus.
+  - **Start deadline:** 15 min from `spawnedAt`, when the focus leaves the plugin queue and is spawned; bounds only BB `pending`. If `activeAt` is still unset, focus `failed: didn't start`; stop and archive its thread, free its plugin slot, and start the next queued focus.
   - **Run deadline:** `waitCap` from `activeAt`, when the thread first leaves `pending`, not from spawn. The writer's loop counts pending time (`src/generate.ts:242-256` [V]); focuses must not copy that.
 
 ### 4.3 Aggregation
@@ -157,7 +157,7 @@ guide ready ──┬─ startAutomaticReview (sends the review) ─► review a
 | Event | Behavior |
 |---|---|
 | One focus fails, times out or asks for permission | Others continue. Merge runs with what arrived. Strip names it, with Run ‹focus› again; Finish review lists it under What it didn't check |
-| Focus never starts (host busy or queue) | Start deadline (§4.2): after 15 min queued without `activeAt`, fail as `didn't start`, stop and archive any thread, free any held plugin slot, start the next queued focus; merge proceeds without it |
+| Focus never starts (BB `pending`) | Start deadline (§4.2): 15 min after `spawnedAt` without `activeAt`, fail as `didn't start`, stop and archive its thread, free its plugin slot, start the next queued focus; merge proceeds without it |
 | Focus idle without submitting | One nudge, then failed: "stopped without reporting" |
 | Stop, while `finding` | Clears the plugin queue, aborts waits, stops and archives focus threads, findings `not-checked: stopped`, run `stopped`. The agent's own review isn't stopped |
 | Stop, while `merging`, message queued | Deletes the queued message (`threads.queuedMessages.delete`, SDK:18796 [V]); findings `not-checked: stopped` |
@@ -257,7 +257,7 @@ Remove focus                                             Cancel   Done
 ✦ Reviewing with focuses · General ✓ · Docs… · using 1 agent slot             Stop
 ✦ Checking 7 findings from Docs…
 ⚠ Docs didn’t finish: no report after 20 min. Its findings aren’t in the draft.  Run Docs again · Got it
-⚠ Docs didn't start: no start within 15 min of queueing.                       Run again · Got it
+⚠ Docs didn't start: no start within 15 min of spawn.                          Run again · Got it
 ⓘ The focuses ran on a1b2c3d, 2 commits ago.                                     Run again · Got it
 ```
 
@@ -355,7 +355,8 @@ focusRun?: {
   mergeAwaitingTools?: true            // busy assistant has stale grants; no merge message sent yet
   focuses: { focusId: string; label: string
              state: "queued" | "running" | "done" | "failed" | "stopped"
-             queuedAt: number                        // entered plugin queue: 15 min start deadline
+             queuedAt: number                        // entered plugin queue; no queue deadline
+             spawnedAt?: number                      // left plugin queue and spawned: 15 min start deadline
              activeAt?: number                       // first left BB's pending: waitCap run deadline
              findings?: number; error?: string; unchecked?: string[]  // failed error includes "didn't start"
              tokens?: { input: number; output: number } }[]
@@ -430,7 +431,7 @@ Risky, flagged:
 | 8 | GitHub label | Decision 1 |
 | 9 | Limits | 4 enabled, 12 saved, 15 findings per focus, 20 to the merge, 5 nits kept per focus, 2 focus threads plugin-wide. Constants |
 | 10 | Cost shown | Settings: words. Finish review: tokens per run when BB reports them. Override is the lever (a small model for Docs) |
-| 11 | Latency | ≈ max(own review, slowest focus incl. plugin queue) + merge turn. Start deadline: 15 min from plugin queue entry; run deadline: `waitCap` from `activeAt` |
+| 11 | Latency | ≈ max(own review, slowest focus incl. plugin queue) + merge turn. Start deadline: 15 min from `spawnedAt`, not plugin queue entry; run deadline: `waitCap` from `activeAt` |
 | 12 | Prompt injection via PR text | Untrusted shell agent: no CLI, five tools, fenced guide core, fenced findings, unattended merge drafts only (§4.2). Residual: a focus can edit files in the checkout at `accept-edits`/`auto`; stated in Settings |
 | 13 | Diff has nothing for a focus | It submits nothing. Later: per-focus path globs |
 | 14 | Local and folder reviews | Same rule: focuses run where the automatic review runs |
@@ -456,7 +457,7 @@ Release 1 = Phases 0–4. Each is one PR. `npm run check` passes in all; checks 
 
 **Phase 1. Docs focus end to end, safe to release.**
 - Settings: switch, description incl. the permission sentence, fixed list (General, Docs). No editor.
-- `startFocusRun`: plugin queue (cap 2), spawn with focus-provider mode, 15 min start deadline from `queuedAt`, run deadline from `activeAt`, pending-interaction fail, nudge, cleanup and delete; role `focus` in `configure`, `threadRole`, `ownThread`.
+- `startFocusRun`: plugin queue (cap 2), spawn with focus-provider mode, 15 min start deadline from `spawnedAt`, run deadline from `activeAt`, pending-interaction fail, nudge, cleanup and delete; role `focus` in `configure`, `threadRole`, `ownThread`.
 - Lockdown: `run()` refuses every subcommand from a focus thread; `focusThread` separate from `threadReview`; `submit_focus_findings` refuses outside a `finding` run.
 - Merge: findings cap, `list_focus_findings` / `keep_focus_finding` / `dismiss_focus_finding` granted only while on, accounting, one nudge, watchdog.
 - Stop (finding, queued merge), guide rebuild, push mid-run, restart recovery and orphan sweep.
@@ -469,8 +470,8 @@ Release 1 = Phases 0–4. Each is one PR. `npm run check` passes in all; checks 
   - `bb review comment add` (and every other subcommand) from a focus thread, live or after run end, is refused
   - spawn window: BB's session started, row not yet written → `bb review comment add` is refused and tool calls get role `focus`
   - `read_changes_since_review` and every write tool from a focus thread refuse
-  - a focus not active 15 min after queueing fails as `didn't start` in the plugin queue or BB `pending`; any spawned thread is stopped and archived, any held slot freed, next queued focus starts, merge proceeds
-  - a focus starting at 14 min gets `waitCap` from `activeAt`, not from queueing or spawn
+  - a focus queued behind 2 running focuses for > 15 min doesn't fail; one spawned but still BB `pending` 15 min after `spawnedAt` fails as `didn't start`; its thread is stopped and archived, its slot freed, next queued focus starts, merge proceeds
+  - a focus starting 14 min after spawn gets `waitCap` from `activeAt`, not from queueing or spawn
   - a focus with a pending interaction fails at once
   - misplaced finding rejected and nudged once; submit after the run ended refused
   - a timed-out focus doesn't block the merge; merge queues behind the automatic review
