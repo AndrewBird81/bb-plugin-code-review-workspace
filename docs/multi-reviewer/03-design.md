@@ -145,8 +145,9 @@ guide ready ──┬─ startAutomaticReview (sends the review) ─► review a
   7. Then `set_review_summary` again, with what the focuses didn't check.
 - **The plugin attributes, not the agent.** The agent can't name a focus. Draft labels come from `DraftComment.focus`; Finish review's kept/folded attribution uses the finding row's stored draft location, not a comment id.
 - **Accounting:** `focusRun.mergeDispatchedAt` set, then the agent idle, with findings still `found` → one nudge. After that, leftovers are `not-checked`: not drafted, counted, with Check again. Fail closed. Dispatch evidence comes only from `focusRun`, never the asking ledger.
-- **Watchdog:** after servicing `mergeAwaitingTools` (never classify that unsent merge as removed), agent idle, `focusRun.mergeDispatchedAt` unset, `focusRun.mergeMessageId` absent from `queuedMessages` → leftovers `not-checked: merge message removed`, run `done`. Checked on the agent's idle event and at plugin start; never infer dispatch from the asking ledger.
-- **Listener order:** SDK says `message.dispatched` precedes its turn (SDK:19593-19599 [V]); serialize merge send-result, dispatch persistence and idle checks per review, buffering dispatch events until `mergeMessageId` is stored. Idle checks await earlier dispatch writes; asking-ledger cleanup order cannot affect them.
+- **Cancellation evidence:** persist `focusRun.mergeCancelledAt = Date.now()` on `message.cancelled` when `entry.id === focusRun.mergeMessageId`. SDK:19611-19622 [V] calls this the only signal for removal before dispatch; dispatched rows fire `message.dispatched` instead.
+- **Watchdog:** after servicing `mergeAwaitingTools` (never classify that unsent merge as removed), `mergeCancelledAt` set → leftovers `not-checked: merge message removed`, run `done`. Never infer removal from absence in `queuedMessages`. With neither timestamp set: message still queued → keep waiting; absent at agent idle → leftovers `not-checked: interrupted`, run `done`, no nudge. The latter cannot occur live if all events arrived [I]; handle it identically to restart recovery. Never infer dispatch from the asking ledger.
+- **Listener order:** SDK says `message.dispatched` precedes its turn (SDK:19593-19599 [V]); serialize merge send-result, dispatch/cancellation persistence and idle/start checks per review, buffering both events until `mergeMessageId` is stored. Checks await earlier event writes; asking-ledger cleanup order cannot affect them.
 - **No score in release 1.** Binary kept / dropped (04 §4).
 - **Effort:** merge turn at the review agent's level, or High (`messageAssistant({effort})`).
 - **Tokens:** at run end, read each focus thread's last `thread/tokenUsage/updated` `total`, and the agent's delta across the merge turn. Best-effort: absent → not shown.
@@ -162,10 +163,10 @@ guide ready ──┬─ startAutomaticReview (sends the review) ─► review a
 | Stop, while `merging`, message queued | Deletes the queued message (`threads.queuedMessages.delete`, SDK:18796 [V]); findings `not-checked: stopped` |
 | Stop, while `merging`, turn running | Not offered: the strip hides Stop. The turn is the agent's; its tab's own Stop applies, and accounting marks leftovers `not-checked` |
 | Merge tools missing from a live agent | Tool-grant gate (§4.3): wait for idle if busy, refresh before sending; refresh failure → findings `not-checked: merge tools unavailable`, run `done` |
-| Merge message deleted or edited in BB's queue | Watchdog (§4.3) |
+| Merge message deleted in BB's queue | Persist `mergeCancelledAt`; watchdog (§4.3) |
 | Guide rebuild mid-run | `beginGuide` stops the run, as Stop. Not restarted |
 | Push mid-run, no rebuild | Run continues; at settle or at any keep call, head ≠ run head → `not-checked: diff changed`, Run again |
-| Plugin restart mid-run | On start: run `finding` → `stopped`, its threads stopped and archived, findings `not-checked: interrupted`, strip offers Run again. Run `merging` → read persisted `mergeDispatchedAt`: set + agent idle → accounting; unset → watchdog (only if idle and `mergeMessageId` absent from `queuedMessages`). A dispatched merge is never classified as removed. No merge is sent after restart: trust and PR state would need re-checking, and the agent's own review may be mid-turn |
+| Plugin restart mid-run | On start: run `finding` → `stopped`, its threads stopped and archived, findings `not-checked: interrupted`, strip offers Run again. Run `merging` → read persisted evidence: `mergeDispatchedAt` set + agent idle → accounting; `mergeCancelledAt` set → leftovers `not-checked: merge message removed`, run `done`; neither set and `mergeMessageId` still in `queuedMessages` → keep waiting; neither set and absent → leftovers `not-checked: interrupted`, run `done`, no nudge. A merge is classified as removed only with persisted cancellation evidence; a dispatch missed during reload is interrupted, not removed. Plugin events are not replayed after reload [I: not stated in the SDK]. No merge is sent after restart: trust and PR state would need re-checking, and the agent's own review may be mid-turn |
 | Orphan (crash between spawn and row) | Same start sweep: hidden plugin threads titled `Focus: …` with no `focus_threads` row are stopped and archived, paging as `pluginThreadsTitled` does (`src/thread-review.ts:50` [V]) |
 | Review agent chat replaced mid-run | The merge message starts the new conversation, as `messageAssistant` does today |
 | Run ends | Focus threads stopped and **deleted** (`threads.delete`, SDK:18832 [V]); `focus_threads` rows kept for identity. Not recorded in `former-workers` |
@@ -350,7 +351,7 @@ focus_findings(target_key, run_id, id, focus_id, label,
 focusRun?: {
   id: string; head: string; startedAt: number; endedAt?: number
   state: "finding" | "merging" | "done" | "stopped"
-  mergeMessageId?: string; mergeDispatchedAt?: number; nudged?: true
+  mergeMessageId?: string; mergeDispatchedAt?: number; mergeCancelledAt?: number; nudged?: true
   mergeAwaitingTools?: true            // busy assistant has stale grants; no merge message sent yet
   focuses: { focusId: string; label: string
              state: "queued" | "running" | "done" | "failed" | "stopped"
@@ -480,8 +481,9 @@ Release 1 = Phases 0–4. Each is one PR. `npm run check` passes in all; checks 
   - enable focuses while the assistant is busy without merge tools: no merge queued until idle, then refresh; the new runtime has merge tools before handling the merge; no false removed-message watchdog result
   - toggle focuses `enabled` with an idle assistant: `savePreferences` restarts it; fresh-grant busy assistants still accept `queue-if-active`
   - refresh/stop failure, including a swallowed stop error: no merge sent, findings `not-checked: merge tools unavailable`, run `done`
-  - immediate and queued merges persist `mergeDispatchedAt`; a merge that ran is not reported as removed after idle clears its ledger mark or after restart; remaining `found` findings get the accounting nudge
-  - dispatch persistence precedes idle checks even with delayed writes or dispatch before the send result; ledger listener order changes neither accounting nor watchdog
+  - immediate and queued merges persist `mergeDispatchedAt`; with persisted dispatch evidence, idle ledger cleanup or restart still leads to accounting and one nudge for remaining `found` findings
+  - dispatch missed during reload → at start leftovers `not-checked: interrupted`, run `done`, no nudge, never removed; persisted cancellation → `not-checked: merge message removed`, run `done`; neither timestamp set and message still queued at start → wait; live idle with neither timestamp and message absent → interrupted, no nudge
+  - dispatch/cancellation persistence precedes idle/start checks even with delayed writes or either event before the send result; ledger listener order changes neither accounting nor watchdog
   - Stop while finding, Stop with queued merge (message deleted), deleted merge message (watchdog), rebuild, push, restart in `finding` and `merging`, orphan thread swept
   - `src/registrations.test.ts -u` reviewed line by line; `src/agent-sends.test.ts` green
 - Verify (manual): a PR with one comment made false by the diff → one "Docs" draft with evidence; no focus thread in BB's sidebar, thread list or `bb review list --json`; token count shown if the provider reports it.
@@ -509,6 +511,8 @@ Release 1 = Phases 0–4. Each is one PR. `npm run check` passes in all; checks 
 - Verifier stage, if Decision 3's trigger fires.
 
 ## What I verified vs. only read
+
+- **c31 correction, opened and checked:** SDK:19593-19599, 19611-19622 [V] (dispatch and positive cancellation evidence), 18794-18803 [V] (queue update/edit APIs). The SDK does not establish whether editing cancels a row or preserves its id; dropped the edited-message claim. No replay after reload is [I], not an SDK guarantee. Cancellation persistence, recovery and tests above are design requirements, not implemented or runtime-tested.
 
 - **c30 correction, opened and checked:** `server.ts:370-387`, `src/settings-rpc.ts:23-35`, `src/agent.ts:511-523` [V] (runtime tool retention, preference-triggered idle refresh, best-effort stop). Grant tracking, merge gating and tests above are design requirements, not implemented or runtime-tested.
 
