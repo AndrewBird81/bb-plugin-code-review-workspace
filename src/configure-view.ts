@@ -18,7 +18,7 @@ const KEEPS_VIEW = new Set<string>([
   "listGenerationWorkers", "getDraft", "staleDraftComments", "listDiscussions", "listWaitingDiscussions", "lastDiscussionChange", "getFileViews",
   "getAgentThread", "listAgentMessages", "getAssistantThread", "listAssistantThreads", "getSnapshot", "listFeedbackThreads",
   "feedbackFetched", "getAssessment", "latestAssessmentRun", "listReplyDrafts", "isDiscoveryIgnored", "draftCommentCode",
-  "agentCommentChanges", "listAgentOutcomes", "reasonedRemovals", "listFilterViews",
+  "agentCommentChanges", "listAgentOutcomes", "reasonedRemovals", "listFilterViews", "listFocusThreads", "focusFindings",
 ] satisfies Array<keyof Store>);
 
 /**

@@ -1,6 +1,9 @@
 // bb.agents.configure reads a view of the store the queue keeps up to date: after any turn, it answers as fresh reads
 // of the store would, and during a block it still answers as before the block.
 import { expect, test } from "vitest";
+import { register as registerPatchTools } from "./patch-tools";
+import type { ServeDeps } from "./server-modules";
+import { toolText } from "./fake-host.test-support";
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
 import { createStore, storeOn, type ReviewMeta, type Store } from "./store";
 import type { Sql } from "./db/sql";
@@ -200,4 +203,29 @@ test("a guide's patch saved inside a transaction is read again with its renames,
   await queued.transaction(async (db) => { await db.savePatch("ref-1", patchOf(false)); });
   expect(view.guide("ref-1")).toEqual(await store.getGuide("ref-1"));
   expect(view.guide("ref-1")).toMatchObject({ sections: [{ diffs: [{ file: "old.ts" }] }] });
+});
+
+test.each(["read_review_patch", "focusFindings"])("focuses off: %s keeps the configure view loaded, but identity writes refresh it", async (read) => {
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
+  const backend = createStore(bb);
+  await backend.saveReview({ targetKey: "ref-1", kind: "ref", status: "ready", headSha: "head", createdAt: 1 });
+  await backend.savePatch("ref-1", patchOf(false));
+  await backend.setAssistantThread("ref-1", "assistant-1");
+  // Its already-recorded read must not itself cause a legitimate lifecycle write.
+  await backend.setLifecycle("ref-1", { agentReads: { head: "head", files: ["old.ts"] } });
+  let loads = 0;
+  const view = await createConfigureView(bb, { ...backend, listReviews: async () => { loads++; return backend.listReviews(); } });
+  const store = queueStore(view.backend, { afterTurn: view.afterTurn });
+  registerPatchTools({ bb, store } as ServeDeps);
+  expect(view.preferences().focuses.enabled).toBe(false);
+  const before = loads;
+  if (read === "read_review_patch") {
+    const result = await harness.behavior.callAgentTool("read_review_patch", { targetKey: "ref-1", file: "old.ts" }, { threadId: "assistant-1" });
+    expect(toolText(result)).toContain("diff --git a/old.ts b/old.ts");
+  } else expect(await store.focusFindings("ref-1", "none")).toEqual([]);
+  expect(loads).toBe(before);
+  await store.recordFocusThread({ threadId: "focus", targetKey: "ref-1", runId: "run", focusId: "docs", label: "Docs", createdAt: 1 });
+  expect(loads).toBe(before + 1);
+  expect(view.threadRole({ id: "focus", title: null })).toBe("focus");
+  await harness.lifecycle.dispose();
 });
