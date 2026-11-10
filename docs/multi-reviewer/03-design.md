@@ -263,6 +263,7 @@ Remove focus                                             Cancel   Done
 
 - One line. Each focus with ✓, turning icon, ✕, or "waiting" while in the plugin queue; past three, "2 of 5 done".
 - At most one dismissible line per run: failure, older-commit and not-checked fold into it. Run again starts a fresh focus run through the usual gates, never the general review. No selective retry in release 1. Omit the commits-ago count when unavailable. If the run matches the loaded diff but a push is newer, offer the existing Update / Update guide action instead of Run again; load the new diff first.
+- Got it persists per review and run in this browser. Off hides run UI. The polite live region announces phase changes only, not per-focus progress.
 - Nothing when a run ends clean: the "New from agent—not yet reviewed" badges are the news.
 - Under 440px: "✦ Focuses · 1 of 2 done" and Stop.
 - Review agent tab shows the merge message, marked "from Code Review Workspace". No per-focus chat.
@@ -303,7 +304,7 @@ Focuses: Docs · 7 findings · 3 kept, 1 folded, 3 dropped · 41k tokens ▸
    Docs: 2 findings not checked · Check again
 ```
 
-- Tokens shown only when BB reported them.
+- Tokens shown only when BB reported them; an incomplete sum is marked partial. The Focuses line includes the not-checked count. Focus coverage is hidden while focuses are off.
 - Check again starts a fresh focus run through the usual gates, never the general review; it replaces the previous run’s finding records. Selective recheck is deferred.
 - **Goes to GitHub:** "5 comments: 2 yours, 3 the agent’s (2 from Docs)". With the label on, each shows its posted label.
 - **GitHub:** `**Should fix (Docs):** body`; no severity → `**Docs:** body`; pre-existing → `**Pre-existing:** **Should fix (Docs):** body`. Post form shows it exactly.

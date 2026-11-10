@@ -16,6 +16,8 @@ export interface ReviewUiState {
   /** Before 0.6.0, the view the review showed; read once to open its comments, then removed. */
   view?: "diff" | "feedback" | "threads";
   scrollTop?: number;
+  /** The focus run whose recovery notice the reviewer dismissed. */
+  dismissedFocusRun?: string;
   /** The side panel's view, open again where it can dock; "agent" or "main", BB's tab to open as the review opens, once. */
   panel?: PanelView | null;
   /** The turn the review last opened in, so it opens on its Overview only when it comes back to you. */

@@ -1444,11 +1444,12 @@ test("Finish shows focus accounting, optional tokens, plain dropped/folded detai
         { ...finding, id: "4", status: "not-checked", reason: "over the limit" },
       ],
     },
-    rpc: { rerunFocusRun: rerun, getDraft: () => ({ draft: draftOf({ suggestedVerdict: "APPROVE", unchecked: ["Didn't run tests"] }), stale: [] }) },
+    rpc: { getPreferences: () => ({ preferences: { ...defaultPreferences, focuses: { ...defaultPreferences.focuses, enabled: true } }, revision: 0 }), rerunFocusRun: rerun, getDraft: () => ({ draft: draftOf({ suggestedVerdict: "APPROVE", unchecked: ["Didn't run tests"] }), stale: [] }) },
   });
   const view = await finish(slot);
-  const focus = view.getByRole("button", { name: /Focuses: Docs · 4 findings · 1 kept, 1 folded, 1 dropped · 41k tokens/ });
+  const focus = view.getByRole("button", { name: /Focuses: Docs · 4 findings · 1 kept, 1 folded, 1 dropped · 1 not checked · 41k tokens/ });
   expect(focus.getAttribute("aria-expanded")).toBe("false");
+  expect(focus.textContent).not.toContain("(partial)");
   expect(view.queryByText(finding.body)).toBeNull();
   fireEvent.click(focus);
   expect(view.getAllByText(finding.body)).toHaveLength(2);
@@ -1466,10 +1467,35 @@ test("Finish shows focus accounting, optional tokens, plain dropped/folded detai
 });
 
 test("Finish lists failed focuses without a verdict suggestion or token report", async () => {
-  const { slot } = await renderWorkspace({ review: { focusRun: { id: "f", head: "new", state: "done", startedAt: 1, focuses: [{ focusId: "docs", label: "Docs", state: "failed", queuedAt: 1, error: "didn't start" }] }, focusFindings: [] } });
+  const { slot } = await renderWorkspace({ review: { focusRun: { id: "f", head: "new", state: "done", startedAt: 1, focuses: [{ focusId: "docs", label: "Docs", state: "failed", queuedAt: 1, error: "didn't start" }] }, focusFindings: [] }, rpc: { getPreferences: () => ({ preferences: { ...defaultPreferences, focuses: { ...defaultPreferences.focuses, enabled: true } }, revision: 0 }) } });
   const view = await finish(slot);
   expect(view.getByText(/Focuses: Docs · 0 findings/).textContent).not.toContain("tokens");
   fireEvent.click(view.getByRole("button", { name: "What it didn’t check" }));
   expect(view.getByText("Docs: didn't start")).toBeTruthy();
   expect(view.getByRole("button", { name: "Check again" })).toBeTruthy();
+});
+
+test("focuses off hides past coverage and Check again but keeps the general review's unchecked lines", async () => {
+  const { slot } = await renderWorkspace({
+    review: { focusRun: { id: "f", head: "new", state: "done", startedAt: 1, focuses: [{ focusId: "docs", label: "Docs", state: "failed", queuedAt: 1, error: "didn't start" }] }, focusFindings: [] },
+    rpc: { getDraft: () => ({ draft: draftOf({ suggestedVerdict: "APPROVE", unchecked: ["Didn't run tests"] }), stale: [] }) },
+  });
+  const view = await finish(slot);
+  expect(view.queryByText(/Focuses:|Docs:/)).toBeNull();
+  expect(slot.queryByRole("button", { name: "Run again" })).toBeNull();
+  fireEvent.click(view.getByRole("button", { name: "What it didn’t check" }));
+  expect(view.getByText("Didn't run tests")).toBeTruthy();
+  expect(view.queryByRole("button", { name: "Check again" })).toBeNull();
+});
+
+test.each(["focus", "merge"])("Finish marks a token subtotal missing %s usage as partial", async (missing) => {
+  const { slot } = await renderWorkspace({
+    review: { focusRun: { id: "f", head: "new", state: "done", startedAt: 1, mergeDispatchedAt: 2, focuses: [
+      { focusId: "docs", label: "Docs", state: "done", queuedAt: 1, tokens: { input: 1000, output: 50 } },
+      ...(missing === "focus" ? [{ focusId: "tests", label: "Tests", state: "done", queuedAt: 1 }] : []),
+    ] }, focusFindings: [] },
+    rpc: { getPreferences: () => ({ preferences: { ...defaultPreferences, focuses: { ...defaultPreferences.focuses, enabled: true } }, revision: 0 }) },
+  });
+  const view = await finish(slot);
+  expect(view.getByText(/Focuses:/).textContent).toContain("1k tokens (partial)");
 });

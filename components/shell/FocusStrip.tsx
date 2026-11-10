@@ -3,6 +3,8 @@ import { useRpc } from "@get-bb/plugin-sdk/app";
 import { toast } from "sonner";
 import type { rpcContract } from "../../src/rpc-contract";
 import type { FocusFinding, FocusRun } from "../../src/focus-model";
+import { getReviewState, patchReviewState } from "../../lib/panel-state";
+import { useSettings } from "../../lib/settings";
 import { Button } from "../ui/button";
 import { Icon } from "../ui/icon";
 import { useMediaQuery } from "../ui/hooks/use-media-query";
@@ -16,12 +18,15 @@ export function FocusStrip({ targetKey, run, head, latestHead, updateAction, fin
   const rpc = useRpc<typeof rpcContract>();
   const compact = useMediaQuery("(max-width: 440px)");
   const [busy, setBusy] = useState(false);
-  const [dismissed, setDismissed] = useState<string | null>(null);
+  const { preferences } = useSettings();
+  const enabled = preferences.focuses.enabled;
+  const [dismissed, setDismissed] = useState(() => ({ targetKey, runId: getReviewState(targetKey).dismissedFocusRun }));
+  const dismissedRun = dismissed.targetKey === targetKey ? dismissed.runId : getReviewState(targetKey).dismissedFocusRun;
   const active = run?.state === "finding" || run?.state === "merging";
   const needsUpdate = !!run && run.head === head && !!latestHead && latestHead !== head;
   const stop = active && run?.mergeDispatchedAt === undefined;
   let text: ReactNode = "";
-  if (run) {
+  if (enabled && run) {
     const failed = run.focuses.filter((focus) => focus.error);
     const unchecked = findings.filter((finding) => finding.status === "not-checked").length;
     const older = !!head && head !== run.head || needsUpdate;
@@ -35,7 +40,7 @@ export function FocusStrip({ targetKey, run, head, latestHead, updateAction, fin
       text = compact ? `Focuses · ${counts}` : run.state === "finding"
         ? <>Reviewing with focuses · General {generalWorking ? "…" : "✓"} · {run.focuses.length > 3 ? counts : statuses} · using {slots} agent slot{slots === 1 ? "" : "s"}</>
         : `Checking ${run.focuses.reduce((sum, focus) => sum + (focus.findings ?? 0), 0)} focus findings…`;
-    } else if (dismissed !== run.id) {
+    } else if (dismissedRun !== run.id) {
       text = [
         ...failed.map((focus) => `${focus.label} didn't finish: ${focus.error}`),
         older ? run.head.startsWith("diff:") ? "The focuses ran on an older diff." : `The focuses ran on ${run.head.slice(0, 7)}, an older commit.` : "",
@@ -46,6 +51,8 @@ export function FocusStrip({ targetKey, run, head, latestHead, updateAction, fin
     }
   }
   const visible = !!text;
+  const phase = !enabled || !run ? null : active ? run.state : "ended";
+  const announcement = phase === "finding" ? "Reviewing with focuses." : phase === "merging" ? "Checking focus findings." : phase === "ended" ? "The focus run ended." : "";
   async function act(method: "stopFocusRun" | "rerunFocusRun") {
     setBusy(true);
     try {
@@ -56,12 +63,16 @@ export function FocusStrip({ targetKey, run, head, latestHead, updateAction, fin
   }
   return <div className={visible ? "flex items-center gap-2 rounded-md bg-primary/5 px-3 py-2 text-sm" : "contents"}>
     {visible && <Icon name="Sparkles" className="shrink-0 text-(--ansi-13)" aria-hidden />}
-    {/* Keep the live region mounted before its text arrives; controls aren't part of its announcement. */}
-    <span role="status" aria-live="polite" aria-atomic="true" className={visible ? "min-w-0 flex-1 break-words" : "sr-only"}>{text}</span>
+    {/* Keep the live region mounted before its text arrives; only phase changes are announced. */}
+    <span role="status" aria-live="polite" aria-atomic="true" className="sr-only">{announcement}</span>
+    {visible && <span className="min-w-0 flex-1 break-words">{text}</span>}
     {visible && stop && <Button variant="outline" size="sm" className={TOUCH_CONTROL} disabled={busy} onClick={() => void act("stopFocusRun")}>{busy ? "Stopping…" : "Stop"}</Button>}
     {visible && !active && <div className="flex shrink-0 flex-wrap gap-1">
       {needsUpdate ? updateAction : <Button variant="outline" size="sm" className={TOUCH_CONTROL} disabled={busy} onClick={() => void act("rerunFocusRun")}>Run again</Button>}
-      <Button variant="ghost" size="sm" className={TOUCH_CONTROL} onClick={() => setDismissed(run!.id)}>Got it</Button>
+      <Button variant="ghost" size="sm" className={TOUCH_CONTROL} onClick={() => {
+        patchReviewState(targetKey, { dismissedFocusRun: run!.id });
+        setDismissed({ targetKey, runId: run!.id });
+      }}>Got it</Button>
     </div>}
   </div>;
 }

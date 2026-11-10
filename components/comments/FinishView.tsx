@@ -365,6 +365,7 @@ function PrDraftReady() {
 /** The verdict, the agent's suggestion with Switch to it, and its two ways into the draft: Use as draft and Request what's left. */
 function Verdicts({ revision }: { revision: string }) {
   const { targetKey, openFinish, review } = useWorkspace();
+  const focusRun = useSettings().preferences.focuses.enabled ? review?.focusRun : undefined;
   const d = useDraft();
   const rpc = useRpc<typeof rpcContract>();
   const feedback = useComments(targetKey, "feedback");
@@ -418,7 +419,7 @@ function Verdicts({ revision }: { revision: string }) {
         </Button>)}
       </div>
       {d.ownPr && <p id={ownPrId} className="text-xs text-muted-foreground">{OWN_PR}</p>}
-      {(suggested && (suggested !== d.draft.verdict || !verdictPicked(d.draft)) && !(d.ownPr && suggested !== "COMMENT") || run && (run.suggestedVerdict || left || said) || checked || unchecked.length > 0 || review?.focusRun) && (
+      {(suggested && (suggested !== d.draft.verdict || !verdictPicked(d.draft)) && !(d.ownPr && suggested !== "COMMENT") || run && (run.suggestedVerdict || left || said) || checked || unchecked.length > 0 || focusRun) && (
         <section aria-label="Agent’s suggestion" className="flex flex-wrap items-center gap-x-2 gap-y-1.5 rounded-lg bg-(--ansi-13)/5 px-2.5 py-2">
           <p className="flex min-w-0 flex-1 basis-40 items-center gap-1.5 text-xs text-muted-foreground"><Icon name="Sparkles" className="size-3.5 shrink-0 text-(--ansi-13)" aria-hidden />
             {suggested && !(d.ownPr && suggested !== "COMMENT") ? `Agent suggests ${VERDICT_LABEL[suggested]}` : run?.suggestedVerdict ? `Agent suggests ${VERDICT_LABEL[run.suggestedVerdict]}` : left ? "The agent found open items" : "Agent’s check"}
@@ -457,8 +458,9 @@ function FocusCoverage({ items }: { items: readonly string[] }) {
   const rpc = useRpc<typeof rpcContract>();
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
-  const run = review?.focusRun;
-  const findings = review?.focusFindings ?? [];
+  const enabled = useSettings().preferences.focuses.enabled;
+  const run = enabled ? review?.focusRun : undefined;
+  const findings = run ? review?.focusFindings ?? [] : [];
   const active = run?.state === "finding" || run?.state === "merging";
   const unchecked: ReactNode[] = items.slice(0, 5);
   const gaps: ReactNode[] = [];
@@ -483,12 +485,13 @@ function FocusCoverage({ items }: { items: readonly string[] }) {
   }
   const tokens = [...(run?.focuses.flatMap((focus) => focus.tokens ? [focus.tokens] : []) ?? []), ...(run?.mergeTokens ? [run.mergeTokens] : [])];
   const total = tokens.reduce((sum, usage) => sum + usage.input + usage.output, 0);
+  const partial = active || run?.focuses.some((focus) => !focus.tokens) || run?.mergeDispatchedAt !== undefined && !run.mergeTokens;
   const details = findings.filter((finding) => finding.status === "dropped" || finding.status === "folded");
   if (!run && !unchecked.length) return null;
   return <div className="min-w-0 basis-full space-y-1 text-xs text-muted-foreground">
     {run && <>
       <button type="button" aria-expanded={open} disabled={!details.length} onClick={() => setOpen(!open)} className={cn("flex min-h-7 items-center gap-1 rounded-md text-left enabled:hover:text-foreground", TOUCH_CONTROL)}>
-        <span>Focuses: {run.focuses.map((focus) => focus.label).join(", ")} · {plural(findings.length, "finding")} · {findings.filter((finding) => finding.status === "kept").length} kept, {findings.filter((finding) => finding.status === "folded").length} folded, {findings.filter((finding) => finding.status === "dropped").length} dropped{tokens.length > 0 ? ` · ${total >= 1000 ? `${Math.round(total / 1000)}k` : total} tokens` : ""}</span>
+        <span>Focuses: {run.focuses.map((focus) => focus.label).join(", ")} · {plural(findings.length, "finding")} · {findings.filter((finding) => finding.status === "kept").length} kept, {findings.filter((finding) => finding.status === "folded").length} folded, {findings.filter((finding) => finding.status === "dropped").length} dropped · {findings.filter((finding) => finding.status === "not-checked").length} not checked{tokens.length > 0 ? ` · ${total >= 1000 ? `${Math.round(total / 1000)}k` : total} tokens${partial ? " (partial)" : ""}` : ""}</span>
         {details.length > 0 && <Icon name={open ? "ChevronDown" : "ChevronRight"} className="size-3 shrink-0" aria-hidden />}
       </button>
       {open && <ul className="space-y-2 pl-3">{details.map((finding) => <li key={finding.id} className="break-words">
