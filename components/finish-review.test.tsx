@@ -101,6 +101,19 @@ test.each([true, false])("Goes to GitHub shows the exact focus comment with gith
   slot.lifecycle.unmount();
 });
 
+test.each(["older", "outside"])("Goes to GitHub moves an %s-diff focus comment into the summary without a focus label", async (kind) => {
+  const comment = { ...comments[0], line: kind === "outside" ? 99 : 2, focus: "Docs", author: "agent" };
+  const { slot } = await renderWorkspace({ rpc: {
+    getDraft: () => ({ draft: draftOf({ body: "Summary.", comments: [comment] }), stale: kind === "older" ? [comment] : [] }),
+  } });
+  const view = await finish(slot);
+  const goes = within(view.getByRole("heading", { name: "Goes to GitHub" }).closest("section")!);
+  expect(goes.getByText("Moves to summary on Submit anyway")).toBeTruthy();
+  expect(goes.getByText((_, element) => element?.tagName === "P" && element.textContent === `Summary.\n\n- On \`src/a.ts:${comment.line}\` (an earlier diff): **Blocking:** Upper case reads as a constant.`)).toBeTruthy();
+  expect(goes.queryByText(/Blocking \\(Docs\\)/)).toBeNull();
+  slot.lifecycle.unmount();
+});
+
 test("a reply draft whose thread isn't listed, as when GitHub's threads didn't load, isn't counted as one to send", async () => {
   const { slot } = await renderWorkspace({ rpc: { getReplyDrafts: () => ({ drafts: [{ threadId: "gone", body: "Still throws for me.", author: "reviewer", updatedAt: now }] }) } });
   const view = await finish(slot);

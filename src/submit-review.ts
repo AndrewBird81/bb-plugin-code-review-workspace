@@ -5,7 +5,7 @@ import { postable, sameComments, sameLocation, SUBMIT_WARNINGS, toGithubReviewPa
 import type { ReviewMeta } from "./store";
 import { reviewRevision } from "./review-revision";
 import { yoursByFolder } from "../lib/fixer";
-import { summaryLine, withSummaryLine } from "../lib/move-to-summary";
+import { moveToSummary } from "../lib/move-to-summary";
 import { invalidComments } from "./review-positions";
 import type { AsyncStore } from "./store-queue";
 import { notRecorded, postReceipts, receiptText, recordPosted, reviewReceiptKey, type PostReceipts, type ReviewReceipt } from "./post-receipts";
@@ -75,13 +75,6 @@ async function commitsSince(run: typeof runGh, repo: string, reviewed: string, h
 }
 export const DRAFT_CHANGED = "Draft changed · review it, then submit again.";
 const SENDING = "Sending this review's comments to the main thread; submit again in a moment.";
-/** The draft's comments without `moved`, which become lines at the end of its summary. */
-function moveToSummary(draft: Draft, moved: readonly DraftComment[], preExisting: boolean): { body: string; comments: DraftComment[] } {
-  return {
-    comments: draft.comments.filter((c) => !moved.some((x) => sameComments([c], [x]))),
-    body: moved.reduce((body, c) => withSummaryLine(body, summaryLine(c, preExisting)), draft.body),
-  };
-}
 /** A comment a Send took, or you resolved or dismissed, which may not post (draft.ts postable). */
 const tracked = (c: Pick<DraftComment, "state">) => !!c.state && c.state !== "open";
 /** The same places, in any order. */

@@ -1,6 +1,6 @@
 // Move to summary (Settings → Comments and Finish review): a comment drafted against an older diff, whose lines left
 // it, becomes a line of the review summary, which then is yours. The server writes the line; Finish review shows it.
-import { linesOf, postedBody, type DraftComment } from "../src/draft";
+import { linesOf, postedBody, sameComments, type Draft, type DraftComment } from "../src/draft";
 
 /**
  * "- On `src/a.ts:42` (an earlier diff): **Nit:** Rename it.", its later lines indented to stay in the item. With
@@ -12,6 +12,14 @@ export function summaryLine(comment: DraftComment, preExisting = false): string 
   // A block, such as a suggestion, starts on its own line, as postedBody puts it after a severity.
   const [first, ...rest] = BLOCK.test(posted) ? ["", "", ...posted.split("\n")] : posted.split("\n");
   return [`- On \`${where}\` (an earlier diff${comment.side === "LEFT" ? ", old line" : ""}):${first ? ` ${first}` : ""}`, ...rest.map((line) => line ? `  ${line}` : "")].join("\n");
+}
+
+/** The draft's comments without `moved`, which become lines at the end of its summary. */
+export function moveToSummary(draft: Draft, moved: readonly DraftComment[], preExisting: boolean): { body: string; comments: DraftComment[] } {
+  return {
+    comments: draft.comments.filter((c) => !moved.some((x) => sameComments([c], [x]))),
+    body: moved.reduce((body, c) => withSummaryLine(body, summaryLine(c, preExisting)), draft.body),
+  };
 }
 
 /** What starts a Markdown block, as postedBody tells it. */
