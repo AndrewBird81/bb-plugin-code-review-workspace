@@ -97,17 +97,18 @@ guide ready ──┬─ startAutomaticReview (sends the review) ─► review a
 - **Trigger:** only when `startAutomaticReview` actually sends the review: after a first guide (`src/generate.ts:320` [V]) and on Run review (`src/turn-rpc.ts:59` [01]). When it returns `"conversation"` without reviewing (`src/agent.ts:314-319` [V]), no focus run. Gates checked once: automatic review on and prompt non-blank, `mayRunUnattended`, PR open, focuses enabled with ≥ 1 on.
 - **Parallel, independent.** Focuses and the agent don't see each other's output until the merge (anchoring, 02 §1.2).
 - **Concurrency:** at most 2 focus threads running plugin-wide; the rest wait in a plugin-side queue (FIFO across reviews), not in BB. Hidden threads otherwise take host slots the user can't see (default one per processor, `bb concurrency-limit` skill [V]).
-- **Spawn** per focus through `spawnAgent` inside `spawningFor` (`src/thread-review.ts:12` [V]):
+- **Spawn** per focus through `spawnAgent` inside a separate `focusSpawning` scope: exact title → `{ targetKey, runId, focusId }`, registered before spawn. Never register focus spawns in `spawning` (`src/thread-review.ts:5-47` [V]).
   - title `Focus: <label> · <targetKey>`; `visibility: "hidden"`; placement = the review agent's (`agentPlacement`, `src/machines.ts:39` [V])
   - execution = the focus's override, else `assistantAgent`, else the project default, via `spawnExecution`
   - permission mode = `guideWriterMode` (`src/generate.ts:104` [05]) with `known: { providerId }` set to the **focus's** provider, so the mode is one that provider supports
   - `pluginMetadata: { focusRun, focusId }` for the restart sweep only. Never used for identity: the thread's own agent can write it (SDK:20320-20325 [V])
-  - `focus_threads` row written in the same `spawningFor` block as the spawn
+  - write the `focus_threads` row in `store.exclusive` inside that scope; retain the in-flight entry until the row is committed, then remove it in `finally`
 - **Prompt** in the spawn `prompt`. Fixed frame (target key, run id, untrusted-data rule, scope = this diff, severity meanings, ≤ 15 findings, evidence with `file:line`, submit once, empty is fine) + the focus's instructions + the guide's core **fenced with `untrusted()`** (`src/untrusted.ts:5` [V]), as `buildGenerationPrompt` fences earlier chapters (`src/generate.ts:126` [V]).
 - **Plugin tools** for role `focus`: `read_review_patch`, `list_review_files`, `read_file`, `read_pr_context`, `submit_focus_findings`. Nothing else, whatever `reviewAgentActs` says.
 - **Lockdown:**
-  - `run()` refuses **every** `bb review` subcommand from a focus thread, live or ended, by its `focus_threads` row. It has plugin read tools; no subcommand list to maintain.
-  - `focusThread(tx, threadId)` is a separate lookup used only by the five tools above. `threadReview` / `toolThreadReview` / `assistantReview` keep returning null for a focus thread, so `run()`'s `ownReview`, `read_changes_since_review` (`src/feedback-tools.ts:54,81` [V]), write tools, `recordAgentReads`, `endCheck` and discussion waits ignore it.
+  - `run()` refuses **every** `bb review` subcommand from a focus thread, live or ended, using `focusSpawning` OR its `focus_threads` row, before resolving `ownReview` or dispatching a command. Refusal starts at BB's session start, before `spawn` returns. It has plugin read tools; no subcommand list to maintain.
+  - `threadRole` returns `focus`; `focusThread` resolves the focus; `ownThread` counts it as a plugin thread. All read `focusSpawning` OR the row. Id-only callers (`ownThread`, `focusThread`, `run()`) fetch the thread's exact title while focus spawns are in flight; `ownThread` cannot rely on its current null-title `threadRole` call (`server.ts:305-312` [V]).
+  - `threadReview` / `toolThreadReview` / `assistantReview` stay null: focus titles never enter `spawning`. Thus `run()`'s `ownReview`, `read_changes_since_review` (`src/feedback-tools.ts:54,81` [V]), write tools, `recordAgentReads`, `endCheck` and discussion waits ignore it.
   - `submit_focus_findings` refuses unless the run is `finding` and the thread's focus is `running`.
   - A focus with any pending interaction (`threads.interactions.list`, SDK:18786 [V]) is failed at once: "asked for permission". Checked every wait step; the focus wait step is 1 min, not the writer's 10.
   - Settings says plainly the mode can still edit files (§5.1).
@@ -448,6 +449,7 @@ Release 1 = Phases 0–4. Each is one PR. `npm run check` passes in all; checks 
   - off: spawns, messages, the review agent's tool list, instructions and `registrations` equal today's
   - on: one hidden spawn per enabled focus, never more than 2 running plugin-wide, mode from the focus's provider, the five tools only
   - `bb review comment add` (and every other subcommand) from a focus thread, live or after run end, is refused
+  - spawn window: BB's session started, row not yet written → `bb review comment add` is refused and tool calls get role `focus`
   - `read_changes_since_review` and every write tool from a focus thread refuse
   - a pending focus past `waitCap` since spawn but not since `activeAt` isn't failed
   - a focus with a pending interaction fails at once
@@ -485,6 +487,8 @@ Release 1 = Phases 0–4. Each is one PR. `npm run check` passes in all; checks 
 - Verifier stage, if Decision 3's trigger fires.
 
 ## What I verified vs. only read
+
+- **c26 correction, opened and checked:** `src/thread-review.ts:5-47` [V] (exact-title fallback ignores prefixes), `src/configure-view.ts:62-67, 130-142` [V] (`threadRole`, review fallback), `server.ts:305-312, 366-400` [V] (`ownThread` passes a null title; `run()` resolves `ownReview` before dispatch), `src/comment-command.ts:74-82` [V] (same-review calls pass). Separate focus in-flight tracking and refusal above are design requirements, not implemented or runtime-tested.
 
 - **c25 correction, opened and checked:** `src/asking.ts:115-183` (ledger dispatch, cancellation and idle cleanup), `src/agent.ts:422-453` (`messageAssistant` result); SDK:4534-4691 (`ThreadQueuedMessage.id`, `threadId`), 19532-19623 (idle, dispatch and cancellation events). Listener serialization above is a design requirement, not a verified host implementation.
 
