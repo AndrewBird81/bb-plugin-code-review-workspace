@@ -97,7 +97,8 @@ test.each([true, false])("Goes to GitHub shows the exact focus comment with gith
   } });
   const view = await finish(slot);
   const goes = within(view.getByRole("heading", { name: "Goes to GitHub" }).closest("section")!);
-  expect(goes.getByText(`**Pre-existing:** **Blocking${githubLabel ? " (Docs)" : ""}:** Upper case reads as a constant.`)).toBeTruthy();
+  if (githubLabel) expect(goes.getByText("**Pre-existing:** **Blocking (Docs):** Upper case reads as a constant.")).toBeTruthy();
+  else expect(goes.queryByText(/Upper case reads as a constant/)).toBeNull();
   slot.lifecycle.unmount();
 });
 
