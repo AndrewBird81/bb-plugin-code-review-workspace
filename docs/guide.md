@@ -892,6 +892,8 @@ Notes for reviews and pages from before the current releases. New installs can s
 - **The review agent or the main thread beside a review, in two panes.** BB doesn't tell a plugin which pane's side panel a tab shows in, so with one review in two panes, **Ask agent** and **Show beside review** are pressed in both while either pane shows the tab. **Switch between review and main thread**, from a page that isn't a thread's, goes from the review you last clicked or typed in, else the one the window's address shows; and Review ↗ above a main thread's message box hides while the window's address is that review's. A key you bound to the switch instead of ⌘⇧. isn't in its tooltips: BB doesn't tell a plugin.
 - **Anything else:** `bb plugin logs code-review-workspace` shows the plugin's log.
 
+Third-party template licenses and attribution: [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md).
+
 ## Uninstall
 
 - **One review:** **Delete…** in its **Review actions** (⋯) removes its guide, drafts, private notes, and agent conversation, after confirmation. Nothing changes on GitHub.
