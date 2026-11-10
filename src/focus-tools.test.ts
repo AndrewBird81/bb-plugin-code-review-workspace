@@ -1,6 +1,8 @@
 import { expect, test, vi } from "vitest";
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
 import { startPlugin } from "./plugin-store.test-support";
+import { startFocusRun } from "./focus-run";
+import { defaultPreferences } from "./preferences";
 import type { FocusFinding } from "./focus-model";
 
 vi.mock("./store-queue", async (original) => {
@@ -51,10 +53,12 @@ test.each([undefined, "LEFT", "LOCAL"] as const)("fold locates an unsent draft b
   const s = await setup();
   await s.call("submit_focus_findings", { findings: [finding], unchecked: [] }, "focus");
   await s.merge();
-  await s.store.upsertDraftComment("r", { file: "a.ts", line: 2, side: side ?? "RIGHT", author: "agent", body: "General", focus: "Earlier" });
+  for (const candidate of ["RIGHT", "LEFT", "LOCAL"] as const) await s.store.upsertDraftComment("r", { file: "a.ts", line: 2, side: candidate, author: "agent", body: `General-${candidate}`, focus: `Earlier-${candidate}` });
   const [row] = await s.store.focusFindings("r", "run");
   expect(await s.call("keep_focus_finding", { id: row.id, body: "Both issues", severity: "should-fix", evidence: "a.ts:1-2", into: { file: "a.ts", line: 2, ...(side ? { side } : {}) } })).not.toHaveProperty("isError", true);
-  expect((await s.store.getDraft("r")).comments[0]).toMatchObject({ body: "Both issues", focus: "Earlier" });
+  const comments = (await s.store.getDraft("r")).comments;
+  expect(comments.find((comment) => comment.side === (side ?? "RIGHT"))).toMatchObject({ body: "Both issues", focus: `Earlier-${side ?? "RIGHT"}` });
+  for (const comment of comments.filter((comment) => comment.side !== (side ?? "RIGHT"))) expect(comment).toMatchObject({ body: `General-${comment.side}`, focus: `Earlier-${comment.side}` });
   expect((await s.store.focusFindings("r", "run"))[0]).toMatchObject({ status: "folded", draftLine: 2, draftSide: side ?? "RIGHT" });
   await s.harness.lifecycle.dispose();
 });
@@ -110,4 +114,41 @@ test("the five-Nit cap uses the merge agent's severity, including folds", async 
     else expect(result).toMatchObject({ isError: true });
   }
   await s.harness.lifecycle.dispose();
+});
+
+test.each(["no submit", "rejected submit"])("%s: idle twice nudges once, then fails stopped without reporting", async (report) => {
+  const idles: Array<() => void> = [];
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: {
+    threads: {
+      spawn: async () => ({ id: "focus" }), get: async () => ({ status: "active" }),
+      wait: async ({ signal }: any) => new Promise<void>((resolve, reject) => { idles.push(resolve); signal.addEventListener("abort", () => reject(new Error("aborted")), { once: true }); }),
+      send: async () => ({ delivery: "sent" }), stop: async () => ({ ok: true }),
+      archive: async () => ({ ok: true }), delete: async () => ({ ok: true }), list: async () => [],
+      interactions: { list: async () => [] }, events: { list: async () => [] },
+    },
+    providers: { list: async () => [{ id: "codex", capabilities: { permissionModes: ["auto"] } }] },
+    projects: { defaultExecutionOptions: async () => ({ providerId: "codex" }) },
+  } });
+  const store = await startPlugin(bb);
+  await store.savePreferences({ ...defaultPreferences, focuses: { ...defaultPreferences.focuses, enabled: true } }, 0);
+  await store.saveReview({ targetKey: "r", kind: "pr", status: "ready", headSha: "head", createdAt: 1, projectId: "p" });
+  await store.setLifecycle("r", { ownPr: true });
+  await store.setAssistantThread("r", "assistant");
+  await store.savePatch("r", patch);
+  await startFocusRun(bb, store, "r");
+  await vi.waitFor(() => expect(idles).toHaveLength(1));
+  if (report === "rejected submit") expect(await harness.behavior.callAgentTool("submit_focus_findings", { findings: [{ ...finding, line: 9 }], unchecked: [] }, { threadId: "focus" })).toMatchObject({ isError: true });
+  expect(harness.inspection.sdk.callsTo("threads.send")).toEqual([]);
+  idles[0]();
+  await vi.waitFor(() => expect(idles).toHaveLength(2));
+  const sends = () => harness.inspection.sdk.callsTo("threads.send").filter(([args]) => (args as any).threadId === "focus");
+  expect(sends()).toHaveLength(1);
+  const text = (sends()[0][0] as any).input[0].text;
+  expect(text).toContain(report === "rejected submit" ? "Your findings were rejected:" : "Submit your findings with submit_focus_findings.");
+  if (report === "rejected submit") expect(text).toContain("Line 9");
+  idles[1]();
+  await vi.waitFor(async () => expect((await store.getReview("r"))?.focusRun).toMatchObject({ mergeAwaitingTools: true, focuses: [{ state: "failed", error: "stopped without reporting" }] }));
+  expect(sends()).toHaveLength(1);
+  expect(await store.focusFindings("r", (await store.getReview("r"))!.focusRun!.id)).toEqual([]);
+  await harness.lifecycle.dispose();
 });

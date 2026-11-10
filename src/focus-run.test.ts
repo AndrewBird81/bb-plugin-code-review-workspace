@@ -476,3 +476,24 @@ test("a focus whose identity row fails after spawn is stopped, archived and dele
   }
   expect(await s.store.listFocusThreads()).toEqual([]);
 });
+
+test("live idle sends the merge nudge text once, then accounts leftovers without another nudge", async () => {
+  const s = await setup();
+  recordFocusTools(s.bb, "assistant", true);
+  focusRuntimeSpawned(s.bb, "assistant");
+  const id = await complete(s);
+  await vi.waitFor(async () => expect((await s.store.getReview("r"))?.focusRun?.mergeMessageId).toBe("merge"));
+  for (const handler of focusEvents(s.bb, s.store)["message.dispatched"] ?? []) await (handler as any)({ entry: makeQueueEntry({ id: "merge", threadId: "assistant" }) });
+  expect((await s.store.getReview("r"))?.focusRun?.nudged).toBeUndefined();
+  expect(s.harness.inspection.sdk.callsTo("threads.send")).toHaveLength(1);
+  await idle(s);
+  expect(s.harness.inspection.sdk.callsTo("threads.send")).toHaveLength(2);
+  const nudge = s.harness.inspection.sdk.callsTo("threads.send")[1][0] as any;
+  expect(nudge.input[0].text).toBe("Finish checking the remaining focus findings.");
+  expect((await s.store.getReview("r"))?.focusRun?.nudged).toBe(true);
+  await idle(s);
+  await idle(s);
+  expect(s.harness.inspection.sdk.callsTo("threads.send")).toHaveLength(2);
+  expect((await s.store.getReview("r"))?.focusRun?.state).toBe("done");
+  expect((await s.store.focusFindings("r", id))[0]).toMatchObject({ status: "not-checked", reason: "unsettled" });
+});
