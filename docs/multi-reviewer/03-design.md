@@ -123,7 +123,12 @@ guide ready ──┬─ startAutomaticReview (sends the review) ─► review a
 - When every focus has settled (submitted, failed including `didn't start`, timed out, stopped):
   - review head ≠ run head → every finding `not-checked: diff changed`, no merge turn, strip offers Run again
   - no findings and nothing failed → run done, no merge turn
-  - otherwise → `messageAssistant`, kind `automatic`, `queue-if-active`. Visible text: "Check the focuses' findings (Docs: 7)", marked as the plugin's. Agent-only context: the merge rules. Store `queuedMessageId` in `focusRun.mergeMessageId`; no `queuedMessageId` → persist `focusRun.mergeDispatchedAt = Date.now()` (`src/agent.ts:422-453` [V]). For a queued merge, persist that timestamp on `message.dispatched` when `entry.id === focusRun.mergeMessageId`; `entry` is a `ThreadQueuedMessage` with `id` and `threadId` (SDK:4534-4691, 19597-19599 [V]).
+  - otherwise → check tool grants below, then `messageAssistant`, kind `automatic`, `queue-if-active`. Visible text: "Check the focuses' findings (Docs: 7)", marked as the plugin's. Agent-only context: the merge rules. Store `queuedMessageId` in `focusRun.mergeMessageId`; no `queuedMessageId` → persist `focusRun.mergeDispatchedAt = Date.now()` (`src/agent.ts:422-453` [V]). For a queued merge, persist that timestamp on `message.dispatched` when `entry.id === focusRun.mergeMessageId`; `entry` is a `ThreadQueuedMessage` with `id` and `threadId` (SDK:4534-4691, 19597-19599 [V]).
+- **Tool-grant gate:** at each assistant `configure`, record `focusToolsGranted` per assistant thread. An existing runtime keeps its starting tools (`server.ts:381-382` [V]); missing/unknown grant is stale. Before sending a merge:
+  - fresh → send as above, including `queue-if-active`.
+  - idle and stale → await `refreshAssistants(bb, store, [targetKey])`, confirm the idle runtime stopped, then send so the next runtime configures with merge tools.
+  - busy and stale → set `focusRun.mergeAwaitingTools`, don't queue a message; at its next idle, refresh, then send. Clear the flag on send or failure. Preserve the dispatch timestamps above; waiting for tools is not dispatch.
+  - refresh fails → remaining findings `not-checked: merge tools unavailable`, run `done`. `refreshAssistants` swallows stop errors (`src/agent.ts:515-523` [V]); a resolved call alone isn't proof of a restart. Verify the stop before sending.
 - **Findings cap:** at most 20 go to the merge, ordered Blocking → Should fix → Question → Nit, then by focus order. The rest are `not-checked: over the limit`.
 - **Tools, granted in `configure` only while focuses are on** (as `reviewAgentActs` gates write tools, `server.ts:375` [V]). Existing tools unchanged:
   - `list_focus_findings()`: this run's `found` findings, fenced `untrusted()`
@@ -140,7 +145,7 @@ guide ready ──┬─ startAutomaticReview (sends the review) ─► review a
   7. Then `set_review_summary` again, with what the focuses didn't check.
 - **The plugin attributes, not the agent.** The agent can't name a focus. Draft labels come from `DraftComment.focus`; Finish review's kept/folded attribution uses the finding row's stored draft location, not a comment id.
 - **Accounting:** `focusRun.mergeDispatchedAt` set, then the agent idle, with findings still `found` → one nudge. After that, leftovers are `not-checked`: not drafted, counted, with Check again. Fail closed. Dispatch evidence comes only from `focusRun`, never the asking ledger.
-- **Watchdog:** agent idle, `focusRun.mergeDispatchedAt` unset, `focusRun.mergeMessageId` absent from `queuedMessages` → leftovers `not-checked: merge message removed`, run `done`. Checked on the agent's idle event and at plugin start; never infer dispatch from the asking ledger.
+- **Watchdog:** after servicing `mergeAwaitingTools` (never classify that unsent merge as removed), agent idle, `focusRun.mergeDispatchedAt` unset, `focusRun.mergeMessageId` absent from `queuedMessages` → leftovers `not-checked: merge message removed`, run `done`. Checked on the agent's idle event and at plugin start; never infer dispatch from the asking ledger.
 - **Listener order:** SDK says `message.dispatched` precedes its turn (SDK:19593-19599 [V]); serialize merge send-result, dispatch persistence and idle checks per review, buffering dispatch events until `mergeMessageId` is stored. Idle checks await earlier dispatch writes; asking-ledger cleanup order cannot affect them.
 - **No score in release 1.** Binary kept / dropped (04 §4).
 - **Effort:** merge turn at the review agent's level, or High (`messageAssistant({effort})`).
@@ -156,6 +161,7 @@ guide ready ──┬─ startAutomaticReview (sends the review) ─► review a
 | Stop, while `finding` | Clears the plugin queue, aborts waits, stops and archives focus threads, findings `not-checked: stopped`, run `stopped`. The agent's own review isn't stopped |
 | Stop, while `merging`, message queued | Deletes the queued message (`threads.queuedMessages.delete`, SDK:18796 [V]); findings `not-checked: stopped` |
 | Stop, while `merging`, turn running | Not offered: the strip hides Stop. The turn is the agent's; its tab's own Stop applies, and accounting marks leftovers `not-checked` |
+| Merge tools missing from a live agent | Tool-grant gate (§4.3): wait for idle if busy, refresh before sending; refresh failure → findings `not-checked: merge tools unavailable`, run `done` |
 | Merge message deleted or edited in BB's queue | Watchdog (§4.3) |
 | Guide rebuild mid-run | `beginGuide` stops the run, as Stop. Not restarted |
 | Push mid-run, no rebuild | Run continues; at settle or at any keep call, head ≠ run head → `not-checked: diff changed`, Run again |
@@ -326,7 +332,7 @@ focus_threads (thread_id PK, target_key, run_id, focus_id, label, created_at)
 focus_findings(target_key, run_id, id, focus_id, label,
                file, line, side, start_line, start_side, severity, body, evidence, introduced,
                status,           -- found | kept | folded | dropped | not-checked  (TEXT, no CHECK)
-               reason, note,     -- dropped: dismiss reason; not-checked: stopped | interrupted | diff changed | over the limit | merge message removed | unsettled
+               reason, note,     -- dropped: dismiss reason; not-checked: stopped | interrupted | diff changed | over the limit | merge message removed | merge tools unavailable | unsettled
                draft_file, draft_line, draft_side, -- kept / folded: location of the draft it became or joined
                decided_at,
                PRIMARY KEY (target_key, run_id, id))
@@ -345,6 +351,7 @@ focusRun?: {
   id: string; head: string; startedAt: number; endedAt?: number
   state: "finding" | "merging" | "done" | "stopped"
   mergeMessageId?: string; mergeDispatchedAt?: number; nudged?: true
+  mergeAwaitingTools?: true            // busy assistant has stale grants; no merge message sent yet
   focuses: { focusId: string; label: string
              state: "queued" | "running" | "done" | "failed" | "stopped"
              queuedAt: number                        // entered plugin queue: 15 min start deadline
@@ -354,6 +361,8 @@ focusRun?: {
   mergeTokens?: { input: number; output: number }
 }
 ```
+
+- Per assistant thread: `focusToolsGranted: boolean`, recorded at `configure` for the current runtime; absent/unknown is stale. Keep it separate from `focusRun`; never reuse an earlier runtime's grant.
 
 ### 6.4 Focus config: global, a third column on `review_preferences`
 
@@ -379,7 +388,7 @@ Focus {
 - JSON column, so Phase 0 can store only what Phase 1 reads; Phase 4 fields add with no migration.
 - Default list: `{id:"docs", label:"Docs", enabled:true, template:"docs", agent:null}`. Turning the switch on is the whole setup.
 - Read as preferences are (`readPreferences` [01]): each field validated alone, a bad one takes its default.
-- Changing these changes the agent's tools (merge tools on/off) but not its instructions. Tool grants are read per `configure` call [I: confirm a running agent picks up a grant change without `refreshAssistants`].
+- Changing these changes the agent's tools (merge tools on/off) but not its instructions. A running runtime keeps its starting tools (`server.ts:381-382` [V]). Add focuses `enabled` changes to `savePreferences`' refresh condition, as for `reviewAgentActs` (`src/settings-rpc.ts:29-35` [V]); idle assistants restart. Busy ones retain their tools (`src/agent.ts:511-523` [V]); the merge's tool-grant gate (§4.3) waits for idle and refreshes before sending.
 
 **Not per-repo, not REVIEW.md, in release 1.** Only `autoStartRepos` is per-repo today (01 §4); repo rules already reach every focus; repo-defined focuses are an injection and trust surface.
 
@@ -468,6 +477,9 @@ Release 1 = Phases 0–4. Each is one PR. `npm run check` passes in all; checks 
   - `mergeReview` drops the archived review's findings and stored draft locations; surviving findings' locations remain unchanged
   - 25 findings → 20 sent, 5 `not-checked: over the limit`
   - unsettled → `not-checked`, not drafted
+  - enable focuses while the assistant is busy without merge tools: no merge queued until idle, then refresh; the new runtime has merge tools before handling the merge; no false removed-message watchdog result
+  - toggle focuses `enabled` with an idle assistant: `savePreferences` restarts it; fresh-grant busy assistants still accept `queue-if-active`
+  - refresh/stop failure, including a swallowed stop error: no merge sent, findings `not-checked: merge tools unavailable`, run `done`
   - immediate and queued merges persist `mergeDispatchedAt`; a merge that ran is not reported as removed after idle clears its ledger mark or after restart; remaining `found` findings get the accounting nudge
   - dispatch persistence precedes idle checks even with delayed writes or dispatch before the send result; ledger listener order changes neither accounting nor watchdog
   - Stop while finding, Stop with queued merge (message deleted), deleted merge message (watchdog), rebuild, push, restart in `finding` and `merging`, orphan thread swept
@@ -498,6 +510,8 @@ Release 1 = Phases 0–4. Each is one PR. `npm run check` passes in all; checks 
 
 ## What I verified vs. only read
 
+- **c30 correction, opened and checked:** `server.ts:370-387`, `src/settings-rpc.ts:23-35`, `src/agent.ts:511-523` [V] (runtime tool retention, preference-triggered idle refresh, best-effort stop). Grant tracking, merge gating and tests above are design requirements, not implemented or runtime-tested.
+
 - **c29 correction, opened and checked:** `components/DraftProvider.tsx:553-568` [V] (restore rebuilds the comment field by field); `components/draft-review.test.tsx` Remove + Undo test locations. Passing `focus` and frontend coverage above are design requirements, not implemented or runtime-tested.
 
 - **c28 correction, opened and checked:** `src/draft.ts:47-68`, `src/loop.ts:405-410` (ids assigned at Send); `src/draft-tools.ts:39-45, 84-86` [V] (edit location includes optional RIGHT/LEFT/LOCAL side, default RIGHT). Location-based folding and storage above are design requirements, not implemented or runtime-tested.
@@ -519,7 +533,6 @@ Release 1 = Phases 0–4. Each is one PR. `npm run check` passes in all; checks 
 - **Phase 1 check (owner decided: ship with the warning):** can a hidden thread get a read-only or no-workspace environment? SDK offers `permissionMode` `accept-edits|auto|full` only and placements `reuse|host|project-default|provider` (`personal` workspace meaning unchecked). Phase 1 checks BB's environment providers; if none fits, Settings' permission sentence stands as the mitigation.
 - **Unverified:** whether a hidden plugin thread can reach `bb` (PATH, `BB_THREAD_ID`) and run it without approval at `accept-edits`/`auto`. `run()` refusal covers it either way; matters only for how loudly to warn.
 - **Unverified:** which providers emit `thread/tokenUsage/updated`, and whether `cost` is filled. Tokens shown best-effort; no cost in UI.
-- **Unverified:** a running review agent picks up a `configure` tool-grant change (merge tools on/off) without `refreshAssistants` or an `ASSISTANT_TOOLS` bump.
 - **Unverified:** `threads.delete` on a hidden archived plugin thread succeeds and leaves `focus_threads` identity checks sound; fallback is archive-only.
 - **Unverified:** merge-turn compaction with 20 findings; measure in Phase 1's manual run.
 - **Lawyer's minute:** Apache attribution with no named upstream holder (04 §1.5).
