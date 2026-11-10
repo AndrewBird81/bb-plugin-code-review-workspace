@@ -218,7 +218,7 @@ const MERGE_RULES = [
 async function finish(bb: BbPluginApi, store: AsyncStore, key: string, run: FocusRun, reason?: string, stopped = false) {
   await store.exclusive(async (tx) => {
     const current = (await tx.getReview(key))?.focusRun;
-    if (current?.id !== run.id || current.state === "done" || current.state === "stopped") return;
+    if (current?.id !== run.id || current.state !== run.state || current.state === "done" || current.state === "stopped") return;
     if (reason) await uncheckedFindings(tx, key, current, reason);
     current.state = stopped ? "stopped" : "done";
     delete current.mergeAwaitingTools;
@@ -237,10 +237,15 @@ async function settle(bb: BbPluginApi, store: AsyncStore, key: string) {
   if (!findings.length && !run.focuses.some((focus) => focus.state === "failed")) return finish(bb, store, key, run);
   const rank = { blocking: 0, "should-fix": 1, question: 2, nit: 3 };
   const ordered = findings.filter((finding) => finding.status === "found").sort((a, b) => rank[a.severity] - rank[b.severity] || run.focuses.findIndex((focus) => focus.focusId === a.focusId) - run.focuses.findIndex((focus) => focus.focusId === b.focusId));
-  for (const finding of ordered.slice(20)) await store.saveFocusFinding({ ...finding, status: "not-checked", reason: "over the limit", decidedAt: Date.now() });
-  run.state = "merging";
-  await store.setLifecycle(key, { focusRun: run });
-  await sendMerge(bb, store, key, run);
+  const merging = await store.exclusive(async (tx) => {
+    const current = (await tx.getReview(key))?.focusRun;
+    if (current?.id !== run.id || current.state !== "finding") return null;
+    for (const finding of ordered.slice(20)) await tx.saveFocusFinding({ ...finding, status: "not-checked", reason: "over the limit", decidedAt: Date.now() });
+    current.state = "merging";
+    await tx.setLifecycle(key, { focusRun: current });
+    return current;
+  });
+  if (merging) await sendMerge(bb, store, key, merging);
 }
 async function sendMerge(bb: BbPluginApi, store: AsyncStore, key: string, run: FocusRun) {
   const threadId = await store.getAssistantThread(key);
@@ -249,8 +254,12 @@ async function sendMerge(bb: BbPluginApi, store: AsyncStore, key: string, run: F
     const grant = threadId ? runtime(bb).grants.get(threadId) : undefined;
     if (threadId && grant !== true && grant !== "next") {
       if ((await bb.sdk.threads.get({ threadId })).status !== "idle") {
-        run.mergeAwaitingTools = true;
-        await store.setLifecycle(key, { focusRun: run });
+        await store.exclusive(async (tx) => {
+          const current = (await tx.getReview(key))?.focusRun;
+          if (current?.id !== run.id || current.state !== "merging") return;
+          current.mergeAwaitingTools = true;
+          await tx.setLifecycle(key, { focusRun: current });
+        });
         return;
       }
       const stopped = await refreshAssistants(bb, store, [key]);
@@ -262,14 +271,17 @@ async function sendMerge(bb: BbPluginApi, store: AsyncStore, key: string, run: F
       if (before) runtime(bb).mergeBefore.set(run.id, before);
     }
     const count = (await store.focusFindings(key, run.id)).filter((finding) => finding.status === "found").length;
+    const current = await store.exclusive((tx) => tx.getReview(key));
+    if (current?.focusRun?.id !== run.id || current.focusRun.state !== "merging") return;
     const sent = await messageAssistant(bb, store, key, `Check the focuses' findings (${run.focuses.map((focus) => `${focus.label}: ${focus.findings ?? 0}`).join(", ")})`, `${MERGE_RULES}\n${count} findings to check.\n${untrusted("focus coverage", run.focuses.filter((focus) => focus.error || focus.unchecked?.length).map((focus) => `${focus.label}: ${focus.error ?? focus.unchecked!.join(", ")}`).join("\n"))}`, { kind: "automatic" });
     runtime(bb).assistants.set(sent.threadId, key);
-    if (sent.queuedMessageId) run.mergeMessageId = sent.queuedMessageId;
-    else run.mergeDispatchedAt = Date.now();
     const committed = await store.exclusive(async (tx) => {
       const current = (await tx.getReview(key))?.focusRun;
       if (current?.id !== run.id || current.state !== "merging") return false;
-      await tx.setLifecycle(key, { focusRun: run });
+      delete current.mergeAwaitingTools;
+      if (sent.queuedMessageId) current.mergeMessageId = sent.queuedMessageId;
+      else current.mergeDispatchedAt = Date.now();
+      await tx.setLifecycle(key, { focusRun: current });
       return true;
     });
     if (!committed && sent.queuedMessageId) await bb.sdk.threads.queuedMessages.delete({ threadId: sent.threadId, queuedMessageId: sent.queuedMessageId });
@@ -292,17 +304,26 @@ async function account(bb: BbPluginApi, store: AsyncStore, key: string, restarti
   }
   const findings = await store.focusFindings(key, run.id);
   if (findings.some((finding) => finding.status === "found") && !run.nudged) {
-    run.nudged = true;
-    await store.setLifecycle(key, { focusRun: run });
-    await messageAssistant(bb, store, key, "Finish checking the remaining focus findings.", MERGE_RULES, { kind: "automatic" });
+    const nudge = await store.exclusive(async (tx) => {
+      const current = (await tx.getReview(key))?.focusRun;
+      if (current?.id !== run.id || current.state !== "merging" || current.nudged) return false;
+      current.nudged = true;
+      await tx.setLifecycle(key, { focusRun: current });
+      return true;
+    });
+    if (nudge) await messageAssistant(bb, store, key, "Finish checking the remaining focus findings.", MERGE_RULES, { kind: "automatic" });
     return;
   }
   const threadId = await store.getAssistantThread(key);
   const after = threadId ? await tokens(bb, threadId) : undefined;
   const before = runtime(bb).mergeBefore.get(run.id);
   if (after && before) {
-    run.mergeTokens = { input: Math.max(0, after.input - before.input), output: Math.max(0, after.output - before.output) };
-    await store.setLifecycle(key, { focusRun: run });
+    await store.exclusive(async (tx) => {
+      const current = (await tx.getReview(key))?.focusRun;
+      if (current?.id !== run.id || current.state !== "merging") return;
+      current.mergeTokens = { input: Math.max(0, after.input - before.input), output: Math.max(0, after.output - before.output) };
+      await tx.setLifecycle(key, { focusRun: current });
+    });
   }
   await finish(bb, store, key, run, "unsettled");
 }
@@ -315,13 +336,20 @@ export function focusEvents(bb: BbPluginApi, store: AsyncStore): EventListeners 
     return serial(bb, key, async () => {
       const run = (await store.getReview(key))?.focusRun;
       if (run?.state !== "merging" || run.mergeMessageId !== id) return;
-      run[field] = Date.now();
+      const at = Date.now();
+      const before = field === "mergeDispatchedAt" ? await tokens(bb, threadId) : undefined;
+      const committed = await store.exclusive(async (tx) => {
+        const current = (await tx.getReview(key))?.focusRun;
+        if (current?.id !== run.id || current.state !== "merging" || current.mergeMessageId !== id) return false;
+        current[field] = at;
+        await tx.setLifecycle(key, { focusRun: current });
+        return true;
+      });
+      if (!committed) return;
       if (field === "mergeDispatchedAt") {
-        const before = await tokens(bb, threadId);
         if (before) runtime(bb).mergeBefore.set(run.id, before);
         else runtime(bb).mergeBefore.delete(run.id);
       }
-      await store.setLifecycle(key, { focusRun: run });
       if (field === "mergeCancelledAt") await account(bb, store, key);
     });
   };
