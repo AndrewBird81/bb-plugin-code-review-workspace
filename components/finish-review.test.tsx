@@ -1429,3 +1429,47 @@ test("in Finish review, Move to summary's Move and Replace summary are outlined,
   expect(filled(await slot.findByRole("dialog", { name: "Replace your summary?" }))).toEqual([]);
   slot.lifecycle.unmount();
 });
+
+test("Finish shows focus accounting, optional tokens, plain dropped/folded details and coverage with a fresh-run Check again", async () => {
+  const rerun = vi.fn(async () => ({ ok: true }));
+  const finding = { targetKey: "pr-42", runId: "focus-run", focusId: "docs", label: "Docs", file: "src/a.ts", line: 2, side: "RIGHT", severity: "nit", body: "<img src=x> **not markdown**", evidence: "<svg onload=alert(1)>", note: "<b>not confirmed</b>" };
+  const { slot } = await renderWorkspace({
+    review: {
+      agentReads: { head: "new", files: ["src/a.ts"] },
+      focusRun: { id: "focus-run", head: "new", state: "done", startedAt: 1, focuses: [{ focusId: "docs", label: "Docs", state: "done", queuedAt: 1, findings: 4, unchecked: ["<script>generated reference</script>"], tokens: { input: 40000, output: 500 } }], mergeTokens: { input: 400, output: 100 } },
+      focusFindings: [
+        { ...finding, id: "1", status: "kept", draftFile: "src/a.ts", draftLine: 2, draftSide: "RIGHT" },
+        { ...finding, id: "2", status: "folded", draftFile: "src/a.ts", draftLine: 1, draftSide: "RIGHT" },
+        { ...finding, id: "3", status: "dropped", reason: "not confirmed" },
+        { ...finding, id: "4", status: "not-checked", reason: "over the limit" },
+      ],
+    },
+    rpc: { rerunFocusRun: rerun, getDraft: () => ({ draft: draftOf({ suggestedVerdict: "APPROVE", unchecked: ["Didn't run tests"] }), stale: [] }) },
+  });
+  const view = await finish(slot);
+  const focus = view.getByRole("button", { name: /Focuses: Docs · 4 findings · 1 kept, 1 folded, 1 dropped · 41k tokens/ });
+  expect(focus.getAttribute("aria-expanded")).toBe("false");
+  expect(view.queryByText(finding.body)).toBeNull();
+  fireEvent.click(focus);
+  expect(view.getAllByText(finding.body)).toHaveLength(2);
+  expect(view.getAllByText("<b>not confirmed</b>")).toHaveLength(2);
+  expect(view.getByText(/Folded into src\/a.ts:1/)).toBeTruthy();
+  expect(view.getAllByRole("button", { name: "Show" }).length).toBeGreaterThanOrEqual(2);
+  expect(view.getAllByRole("button", { name: "What it didn’t check" })).toHaveLength(1);
+  fireEvent.click(view.getByRole("button", { name: "What it didn’t check" }));
+  expect(view.getByText("Didn't run tests")).toBeTruthy();
+  expect(view.getByText("Docs: <script>generated reference</script>")).toBeTruthy();
+  expect(view.getByText(/Docs: 1 finding not checked · over the limit/)).toBeTruthy();
+  fireEvent.click(view.getByRole("button", { name: "Check again" }));
+  await waitFor(() => expect(rerun).toHaveBeenCalledWith({ targetKey: "pr-42" }));
+  expect(slot.container.querySelector("img, script, svg[onload], b")).toBeNull();
+});
+
+test("Finish lists failed focuses without a verdict suggestion or token report", async () => {
+  const { slot } = await renderWorkspace({ review: { focusRun: { id: "f", head: "new", state: "done", startedAt: 1, focuses: [{ focusId: "docs", label: "Docs", state: "failed", queuedAt: 1, error: "didn't start" }] }, focusFindings: [] } });
+  const view = await finish(slot);
+  expect(view.getByText(/Focuses: Docs · 0 findings/).textContent).not.toContain("tokens");
+  fireEvent.click(view.getByRole("button", { name: "What it didn’t check" }));
+  expect(view.getByText("Docs: didn't start")).toBeTruthy();
+  expect(view.getByRole("button", { name: "Check again" })).toBeTruthy();
+});

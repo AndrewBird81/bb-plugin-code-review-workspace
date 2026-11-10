@@ -125,7 +125,7 @@ export function FinishView({ shown, revision }: {
                 onEdit={() => d.openComposer(SUMMARY_AT, false)} onAsk={() => d.openComposer(SUMMARY_AT, false, true)} onRemove={() => void d.saveSummary("", d.revisionRef.current)}
                 onUndo={() => void d.undo(SUMMARY_AT)} onRequest={(text) => void d.requestSummary(text)} />
             </Part>
-            {isPr && <Verdicts revision={revision} />}
+            {isPr ? <Verdicts revision={revision} /> : review?.focusRun && <FocusCoverage items={d.agentCoverage ? d.draft.unchecked ?? [] : []} />}
             {isPr && <BeforeYouApprove />}
             {isPr ? <GoesToGitHub items={items} replyDrafts={items.filter((item) => item.kind === "thread" && item.replyDraft).length} onList={openList} />
               : <Part title="Stays in BB"><p className="text-sm text-muted-foreground">{d.hint}</p>{notes.show && <PrivateNotes targetKey={targetKey} />}</Part>}
@@ -364,7 +364,7 @@ function PrDraftReady() {
 
 /** The verdict, the agent's suggestion with Switch to it, and its two ways into the draft: Use as draft and Request what's left. */
 function Verdicts({ revision }: { revision: string }) {
-  const { targetKey, openFinish } = useWorkspace();
+  const { targetKey, openFinish, review } = useWorkspace();
   const d = useDraft();
   const rpc = useRpc<typeof rpcContract>();
   const feedback = useComments(targetKey, "feedback");
@@ -418,14 +418,14 @@ function Verdicts({ revision }: { revision: string }) {
         </Button>)}
       </div>
       {d.ownPr && <p id={ownPrId} className="text-xs text-muted-foreground">{OWN_PR}</p>}
-      {(suggested && (suggested !== d.draft.verdict || !verdictPicked(d.draft)) && !(d.ownPr && suggested !== "COMMENT") || run && (run.suggestedVerdict || left || said) || checked || unchecked.length > 0) && (
+      {(suggested && (suggested !== d.draft.verdict || !verdictPicked(d.draft)) && !(d.ownPr && suggested !== "COMMENT") || run && (run.suggestedVerdict || left || said) || checked || unchecked.length > 0 || review?.focusRun) && (
         <section aria-label="Agent’s suggestion" className="flex flex-wrap items-center gap-x-2 gap-y-1.5 rounded-lg bg-(--ansi-13)/5 px-2.5 py-2">
           <p className="flex min-w-0 flex-1 basis-40 items-center gap-1.5 text-xs text-muted-foreground"><Icon name="Sparkles" className="size-3.5 shrink-0 text-(--ansi-13)" aria-hidden />
             {suggested && !(d.ownPr && suggested !== "COMMENT") ? `Agent suggests ${VERDICT_LABEL[suggested]}` : run?.suggestedVerdict ? `Agent suggests ${VERDICT_LABEL[run.suggestedVerdict]}` : left ? "The agent found open items" : "Agent’s check"}
           </p>
           {suggested && suggested !== d.draft.verdict && !d.ownPr && d.editable && <Button size="sm" variant="outline" className={cn("h-7 px-2 text-xs", TOUCH_CONTROL)} disabled={d.busy} onClick={() => d.chooseVerdict(suggested)}>Switch to {VERDICT_LABEL[suggested]}</Button>}
           {d.agentCoverage && d.agentCoverage.total > 0 && <MetaLine className="basis-full text-xs text-muted-foreground" items={[`Read ${readOf(d.agentCoverage)}`]} />}
-          {unchecked.length > 0 && <Unchecked items={unchecked} />}
+          <FocusCoverage items={unchecked} />
           {said && <div className="min-w-0 basis-full"><Clamped body={said} link /></div>}
           {run && (run.suggestedVerdict || left) && <span className="flex flex-wrap gap-1.5">
             {feedback?.suggestionInDraft
@@ -451,14 +451,68 @@ function Verdicts({ revision }: { revision: string }) {
   );
 }
 
+/** Run accounting stays in BB; finding prose is text, never the agent's Markdown. */
+function FocusCoverage({ items }: { items: readonly string[] }) {
+  const { targetKey, review, showLocation } = useWorkspace();
+  const rpc = useRpc<typeof rpcContract>();
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const run = review?.focusRun;
+  const findings = review?.focusFindings ?? [];
+  const active = run?.state === "finding" || run?.state === "merging";
+  const unchecked: ReactNode[] = items.slice(0, 5);
+  const gaps: ReactNode[] = [];
+  for (const focus of run?.focuses ?? []) {
+    if (focus.error || focus.state === "stopped") gaps.push(<span>{focus.label}: {focus.error ?? "stopped"}</span>);
+    for (const item of focus.unchecked ?? []) gaps.push(<span>{focus.label}: {item}</span>);
+    const reasons = new Map<string, number>();
+    for (const finding of findings.filter((finding) => finding.focusId === focus.focusId && finding.status === "not-checked")) {
+      const reason = finding.reason ?? "unsettled";
+      reasons.set(reason, (reasons.get(reason) ?? 0) + 1);
+    }
+    for (const [reason, count] of reasons) gaps.push(<span>{focus.label}: {plural(count, "finding")} not checked · {reason}</span>);
+  }
+  unchecked.push(...gaps);
+  async function again() {
+    setBusy(true);
+    try {
+      const result = await rpc.call("rerunFocusRun", { targetKey });
+      if (!result.ok) toast.error(result.error ?? "The focuses couldn’t start.");
+    } catch (error) { toast.error(error instanceof Error ? error.message : "Something went wrong"); }
+    finally { setBusy(false); }
+  }
+  const tokens = [...(run?.focuses.flatMap((focus) => focus.tokens ? [focus.tokens] : []) ?? []), ...(run?.mergeTokens ? [run.mergeTokens] : [])];
+  const total = tokens.reduce((sum, usage) => sum + usage.input + usage.output, 0);
+  const details = findings.filter((finding) => finding.status === "dropped" || finding.status === "folded");
+  if (!run && !unchecked.length) return null;
+  return <div className="min-w-0 basis-full space-y-1 text-xs text-muted-foreground">
+    {run && <>
+      <button type="button" aria-expanded={open} disabled={!details.length} onClick={() => setOpen(!open)} className={cn("flex min-h-7 items-center gap-1 rounded-md text-left enabled:hover:text-foreground", TOUCH_CONTROL)}>
+        <span>Focuses: {run.focuses.map((focus) => focus.label).join(", ")} · {plural(findings.length, "finding")} · {findings.filter((finding) => finding.status === "kept").length} kept, {findings.filter((finding) => finding.status === "folded").length} folded, {findings.filter((finding) => finding.status === "dropped").length} dropped{tokens.length > 0 ? ` · ${total >= 1000 ? `${Math.round(total / 1000)}k` : total} tokens` : ""}</span>
+        {details.length > 0 && <Icon name={open ? "ChevronDown" : "ChevronRight"} className="size-3 shrink-0" aria-hidden />}
+      </button>
+      {open && <ul className="space-y-2 pl-3">{details.map((finding) => <li key={finding.id} className="break-words">
+        <div className="flex items-center gap-2">
+          <span className="min-w-0 flex-1">{finding.file}:{finding.line} · {finding.status === "folded" ? `Folded into ${finding.draftFile ?? finding.file}:${finding.draftLine ?? finding.line}` : finding.reason ? finding.reason[0].toUpperCase() + finding.reason.slice(1) : "Dropped"}</span>
+          <Button variant="outline" size="sm" className={cn("shrink-0 text-xs", TOUCH_CONTROL)} onClick={() => showLocation(finding.draftFile ?? finding.file, finding.draftLine ?? finding.line, finding.draftSide ?? finding.side)}>Show</Button>
+        </div>
+        <p className="whitespace-pre-wrap">{finding.body}</p>
+        {finding.note && <p className="whitespace-pre-wrap">{finding.note}</p>}
+        {finding.evidence && <p className="whitespace-pre-wrap">{finding.evidence}</p>}
+      </li>)}</ul>}
+    </>}
+    {unchecked.length > 0 && <Unchecked items={unchecked} action={gaps.length > 0 ? <Button variant="outline" size="sm" className={TOUCH_CONTROL} disabled={busy || active} onClick={() => void again()}>Check again</Button> : undefined} />}
+  </div>;
+}
+
 /** What the agent says it didn't read or run, folded under its suggestion. It stays in BB. */
-function Unchecked({ items }: { items: readonly string[] }) {
+function Unchecked({ items, action }: { items: readonly ReactNode[]; action?: ReactNode }) {
   const [open, setOpen] = useState(false);
   return <div className="min-w-0 basis-full">
     <button type="button" aria-expanded={open} onClick={() => setOpen(!open)} className={cn("flex min-h-7 items-center gap-1 rounded-md text-xs text-muted-foreground hover:text-foreground", TOUCH_CONTROL)}>
       What it didn’t check<Icon name={open ? "ChevronDown" : "ChevronRight"} className="size-3" aria-hidden />
     </button>
-    {open && <ul className="list-disc space-y-0.5 pb-1 pl-5 text-xs text-muted-foreground">{items.slice(0, 5).map((item, index) => <li key={index}><InlineCode text={item} /></li>)}</ul>}
+    {open && <><ul className="list-disc space-y-0.5 pb-1 pl-5 text-xs text-muted-foreground">{items.map((item, index) => <li key={index}>{typeof item === "string" ? <InlineCode text={item} /> : item}</li>)}</ul>{action}</>}
   </div>;
 }
 
