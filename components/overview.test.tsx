@@ -59,7 +59,7 @@ async function agentTab() {
 }
 const main = (slot: Slot) => within(slot.getByRole("main"));
 
-test("a PR review's title on its Overview opens the pull request on GitHub, and in a chapter the band's goes back to the Overview", async () => {
+test.each([false, true])("a PR review's title on its Overview opens the pull request on GitHub, and in a chapter the band's goes back to the Overview (title-bar fallback: %s)", async (fallback) => {
   const slot = await renderWorkspace({ kind: "pr", number: 42, repo: "acme/web", title: "Fix token refresh race", url });
   const link = await slot.findByRole("link", { name: "Fix token refresh race" });
   expect(link.getAttribute("href")).toBe(url);
@@ -68,7 +68,10 @@ test("a PR review's title on its Overview opens the pull request on GitHub, and 
 
   fireEvent.click(slot.getByRole("button", { name: "Start reading: Refresh" }));
   await waitFor(() => expect(slot.queryByRole("heading", { name: "Fix token refresh race" })).toBeNull());
-  fireEvent.click(within(slot.getByRole("navigation", { name: "Breadcrumb" })).getByRole("button", { name: "web#42" }));
+  const breadcrumb = within(slot.getByRole("navigation", { name: "Breadcrumb" }));
+  if (fallback) await breadcrumb.findByRole("button", { name: "web#42 Fix token refresh race" });
+  // Without BB's title bar, the fallback appends the review title to this button's name.
+  fireEvent.click(breadcrumb.getByRole("button", { name: /^web#42(?: |$)/ }));
   expect(await slot.findByRole("heading", { name: "Fix token refresh race" })).toBeTruthy();
   slot.lifecycle.unmount();
 });
