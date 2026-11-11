@@ -106,9 +106,9 @@ const THREAD_LABELS: Record<string, { label: string; nonBlocking: boolean }> = {
   blocking: { label: "Blocking", nonBlocking: false }, shouldfix: { label: "Should fix", nonBlocking: false }, question: { label: "Question", nonBlocking: false },
   nit: { label: "Nit", nonBlocking: true }, fyi: { label: "FYI", nonBlocking: true }, optional: { label: "Optional", nonBlocking: true }, nonblocking: { label: "Non-blocking", nonBlocking: true },
 };
-// "**Nit:**", "**Nit**:", or "Nit:", in any case, at the start of the first comment, or after the
-// "**Pre-existing:**" a pre-existing problem posts with (src/draft.ts postedBody).
-const THREAD_LABEL = /^\s*(?:(\*\*|__)?pre-existing(?:\1:|:\1)\s*)?(\*\*|__)?(blocking|should[ -]fix|question|nit|fyi|optional|non[ -]?blocking)(?:\2:|:\2)/i;
+// "**Nit:**", "**Nit (Docs):**", "**Nit (Docs)**:", or "Nit:", in any case, at the start of the first
+// comment or after "**Pre-existing:**". An optional focus label doesn't change the severity (src/draft.ts postedBody).
+const THREAD_LABEL = /^\s*(?:(\*\*|__)?pre-existing(?:\1:|:\1)\s*)?(\*\*|__)?(blocking|should[ -]fix|question|nit|fyi|optional|non[ -]?blocking)(?: \([^)\n]{1,24}\))?(?:\2:|:\2)/i;
 
 /**
  * The label a thread's first comment starts with: a severity's (src/draft.ts), or nit, FYI, optional, or

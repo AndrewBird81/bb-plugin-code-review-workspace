@@ -155,6 +155,25 @@ test("a thread's label is its first comment's: a severity's, or a non-blocking o
   expect(threadLabel("**FYI: unclosed")).toBeNull();
 });
 
+test.each([
+  ["**Pre-existing:** **Nit (Docs):** x", { label: "Nit", nonBlocking: true }],
+  ["**Should fix (Docs):** x", { label: "Should fix", nonBlocking: false }],
+  ["**Nit (Docs)**: x", { label: "Nit", nonBlocking: true }],
+])("a focus-labeled thread keeps its severity: %s", (body, label) => {
+  expect(threadLabel(body)).toEqual(label);
+});
+
+test("a posted focus nit does not hold the author's turn", () => {
+  const posted = toGithubReviewPayload({
+    targetKey: "pr-1", verdict: "COMMENT", body: "", comments: [{ file: "src/a.ts", line: 3, side: "RIGHT", severity: "nit", introduced: false, focus: "Docs", body: "Rename this to `count`." }],
+  }, true, false, true).comments[0].body;
+  const signals = threadSignals([{
+    id: "PRRT_1", commentId: 1, reviewId: null, path: "src/a.ts", line: 3, originalLine: 3, startLine: null, side: "RIGHT", subjectType: "LINE",
+    body: posted, createdAt: 0, isResolved: false, resolvedBy: null, isOutdated: false, replies: [], status: "open", replyAt: null,
+  }]);
+  expect(signals.threads).toMatchObject({ total: 0, open: 0, nonBlocking: 1 });
+});
+
 test("fetchMyThreads reads a thread you started after the first 300, and stops at the thread list's 1,000", async () => {
   const node = (id: string, login: string) => ({
     id, isResolved: false, isOutdated: false, path: "a.ts", line: 1, originalLine: 1, startLine: null, diffSide: "RIGHT", subjectType: "LINE", resolvedBy: null,
