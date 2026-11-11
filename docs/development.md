@@ -41,12 +41,14 @@ docker rm -f crw-test-pg
 
 ## Browser regression test
 
-Use Node 24, matching the installed SQLite native module. Build and reload this plugin in an isolated test BB, then run:
+Use Node 24, matching the installed SQLite native module. The rehearsal used npm's `bb-app@0.49.0`: start it with `HOME='<FRESH_TEST_HOME>' npx --yes --package=bb-app@0.49.0 bb-app --data-dir '<TEST_BB_DATA_DIR>' --server-port <TEST_SERVER_PORT> --host-daemon-port <TEST_HOST_DAEMON_PORT>`.
+Keep `BB_SERVER_URL=http://127.0.0.1:<TEST_SERVER_PORT>` explicit on every BB command, using the test install's `bb`, not the live `BB_CLI`.
+Build and reload this plugin in that isolated test BB, then run (4331 below must match `<TEST_SERVER_PORT>`):
 
 ```sh
 npm ci
 npx playwright install chromium
-bb plugin build
+BB_SERVER_URL=http://127.0.0.1:4331 bb plugin build
 BB_SERVER_URL=http://127.0.0.1:4331 bb plugin reload code-review-workspace
 BB_E2E_URL=http://127.0.0.1:4331 npm test -- --project e2e
 ```
