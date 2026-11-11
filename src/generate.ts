@@ -3,7 +3,7 @@ import { stopFocusRunIn } from "./focus-run";
 import { completionNotifications } from "./completion-notifications";
 import { defaultPreferences, guidePreferencesPrompt, reReviewCheckPrompt, spawnExecution, type ReviewPreferences } from "./preferences";
 import { refreshAssistants, skipRun, startAutomaticReview } from "./agent";
-import { agentPlacement, machineUnavailable } from "./machines";
+import { agentPlacement, machineStatus, machineUnavailable } from "./machines";
 import { startVerification } from "./verification";
 import { baselineOf } from "./feedback-view";
 import type { Guide } from "./guide";
@@ -100,15 +100,17 @@ export async function guideWriterUnavailable(bb: BbPluginApi, store: AsyncStore)
  * The writer's permission mode on the project's defaults. Not the project's, as its tools need no shell or edits:
  * accept-edits where the project's provider runs in it, else auto, whose approvals bb reviews itself, so the hidden
  * writer waits on no one. Unset, so the project's own, when the provider runs in neither or can't be read.
- * Pass `known` when the defaults are already read.
+ * Pass `known` when the defaults are already read. An explicit host fails closed without a restricted mode.
  */
-export async function guideWriterMode(bb: BbPluginApi, projectId: string, known?: { providerId: string }): Promise<{ permissionMode?: "accept-edits" | "auto"; executionInputSources?: { permissionMode: "explicit" } }> {
+export async function guideWriterMode(bb: BbPluginApi, projectId: string, known?: { providerId: string }, hostId?: string): Promise<{ permissionMode?: "accept-edits" | "auto"; executionInputSources?: { permissionMode: "explicit" } }> {
   try {
-    const [defaults, providers] = await Promise.all([known ?? bb.sdk.projects.defaultExecutionOptions({ projectId }), bb.sdk.providers.list()]);
+    const [defaults, providers] = await Promise.all([known ?? bb.sdk.projects.defaultExecutionOptions({ projectId }), bb.sdk.providers.list(hostId ? { hostId } : undefined)]);
     const modes = providers.find((provider) => provider.id === defaults?.providerId)?.capabilities.permissionModes ?? [];
     const mode = (["accept-edits", "auto"] as const).find((candidate) => modes.includes(candidate));
+    if (!mode && hostId) throw new Error("No restricted permission mode");
     return mode ? { permissionMode: mode, executionInputSources: { permissionMode: "explicit" } } : {};
-  } catch {
+  } catch (error) {
+    if (hostId) throw new Error(`The focus's provider isn't available at restricted permissions on ${(await machineStatus(bb, hostId))?.name ?? "the review agent's machine"}.`, { cause: error });
     return {};
   }
 }

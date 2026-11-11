@@ -1,5 +1,6 @@
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import { z } from "zod";
+import { focusInstructions } from "../lib/focus-templates";
 import { ASSISTANT_INSTRUCTIONS_LIMIT, AUTO_START_REPOS_LIMIT, REPO_PATTERN, defaultPreferences, defaultFocusSettings, type FocusSettings, type AgentExecution, type ReviewPreferences } from "../lib/review-preferences";
 import { KNOB_RANGES, defaultKnobs, type KnobId, type Knobs } from "../lib/knobs";
 export { defaultPreferences, type AgentExecution, type ReviewPreferences } from "../lib/review-preferences";
@@ -58,20 +59,40 @@ export const knobsSchema = z.object({
 
 export const focusLabelSchema = z.string().trim().regex(/^[\p{L}\p{N} ._-]{1,24}$/u);
 
+export const focusSchema = z.object({
+  id: z.string().min(1).max(200), label: focusLabelSchema, enabled: z.boolean(),
+  template: z.string().min(1).max(200).optional(),
+  instructions: z.string().max(8000).optional(),
+  agent: agentExecutionSchema.omit({ hostId: true, permissionMode: true }).nullable().default(null),
+});
+
 export const focusSettingsSchema = z.object({
   enabled: z.boolean(),
   githubLabel: z.boolean(),
-  focuses: z.array(z.object({
-    id: z.string().min(1).max(200), label: focusLabelSchema, enabled: z.boolean(),
-    template: z.string().min(1).max(200).optional(),
-  })).max(12).refine((focuses) => focuses.filter((focus) => focus.enabled).length <= 4),
+  mergeEffort: z.enum(["same", "high"]),
+  focuses: z.array(focusSchema).max(12)
+    .refine((focuses) => focuses.filter((focus) => focus.enabled).length <= 4)
+    .refine((focuses) => focuses.every((focus) => focusInstructions(focus).trim()), "Focus instructions must not be blank.")
+    .refine((focuses) => new Set(focuses.map((focus) => focus.id)).size === focuses.length)
+    .refine((focuses) => new Set(focuses.map((focus) => focus.label.toLowerCase())).size === focuses.length),
 });
 
 /** Each invalid field takes its default. Unknown fields are dropped on read and save, as in readPreferences. */
 export function readFocusSettings(saved: unknown): FocusSettings {
   let value = saved;
   if (typeof value === "string") { try { value = JSON.parse(value); } catch { value = {}; } }
-  const record = value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+  const record = value && typeof value === "object" && !Array.isArray(value) ? { ...value as Record<string, unknown> } : {};
+  if (Array.isArray(record.focuses)) record.focuses = record.focuses.flatMap((focus: unknown) => {
+    if (!focus || typeof focus !== "object" || Array.isArray(focus)) return [];
+    const fields = focus as Record<string, unknown>;
+    if (!focusSchema.shape.id.safeParse(fields.id).success || !focusSchema.shape.label.safeParse(fields.label).success) return [];
+    const defaults: Record<string, unknown> = { enabled: false, agent: null };
+    const normalized = focusSchema.parse(Object.fromEntries(Object.entries(focusSchema.shape).map(([key, schema]) => {
+      const parsed = schema.safeParse(fields[key]);
+      return [key, parsed.success ? parsed.data : defaults[key]];
+    }).filter(([, value]) => value !== undefined)));
+    return focusInstructions(normalized).trim() ? [normalized] : [];
+  });
   return Object.fromEntries(Object.entries(focusSettingsSchema.shape).map(([key, schema]) => {
     const parsed = schema.safeParse(record[key]);
     return [key, parsed.success ? parsed.data : structuredClone(defaultFocusSettings[key as keyof FocusSettings])];
