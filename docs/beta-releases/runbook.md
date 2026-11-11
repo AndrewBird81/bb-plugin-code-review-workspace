@@ -30,9 +30,10 @@ Operator-only, after the disposable-BB rehearsal and separate approval for downt
 
    Do not copy an active SQLite WAL database with `cp`. Restore these backups into disposable targets and verify the expected data, secrets and ownership before continuing. Stop if the recovery bundle or measured restore time is unacceptable. Store the bundle privately off-server too.
 
-3. **Remove, then install `@main`.** This intentionally deletes host settings, secrets and schedules. No automatic first-switch rollback exists. Proceed only after the backup gate and owner authorization; do not skip confirmation.
+3. **Remove, then install `@main`.** This intentionally deletes host settings, secrets and schedules. No automatic first-switch rollback exists. Proceed only after the backup gate and owner authorization. For install, do not pass `--yes`; check the resolved source it shows before confirming.
 
    ```sh
+   # No confirmation prompt: this deletes settings and secrets immediately.
    bb plugin remove code-review-workspace
    bb plugin install git:github.com/AndrewBird81/bb-plugin-code-review-workspace@main
    ```
@@ -77,9 +78,10 @@ Operator-only, after the disposable-BB rehearsal and separate approval for downt
 
    Repeat switch step 5. Enabling after a disabled update is manual recovery, not a fresh protected activation window.
 
-3. **Restore for corruption, a failed first switch, or return to pre-focus code.** Keep CRW disabled and workers stopped. Restore the consistent pre-change SQLite/BB-state bundle and/or CRW Postgres snapshot using the rehearsed operator procedure. Restore Postgres into a separate target and extract CRW data; **never rewind the shared CNPG cluster**. Later edits may be lost; salvage separately. Only after data compatibility is established, repeat the backed-up removal and installation with the recorded exact known-good ref, then restore settings (step 4) and verify (step 5):
+3. **Restore for corruption, a failed first switch, or return to pre-focus code.** Keep CRW disabled and workers stopped. Restore the consistent pre-change SQLite/BB-state bundle and/or CRW Postgres snapshot using the rehearsed operator procedure. Restore Postgres into a separate target and extract CRW data; **never rewind the shared CNPG cluster**. Later edits may be lost; salvage separately. Only after data compatibility is established, repeat the backed-up removal and installation with the recorded exact known-good ref, then restore settings (step 4) and verify (step 5). For install, do not pass `--yes`; check the resolved source it shows before confirming:
 
    ```sh
+   # No confirmation prompt: this deletes settings and secrets immediately.
    bb plugin remove code-review-workspace
    bb plugin install 'git:github.com/AndrewBird81/bb-plugin-code-review-workspace@<RECORDED_KNOWN_GOOD_REF>'
    ```
