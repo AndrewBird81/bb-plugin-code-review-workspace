@@ -80,13 +80,15 @@ export function readFocusSettings(saved: unknown): FocusSettings {
   let value = saved;
   if (typeof value === "string") { try { value = JSON.parse(value); } catch { value = {}; } }
   const record = value && typeof value === "object" && !Array.isArray(value) ? { ...value as Record<string, unknown> } : {};
-  if (Array.isArray(record.focuses)) record.focuses = record.focuses.map((focus: unknown) => {
-    if (!focus || typeof focus !== "object" || Array.isArray(focus)) return focus;
+  if (Array.isArray(record.focuses)) record.focuses = record.focuses.flatMap((focus: unknown) => {
+    if (!focus || typeof focus !== "object" || Array.isArray(focus)) return [];
     const fields = focus as Record<string, unknown>;
-    return Object.fromEntries(Object.entries(focusSchema.shape).map(([key, schema]) => {
+    if (!focusSchema.shape.id.safeParse(fields.id).success || !focusSchema.shape.label.safeParse(fields.label).success) return [];
+    const defaults: Record<string, unknown> = { enabled: false, agent: null };
+    return [Object.fromEntries(Object.entries(focusSchema.shape).map(([key, schema]) => {
       const parsed = schema.safeParse(fields[key]);
-      return [key, parsed.success ? parsed.data : defaultFocusSettings.focuses[0][key as keyof FocusSettings["focuses"][number]]];
-    }).filter(([, value]) => value !== undefined));
+      return [key, parsed.success ? parsed.data : defaults[key]];
+    }).filter(([, value]) => value !== undefined))];
   });
   return Object.fromEntries(Object.entries(focusSettingsSchema.shape).map(([key, schema]) => {
     const parsed = schema.safeParse(record[key]);

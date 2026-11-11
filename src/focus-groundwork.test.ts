@@ -14,12 +14,12 @@ test("focus settings default off, read fields independently, and discard unknown
   expect(readPreferences({}, null, JSON.stringify({ enabled: true, focuses: "bad", future: true })).focuses).toEqual({ ...defaults, enabled: true });
   expect(readPreferences({}, null, { enabled: "bad", focuses: [], future: true }).focuses).toEqual({ ...defaults, focuses: [] });
   expect(readPreferences({}, null, { ...defaults, focuses: [{ ...defaults.focuses[0], future: true }] }).focuses).toEqual(defaults);
-  expect(readPreferences({}, null, { ...defaults, focuses: [{ id: "docs", label: 1 }] }).focuses).toEqual({ ...defaults, focuses: [{ id: "docs", label: "Docs", enabled: true, agent: null }] });
+  expect(readPreferences({}, null, { ...defaults, focuses: [{ id: "docs", label: 1 }] }).focuses).toEqual({ ...defaults, focuses: [] });
 });
 
-test.each(["**", "\n", "@x"])("unsafe focus label %j is rejected on save and defaults independently on read", async (label) => {
+test.each(["**", "\n", "@x"])("unsafe focus label %j is rejected on save and dropped on read", async (label) => {
   const focuses = { ...defaults, enabled: true, githubLabel: false, focuses: [{ ...defaults.focuses[0], label }] };
-  expect(readPreferences({}, null, focuses).focuses).toEqual({ ...focuses, focuses: defaults.focuses });
+  expect(readPreferences({}, null, focuses).focuses).toEqual({ ...focuses, focuses: [] });
   const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
   await expect(harness.behavior.callRpc("savePreferences", { preferences: { ...defaultPreferences, focuses }, revision: 0 })).rejects.toThrow();
