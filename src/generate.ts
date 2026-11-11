@@ -102,9 +102,9 @@ export async function guideWriterUnavailable(bb: BbPluginApi, store: AsyncStore)
  * writer waits on no one. Unset, so the project's own, when the provider runs in neither or can't be read.
  * Pass `known` when the defaults are already read.
  */
-export async function guideWriterMode(bb: BbPluginApi, projectId: string, known?: { providerId: string }): Promise<{ permissionMode?: "accept-edits" | "auto"; executionInputSources?: { permissionMode: "explicit" } }> {
+export async function guideWriterMode(bb: BbPluginApi, projectId: string, known?: { providerId: string }, hostId?: string): Promise<{ permissionMode?: "accept-edits" | "auto"; executionInputSources?: { permissionMode: "explicit" } }> {
   try {
-    const [defaults, providers] = await Promise.all([known ?? bb.sdk.projects.defaultExecutionOptions({ projectId }), bb.sdk.providers.list()]);
+    const [defaults, providers] = await Promise.all([known ?? bb.sdk.projects.defaultExecutionOptions({ projectId }), bb.sdk.providers.list(hostId ? { hostId } : undefined)]);
     const modes = providers.find((provider) => provider.id === defaults?.providerId)?.capabilities.permissionModes ?? [];
     const mode = (["accept-edits", "auto"] as const).find((candidate) => modes.includes(candidate));
     return mode ? { permissionMode: mode, executionInputSources: { permissionMode: "explicit" } } : {};
