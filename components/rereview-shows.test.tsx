@@ -639,8 +639,8 @@ test("without Settings to read, a re-review opens on Settings' default, and back
 }, 15_000);
 
 test("the diff narrowing by itself as the comparison arrives says so to screen readers", async () => {
-  const { slot, answer } = await reopenedWaiting();
-  const status = slot.getAllByRole("status").find((el) => el.classList.contains("sr-only"))!;
+  const { slot, code, answer } = await reopenedWaiting();
+  const status = within(code).getAllByRole("status").find((el) => el.classList.contains("sr-only"))!;
   expect(status.textContent).toBe("");
   answer();
   await waitFor(() => expect(status.textContent).toBe("Showing changes since your review · 1 of 2 files"));

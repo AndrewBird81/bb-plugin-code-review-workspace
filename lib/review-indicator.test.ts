@@ -46,3 +46,12 @@ test("a review's row shows its agent's status in its own words, or a spinner whi
   expect(reviewIndicator({ status: "generating", agentStatus: { indicator: "waiting-for-input", unread: false } })).toEqual({ indicator: "waiting-for-input", label: "Review agent needs your input" });
   expect(reviewIndicator({ status: "generating", agentStatus: { indicator: "unread-error", unread: true } })).toEqual({ indicator: "unread-error", label: "Review agent failed" });
 });
+
+test("active focuses keep the review glyph working after the general review ends", () => {
+  const focusRun = { state: "finding" as const };
+  expect(reviewIndicator({ status: "ready", focusRun })).toEqual({ indicator: "runtime", label: "Review agent working" });
+  expect(reviewIndicator({ status: "ready", focusRun: { state: "merging" } })).toEqual({ indicator: "runtime", label: "Review agent working" });
+  expect(reviewIndicator({ status: "ready", focusRun: { state: "done" } })).toBeNull();
+  expect(reviewIndicator({ status: "ready", focusRun, agentStatus: { indicator: "unread-success", unread: true } })?.indicator).toBe("runtime");
+  expect(reviewIndicator({ status: "ready", focusRun, agentStatus: { indicator: "waiting-for-input", unread: false } })?.indicator).toBe("waiting-for-input");
+});

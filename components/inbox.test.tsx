@@ -900,3 +900,12 @@ test("your own PR with comments waiting for your reply is back to you in Needs r
   expect(within(needs).queryByText("Quiet change")).toBeNull();
   slot.lifecycle.unmount();
 });
+
+test.each(["finding", "merging"])("All reviews keeps BB's working glyph while focuses are %s, even after General finishes", async (state) => {
+  const { slot } = await inbox([
+    { targetKey: "r", kind: "pr", number: 7, repo: "acme/app", title: "Change focuses", status: "ready", agentStatus: { indicator: "unread-success", unread: true }, focusRun: { state }, turn: turn("needs", "requested", "Review requested") },
+  ]);
+  const row = (await slot.findByText("Change focuses")).closest("button")!;
+  expect(row.querySelector("[data-thread-status-glyph]")!.getAttribute("data-thread-status-glyph")).toBe("runtime");
+  expect(row.textContent).toContain("Review agent working");
+});

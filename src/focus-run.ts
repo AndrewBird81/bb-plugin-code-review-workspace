@@ -100,22 +100,28 @@ async function tokens(bb: BbPluginApi, threadId: string): Promise<FocusTokens | 
   } catch { /* Usage is optional across providers. */ }
 }
 
-/** Called only after the automatic review was sent, not after a conversation or feedback check. */
-export async function startFocusRun(bb: BbPluginApi, store: AsyncStore, key: string): Promise<void> {
+/** After an automatic review, or an explicit fresh focus run; never after a conversation or feedback check. */
+export async function startFocusRun(bb: BbPluginApi, store: AsyncStore, key: string): Promise<{ ok: true } | { ok: false; error: string }> {
   const begun = await store.exclusive(async (tx) => {
     const preferences = (await tx.getPreferences()).preferences;
-    if (!preferences.focuses.enabled || !automaticReviewPrompt(preferences)) return null;
+    if (!preferences.focuses.enabled) return { error: "Review with focuses is off. Turn it on in Review settings." };
+    if (!automaticReviewPrompt(preferences)) return { error: "The automatic review is off or its prompt is blank. Check Review settings." };
     const review = await tx.getReview(key);
-    if (!review || !review.projectId || review.mergedInto || review.focusRun?.state === "finding" || review.focusRun?.state === "merging") return null;
-    if ((review.startedPrState ?? review.prState) === "CLOSED" || (review.startedPrState ?? review.prState) === "MERGED" || !mayRunUnattended(review, preferences, review.headSha)) return null;
+    if (!review) return { error: "This review no longer exists." };
+    if (!review.projectId) return { error: "This review has no project for its focuses." };
+    if (review.mergedInto) return { error: "This review was merged into another review. Open that review to run its focuses." };
+    if (review.focusRun?.state === "finding" || review.focusRun?.state === "merging") return { error: "A focus run is already active. Wait for it to finish or stop it first." };
+    const state = review.startedPrState ?? review.prState;
+    if (state === "CLOSED" || state === "MERGED") return { error: `This PR is ${state === "CLOSED" ? "closed" : "merged"}, so its focuses don’t run.` };
+    if (!mayRunUnattended(review, preferences, review.headSha)) return { error: "This review’s head isn’t approved for unattended agents. Check its trust settings before running focuses." };
     const focuses = preferences.focuses.focuses.filter((focus) => focus.enabled);
-    if (!focuses.length) return null;
+    if (!focuses.length) return { error: "No focuses are enabled. Enable one in Review settings." };
     const run: FocusRun = { id: randomUUID(), head: (await agentReadsHead(tx, key))!, startedAt: Date.now(), state: "finding", focuses: focuses.map((focus) => ({ focusId: focus.id, label: focus.label, state: "queued", queuedAt: Date.now() })) };
     await tx.clearFocusFindings(key);
     await tx.setLifecycle(key, { focusRun: run });
     return { run, preferences, review, guide: await tx.getGuide(key), bytes: (await tx.patch(key)).length };
   });
-  if (!begun) return;
+  if (begun.error !== undefined) return { ok: false, error: begun.error };
   const { run, preferences, review, guide, bytes } = begun;
   for (const focus of run.focuses) {
     runtime(bb).queue.push({ key, runId: run.id, focusId: focus.focusId, async start() {
@@ -215,6 +221,7 @@ export async function startFocusRun(bb: BbPluginApi, store: AsyncStore, key: str
   }
   changed(bb, key);
   pump(bb);
+  return { ok: true };
 }
 
 const MERGE_RULES = [

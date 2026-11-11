@@ -4,6 +4,7 @@ import { renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import { defaultPreferences } from "../src/preferences";
 import { ReviewSettings } from "./ReviewSettings";
 import { FocusStrip } from "./shell/FocusStrip";
+import { SettingsContext } from "../lib/settings";
 import type { FocusRun } from "../src/focus-model";
 
 afterEach(cleanup);
@@ -37,7 +38,8 @@ const run: FocusRun = { id: "run", head: "head", startedAt: 1, state: "finding",
 
 test("focus strip runs with Stop, hides Stop during dispatched merge, and shows one failure line", async () => {
   const stop = vi.fn(async () => ({ ok: true }));
-  const render = (value: FocusRun) => renderSlot({ component: () => <FocusStrip targetKey="r" run={value} /> }, {}, { rpc: { stopFocusRun: stop } });
+  const preferences = { ...defaultPreferences, focuses: { ...defaultPreferences.focuses, enabled: true } };
+  const render = (value: FocusRun) => renderSlot({ component: () => <SettingsContext.Provider value={{ preferences, fallback: preferences, settled: Promise.resolve(preferences) }}><FocusStrip targetKey="r" run={value} /></SettingsContext.Provider> }, {}, { rpc: { stopFocusRun: stop } });
   let slot = render(run);
   expect(slot.getByRole("status").textContent).toContain("Reviewing with focuses");
   fireEvent.click(slot.getByRole("button", { name: "Stop" }));
@@ -48,8 +50,8 @@ test("focus strip runs with Stop, hides Stop during dispatched merge, and shows 
   slot.lifecycle.unmount();
   slot = render({ ...run, state: "done", focuses: [{ ...run.focuses[0], state: "failed", error: "didn't start" }] });
   expect(slot.getAllByRole("status")).toHaveLength(1);
-  expect(slot.getByRole("status").textContent).toContain("Docs didn't finish: didn't start");
+  expect(slot.getByText("Docs didn't finish: didn't start")).toBeTruthy();
   slot.lifecycle.unmount();
   slot = render({ ...run, state: "done", focuses: [{ ...run.focuses[0], state: "done" }] });
-  expect(slot.queryByRole("status")).toBeNull();
+  expect(slot.getByRole("status").textContent).toBe("The focus run ended.");
 });

@@ -94,7 +94,7 @@ guide ready ──┬─ startAutomaticReview (sends the review) ─► review a
                                                                                 └─► …    ─► submit / fail / time out
 ```
 
-- **Trigger:** only when `startAutomaticReview` actually sends the review: after a first guide (`src/generate.ts:320` [V]) and on Run review (`src/turn-rpc.ts:59` [01]). When it returns `"conversation"` without reviewing (`src/agent.ts:314-319` [V]), no focus run. Gates checked once: automatic review on and prompt non-blank, `mayRunUnattended`, PR open, focuses enabled with ≥ 1 on.
+- **Trigger:** only when `startAutomaticReview` actually sends the review: after a first guide (`src/generate.ts:320` [V]) and on Run review (`src/turn-rpc.ts:59` [01]). When it returns `"conversation"` without reviewing (`src/agent.ts:314-319` [V]), no focus run. Gates checked once: automatic review on and prompt non-blank, `mayRunUnattended`, PR open, focuses enabled with ≥ 1 on. Explicit Run again / Check again starts a fresh focus run through those same gates, without resending the general review.
 - **Parallel, independent.** Focuses and the agent don't see each other's output until the merge (anchoring, 02 §1.2).
 - **Concurrency:** at most 2 focus threads running plugin-wide; the rest wait in a plugin-side queue (FIFO across reviews), not in BB. Plugin-queue time has no deadline of its own; it is bounded by the running focuses' start + run deadlines (each ≤ 15 min + `waitCap`). Hidden threads otherwise take host slots the user can't see (default one per processor, `bb concurrency-limit` skill [V]).
 - **Spawn** per focus through raw `bb.sdk.threads.spawn`, as for the guide writer, inside a separate `focusSpawning` scope: exact title → `{ targetKey, runId, focusId }`, registered before spawn. A focus is a one-shot worker, not a review agent: no `spawnAgent` provenance mark or asking-ledger entry. Never register focus spawns in `spawning` (`src/thread-review.ts:5-47` [V]).
@@ -156,7 +156,7 @@ guide ready ──┬─ startAutomaticReview (sends the review) ─► review a
 
 | Event | Behavior |
 |---|---|
-| One focus fails, times out or asks for permission | Others continue. Merge runs with what arrived. Strip names it, with Run ‹focus› again; Finish review lists it under What it didn't check |
+| One focus fails, times out or asks for permission | Others continue. Merge runs with what arrived. Strip names it, with Run again for a fresh focus run; Finish review lists it under What it didn't check |
 | Focus never starts (BB `pending`) | Start deadline (§4.2): 15 min after `spawnedAt` without `activeAt`, fail as `didn't start`, stop and archive its thread, free its plugin slot, start the next queued focus; merge proceeds without it |
 | Focus idle without submitting | One nudge, then failed: "stopped without reporting" |
 | Stop, while `finding` | Clears the plugin queue, aborts waits, stops and archives focus threads, findings `not-checked: stopped`, run `stopped`. The agent's own review isn't stopped |
@@ -256,13 +256,14 @@ Remove focus                                             Cancel   Done
 ```
 ✦ Reviewing with focuses · General ✓ · Docs… · using 1 agent slot             Stop
 ✦ Checking 7 findings from Docs…
-⚠ Docs didn’t finish: no report after 20 min. Its findings aren’t in the draft.  Run Docs again · Got it
+⚠ Docs didn’t finish: no report after 20 min. Its findings aren’t in the draft.  Run again · Got it
 ⚠ Docs didn't start: no start within 15 min of spawn.                          Run again · Got it
 ⓘ The focuses ran on a1b2c3d, 2 commits ago.                                     Run again · Got it
 ```
 
 - One line. Each focus with ✓, turning icon, ✕, or "waiting" while in the plugin queue; past three, "2 of 5 done".
-- At most one dismissible line per run: failure, older-commit and not-checked fold into it.
+- At most one dismissible line per run: failure, older-commit and not-checked fold into it. Run again starts a fresh focus run through the usual gates, never the general review. No selective retry in release 1. Omit the commits-ago count when unavailable. If the run matches the loaded diff but a push is newer, offer the existing Update / Update guide action instead of Run again; load the new diff first.
+- Got it persists per review and run in this browser. Off hides run UI. The polite live region announces phase changes only, not per-focus progress.
 - Nothing when a run ends clean: the "New from agent—not yet reviewed" badges are the news.
 - Under 440px: "✦ Focuses · 1 of 2 done" and Stop.
 - Review agent tab shows the merge message, marked "from Code Review Workspace". No per-focus chat.
@@ -303,7 +304,8 @@ Focuses: Docs · 7 findings · 3 kept, 1 folded, 3 dropped · 41k tokens ▸
    Docs: 2 findings not checked · Check again
 ```
 
-- Tokens shown only when BB reported them.
+- Tokens shown only when BB reported them; an incomplete sum is marked partial. The Focuses line includes the not-checked count. Focus coverage is hidden while focuses are off.
+- Check again starts a fresh focus run through the usual gates, never the general review; it replaces the previous run’s finding records. Selective recheck is deferred.
 - **Goes to GitHub:** "5 comments: 2 yours, 3 the agent’s (2 from Docs)". With the label on, each shows its posted label.
 - **GitHub:** `**Should fix (Docs):** body`; no severity → `**Docs:** body`; pre-existing → `**Pre-existing:** **Should fix (Docs):** body`. Post form shows it exactly.
 - **iPad:** as desktop. **Phone:** strip, short state line, editor as drawer.
@@ -423,7 +425,7 @@ Risky, flagged:
 |---|---|---|
 | 1 | A cheap review agent filters an expensive focus | Accept. Settings says "The review agent checks what they find" |
 | 2 | The agent's own findings aren't independently checked | Same as today. Decision 3's trigger |
-| 3 | Merge leaves findings unsettled | Fail closed: `not-checked`, Check again |
+| 3 | Merge leaves findings unsettled | Fail closed: `not-checked`, Check again starts a fresh focus run |
 | 4 | Show dropped findings? | Yes, folded in Finish review |
 | 5 | Rerun after new commits? | Manual Run again (Decision 4) |
 | 6 | Automatic review off, or returns `"conversation"` | No focus run |
@@ -509,6 +511,7 @@ Release 1 = Phases 0–4. Each is one PR. `npm run check` passes in all; checks 
 - Per-focus kept/removed counts in Settings.
 - Rerun on files changed since the last run, as a setting.
 - Per-focus path globs.
+- Selective retry and recheck of a focus or its unchecked findings.
 - Verifier stage, if Decision 3's trigger fires.
 
 ## What I verified vs. only read

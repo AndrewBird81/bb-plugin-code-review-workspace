@@ -1,6 +1,6 @@
 // Whose turn a review is, and your feedback on a PR: snoozing and seeing a review, starting what didn't run on its own,
 // checking and replying to your feedback, the suggested verdict, and what changed since your review.
-import { stopFocusRun } from "./focus-run";
+import { startFocusRun, stopFocusRun } from "./focus-run";
 import { isAssistantAnswering, startAutomaticReview } from "./agent";
 import { commentsKey } from "./draft";
 import { ghReplyThreadArgs, runGh } from "./gh";
@@ -28,6 +28,9 @@ export function register(deps: ServeDeps) {
 
   return {
     handlers: {
+      async rerunFocusRun({ targetKey }: { targetKey: string }) {
+        return startFocusRun(bb, store, targetKey);
+      },
       stopFocusRun: async ({ targetKey }: { targetKey: string }) => ({ ok: await stopFocusRun(bb, store, targetKey) }),
       async snoozeReview({ targetKey, snoozed, until }: { targetKey: string; snoozed: boolean; until?: number | null }) {
         const refused = await store.exclusive(async (tx) => {
