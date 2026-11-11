@@ -3,6 +3,8 @@ import type { BbPluginApi } from "@get-bb/plugin-sdk";
 
 export interface MigrationRecord { id: number; statement_hash: string | null }
 
+export const statementHash = (statement: string) => createHash("sha256").update(statement).digest("hex");
+
 /** Refuse incompatible history before either migrator writes; trailing unapplied statements are upgrades. */
 export function assertMigrationLedger(applied: MigrationRecord[], statements: readonly string[], backend: string): void {
   for (const { id, statement_hash: hash } of applied) {
@@ -10,7 +12,7 @@ export function assertMigrationLedger(applied: MigrationRecord[], statements: re
       throw new Error(`database is from a newer Code Review Workspace (migration ${id}); update the plugin`);
     }
     // Older SQLite ledgers have no hashes; the host migrator adopts those statements as before.
-    if (hash !== null && hash !== createHash("sha256").update(statements[id]!).digest("hex")) {
+    if (hash !== null && hash !== statementHash(statements[id]!)) {
       throw new Error(`${backend} migration ${id} does not match the statement it recorded; append a new migration instead of changing or reusing an index`);
     }
   }

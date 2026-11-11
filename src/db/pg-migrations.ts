@@ -7,8 +7,7 @@
 // - target_key, and each text column in a primary key or index, is COLLATE "C", so it sorts by code point as in SQLite
 //   whatever the database's collation, and tables join on target_key with one collation. Focus run ids share it too.
 // plugin_updates (src/plugin-updates.ts) stays in SQLite, so it isn't here.
-import { createHash } from "node:crypto";
-import { assertMigrationLedger, type MigrationRecord } from "./schema-guard";
+import { assertMigrationLedger, statementHash, type MigrationRecord } from "./schema-guard";
 import pg from "pg";
 import type { Sql } from "./sql";
 
@@ -95,8 +94,6 @@ export const PG_MIGRATIONS: readonly string[] = [
     PRIMARY KEY (target_key, run_id, id))`,
   `ALTER TABLE review_preferences ADD COLUMN focuses TEXT`,
 ];
-
-const statementHash = (statement: string) => createHash("sha256").update(statement).digest("hex");
 
 /** Whether migratePg has made `schema`'s tables: for the plugin, only bb review storage migrate does. */
 export async function pgSchemaMigrated(sql: Sql, schema: string): Promise<boolean> {
