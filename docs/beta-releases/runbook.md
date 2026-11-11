@@ -78,7 +78,24 @@ Operator-only, after the disposable-BB rehearsal and separate approval for downt
 
    Repeat switch step 5. Enabling after a disabled update is manual recovery, not a fresh protected activation window.
 
-3. **Restore for corruption, a failed first switch, or return to pre-focus code.** Keep CRW disabled and workers stopped. Restore the consistent pre-change SQLite/BB-state bundle and/or CRW Postgres snapshot using the rehearsed operator procedure. Restore Postgres into a separate target and extract CRW data; **never rewind the shared CNPG cluster**. Later edits may be lost; salvage separately. Only after data compatibility is established, repeat the backed-up removal and installation with the recorded exact known-good ref, then restore settings (step 4) and verify (step 5). For install, do not pass `--yes`; check the resolved source it shows before confirming:
+3. **Restore for corruption, a failed first switch, or return to pre-focus code.** Keep CRW disabled and workers stopped. Restore the consistent pre-change SQLite/BB-state bundle using the rehearsed operator procedure. For Postgres, `pg_restore` cannot rename the schema in the dump; recover in this order:
+
+   1. Preserve the migrated schema under a salvage name, using the original `postgresSchema` from the saved config:
+
+      ```sql
+      ALTER SCHEMA "<ORIGINAL_POSTGRES_SCHEMA>" RENAME TO "code_review_workspace_salvage_<DATE>";
+      ```
+
+   2. Restore the pre-change schema dump unchanged under its original name, using a restore operator able to restore its recorded ownership. Never use `--clean`. Verify the restored tables are owned by CRW's role, not the restore operator.
+
+      ```sh
+      PGSERVICEFILE='<PRIVATE_PGSERVICE_FILE>' PGPASSFILE='<PRIVATE_PGPASS_FILE>' \
+        pg_restore --dbname='service=<PG_SERVICE>' --exit-on-error '<PRIVATE_RECOVERY_DIR>/crw.dump'
+      ```
+
+   3. After data compatibility is established, reinstall below, then restore settings (step 4), including the original `postgresSchema` and its database's `postgresUrl`, **before reloading**. `storage:owner` records only the backend; it stays `postgres`. Keep the salvage schema for later extraction; never point old code at it or rewind the shared CNPG cluster. Verify (step 5) against the restored data. Later edits may be lost.
+
+   For install, do not pass `--yes`; check the resolved source it shows before confirming:
 
    ```sh
    # No confirmation prompt: this deletes settings and secrets immediately.
