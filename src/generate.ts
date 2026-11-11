@@ -3,7 +3,7 @@ import { stopFocusRunIn } from "./focus-run";
 import { completionNotifications } from "./completion-notifications";
 import { defaultPreferences, guidePreferencesPrompt, reReviewCheckPrompt, spawnExecution, type ReviewPreferences } from "./preferences";
 import { refreshAssistants, skipRun, startAutomaticReview } from "./agent";
-import { agentPlacement, machineUnavailable } from "./machines";
+import { agentPlacement, machineStatus, machineUnavailable } from "./machines";
 import { startVerification } from "./verification";
 import { baselineOf } from "./feedback-view";
 import type { Guide } from "./guide";
@@ -110,7 +110,7 @@ export async function guideWriterMode(bb: BbPluginApi, projectId: string, known?
     if (!mode && hostId) throw new Error("No restricted permission mode");
     return mode ? { permissionMode: mode, executionInputSources: { permissionMode: "explicit" } } : {};
   } catch (error) {
-    if (hostId) throw new Error(`The focus's provider isn't available at restricted permissions on ${hostId}.`, { cause: error });
+    if (hostId) throw new Error(`The focus's provider isn't available at restricted permissions on ${(await machineStatus(bb, hostId))?.name ?? "the review agent's machine"}.`, { cause: error });
     return {};
   }
 }

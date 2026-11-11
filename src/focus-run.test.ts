@@ -1,5 +1,5 @@
 import { afterEach, expect, test, vi } from "vitest";
-import { createFakePluginHost, makeThreadResponse, makeQueueEntry } from "@get-bb/plugin-sdk/testing";
+import { createFakePluginHost, makeHostResponse, makeThreadResponse, makeQueueEntry } from "@get-bb/plugin-sdk/testing";
 import { failingCall, testStore } from "./test-store.test-support";
 import { defaultPreferences } from "./preferences";
 import { startFocusRun, stopFocusRun, recoverFocusRuns, focusEvents, recordFocusTools, focusReported, focusRuntimeSpawned } from "./focus-run";
@@ -87,6 +87,7 @@ test.each([false, true])("focus override uses its provider's lowest mode on remo
 
 test.each(["missing", "full-only", "unreadable"])("remote %s override provider fails closed without spawning", async (availability) => {
   const s = await setup();
+  s.harness.sdk.stub("hosts.get", async () => makeHostResponse({ id: "remote", name: "Review workstation" }));
   s.harness.sdk.stub("projects.list", async () => [{ id: "personal", kind: "personal" }]);
   s.harness.sdk.stub("providers.list", async () => {
     if (availability === "unreadable") throw new Error("offline");
@@ -94,7 +95,7 @@ test.each(["missing", "full-only", "unreadable"])("remote %s override provider f
   });
   await s.store.savePreferences({ ...defaultPreferences, assistantAgent: { hostId: "remote", providerId: "reviewer", model: "large", reasoningLevel: "low", permissionMode: "full" }, focuses: { ...defaultPreferences.focuses, enabled: true, focuses: [{ ...defaultPreferences.focuses.focuses[0], agent: { providerId: "override", model: "small", reasoningLevel: "high" } }] } }, 1);
   await startFocusRun(s.bb, s.store, "r");
-  await vi.waitFor(async () => expect((await s.store.getReview("r"))?.focusRun?.focuses[0]).toMatchObject({ state: "failed", error: expect.stringContaining("remote") }));
+  await vi.waitFor(async () => expect((await s.store.getReview("r"))?.focusRun?.focuses[0]).toMatchObject({ state: "failed", error: expect.stringContaining("Review workstation") }));
   expect(s.harness.inspection.sdk.callsTo("threads.spawn")).toHaveLength(0);
 });
 
@@ -109,10 +110,12 @@ test("a missing override on server placement cannot inherit the project's broad 
 test("mode lookup on an explicit host throws without a restricted mode; the guide writer keeps its fallback", async () => {
   const s = await setup();
   s.harness.sdk.stub("providers.list", async () => [{ id: "override", capabilities: { permissionModes: ["full"] } }]);
-  await expect(guideWriterMode(s.bb, "p", { providerId: "override" }, "remote")).rejects.toThrow(/remote/);
+  s.harness.sdk.stub("hosts.get", async () => makeHostResponse({ id: "remote", name: "Review workstation" }));
+  await expect(guideWriterMode(s.bb, "p", { providerId: "override" }, "remote")).rejects.toThrow(/Review workstation/);
   await expect(guideWriterMode(s.bb, "p", { providerId: "override" })).resolves.toEqual({});
   s.harness.sdk.stub("providers.list", async () => { throw new Error("offline"); });
-  await expect(guideWriterMode(s.bb, "p", { providerId: "override" }, "remote")).rejects.toThrow(/remote/);
+  s.harness.sdk.stub("hosts.get", async () => { throw Object.assign(new Error("Not found"), { status: 404 }); });
+  await expect(guideWriterMode(s.bb, "p", { providerId: "override" }, "remote")).rejects.toThrow(/the review agent's machine/);
   await expect(guideWriterMode(s.bb, "p", { providerId: "override" })).resolves.toEqual({});
 });
 
