@@ -54,6 +54,7 @@ test("add blank or template, validate editor, remove, cap saved and hold Save ab
   expect((dialog.getByRole("button", { name: "Done" }) as HTMLButtonElement).disabled).toBe(true);
   fireEvent.change(dialog.getByRole("textbox", { name: "Name" }), { target: { value: "New" } });
   expect(dialog.getByRole("textbox", { name: "Instructions" }).getAttribute("maxlength")).toBe("8000");
+  fireEvent.change(dialog.getByRole("textbox", { name: "Instructions" }), { target: { value: "Check for incorrect retry behavior." } });
   fireEvent.click(dialog.getByRole("button", { name: "Done" }));
   expect(slot.getByText("4 focuses can run at once")).toBeTruthy();
   expect(slot.getByRole("button", { name: "Save settings" }).getAttribute("aria-disabled")).toBe("true");
@@ -70,6 +71,25 @@ test("add blank or template, validate editor, remove, cap saved and hold Save ab
   }
   expect((slot.getByRole("button", { name: "Add focus" }) as HTMLButtonElement).disabled).toBe(true);
   expect(slot.getByText("12 saved focuses maximum")).toBeTruthy();
+});
+
+test.each(["blank", "template"])("Done refuses empty or whitespace instructions for a %s focus", async (kind) => {
+  const { slot, save } = await settings();
+  if (kind === "blank") {
+    fireEvent.click(slot.getByRole("button", { name: "Add focus" }));
+    fireEvent.click(slot.getByRole("button", { name: "Blank focus" }));
+  } else fireEvent.click(slot.getByRole("button", { name: "Edit Docs" }));
+  const dialog = within(slot.getByRole("dialog", { name: "Edit focus" }));
+  for (const instructions of ["", " \n\t "]) {
+    fireEvent.change(dialog.getByRole("textbox", { name: "Instructions" }), { target: { value: instructions } });
+    const done = dialog.getByRole("button", { name: "Done" }) as HTMLButtonElement;
+    expect(done.disabled).toBe(true);
+    fireEvent.click(done);
+    expect(slot.getByRole("dialog", { name: "Edit focus" })).toBeTruthy();
+  }
+  fireEvent.change(dialog.getByRole("textbox", { name: "Instructions" }), { target: { value: "Check retry behavior." } });
+  expect((dialog.getByRole("button", { name: "Done" }) as HTMLButtonElement).disabled).toBe(false);
+  expect(save).not.toHaveBeenCalled();
 });
 
 test("typing the template text again drops the override on Done", async () => {

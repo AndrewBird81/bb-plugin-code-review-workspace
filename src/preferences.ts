@@ -1,5 +1,6 @@
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import { z } from "zod";
+import { focusInstructions } from "../lib/focus-templates";
 import { ASSISTANT_INSTRUCTIONS_LIMIT, AUTO_START_REPOS_LIMIT, REPO_PATTERN, defaultPreferences, defaultFocusSettings, type FocusSettings, type AgentExecution, type ReviewPreferences } from "../lib/review-preferences";
 import { KNOB_RANGES, defaultKnobs, type KnobId, type Knobs } from "../lib/knobs";
 export { defaultPreferences, type AgentExecution, type ReviewPreferences } from "../lib/review-preferences";
@@ -71,6 +72,7 @@ export const focusSettingsSchema = z.object({
   mergeEffort: z.enum(["same", "high"]),
   focuses: z.array(focusSchema).max(12)
     .refine((focuses) => focuses.filter((focus) => focus.enabled).length <= 4)
+    .refine((focuses) => focuses.every((focus) => focusInstructions(focus).trim()), "Focus instructions must not be blank.")
     .refine((focuses) => new Set(focuses.map((focus) => focus.id)).size === focuses.length)
     .refine((focuses) => new Set(focuses.map((focus) => focus.label.toLowerCase())).size === focuses.length),
 });
@@ -85,10 +87,11 @@ export function readFocusSettings(saved: unknown): FocusSettings {
     const fields = focus as Record<string, unknown>;
     if (!focusSchema.shape.id.safeParse(fields.id).success || !focusSchema.shape.label.safeParse(fields.label).success) return [];
     const defaults: Record<string, unknown> = { enabled: false, agent: null };
-    return [Object.fromEntries(Object.entries(focusSchema.shape).map(([key, schema]) => {
+    const normalized = focusSchema.parse(Object.fromEntries(Object.entries(focusSchema.shape).map(([key, schema]) => {
       const parsed = schema.safeParse(fields[key]);
       return [key, parsed.success ? parsed.data : defaults[key]];
-    }).filter(([, value]) => value !== undefined))];
+    }).filter(([, value]) => value !== undefined)));
+    return focusInstructions(normalized).trim() ? [normalized] : [];
   });
   return Object.fromEntries(Object.entries(focusSettingsSchema.shape).map(([key, schema]) => {
     const parsed = schema.safeParse(record[key]);

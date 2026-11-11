@@ -88,7 +88,7 @@ export function FocusSettings({ value, reviewAgent, disabled, onChange }: { valu
         <div className="flex flex-wrap items-center gap-2">
           {!editing.added && <Button variant="ghost" className={`${TARGET} mr-auto`} onClick={() => { onChange((current) => ({ ...current, focuses: current.focuses.filter((entry) => entry.id !== focus.id) })); setEditing(null); }}>Remove focus</Button>}
           <Button variant="ghost" className={TARGET} onClick={() => setEditing(null)}>Cancel</Button>
-          <Button className={TARGET} disabled={disabled || !!problem || !!incomplete || instructions.length > 8000} onClick={() => {
+          <Button className={TARGET} disabled={disabled || !!problem || !!incomplete || !instructions.trim() || instructions.length > 8000} onClick={() => {
             const saved = { ...focus, label: focus.label.trim() };
             if (template && saved.instructions === template.instructions) delete saved.instructions;
             onChange((current) => ({ ...current, focuses: editing.added ? [...current.focuses, saved] : current.focuses.map((entry) => entry.id === focus.id ? saved : entry) }));

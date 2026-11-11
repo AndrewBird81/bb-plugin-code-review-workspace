@@ -36,10 +36,31 @@ test("bad fields default independently, including inside a focus; old records ga
 
 test("corrupt focuses do not replace valid neighbors or turn a blank focus into Docs", () => {
   const valid = { ...focus, id: "valid", label: "Valid", instructions: "Keep this" };
-  const blank = { id: "blank", label: "Blank", enabled: "bad", template: 42, agent: { providerId: "incomplete" }, instructions: 42 };
+  const blank = { id: "blank", label: "Blank", enabled: "bad", template: 42, agent: { providerId: "incomplete" }, instructions: "Check this" };
   for (const corrupt of [null, 42, { ...focus, id: "" }, { ...focus, label: "[unsafe]" }]) {
-    expect(readFocusSettings({ ...settings, focuses: [focus, corrupt, valid, blank] }).focuses).toEqual([focus, valid, { id: "blank", label: "Blank", enabled: false, agent: null }]);
+    expect(readFocusSettings({ ...settings, focuses: [focus, corrupt, valid, blank] }).focuses).toEqual([focus, valid, { id: "blank", label: "Blank", enabled: false, agent: null, instructions: "Check this" }]);
   }
+});
+
+test("savePreferences refuses blank effective instructions and the reader drops only those focuses", async () => {
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
+  disposers.push(() => harness.lifecycle.dispose());
+  await plugin(bb);
+  for (const enabled of [false, true]) for (const invalid of [
+    { id: "blank", label: "Blank", enabled, agent: null },
+    { id: "blank", label: "Blank", enabled, agent: null, instructions: "" },
+    { id: "blank", label: "Blank", enabled, agent: null, instructions: " \n\t " },
+    { ...focus, id: "cleared", label: "Cleared", enabled, instructions: "" },
+    { ...focus, id: "cleared", label: "Cleared", enabled, instructions: " \n\t " },
+  ]) {
+    const focuses = { ...defaultPreferences.focuses, focuses: [focus, invalid] };
+    await expect(harness.behavior.callRpc("savePreferences", { preferences: { ...defaultPreferences, focuses }, revision: 0 })).rejects.toThrow();
+    expect((await testStore(bb).getPreferences()).revision).toBe(0);
+    expect(readFocusSettings(focuses).focuses).toEqual([focus]);
+  }
+  const valid = { ...defaultPreferences.focuses, focuses: [focus, { id: "custom", label: "Custom", enabled: true, agent: null, instructions: "Check retry behavior." }] };
+  const saved = await harness.behavior.callRpc("savePreferences", { preferences: { ...defaultPreferences, focuses: valid }, revision: 0 }) as any;
+  expect(saved.preferences.focuses).toEqual(valid);
 });
 
 test("savePreferences revalidates enabled caps and unique ids and names after merging old-page fields", async () => {
