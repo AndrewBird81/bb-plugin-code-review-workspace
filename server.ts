@@ -121,6 +121,7 @@ export default async function plugin(bb: BbPluginApi) {
   // Once a day, drop the stored diffs of reviews out of play for a month. BB keeps the schedule, so a reload doesn't prune again.
   bb.background.schedule("prune-old-diffs", "17 4 * * *", async () => { await served?.pruneOld(); });
   if (storage.kind === "sqlite") {
+    // Deliberately let schema refusal fail activation so a managed update can roll back to the previous build.
     serve(servePlugin(bb, await openStore(bb, createStore(bb)), true));
     return;
   }
