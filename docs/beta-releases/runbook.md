@@ -95,12 +95,12 @@ Operator-only, after the disposable-BB rehearsal and separate approval for downt
 
    3. After data compatibility is established, reinstall below, then restore settings (step 4), including the original `postgresSchema` and its database's `postgresUrl`, **before reloading**. `storage:owner` records only the backend; it stays `postgres`. Keep the salvage schema for later extraction; never point old code at it or rewind the shared CNPG cluster. Verify (step 5) against the restored data. Later edits may be lost.
 
-   For install, do not pass `--yes`; check the resolved source it shows before confirming:
+   To return to stable update tracking, reinstall with `@^1.0.0` below. Until `v1.13.0` is tagged, it resolves to `v1.12.1`; check the resolved version and SHA against the recorded known-good source before confirming. Keep the recorded SHA for verification, not as the install selector. If the range offers an incompatible newer release, cancel; use an exact known-good tag only for deliberately **pinned** recovery. With an exact tag, `bb plugin update` reports `pinned`; escaping it needs another backed-up remove/install that deletes settings and secrets. Do not pass `--yes`.
 
    ```sh
    # No confirmation prompt: this deletes settings and secrets immediately.
    bb plugin remove code-review-workspace
-   bb plugin install 'git:github.com/AndrewBird81/bb-plugin-code-review-workspace@<RECORDED_KNOWN_GOOD_REF>'
+   bb plugin install 'git:github.com/AndrewBird81/bb-plugin-code-review-workspace@^1.0.0'
    ```
 
 Fetch/engine/build failure before activation leaves the previous install intact: repair `main` and retry. A later managed update's activation error may trigger BB's default 30-second local-snapshot rollback, but Postgres is outside it and some startup failures only report needs-configuration. A first remove/install has no previous registration to restore; a successful update's snapshot is cleaned up. Never bypass the schema guard or assume old code is safe on newer data; released 1.12.1 lacks the guard. Recovery time and acceptable data loss must come from rehearsal, not a promised SLA.
