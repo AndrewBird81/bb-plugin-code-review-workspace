@@ -197,6 +197,28 @@ describe.skipIf(!testUrl)("against Postgres (CRW_TEST_PG_URL)", () => {
       .toEqual([{ table_name: "extra_a" }]);
   });
 
+  test("a future ledger refuses an older build without changing the ledger or schema", async () => {
+    const schema = newSchema();
+    const sql = connect(schema);
+    await migratePg(sql, schema, [...PG_MIGRATIONS, `CREATE TABLE future_only (id INTEGER)`]);
+    const before = await recorded(schema);
+    const shape = await pgShape(schema);
+    await expect(migratePg(sql, schema)).rejects.toThrow(
+      `database is from a newer Code Review Workspace (migration ${PG_MIGRATIONS.length}); update the plugin`);
+    expect(await recorded(schema)).toEqual(before);
+    expect(await pgShape(schema)).toEqual(shape);
+  });
+
+  test("a pre-focus ledger upgrades without changing its existing rows", async () => {
+    const schema = newSchema();
+    const sql = connect(schema);
+    await migratePg(sql, schema, PG_MIGRATIONS.slice(0, 40));
+    const before = await recorded(schema);
+    await migratePg(sql, schema);
+    expect((await recorded(schema)).slice(0, 40)).toEqual(before);
+    expect(await recorded(schema)).toHaveLength(PG_MIGRATIONS.length);
+  });
+
   test("applied statements aren't run again, and one appended is applied alone", async () => {
     const schema = newSchema();
     const sql = connect(schema);

@@ -6,7 +6,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
 import type { PluginAgentConfigurationContext } from "@get-bb/plugin-sdk";
-import { createStore } from "./store";
+import { createStore, SQLITE_MIGRATIONS } from "./store";
+import Database from "better-sqlite3";
 import plugin from "../server";
 import { queueStore } from "./store-queue";
 
@@ -54,6 +55,21 @@ test("an install that already has its own data, or is itself guided-review, impo
 
   const former = createFakePluginHost({ pluginId: "guided-review", dataDir });
   expect(await queueStore(createStore(former.bb)).listReviews()).toEqual([]);
+});
+
+test("a newer former install is checked before copying any tables", async () => {
+  const dataDir = await formerDataDir();
+  const former = new Database(join(dataDir, "plugins", "guided-review", "data.db"));
+  try {
+    former.prepare("INSERT INTO _bb_migrations (id, applied_at) VALUES (?, 1)").run(SQLITE_MIGRATIONS.length);
+    const before = former.serialize();
+    const { bb } = createFakePluginHost({ pluginId: "code-review-workspace", dataDir });
+    expect(() => createStore(bb)).toThrow("database is from a newer Code Review Workspace");
+    expect(bb.storage.database().prepare("SELECT name FROM sqlite_master").all()).toEqual([]);
+    expect(former.serialize()).toEqual(before);
+  } finally {
+    former.close();
+  }
 });
 
 test("with no former install, the store starts empty", async () => {

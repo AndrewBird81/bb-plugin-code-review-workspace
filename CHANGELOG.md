@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.13.0-beta.1 — 2026-11-11
+
+Review with focuses is an opt-in canary: independent agents check the diff, and the review agent confirms their findings before drafting comments. Still **BB 0.48+** (plugin SDK **0.6.79+**) with Node 24+; stable Git ranges such as `^1.0.0` exclude this prerelease. Tracking `@main` needs the backed-up source switch in the [canary runbook](docs/beta-releases/runbook.md), not an ordinary update from a stable range.
+
+- **Focuses, Phases 0–4:** opt-in groundwork and stored findings; restricted focus workers and review-agent confirmation; optional focus labels in GitHub posting previews; progress, coverage and recovery in the review; and a Settings editor for instructions and execution choices, including on phones. Focuses do not rerun automatically on pushes. Their lowest provider permissions can still allow edits in the review checkout.
+- **Startup safety:** SQLite and Postgres refuse a database with an unknown migration id or a changed recorded statement hash before migrating or writing the Store. Missing trailing migrations still upgrade normally; legacy SQLite hashes are adopted by BB as before. PR and main CI run typecheck, tests and lint.
+- **Data and recovery:** three additive migrations (40–42) add focus threads, findings and preferences. Back up before updating. Repair forward while retaining migration history; the guard does not undo migrations or protect released 1.12.1. Returning to pre-focus code requires stopping workers and restoring a consistent pre-focus snapshot; later edits can be lost. See the [runbook](docs/beta-releases/runbook.md#recovery).
+
 ## 1.12.1 — 2026-11-09
 
 The Ask agent button opens the review agent's chat empty. Still **BB 0.48+** (plugin SDK **0.6.79+**) with Node 24+; installs at `^1.0.0` update to 1.12.1. 1.12.1 adds no migration, so rolling back to 1.12.0 keeps everything.

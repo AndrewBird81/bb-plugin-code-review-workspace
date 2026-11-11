@@ -4,6 +4,8 @@ Notes for whoever runs the BB server Code Review Workspace is installed on. The 
 
 ## Updates
 
+For the backed-up stable-to-`main` canary switch and recovery, follow the [main canary runbook](beta-releases/runbook.md).
+
 - **Settings → Plugin updates** checks for a compatible release and offers **Update now**. **Update automatically when idle** is off by default; on, the plugin checks hourly after five idle minutes, and updates only with every Code Review Workspace and Settings page closed and no generation, save, or submission in progress. BB handles failed-install rollback.
 - `bb plugin update code-review-workspace` also updates it. Close the plugin's pages first, since BB's external update command does not use the in-plugin activity guard.
 - Installs from a Git range, such as `^1.0.0`, follow its compatible releases (1.x). Local directories and exact tags are pinned and do not receive automatic updates.

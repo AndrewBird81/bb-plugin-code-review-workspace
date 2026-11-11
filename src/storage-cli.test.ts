@@ -43,13 +43,13 @@ import { createFakePluginHost, type FakePluginHarness } from "@get-bb/plugin-sdk
 import plugin from "../server";
 import { tableChecksums } from "../scripts/store-reads";
 import { pgSql, type PgSql } from "./db/pg";
-import { migratePg } from "./db/pg-migrations";
+import { migratePg, PG_MIGRATIONS } from "./db/pg-migrations";
 import { sqliteSql, type Sql } from "./db/sql";
 import { testPgOptions, testPgUrl, testSchemaName } from "./db/pg-test.test-support";
 import { STORAGE_OWNER_KEY } from "./storage";
 import { STORAGE_USAGE } from "./storage-cli";
 import { pgTablesWithRows, sqliteTables } from "./storage-copy";
-import { createStore, migrateSqlite } from "./store";
+import { createStore, migrateSqlite, SQLITE_MIGRATIONS } from "./store";
 import { queueStore } from "./store-queue";
 
 const PLUGIN = "code-review-workspace";
@@ -340,8 +340,49 @@ describe.skipIf(!testPgUrl)("bb review storage, moving the reviews (CRW_TEST_PG_
     expect(db.inTransaction).toBe(false);
 
     db.prepare(`INSERT INTO _bb_migrations (id, applied_at, statement_hash) VALUES (43, 1, 'later')`).run();
+    const before = db.prepare("SELECT * FROM _bb_migrations ORDER BY id").all();
     expect((await run(harness, "migrate")).stderr).toBe("Nothing was copied:\n  - SQLite's data.db has migration 43, which this version doesn't have: a newer version made it.");
+    expect(db.prepare("SELECT * FROM _bb_migrations ORDER BY id").all()).toEqual(before);
     expect(await schemaExists(schema)).toBe(false);
+  });
+
+  test.each(["migrate", "export-sqlite"])("%s combines incompatible ledgers before either migrator writes", async (command) => {
+    const { schema, settings } = postgresSettings();
+    const { bb, harness } = await host(command === "migrate" ? settings : { ...settings, storageBackend: "sqlite" }, command === "migrate" ? undefined : "postgres");
+    const { db } = seed(bb);
+    const pg = connection(schema);
+    await migratePg(pg, schema);
+    db.prepare(`INSERT INTO _bb_migrations (id, applied_at, statement_hash) VALUES (43, 1, 'later')`).run();
+    await pg.run(`UPDATE crw_migrations SET statement_hash = 'changed' WHERE id = 3`);
+    const sqliteBefore = db.prepare("SELECT * FROM _bb_migrations ORDER BY id").all();
+    const pgBefore = await pg.all("SELECT * FROM crw_migrations ORDER BY id");
+    const filesBefore = readdirSync(dirname(db.name));
+    const migrate = vi.spyOn(bb.storage, "migrate");
+    await plugin(bb);
+    expect((await run(harness, command)).stderr).toBe([
+      command === "migrate" ? "Nothing was copied:" : "Nothing was exported:",
+      "  - SQLite's data.db has migration 43, which this version doesn't have: a newer version made it.",
+      `  - Postgres schema "${schema}"'s migration 3 isn't this version's.`,
+    ].join("\n"));
+    expect(migrate).not.toHaveBeenCalled();
+    expect(db.prepare("SELECT * FROM _bb_migrations ORDER BY id").all()).toEqual(sqliteBefore);
+    expect(await pg.all("SELECT * FROM crw_migrations ORDER BY id")).toEqual(pgBefore);
+    expect(readdirSync(dirname(db.name))).toEqual(filesBefore);
+    expect(await bb.storage.kv.get(STORAGE_OWNER_KEY)).toBe(command === "migrate" ? undefined : "postgres");
+  });
+
+  test.each(["migrate", "export-sqlite"])("%s still upgrades a trailing-missing legacy SQLite ledger", async (command) => {
+    const { schema, settings } = postgresSettings();
+    const { bb, harness } = await host(command === "migrate" ? settings : { ...settings, storageBackend: "sqlite" }, command === "migrate" ? undefined : "postgres");
+    const db = bb.storage.database();
+    bb.storage.migrate(db, SQLITE_MIGRATIONS.slice(0, 40));
+    db.exec("ALTER TABLE _bb_migrations DROP COLUMN statement_hash");
+    const pg = connection(schema);
+    await migratePg(pg, schema, command === "migrate" ? PG_MIGRATIONS.slice(0, 40) : PG_MIGRATIONS);
+    await plugin(bb);
+    expect(await run(harness, command)).toMatchObject({ exitCode: 0, stderr: "" });
+    expect(db.prepare("SELECT count(*) AS n FROM _bb_migrations").get()).toEqual({ n: SQLITE_MIGRATIONS.length });
+    expect(await pg.get("SELECT count(*) AS n FROM crw_migrations")).toEqual({ n: PG_MIGRATIONS.length });
   });
 
   test("migrate stopped before it commits, as a cancelled command or a reload stops it, leaves Postgres empty and SQLite owning the reviews", async () => {

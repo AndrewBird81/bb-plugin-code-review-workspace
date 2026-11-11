@@ -277,9 +277,20 @@ test("long runs of openers that close nothing, and of images, are read in linear
 
 test("in a rendered file, a link's or an image's URL with long runs of spaces inside is read in linear time", () => {
   for (const html of [(url: string) => `<a href="${url}">z</a>`, (url: string) => `<img src="${url}">`]) {
-    const started = performance.now();
-    linkImages(html(`x${" ".repeat(64_000)}y`), { tree: TREE });
-    expect(performance.now() - started).toBeLessThan(250);
+    const small = html(`x${" ".repeat(8_000)}y`);
+    const large = html(`x${" ".repeat(64_000)}y`);
+    const elapsed = (input: string) => {
+      const started = performance.now();
+      linkImages(input, { tree: TREE });
+      return performance.now() - started;
+    };
+    // Warm both paths, then use medians so one GC pause or scheduler stall doesn't decide the result.
+    elapsed(small);
+    elapsed(large);
+    const times = Array.from({ length: 3 }, () => [elapsed(small), elapsed(large)]);
+    const median = (index: number) => times.map((pair) => pair[index]).sort((a, b) => a - b)[1];
+    // Eight times the input: allow 3× scheduling noise over linear growth, but not quadratic growth (64×).
+    expect(median(1)).toBeLessThan(median(0) * 24);
   }
 }, 60_000);
 
