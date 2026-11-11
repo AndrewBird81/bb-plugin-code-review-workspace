@@ -5,7 +5,7 @@ import { testSql, testStore } from "./test-store.test-support";
 import { REVIEW_TABLES } from "./store";
 import plugin from "../server";
 
-const defaults = { enabled: false, githubLabel: true, focuses: [{ id: "docs", label: "Docs", enabled: true, template: "docs" }] };
+const defaults = defaultPreferences.focuses;
 
 test("focus settings default off, read fields independently, and discard unknown fields", () => {
   expect(defaultPreferences.focuses).toEqual(defaults);
@@ -14,11 +14,11 @@ test("focus settings default off, read fields independently, and discard unknown
   expect(readPreferences({}, null, JSON.stringify({ enabled: true, focuses: "bad", future: true })).focuses).toEqual({ ...defaults, enabled: true });
   expect(readPreferences({}, null, { enabled: "bad", focuses: [], future: true }).focuses).toEqual({ ...defaults, focuses: [] });
   expect(readPreferences({}, null, { ...defaults, focuses: [{ ...defaults.focuses[0], future: true }] }).focuses).toEqual(defaults);
-  expect(readPreferences({}, null, { ...defaults, focuses: [{ id: "docs", label: 1 }] }).focuses).toEqual(defaults);
+  expect(readPreferences({}, null, { ...defaults, focuses: [{ id: "docs", label: 1 }] }).focuses).toEqual({ ...defaults, focuses: [{ id: "docs", label: "Docs", enabled: true, agent: null }] });
 });
 
 test.each(["**", "\n", "@x"])("unsafe focus label %j is rejected on save and defaults independently on read", async (label) => {
-  const focuses = { enabled: true, githubLabel: false, focuses: [{ ...defaults.focuses[0], label }] };
+  const focuses = { ...defaults, enabled: true, githubLabel: false, focuses: [{ ...defaults.focuses[0], label }] };
   expect(readPreferences({}, null, focuses).focuses).toEqual({ ...focuses, focuses: defaults.focuses });
   const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
@@ -36,7 +36,7 @@ test("focus labels are trimmed and accept letters, numbers and safe punctuation"
 });
 
 test("githubLabel defaults per field; a page from Phase 0/1 keeps the saved label setting", async () => {
-  expect(readPreferences({}, null, { enabled: true, githubLabel: "bad", focuses: [] }).focuses).toEqual({ enabled: true, githubLabel: true, focuses: [] });
+  expect(readPreferences({}, null, { enabled: true, githubLabel: "bad", focuses: [] }).focuses).toEqual({ ...defaults, enabled: true, focuses: [] });
   const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
   const store = testStore(bb);
@@ -73,7 +73,7 @@ test("pre-focus pages keep the saved settings, and focus saves drop fields this 
   const { focuses: _omitted, ...older } = defaultPreferences;
   const saved = await harness.behavior.callRpc("savePreferences", { preferences: older, revision: 1 }) as any;
   expect(saved.preferences.focuses).toEqual(focuses);
-  const future = { ...focuses, mergeEffort: "high", focuses: [{ ...focuses.focuses[0], agent: { model: "future" } }] };
+  const future = { ...focuses, futureSetting: "future", focuses: [{ ...focuses.focuses[0], futureField: "future" }] };
   await store.savePreferences({ ...defaultPreferences, focuses: future }, 2);
   expect((await store.getPreferences()).preferences.focuses).toEqual(focuses);
   for (const invalid of [{ enabled: "yes", focuses: [] }, { enabled: true, focuses: Array(13).fill(defaults.focuses[0]) }]) {

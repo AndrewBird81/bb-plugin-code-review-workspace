@@ -18,18 +18,22 @@ export interface Focus {
   label: string;
   enabled: boolean;
   template?: string;
+  instructions?: string;
+  agent: Omit<AgentExecution, "hostId" | "permissionMode"> | null;
 }
 
 export interface FocusSettings {
   enabled: boolean;
   githubLabel: boolean;
+  mergeEffort: "same" | "high";
   focuses: Focus[];
 }
 
 export const defaultFocusSettings: FocusSettings = {
   enabled: false,
   githubLabel: true,
-  focuses: [{ id: "docs", label: "Docs", enabled: true, template: "docs" }],
+  mergeEffort: "same",
+  focuses: [{ id: "docs", label: "Docs", enabled: true, template: "docs", agent: null }],
 };
 
 export interface ReviewPreferences {
