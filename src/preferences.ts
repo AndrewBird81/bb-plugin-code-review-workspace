@@ -56,10 +56,13 @@ export const knobsSchema = z.object({
   reviewAgentActs: z.boolean(), reviewChangesLine: z.boolean(), trackOwnPrs: z.boolean(),
 }).strict();
 
+export const focusLabelSchema = z.string().trim().regex(/^[\p{L}\p{N} ._-]{1,24}$/u);
+
 export const focusSettingsSchema = z.object({
   enabled: z.boolean(),
+  githubLabel: z.boolean(),
   focuses: z.array(z.object({
-    id: z.string().min(1).max(200), label: z.string().min(1).max(24), enabled: z.boolean(),
+    id: z.string().min(1).max(200), label: focusLabelSchema, enabled: z.boolean(),
     template: z.string().min(1).max(200).optional(),
   })).max(12).refine((focuses) => focuses.filter((focus) => focus.enabled).length <= 4),
 });

@@ -22,11 +22,13 @@ export interface Focus {
 
 export interface FocusSettings {
   enabled: boolean;
+  githubLabel: boolean;
   focuses: Focus[];
 }
 
 export const defaultFocusSettings: FocusSettings = {
   enabled: false,
+  githubLabel: true,
   focuses: [{ id: "docs", label: "Docs", enabled: true, template: "docs" }],
 };
 

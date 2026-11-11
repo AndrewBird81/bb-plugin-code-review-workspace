@@ -41,6 +41,11 @@ test("it says where it posts and as whom, then shows exactly what posts, as writ
   expect(submit).toHaveBeenCalledTimes(1);
 });
 
+test.each(["**Should fix (Docs):** Wrong docs.", "**Docs:** Wrong docs.", "**Pre-existing:** **Should fix (Docs):** Wrong docs."])("the Post form preserves the exact GitHub label: %s", async (body) => {
+  const { slot } = await renderForm({ ...shown, parts: [{ label: "a.ts:1", body, path: true }] });
+  expect(slot.getByText(body).textContent).toBe(body);
+});
+
 test("a merge says how it's done, its button says Merge, and Don't merge closes it without merging", async () => {
   const { slot, submit, cancel } = await renderForm({ ...shown, title: "Merge web#42 as @casey", action: "Merge", button: "Merge", parts: [], notes: [], details: ["Squashed into one commit, at abc1234, the commit you reviewed."] });
   expect(slot.queryByText("Exactly what posts:")).toBeNull();

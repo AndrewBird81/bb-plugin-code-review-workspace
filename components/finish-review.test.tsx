@@ -90,6 +90,46 @@ async function finish(slot: Slot) {
 }
 const submit = (view: ReturnType<typeof within>) => view.getByRole("button", { name: /^Submit to GitHub/ });
 
+test.each([true, false])("Goes to GitHub shows the exact focus comment with githubLabel=%s", async (githubLabel) => {
+  const { slot } = await renderWorkspace({ rpc: {
+    getPreferences: () => ({ preferences: { ...defaultPreferences, focuses: { ...defaultPreferences.focuses, githubLabel } }, revision: 0 }),
+    getDraft: () => ({ draft: draftOf({ comments: [{ ...comments[0], author: "agent", focus: "Docs", introduced: false }] }), stale: [] }),
+  } });
+  const view = await finish(slot);
+  const goes = within(view.getByRole("heading", { name: "Goes to GitHub" }).closest("section")!);
+  if (githubLabel) expect(goes.getByText("**Pre-existing:** **Blocking (Docs):** Upper case reads as a constant.")).toBeTruthy();
+  else expect(goes.queryByText(/Upper case reads as a constant/)).toBeNull();
+  slot.lifecycle.unmount();
+});
+
+test.each([false, true])("default preferences keep the original GitHub overview with moved comments=%s", async (moved) => {
+  const { slot } = await renderWorkspace({ rpc: {
+    getDraft: () => ({ draft: draftOf(), stale: moved ? [comments[0]] : [] }),
+  } });
+  const view = await finish(slot);
+  const section = view.getByRole("heading", { name: "Goes to GitHub" }).closest("section")!;
+  const goes = within(section);
+  expect(goes.queryByText("Moves to summary on Submit anyway")).toBeNull();
+  expect(goes.queryByText(/Upper case reads as a constant|Spacing\./)).toBeNull();
+  expect(section.querySelectorAll(":scope > ul")).toHaveLength(1);
+  slot.lifecycle.unmount();
+});
+
+test.each(["older", "outside"])("with one inline focus label, Goes to GitHub shows both previews and moves an %s-diff comment to the summary", async (kind) => {
+  const comment = { ...comments[0], line: kind === "outside" ? 99 : 2, author: "agent" };
+  const focus = { ...comments[1], focus: "Docs" };
+  const { slot } = await renderWorkspace({ rpc: {
+    getDraft: () => ({ draft: draftOf({ body: "Summary.", comments: [comment, focus] }), stale: kind === "older" ? [comment] : [] }),
+  } });
+  const view = await finish(slot);
+  const goes = within(view.getByRole("heading", { name: "Goes to GitHub" }).closest("section")!);
+  expect(goes.getByText("Moves to summary on Submit anyway")).toBeTruthy();
+  expect(goes.getByText("**Nit (Docs):** Spacing.")).toBeTruthy();
+  expect(goes.getByText((_, element) => element?.tagName === "P" && element.textContent === `Summary.\n\n- On \`src/a.ts:${comment.line}\` (an earlier diff): **Blocking:** Upper case reads as a constant.`)).toBeTruthy();
+  expect(goes.queryByText(/Blocking \\(Docs\\)/)).toBeNull();
+  slot.lifecycle.unmount();
+});
+
 test("a reply draft whose thread isn't listed, as when GitHub's threads didn't load, isn't counted as one to send", async () => {
   const { slot } = await renderWorkspace({ rpc: { getReplyDrafts: () => ({ drafts: [{ threadId: "gone", body: "Still throws for me.", author: "reviewer", updatedAt: now }] }) } });
   const view = await finish(slot);

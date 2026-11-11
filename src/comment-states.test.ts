@@ -102,7 +102,7 @@ test("on your own change, Submit posts only open comments: never sent, resolved 
   await call("resolveComment", { targetKey: KEY, ...at(1), state: "resolved" });
   await call("resolveComment", { targetKey: KEY, ...at(2), state: "dismissed" });
   const draft = await store.getDraft(KEY);
-  expect(toGithubReviewPayload(draft, false, true).comments.map((c) => c.body)).toEqual(["Line 4."]);
+  expect(toGithubReviewPayload(draft, false, true, true).comments.map((c) => c.body)).toEqual(["Line 4."]);
   expect(await submit(store, call)).toEqual({ ok: true, url: undefined });
   expect(posts()).toEqual([{ event: "COMMENT", body: "", comments: [{ path: "a.ts", line: 4, side: "RIGHT", body: "Line 4." }], commit_id: "sha2" }]);
   // GitHub has line 4; the three that didn't post stay, as they were.
@@ -150,7 +150,7 @@ test("a reopened comment goes with the next Send, with its id, and posts with Su
   await call("resolveComment", { targetKey: KEY, ...at(2), state: "resolved" });
   await call("reopenComment", { targetKey: KEY, ...at(3) });
   expect(await states(store)).toEqual([["c1", "resolved"], ["c2", "resolved"], ["c3", "open"], [null, null]]);
-  expect(toGithubReviewPayload(await store.getDraft(KEY), false, true).comments.map((c) => c.body)).toEqual(["Line 3.", "Line 4."]);
+  expect(toGithubReviewPayload(await store.getDraft(KEY), false, true, true).comments.map((c) => c.body)).toEqual(["Line 3.", "Line 4."]);
   // A resolved one isn't sent again until you reopen it.
   await expect(call("sendToSourceThread", { targetKey: KEY, comments: [at(1)] })).rejects.toThrow("The comment on a.ts:1 is resolved. Reopen it to send it again.");
   expect(await call("sendToSourceThread", { targetKey: KEY, comments: [at(3)] })).toMatchObject({ ok: true, sendN: 2 });
@@ -213,7 +213,7 @@ test("Undo right after Resolve or Dismiss puts a comment back as sent, with its 
   expect((await comments(store))[0]).toEqual(before);
   expect((await store.getReview(KEY))!.fixes).toMatchObject({ sent: 3, reported: 1 });
   // Not open: the next Send, of what's open, leaves it out, and Submit doesn't post it.
-  expect(toGithubReviewPayload(await store.getDraft(KEY), false, true).comments.map((c) => c.body)).toEqual(["Line 4."]);
+  expect(toGithubReviewPayload(await store.getDraft(KEY), false, true, true).comments.map((c) => c.body)).toEqual(["Line 4."]);
   // Only a resolved or dismissed comment goes back.
   await expect(call("reopenComment", { targetKey: KEY, ...at(4), undo: true })).rejects.toThrow("There's nothing to undo");
   await call("resolveComment", { targetKey: KEY, ...at(2), state: "dismissed" });

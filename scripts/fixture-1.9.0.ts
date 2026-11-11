@@ -240,7 +240,7 @@ async function storeChecks(backend: string, store: AsyncStore, sql: Sql) {
   const payloads: Record<string, unknown> = {};
   for (const k of reviews) {
     const draft = await store.getDraft(k);
-    payloads[k] = { plain: toGithubReviewPayload(draft, false, false), own: toGithubReviewPayload(draft, false, true) };
+    payloads[k] = { plain: toGithubReviewPayload(draft, false, false, false), own: toGithubReviewPayload(draft, false, true, false) };
   }
   writeFileSync(join(out, `payloads-1.8.1-${backend}.json`), formatDump(payloads));
   const { own } = payloads[keys.converted] as { own: Posted };

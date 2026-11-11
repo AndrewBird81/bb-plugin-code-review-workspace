@@ -5,22 +5,53 @@ import { testSql, testStore } from "./test-store.test-support";
 import { REVIEW_TABLES } from "./store";
 import plugin from "../server";
 
-const defaults = { enabled: false, focuses: [{ id: "docs", label: "Docs", enabled: true, template: "docs" }] };
+const defaults = { enabled: false, githubLabel: true, focuses: [{ id: "docs", label: "Docs", enabled: true, template: "docs" }] };
 
 test("focus settings default off, read fields independently, and discard unknown fields", () => {
   expect(defaultPreferences.focuses).toEqual(defaults);
   expect(readPreferences({}).focuses).toEqual(defaults);
   expect(readPreferences({}, null, "not json").focuses).toEqual(defaults);
   expect(readPreferences({}, null, JSON.stringify({ enabled: true, focuses: "bad", future: true })).focuses).toEqual({ ...defaults, enabled: true });
-  expect(readPreferences({}, null, { enabled: "bad", focuses: [], future: true }).focuses).toEqual({ enabled: false, focuses: [] });
+  expect(readPreferences({}, null, { enabled: "bad", focuses: [], future: true }).focuses).toEqual({ ...defaults, focuses: [] });
   expect(readPreferences({}, null, { ...defaults, focuses: [{ ...defaults.focuses[0], future: true }] }).focuses).toEqual(defaults);
   expect(readPreferences({}, null, { ...defaults, focuses: [{ id: "docs", label: 1 }] }).focuses).toEqual(defaults);
+});
+
+test.each(["**", "\n", "@x"])("unsafe focus label %j is rejected on save and defaults independently on read", async (label) => {
+  const focuses = { enabled: true, githubLabel: false, focuses: [{ ...defaults.focuses[0], label }] };
+  expect(readPreferences({}, null, focuses).focuses).toEqual({ ...focuses, focuses: defaults.focuses });
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
+  await plugin(bb);
+  await expect(harness.behavior.callRpc("savePreferences", { preferences: { ...defaultPreferences, focuses }, revision: 0 })).rejects.toThrow();
+  await harness.lifecycle.dispose();
+});
+
+test("focus labels are trimmed and accept letters, numbers and safe punctuation", async () => {
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
+  await plugin(bb);
+  const focuses = { ...defaults, focuses: [{ ...defaults.focuses[0], label: "  文档 2._-  " }] };
+  const result = await harness.behavior.callRpc("savePreferences", { preferences: { ...defaultPreferences, focuses }, revision: 0 }) as any;
+  expect(result.preferences.focuses.focuses[0].label).toBe("文档 2._-");
+  await harness.lifecycle.dispose();
+});
+
+test("githubLabel defaults per field; a page from Phase 0/1 keeps the saved label setting", async () => {
+  expect(readPreferences({}, null, { enabled: true, githubLabel: "bad", focuses: [] }).focuses).toEqual({ enabled: true, githubLabel: true, focuses: [] });
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
+  await plugin(bb);
+  const store = testStore(bb);
+  await store.savePreferences({ ...defaultPreferences, focuses: { ...defaults, githubLabel: false } }, 0);
+  const { githubLabel: _omitted, ...older } = defaults;
+  const saved = await harness.behavior.callRpc("savePreferences", { preferences: { ...defaultPreferences, focuses: { ...older, enabled: true } }, revision: 1 }) as any;
+  expect(saved.preferences.focuses).toEqual({ ...defaults, enabled: true, githubLabel: false });
+  expect((await store.getPreferences()).preferences.focuses.githubLabel).toBe(false);
+  await harness.lifecycle.dispose();
 });
 
 test("focus settings save apart from value; a pre-focus build's save leaves the column intact", async () => {
   const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   const store = testStore(bb), sql = testSql(bb);
-  const focuses = { ...defaults, enabled: true };
+  const focuses = { ...defaults, enabled: true, githubLabel: false };
   await store.savePreferences({ ...defaultPreferences, focuses }, 0);
   expect((await store.getPreferences()).preferences.focuses).toEqual(focuses);
   const row = await sql.get<{ value: string; focuses: string }>(`SELECT value, focuses FROM review_preferences WHERE id=1`);

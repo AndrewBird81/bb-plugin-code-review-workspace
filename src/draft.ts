@@ -26,8 +26,9 @@ export function severityOf(body: string, severity?: Severity | "none"): { body: 
  * The text GitHub gets: the severity's label, then the comment. A block, such as a suggestion, starts on its own line.
  * With `preExisting` (Settings' Keep pre-existing problems apart), a problem the PR didn't introduce starts "**Pre-existing:**".
  */
-export function postedBody(c: Pick<DraftComment, "body" | "severity" | "introduced">, preExisting = false): string {
-  const labels = [...preExisting && c.introduced === false ? ["**Pre-existing:**"] : [], ...c.severity ? [`**${SEVERITY_LABEL[c.severity]}:**`] : []];
+export function postedBody(c: Pick<DraftComment, "body" | "severity" | "introduced">, preExisting = false, focus?: string): string {
+  const label = c.severity ? `${SEVERITY_LABEL[c.severity]}${focus ? ` (${focus})` : ""}` : focus;
+  const labels = [...preExisting && c.introduced === false ? ["**Pre-existing:**"] : [], ...label ? [`**${label}:**`] : []];
   if (!labels.length) return c.body;
   return `${labels.join(" ")}${/^(```|~~~|#|>|[-*+] |\d+[.)] |\|)/.test(c.body) ? "\n\n" : " "}${c.body}`;
 }
@@ -226,7 +227,7 @@ export type GithubReviewComment = { path: string; line: number; side: string; st
  * `preExisting`: mark the problems the PR didn't introduce, as postedBody does. `own`: your own change, as postable reads
  * it: always said, as a caller that forgot it would post comments sent to fix.
  */
-export function toGithubReviewPayload(draft: Draft, preExisting: boolean, own: boolean): {
+export function toGithubReviewPayload(draft: Draft, preExisting: boolean, own: boolean, githubLabel: boolean): {
   event: Verdict;
   body: string;
   comments: GithubReviewComment[];
@@ -237,7 +238,7 @@ export function toGithubReviewPayload(draft: Draft, preExisting: boolean, own: b
     comments: draft.comments.filter((c) => postable(c, own)).map((c) => ({
       path: c.file, line: c.line, side: c.side,
       ...(c.startLine !== undefined ? { start_line: c.startLine, start_side: c.startSide ?? c.side } : {}),
-      body: postedBody(c, preExisting),
+      body: postedBody(c, preExisting, githubLabel ? c.focus : undefined),
     })),
   };
 }
