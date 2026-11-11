@@ -102,14 +102,29 @@ test.each([true, false])("Goes to GitHub shows the exact focus comment with gith
   slot.lifecycle.unmount();
 });
 
-test.each(["older", "outside"])("Goes to GitHub moves an %s-diff focus comment into the summary without a focus label", async (kind) => {
-  const comment = { ...comments[0], line: kind === "outside" ? 99 : 2, focus: "Docs", author: "agent" };
+test.each([false, true])("default preferences keep the original GitHub overview with moved comments=%s", async (moved) => {
   const { slot } = await renderWorkspace({ rpc: {
-    getDraft: () => ({ draft: draftOf({ body: "Summary.", comments: [comment] }), stale: kind === "older" ? [comment] : [] }),
+    getDraft: () => ({ draft: draftOf(), stale: moved ? [comments[0]] : [] }),
+  } });
+  const view = await finish(slot);
+  const section = view.getByRole("heading", { name: "Goes to GitHub" }).closest("section")!;
+  const goes = within(section);
+  expect(goes.queryByText("Moves to summary on Submit anyway")).toBeNull();
+  expect(goes.queryByText(/Upper case reads as a constant|Spacing\./)).toBeNull();
+  expect(section.querySelectorAll(":scope > ul")).toHaveLength(1);
+  slot.lifecycle.unmount();
+});
+
+test.each(["older", "outside"])("with one inline focus label, Goes to GitHub shows both previews and moves an %s-diff comment to the summary", async (kind) => {
+  const comment = { ...comments[0], line: kind === "outside" ? 99 : 2, author: "agent" };
+  const focus = { ...comments[1], focus: "Docs" };
+  const { slot } = await renderWorkspace({ rpc: {
+    getDraft: () => ({ draft: draftOf({ body: "Summary.", comments: [comment, focus] }), stale: kind === "older" ? [comment] : [] }),
   } });
   const view = await finish(slot);
   const goes = within(view.getByRole("heading", { name: "Goes to GitHub" }).closest("section")!);
   expect(goes.getByText("Moves to summary on Submit anyway")).toBeTruthy();
+  expect(goes.getByText("**Nit (Docs):** Spacing.")).toBeTruthy();
   expect(goes.getByText((_, element) => element?.tagName === "P" && element.textContent === `Summary.\n\n- On \`src/a.ts:${comment.line}\` (an earlier diff): **Blocking:** Upper case reads as a constant.`)).toBeTruthy();
   expect(goes.queryByText(/Blocking \\(Docs\\)/)).toBeNull();
   slot.lifecycle.unmount();

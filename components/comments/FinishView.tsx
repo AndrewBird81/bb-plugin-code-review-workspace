@@ -523,6 +523,7 @@ function GoesToGitHub({ items, replyDrafts, onList }: { items: readonly CommentI
   const outside = invalidComments(patch, comments).filter((c) => !stale.some((at) => sameLocation(at, c)));
   const moved = [...stale, ...outside];
   const posting = moveToSummary({ ...d.draft, comments }, moved, preferences.knobs.preExistingFindings);
+  const showLabels = preferences.focuses.githubLabel && posting.comments.some((c) => c.focus);
   const payload = toGithubReviewPayload({ ...d.draft, ...posting }, preferences.knobs.preExistingFindings, false, preferences.focuses.githubLabel);
   // Sent to fix from your own change, resolved or dismissed: they stay in BB. Those not on GitHub yet go with Send.
   const held = d.draft.comments.length - comments.length - d.notOnGithub;
@@ -556,11 +557,11 @@ function GoesToGitHub({ items, replyDrafts, onList }: { items: readonly CommentI
           Approving with {plural(d.blockingCount, "blocking comment")}.
         </Row>}
       </ul>
-      {preferences.focuses.githubLabel && moved.length > 0 && <div className="mt-3 space-y-1">
+      {showLabels && moved.length > 0 && <div className="mt-3 space-y-1">
         <p className="text-xs font-medium text-muted-foreground">Moves to summary on Submit anyway</p>
         <p className="whitespace-pre-wrap break-words text-sm">{posting.body}</p>
       </div>}
-      {preferences.focuses.githubLabel && payload.comments.length > 0 && <ul className="mt-3 space-y-3">
+      {showLabels && payload.comments.length > 0 && <ul className="mt-3 space-y-3">
         {payload.comments.map((comment, index) => <li key={index} className="space-y-1">
           <p className="break-all font-mono text-xs text-muted-foreground">{comment.path}:{comment.line}</p>
           <p className="whitespace-pre-wrap break-words text-sm">{comment.body}</p>
