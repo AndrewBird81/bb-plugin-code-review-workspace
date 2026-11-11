@@ -19,6 +19,7 @@ import { AccountBar } from "./AccountBar";
 import { PageBar } from "./PageBar";
 import { DISABLED_TEXT, KnobControl, PaceGroup, enabledNumberText, type KnobNumberText } from "./SettingsKnobs";
 import { TOUCH_CONTROL, TOUCH_TARGET } from "./touch";
+import { FocusSettings, focusSettingsProblem } from "./FocusSettings";
 
 /** An aria-disabled primary button, drawn as a disabled one (ui/button). */
 const UNAVAILABLE = "aria-disabled:pointer-events-none aria-disabled:bg-muted/60 aria-disabled:text-subtle-foreground aria-disabled:shadow-none";
@@ -276,7 +277,7 @@ export function ReviewSettings({ onBack, back }: { onBack?: () => void; back?: s
   // A custom selection is complete once the host pickers resolve a provider and model, a number once it's in range, and
   // the auto-start repositories once the server's schema takes them.
   const incomplete = [record?.preferences.guideAgent, record?.preferences.assistantAgent].some((agent) => agent && (!agent.providerId || !agent.model))
-    || Object.keys(numberText).length > 0 || (record !== null && !validRepoPatterns(record.preferences.autoStartRepos));
+    || Object.keys(numberText).length > 0 || (record !== null && (!validRepoPatterns(record.preferences.autoStartRepos) || !!focusSettingsProblem(record.preferences.focuses)));
   const saveable = dirty && !incomplete && !busy && !updating;
   editing.current = dirty || busy;
   function setAgent(key: "guideAgent" | "assistantAgent", update: AgentUpdate) {
@@ -372,6 +373,16 @@ export function ReviewSettings({ onBack, back }: { onBack?: () => void; back?: s
             <label className="ml-6 block space-y-2"><span className={`text-sm font-medium ${automaticReviewDim}`}>Automatic review</span><Textarea aria-label="Automatic review" disabled={!record.preferences.knobs.runAutomaticReview} maxLength={12000} rows={4} value={record.preferences.automaticReview} onChange={(event) => { setSaved(false); setRecord({ ...record, preferences: { ...record.preferences, automaticReview: event.target.value } }); }} /><span className={`block text-xs text-muted-foreground ${automaticReviewDim}`}>Sent to the review agent when a guide is ready and the review has no conversation yet. Its draft comments wait in Comments for you to edit and submit. Leave blank to turn the automatic review off.</span></label>
             {knob("recheckOnNewCommits")}
             {knob("digDeeper")}
+          </section>
+          <section className="space-y-4 rounded-xl border border-border bg-card p-5 shadow-xs">
+            <SectionHeading icon="Sparkles" tone="agent" title="Focuses" description="Each focus reads the change on its own, looking for one kind of problem. The review agent checks what they find and drafts one review. Off: the review agent reviews alone." />
+            <label className={`flex items-center gap-2.5 ${TOUCH_CONTROL}`}><input type="checkbox" className="size-4 shrink-0 accent-primary" checked={record.preferences.focuses.enabled} onChange={(event) => { setSaved(false); setRecord({ ...record, preferences: { ...record.preferences, focuses: { ...record.preferences.focuses, enabled: event.target.checked } } }); }} /><span className="text-sm font-medium">Review with focuses</span></label>
+            <div className={`ml-6 space-y-1 ${record.preferences.focuses.enabled ? "" : DISABLED_TEXT}`}>
+              <label className={`flex items-center gap-2.5 ${TOUCH_CONTROL}`}><input type="checkbox" className="size-4 shrink-0 accent-primary" checked={record.preferences.focuses.githubLabel} disabled={!record.preferences.focuses.enabled} onChange={(event) => { setSaved(false); setRecord({ ...record, preferences: { ...record.preferences, focuses: { ...record.preferences.focuses, githubLabel: event.target.checked } } }); }} /><span className="text-sm font-medium">Label comments on GitHub with their focus</span></label>
+              <p className="text-xs text-muted-foreground">Posts “Should fix (Docs): …”. Off: comments post as today. BB shows the focus either way.</p>
+            </div>
+            <p className="text-xs text-muted-foreground">Each focus is one more agent run per review. Focuses run unattended at the lowest permissions their provider allows, which can still edit files in the review's checkout.</p>
+            <FocusSettings value={record.preferences.focuses} reviewAgent={record.preferences.assistantAgent} disabled={busy || updating} onChange={(update) => { setSaved(false); setRecord((current) => current && { ...current, preferences: { ...current.preferences, focuses: update(current.preferences.focuses) } }); }} />
           </section>
           <section className="space-y-4 rounded-xl border border-border bg-card p-5 shadow-xs">
             <SectionHeading icon="ListTodo" title="Whose turn" description="What brings a review back to Needs review, and which reviews to follow." />

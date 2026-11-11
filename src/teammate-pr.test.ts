@@ -155,13 +155,13 @@ test("a Send on a teammate's PR warns first, and sent anyway, never changes what
   await store.setLifecycle(KEY, { sourceThreadId: "coder" });
   await store.savePatch(KEY, "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1,2 +1,2 @@\n x\n-y\n+z\n");
   for (const line of [1, 2]) await store.upsertDraftComment(KEY, { file: "a.ts", line, side: "RIGHT", body: `Line ${line}.` });
-  const before = JSON.stringify(toGithubReviewPayload(await store.getDraft(KEY), false, false));
+  const before = JSON.stringify(toGithubReviewPayload(await store.getDraft(KEY), false, false, true));
   const comments = [{ file: "a.ts", line: 1, side: "RIGHT" }, { file: "a.ts", line: 2, side: "RIGHT" }];
   expect(await call("sendToSourceThread", { targetKey: KEY, comments })).toEqual({ ok: false, warning: "This is @alice’s PR, not yours. Your review on GitHub stays as it is.", offers: ["anyway"] });
   expect(await call("sendToSourceThread", { targetKey: KEY, comments, force: true })).toMatchObject({ ok: true, sendN: 1 });
   const after = await store.getDraft(KEY);
   expect(after.comments.map((comment) => comment.state)).toEqual(["sent", "sent"]);
-  expect(JSON.stringify(toGithubReviewPayload(after, false, false))).toBe(before);
+  expect(JSON.stringify(toGithubReviewPayload(after, false, false, true))).toBe(before);
 });
 
 test("on a teammate's PR, its threads on GitHub never go with a Send: your review answers them", async () => {

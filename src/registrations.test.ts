@@ -104,6 +104,7 @@ test("the plugin registers the same RPC methods, tools, CLI subcommands, listene
       "replyToFeedback",
       "replyToThread",
       "rereview",
+      "rerunFocusRun",
       "resolveComment",
       "resolveThread",
       "reviewFolderBranch",
@@ -135,6 +136,7 @@ test("the plugin registers the same RPC methods, tools, CLI subcommands, listene
       "startFixThread",
       "startReview",
       "startTrackedReview",
+      "stopFocusRun",
       "stopGuide",
       "submitReview",
       "suggestAssistantInstructions",
@@ -173,6 +175,10 @@ test("the plugin registers the same RPC methods, tools, CLI subcommands, listene
       "generate_review_guide",
       "send_now",
       "push",
+      "submit_focus_findings",
+      "list_focus_findings",
+      "keep_focus_finding",
+      "dismiss_focus_finding",
     ]
   `);
   // What agents read of each tool, word for word.
@@ -250,13 +256,13 @@ test("the plugin registers the same RPC methods, tools, CLI subcommands, listene
       "experimental_environment.removed": 2,
       "experimental_thread.events": 1,
       "interaction.pending": 1,
-      "message.cancelled": 3,
-      "message.dispatched": 3,
+      "message.cancelled": 4,
+      "message.dispatched": 4,
       "thread.active": 2,
       "thread.archived": 2,
       "thread.deleted": 3,
-      "thread.failed": 6,
-      "thread.idle": 6,
+      "thread.failed": 7,
+      "thread.idle": 7,
       "thread.unarchived": 1,
     }
   `);

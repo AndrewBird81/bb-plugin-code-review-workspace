@@ -66,8 +66,9 @@ const WORDS: Record<ReviewIndicatorKind, string> = {
  * What a review's row draws for its work, and its words, or null for nothing: its agent's status, or while its guide is
  * built, a spinner, unless the agent's status is more pressing. The guide's spinner has no words: the row says Building guide.
  */
-export function reviewIndicator(review: { status?: string; agentStatus?: AgentStatus | null }): { indicator: ReviewIndicatorKind; label: string | null } | null {
+export function reviewIndicator(review: { status?: string; agentStatus?: AgentStatus | null; focusRun?: { state: string } }): { indicator: ReviewIndicatorKind; label: string | null } | null {
   const agent = review.agentStatus ? { indicator: review.agentStatus.indicator, label: WORDS[review.agentStatus.indicator] } : null;
-  if (review.status !== "generating") return agent;
-  return agent && PRECEDENCE.indexOf(agent.indicator) < PRECEDENCE.indexOf("runtime") ? agent : { indicator: "runtime", label: null };
+  const focusing = review.focusRun?.state === "finding" || review.focusRun?.state === "merging";
+  if (review.status !== "generating" && !focusing) return agent;
+  return agent && PRECEDENCE.indexOf(agent.indicator) < PRECEDENCE.indexOf("runtime") ? agent : { indicator: "runtime", label: focusing ? "Review agent working" : null };
 }

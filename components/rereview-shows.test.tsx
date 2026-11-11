@@ -77,7 +77,7 @@ const choice = (slot: Slot, name: string | RegExp) => within(slot.getByRole("rad
 const checked = (slot: Slot, name: string | RegExp) => choice(slot, name).getAttribute("aria-checked") === "true";
 const openDrafts = async (slot: Slot) => fireEvent.click(await slot.findByRole("button", { name: "Comments" }));
 
-test("a re-review opens on what changed since your review, however you go in: Review changes, a chapter, Continue, or a comment", async () => {
+test.each([false, true])("a re-review opens on what changed since your review, however you go in: Review changes, a chapter, Continue, or a comment (title-bar fallback: %s)", async (fallback) => {
   const { slot } = await renderWorkspace({ opened: false });
   // Review changes goes to the first chapter that changed.
   fireEvent.click(await slot.findByRole("button", { name: "Review changes: Parsing" }));
@@ -86,7 +86,10 @@ test("a re-review opens on what changed since your review, however you go in: Re
   expect(checked(slot, "Since your review · 1 of 2 files")).toBe(true);
   fireEvent.click(chapters(slot).getByText("Logging"));
   await waitFor(() => expect(shown(slot)).toEqual(["src/e.ts"]));
-  fireEvent.click(within(slot.getByRole("navigation", { name: "Breadcrumb" })).getByRole("button", { name: "pr-42" }));
+  const breadcrumb = within(slot.getByRole("navigation", { name: "Breadcrumb" }));
+  if (fallback) await breadcrumb.findByRole("button", { name: "pr-42 Parse rows" });
+  // Without BB's title bar, the fallback appends the review title to this button's name.
+  fireEvent.click(breadcrumb.getByRole("button", { name: /^pr-42(?: |$)/ }));
   fireEvent.click(await slot.findByRole("button", { name: "Continue: Logging" }));
   await waitFor(() => expect(shown(slot)).toEqual(["src/e.ts"]));
   // A comment on a file that changed shows there, still narrowed.
@@ -639,8 +642,8 @@ test("without Settings to read, a re-review opens on Settings' default, and back
 }, 15_000);
 
 test("the diff narrowing by itself as the comparison arrives says so to screen readers", async () => {
-  const { slot, answer } = await reopenedWaiting();
-  const status = slot.getAllByRole("status").find((el) => el.classList.contains("sr-only"))!;
+  const { slot, code, answer } = await reopenedWaiting();
+  const status = within(code).getAllByRole("status").find((el) => el.classList.contains("sr-only"))!;
   expect(status.textContent).toBe("");
   answer();
   await waitFor(() => expect(status.textContent).toBe("Showing changes since your review · 1 of 2 files"));

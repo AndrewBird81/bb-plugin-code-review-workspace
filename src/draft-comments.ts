@@ -74,7 +74,7 @@ export async function describeComments(store: AsyncStore, targetKey: string): Pr
  * Why a comment can't go at a location and range of the current diff, or null: the last line's text must match
  * `code`, or for a range the last line of `code`, its first line the range's first, and GitHub must take the range.
  */
-async function placeProblem(store: AsyncStore, targetKey: string, at: CommentLocation, range: RangeInput, input: string): Promise<string | null> {
+export async function placeProblem(store: AsyncStore, targetKey: string, at: CommentLocation, range: RangeInput, input: string): Promise<string | null> {
   return store.exclusive(async (tx) => {
     const positions = (await tx.diffPositions(targetKey)).get(at.file);
     const lines = positions?.[at.side === "RIGHT" ? "right" : "left"];
@@ -131,7 +131,7 @@ export async function addComment(store: AsyncStore, targetKey: string, input: Ne
   });
 }
 
-const before = (comment: DraftComment, startCode?: string): PreviousState => ({ body: comment.body, ...(comment.author ? { author: comment.author } : {}), ...(comment.severity ? { severity: comment.severity } : {}), ...(comment.evidence ? { evidence: comment.evidence } : {}), ...(comment.introduced === false ? { introduced: false as const } : {}), ...(comment.chapterId ? { chapterId: comment.chapterId } : {}), ...rangeOf(comment), ...(startCode === undefined ? {} : { startCode }) });
+const before = (comment: DraftComment, startCode?: string): PreviousState => ({ body: comment.body, ...(comment.focus ? { focus: comment.focus } : {}), ...(comment.author ? { author: comment.author } : {}), ...(comment.severity ? { severity: comment.severity } : {}), ...(comment.evidence ? { evidence: comment.evidence } : {}), ...(comment.introduced === false ? { introduced: false as const } : {}), ...(comment.chapterId ? { chapterId: comment.chapterId } : {}), ...rangeOf(comment), ...(startCode === undefined ? {} : { startCode }) });
 
 export const REVIEWERS = "The reviewer wrote this comment. Suggest the change in chat; they can ask on the comment to have you apply it. Nothing was changed.";
 
@@ -259,7 +259,7 @@ export async function undoChange(store: AsyncStore, targetKey: string, at: Comme
     } else if (!previous) {
       await tx.deleteDraftComment(targetKey, at);
     } else if (kind === "removed") {
-      await tx.upsertDraftComment(targetKey, { ...at, ...rangeOf({ ...at, ...previous }), body: previous.body, ...(previous.author ? { author: previous.author } : {}), ...(previous.severity ? { severity: previous.severity } : {}), ...(previous.chapterId ? { chapterId: previous.chapterId } : {}), ...(previous.evidence ? { evidence: previous.evidence } : {}), ...(previous.introduced === false ? { introduced: false as const } : {}) });
+      await tx.upsertDraftComment(targetKey, { ...at, ...rangeOf({ ...at, ...previous }), body: previous.body, ...(previous.focus ? { focus: previous.focus } : {}), ...(previous.author ? { author: previous.author } : {}), ...(previous.severity ? { severity: previous.severity } : {}), ...(previous.chapterId ? { chapterId: previous.chapterId } : {}), ...(previous.evidence ? { evidence: previous.evidence } : {}), ...(previous.introduced === false ? { introduced: false as const } : {}) });
     } else {
       const comment = await relined(tx, targetKey, at, previous);
       if (comment) await tx.upsertDraftComment(targetKey, { ...comment, startLine: undefined, startSide: undefined, severity: previous.severity, ...rangeOf({ ...at, ...previous }), body: previous.body, evidence: previous.evidence, introduced: previous.introduced });

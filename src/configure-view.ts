@@ -6,6 +6,8 @@ import type { Guide } from "./guide";
 import type { ReviewPreferences } from "./preferences";
 import type { ReviewMeta, Store } from "./store";
 import { spawnsTitled } from "./thread-review";
+import { focusSpawnTitled } from "./focus-identity";
+import type { FocusThread } from "./focus-model";
 import { ASSISTANT_TITLE } from "./agent";
 import { GUIDE_WORKER_TITLE } from "./generate";
 
@@ -16,7 +18,7 @@ const KEEPS_VIEW = new Set<string>([
   "listGenerationWorkers", "getDraft", "staleDraftComments", "listDiscussions", "listWaitingDiscussions", "lastDiscussionChange", "getFileViews",
   "getAgentThread", "listAgentMessages", "getAssistantThread", "listAssistantThreads", "getSnapshot", "listFeedbackThreads",
   "feedbackFetched", "getAssessment", "latestAssessmentRun", "listReplyDrafts", "isDiscoveryIgnored", "draftCommentCode",
-  "agentCommentChanges", "listAgentOutcomes", "reasonedRemovals", "listFilterViews",
+  "agentCommentChanges", "listAgentOutcomes", "reasonedRemovals", "listFilterViews", "listFocusThreads", "focusFindings",
 ] satisfies Array<keyof Store>);
 
 /**
@@ -43,6 +45,7 @@ interface Snapshot {
   preferences: ReviewPreferences;
   assistants: Array<{ targetKey: string; threadId: string }>;
   workers: Array<{ targetKey: string; workerId: string }>;
+  focuses: FocusThread[];
   reviews: Map<string, ReviewMeta>;
   /** Each review's guide. A guide is read again only after a call that can change it naming its review, or naming none. */
   guides: Map<string, Guide | null>;
@@ -62,7 +65,7 @@ export interface ConfigureView {
    * What a thread of this plugin is: the assistant or guide writer it's recorded as, whatever its title now, or, only
    * while a spawn with its exact title is in flight, what that title names. Null for any other thread.
    */
-  threadRole(thread: Thread): "assistant" | "writer" | null;
+  threadRole(thread: Thread): "assistant" | "writer" | "focus" | null;
   /** The review a thread of this plugin belongs to, as threadReview (src/thread-review.ts) reads it from the store. */
   threadReview(thread: Thread): string | null;
   preferences(): ReviewPreferences;
@@ -81,7 +84,7 @@ async function load(backend: Store, previous: Snapshot | null, changed: Readonly
     const kept = previous && changed !== "all" && !changed?.has(targetKey) && previous.guides.has(targetKey);
     guides.set(targetKey, kept ? previous.guides.get(targetKey)! : await backend.getGuide(targetKey));
   }
-  return { preferences, assistants, workers, reviews, guides };
+  return { preferences, assistants, workers, reviews, guides, focuses: await backend.listFocusThreads() };
 }
 
 /** The view of `backend`, read now: create it before anything else reaches the store. */
@@ -128,8 +131,10 @@ export async function createConfigureView(bb: BbPluginApi, backend: Store): Prom
       guides = "all";
     },
     threadRole(thread) {
+      if (snapshot.focuses.some((focus) => focus.threadId === thread.id)) return "focus";
       if (assistantReview(thread.id)) return "assistant";
       if (generationOf(thread.id)) return "writer";
+      if (focusSpawnTitled(bb, thread.title)) return "focus";
       for (const { title } of spawnsTitled(bb, thread.title)) {
         if (title.startsWith(GUIDE_WORKER_TITLE)) return "writer";
         if (title.startsWith(ASSISTANT_TITLE)) return "assistant";

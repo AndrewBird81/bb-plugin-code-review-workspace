@@ -1,6 +1,7 @@
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import { z } from "zod";
-import { ASSISTANT_INSTRUCTIONS_LIMIT, AUTO_START_REPOS_LIMIT, REPO_PATTERN, defaultPreferences, type AgentExecution, type ReviewPreferences } from "../lib/review-preferences";
+import { focusInstructions } from "../lib/focus-templates";
+import { ASSISTANT_INSTRUCTIONS_LIMIT, AUTO_START_REPOS_LIMIT, REPO_PATTERN, defaultPreferences, defaultFocusSettings, type FocusSettings, type AgentExecution, type ReviewPreferences } from "../lib/review-preferences";
 import { KNOB_RANGES, defaultKnobs, type KnobId, type Knobs } from "../lib/knobs";
 export { defaultPreferences, type AgentExecution, type ReviewPreferences } from "../lib/review-preferences";
 
@@ -56,6 +57,48 @@ export const knobsSchema = z.object({
   reviewAgentActs: z.boolean(), reviewChangesLine: z.boolean(), trackOwnPrs: z.boolean(),
 }).strict();
 
+export const focusLabelSchema = z.string().trim().regex(/^[\p{L}\p{N} ._-]{1,24}$/u);
+
+export const focusSchema = z.object({
+  id: z.string().min(1).max(200), label: focusLabelSchema, enabled: z.boolean(),
+  template: z.string().min(1).max(200).optional(),
+  instructions: z.string().max(8000).optional(),
+  agent: agentExecutionSchema.omit({ hostId: true, permissionMode: true }).nullable().default(null),
+});
+
+export const focusSettingsSchema = z.object({
+  enabled: z.boolean(),
+  githubLabel: z.boolean(),
+  mergeEffort: z.enum(["same", "high"]),
+  focuses: z.array(focusSchema).max(12)
+    .refine((focuses) => focuses.filter((focus) => focus.enabled).length <= 4)
+    .refine((focuses) => focuses.every((focus) => focusInstructions(focus).trim()), "Focus instructions must not be blank.")
+    .refine((focuses) => new Set(focuses.map((focus) => focus.id)).size === focuses.length)
+    .refine((focuses) => new Set(focuses.map((focus) => focus.label.toLowerCase())).size === focuses.length),
+});
+
+/** Each invalid field takes its default. Unknown fields are dropped on read and save, as in readPreferences. */
+export function readFocusSettings(saved: unknown): FocusSettings {
+  let value = saved;
+  if (typeof value === "string") { try { value = JSON.parse(value); } catch { value = {}; } }
+  const record = value && typeof value === "object" && !Array.isArray(value) ? { ...value as Record<string, unknown> } : {};
+  if (Array.isArray(record.focuses)) record.focuses = record.focuses.flatMap((focus: unknown) => {
+    if (!focus || typeof focus !== "object" || Array.isArray(focus)) return [];
+    const fields = focus as Record<string, unknown>;
+    if (!focusSchema.shape.id.safeParse(fields.id).success || !focusSchema.shape.label.safeParse(fields.label).success) return [];
+    const defaults: Record<string, unknown> = { enabled: false, agent: null };
+    const normalized = focusSchema.parse(Object.fromEntries(Object.entries(focusSchema.shape).map(([key, schema]) => {
+      const parsed = schema.safeParse(fields[key]);
+      return [key, parsed.success ? parsed.data : defaults[key]];
+    }).filter(([, value]) => value !== undefined)));
+    return focusInstructions(normalized).trim() ? [normalized] : [];
+  });
+  return Object.fromEntries(Object.entries(focusSettingsSchema.shape).map(([key, schema]) => {
+    const parsed = schema.safeParse(record[key]);
+    return [key, parsed.success ? parsed.data : structuredClone(defaultFocusSettings[key as keyof FocusSettings])];
+  })) as unknown as FocusSettings;
+}
+
 export const preferencesSchema = z.object({
   guideDetail: z.enum(["concise", "standard", "detailed"]),
   guideInstructions: z.string().max(12000),
@@ -77,6 +120,7 @@ export const preferencesSchema = z.object({
   runRepoChecks: z.boolean(),
   threadListReviews: z.boolean(),
   knobs: knobsSchema,
+  focuses: focusSettingsSchema,
 }).strict();
 
 /** Saved knobs as they read now: each missing or invalid one takes its default, and unknown ones are dropped. Takes the column's JSON text, an object, or null. */
@@ -110,12 +154,12 @@ export function unknownKnobs(saved: string | null): Record<string, unknown> {
 
 /**
  * Saved settings as they read now: missing or invalid fields take their defaults, unknown ones are dropped, and older
- * defaults read as the current ones. `knobs` is the column; without it, `saved.knobs` is read.
+ * defaults read as the current ones. `knobs` and `focuses` are columns; without them, the saved fields are read.
  */
-export function readPreferences(saved: Partial<ReviewPreferences>, knobs?: unknown): ReviewPreferences {
+export function readPreferences(saved: Partial<ReviewPreferences>, knobs?: unknown, focuses?: unknown): ReviewPreferences {
   const record: Record<string, unknown> = saved && typeof saved === "object" && !Array.isArray(saved) ? saved : {};
   const shape = preferencesSchema.shape;
-  const fields = Object.keys(shape).filter((key) => key !== "knobs") as Exclude<keyof ReviewPreferences, "knobs">[];
+  const fields = Object.keys(shape).filter((key) => key !== "knobs" && key !== "focuses") as Exclude<keyof ReviewPreferences, "knobs" | "focuses">[];
   // Each field on its own, so one invalid value doesn't break every read of settings.
   const preferences = { ...Object.fromEntries(fields.map((key) => {
     let value = record[key];
@@ -125,7 +169,7 @@ export function readPreferences(saved: Partial<ReviewPreferences>, knobs?: unkno
     if (key === "autoStartRepos" && Array.isArray(value)) value = value.flatMap((item) => { const parsed = shape.autoStartRepos.element.safeParse(item); return parsed.success ? [parsed.data] : []; }).slice(0, 50);
     const parsed = shape[key].safeParse(value);
     return [key, parsed.success ? parsed.data : shape[key].parse(defaultPreferences[key])];
-  })), knobs: readKnobs(knobs !== undefined ? knobs : record.knobs) } as ReviewPreferences;
+  })), knobs: readKnobs(knobs !== undefined ? knobs : record.knobs), focuses: readFocusSettings(focuses !== undefined ? focuses : record.focuses) } as ReviewPreferences;
   if ([AUTOMATIC_REVIEW_BEFORE_SUMMARY, AUTOMATIC_REVIEW_BEFORE_PRECISION, AUTOMATIC_REVIEW_BEFORE_EVIDENCE].includes(preferences.automaticReview)) preferences.automaticReview = defaultPreferences.automaticReview;
   if (preferences.verificationPrompt === VERIFICATION_PROMPT_BEFORE_OPEN_THREADS) preferences.verificationPrompt = defaultPreferences.verificationPrompt;
   return preferences;

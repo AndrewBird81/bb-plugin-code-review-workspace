@@ -267,8 +267,8 @@ test("Undo after removing a sent comment puts it back with its id, its Send and 
   slot.lifecycle.unmount();
 });
 
-test("Undo after removing an agent's comment puts back how it checked it too", async () => {
-  const agents = { file: "src/a.ts", line: 2, side: "RIGHT", chapterId: "c2", author: "agent", body: "Is this tested?", evidence: "No test calls it." };
+test("Undo after removing an agent's comment puts back its focus and how it checked it too", async () => {
+  const agents = { file: "src/a.ts", line: 2, side: "RIGHT", chapterId: "c2", author: "agent", body: "Is this tested?", evidence: "No test calls it.", focus: "Docs" };
   let draft = draftOf({ comments: [agents] });
   const removeDraftComment = vi.fn(async () => { draft = { ...draft, comments: [] }; return { draft, stale: [], discussions: [] }; });
   const saveDraftComment = vi.fn(async ({ comment }: any) => { draft = { ...draft, comments: [comment] }; return { draft, stale: [], discussions: [] }; });
@@ -279,6 +279,15 @@ test("Undo after removing an agent's comment puts back how it checked it too", a
   const [, { action }] = vi.mocked(toast.info).mock.calls[0] as any;
   action.onClick();
   await waitFor(() => expect(saveDraftComment).toHaveBeenCalledWith({ targetKey: "undo-agent", revision: "r1", replaces: null, restore: true, comment: agents }));
+  expect(draft.comments).toEqual([agents]);
+  expect(draft.comments[0].focus).toBe("Docs");
+  await slot.findByRole("button", { name: "Remove comment on src/a.ts:2" });
+  fireEvent.click(slot.getByRole("button", { name: "Edit comment on src/a.ts:2" }));
+  fireEvent.change(slot.getByRole("textbox", { name: "Draft comment" }), { target: { value: "My words now." } });
+  fireEvent.click(slot.getByRole("button", { name: "Save comment" }));
+  await waitFor(() => expect(draft.comments[0].body).toBe("My words now."));
+  expect(saveDraftComment.mock.calls.at(-1)?.[0].comment).not.toHaveProperty("focus");
+  expect(draft.comments[0]).not.toHaveProperty("focus");
   slot.lifecycle.unmount();
 });
 

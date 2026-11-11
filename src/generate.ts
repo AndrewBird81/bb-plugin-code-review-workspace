@@ -1,8 +1,9 @@
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
+import { stopFocusRunIn } from "./focus-run";
 import { completionNotifications } from "./completion-notifications";
 import { defaultPreferences, guidePreferencesPrompt, reReviewCheckPrompt, spawnExecution, type ReviewPreferences } from "./preferences";
 import { refreshAssistants, skipRun, startAutomaticReview, type AgentChoice } from "./agent";
-import { agentPlacement, machineUnavailable } from "./machines";
+import { agentPlacement, machineStatus, machineUnavailable } from "./machines";
 import { startVerification } from "./verification";
 import { baselineOf } from "./feedback-view";
 import type { Guide } from "./guide";
@@ -100,15 +101,17 @@ export async function guideWriterUnavailable(bb: BbPluginApi, store: AsyncStore)
  * accept-edits where the project's provider runs in it, else auto, whose approvals bb reviews itself, so the hidden
  * writer waits on no one. Unset, so the project's own, when the provider runs in neither or can't be read.
  * Pass `known` when the defaults are already read, and `hostId` for a writer on another machine than the server, whose
- * providers are that machine's.
+ * providers are that machine's. An explicit host fails closed without a restricted mode.
  */
 export async function guideWriterMode(bb: BbPluginApi, projectId: string, known?: { providerId: string }, hostId?: string): Promise<{ permissionMode?: "accept-edits" | "auto"; executionInputSources?: { permissionMode: "explicit" } }> {
   try {
     const [defaults, providers] = await Promise.all([known ?? bb.sdk.projects.defaultExecutionOptions({ projectId }), bb.sdk.providers.list(hostId ? { hostId } : undefined)]);
     const modes = providers.find((provider) => provider.id === defaults?.providerId)?.capabilities.permissionModes ?? [];
     const mode = (["accept-edits", "auto"] as const).find((candidate) => modes.includes(candidate));
+    if (!mode && hostId) throw new Error("No restricted permission mode");
     return mode ? { permissionMode: mode, executionInputSources: { permissionMode: "explicit" } } : {};
-  } catch {
+  } catch (error) {
+    if (hostId) throw new Error(`The focus's provider isn't available at restricted permissions on ${(await machineStatus(bb, hostId))?.name ?? "the review agent's machine"}.`, { cause: error });
     return {};
   }
 }
@@ -128,8 +131,9 @@ export interface GuideOptions { notify?: boolean; unattended?: boolean; agent?: 
 async function guideWriter(bb: BbPluginApi, preferences: ReviewPreferences, projectId: string, picked: AgentChoice | undefined) {
   const placement = await agentPlacement(bb, picked ?? preferences.guideAgent, projectId);
   if (!picked) return { placement, execution: preferences.guideAgent ? spawnExecution(preferences.guideAgent) : await guideWriterMode(bb, projectId) };
+  // guideWriterMode fails closed on an explicit host, for focuses; a picked writer falls back to its provider's own default.
   const permissionMode = preferences.guideAgent?.providerId === picked.providerId ? preferences.guideAgent.permissionMode
-    : (await guideWriterMode(bb, projectId, { providerId: picked.providerId }, picked.hostId)).permissionMode;
+    : (await guideWriterMode(bb, projectId, { providerId: picked.providerId }, picked.hostId).catch(() => undefined))?.permissionMode;
   return { placement, execution: spawnExecution({ ...picked, ...(permissionMode ? { permissionMode } : {}) }) };
 }
 
@@ -180,6 +184,7 @@ export async function beginGuide(
   projectId: string,
   options: GuideOptions = {},
 ): Promise<() => Promise<void>> {
+  await stopFocusRunIn(bb, tx, targetKey, "stopped", true);
   let generationId: string | undefined;
   let workerId: string | undefined;
   let threads: BbPluginApi["sdk"]["threads"] | undefined;

@@ -44,7 +44,7 @@ function storeKnobs(pluginId: string, knobs: Knobs) {
 
 /** A loaded record with any missing setting or knob at its default: mocks and older servers may lack some. */
 export function withDefaults(preferences: Partial<ReviewPreferences>): ReviewPreferences {
-  return { ...defaultPreferences, ...preferences, knobs: { ...defaultKnobs, ...preferences.knobs } };
+  return { ...defaultPreferences, ...preferences, knobs: { ...defaultKnobs, ...preferences.knobs }, focuses: { ...defaultPreferences.focuses, ...preferences.focuses } };
 }
 
 /**

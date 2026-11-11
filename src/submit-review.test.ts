@@ -52,7 +52,7 @@ test("a comment on a line only in the folder never goes to GitHub: not in the pa
   await store.saveSnapshot("pr-test", "not-pushed", "diff --git a/b.ts b/b.ts\n--- /dev/null\n+++ b/b.ts\n@@ -0,0 +1 @@\n+fresh\n");
   await store.upsertDraftComment("pr-test", { file: "b.ts", line: 1, side: "LOCAL", body: "Not pushed yet" });
   const draft = await store.getDraft("pr-test");
-  for (const own of [true, false]) expect(toGithubReviewPayload(draft, false, own).comments.map((c) => c.path)).toEqual(["a.ts"]);
+  for (const own of [true, false]) expect(toGithubReviewPayload(draft, false, own, true).comments.map((c) => c.path)).toEqual(["a.ts"]);
   expect(await submit("pr-test", undefined, undefined, ...await page())).toEqual({ ok: true });
   expect(JSON.parse(run.mock.calls.at(-1)![1]!.stdin!).comments).toEqual([{ path: "a.ts", line: 1, side: "RIGHT", body: "Please explain this" }]);
   expect((await store.getDraft("pr-test")).comments.map((c) => c.body)).toEqual(["Not pushed yet"]);

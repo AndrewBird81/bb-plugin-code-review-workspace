@@ -142,11 +142,11 @@ export function schemaProblems(sqlite: Table[], postgres: Table[]): string[] {
 }
 
 /** How a migrations record differs from `statements`: each index applied once, as the statement at that index. */
-function migrationProblems(where: string, applied: Array<{ id: number; statement_hash: string | null }>, statements: readonly string[]): string[] {
+function migrationProblems(where: string, applied: Array<{ id: number; statement_hash: string | null }>, statements: readonly string[], allowUpgrade = false): string[] {
   const problems: string[] = [];
   const ids = new Set(applied.map((row) => row.id));
   const missing = statements.map((_, id) => id).filter((id) => !ids.has(id));
-  if (missing.length) problems.push(`${where} lacks migration${missing.length > 1 ? "s" : ""} ${missing.join(", ")} of this version's ${statements.length}.`);
+  if (!allowUpgrade && missing.length) problems.push(`${where} lacks migration${missing.length > 1 ? "s" : ""} ${missing.join(", ")} of this version's ${statements.length}.`);
   for (const { id, statement_hash: hash } of applied) {
     if (id < 0 || id >= statements.length) problems.push(`${where} has migration ${id}, which this version doesn't have: a newer version made it.`);
     else if (hash !== null && hash !== sha256(statements[id]!)) problems.push(`${where}'s migration ${id} isn't this version's.`);
@@ -155,21 +155,23 @@ function migrationProblems(where: string, applied: Array<{ id: number; statement
 }
 
 /** How SQLite's migrations differ from this version's. */
-export function sqliteMigrationProblems(db: Database, schema = "main"): string[] {
+export function sqliteMigrationProblems(db: Database, schema = "main", allowUpgrade = false): string[] {
   const where = schema === "main" ? "SQLite's data.db" : "The SQLite export";
   if (!db.prepare(`SELECT 1 FROM ${quote(schema)}.sqlite_master WHERE type='table' AND name='_bb_migrations'`).get()) {
-    return [`${where} has none of the Store's tables: the plugin hasn't kept its reviews there.`];
+    return allowUpgrade ? [] : [`${where} has none of the Store's tables: the plugin hasn't kept its reviews there.`];
   }
-  return migrationProblems(where, db.prepare(`SELECT id, statement_hash FROM ${quote(schema)}._bb_migrations ORDER BY id`).all() as Array<{ id: number; statement_hash: string | null }>, SQLITE_MIGRATIONS);
+  const columns = db.prepare(`PRAGMA ${quote(schema)}.table_info(_bb_migrations)`).all() as Array<{ name: string }>;
+  const hash = columns.some((column) => column.name === "statement_hash") ? "statement_hash" : "NULL AS statement_hash";
+  return migrationProblems(where, db.prepare(`SELECT id, ${hash} FROM ${quote(schema)}._bb_migrations ORDER BY id`).all() as Array<{ id: number; statement_hash: string | null }>, SQLITE_MIGRATIONS, allowUpgrade);
 }
 
 /** How Postgres's migrations, in `schema`, differ from this version's. */
-export async function pgMigrationProblems(sql: PgSql, schema: string): Promise<string[]> {
+export async function pgMigrationProblems(sql: PgSql, schema: string, allowUpgrade = false): Promise<string[]> {
   const where = `Postgres schema "${schema}"`;
   if (!await sql.get(`SELECT 1 FROM information_schema.tables WHERE table_schema = ? AND table_name = 'crw_migrations'`, [schema])) {
-    return [`${where} has none of the Store's tables: no reviews were copied there.`];
+    return allowUpgrade ? [] : [`${where} has none of the Store's tables: no reviews were copied there.`];
   }
-  return migrationProblems(where, await sql.all<{ id: number; statement_hash: string }>(`SELECT id, statement_hash FROM crw_migrations ORDER BY id`), PG_MIGRATIONS);
+  return migrationProblems(where, await sql.all<{ id: number; statement_hash: string }>(`SELECT id, statement_hash FROM crw_migrations ORDER BY id`), PG_MIGRATIONS, allowUpgrade);
 }
 
 /** The values in SQLite that Postgres can't hold as they are, or that wouldn't come back as they were. */

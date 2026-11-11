@@ -19,8 +19,10 @@ import { summaryLine, withSummaryLine } from "../lib/move-to-summary";
 import { localIdOf, reviewIdentity } from "../lib/review-identity";
 import { NOT_PUSHED, notPushedView } from "../lib/push";
 import { revisionOf } from "./review-revision";
+import { assertSqliteLedger } from "./db/schema-guard";
 
 export interface ReviewLifecycle {
+  focusRun?: import("./focus-model").FocusRun;
   prState?: "OPEN" | "CLOSED" | "MERGED";
   /** The PR's state as gh read it when the review last started or rebuilt, until the sync reads the PR. Only the sync writes prState. */
   startedPrState?: "OPEN" | "CLOSED" | "MERGED" | null;
@@ -518,6 +520,11 @@ export interface AgentMessage {
 export interface Store extends AgentCommentStore {
   getPreferences(): Promise<PreferencesRecord>;
   savePreferences(preferences: ReviewPreferences, revision: number): Promise<PreferencesRecord>;
+  listFocusThreads(): Promise<import("./focus-model").FocusThread[]>;
+  recordFocusThread(thread: import("./focus-model").FocusThread): Promise<void>;
+  focusFindings(targetKey: string, runId: string): Promise<import("./focus-model").FocusFinding[]>;
+  saveFocusFinding(finding: import("./focus-model").FocusFinding): Promise<void>;
+  clearFocusFindings(targetKey: string): Promise<void>;
   getReviewerNotes(targetKey: string): Promise<ReviewerNotesRecord>;
   saveReviewerNotes(targetKey: string, body: string, revision: number): Promise<ReviewerNotesRecord>;
   saveReview(meta: ReviewMeta): Promise<void>;
@@ -711,7 +718,7 @@ export type SummaryChange = Partial<Pick<Draft, "verdict" | "body" | "bodyAuthor
  * change that suggested a verdict, `suggested` is that verdict and `suggestedVerdict` the one before (null for none).
  * For a comment's edit, `startCode` is the code its first line was drafted on.
  */
-export type PreviousState = { body: string; author?: "agent"; severity?: Severity; evidence?: string; introduced?: false; chapterId?: string; startLine?: number; startSide?: "LEFT" | "RIGHT"; startCode?: string; relined?: true; written?: Draft["written"]; suggestedVerdict?: Verdict | null; suggested?: Verdict } | null;
+export type PreviousState = { body: string; focus?: string; author?: "agent"; severity?: Severity; evidence?: string; introduced?: false; chapterId?: string; startLine?: number; startSide?: "LEFT" | "RIGHT"; startCode?: string; relined?: true; written?: Draft["written"]; suggestedVerdict?: Verdict | null; suggested?: Verdict } | null;
 
 /**
  * The statements bb.storage.migrate applies to the plugin's SQLite database, each at its index for good, and mirrored
@@ -799,12 +806,24 @@ export const SQLITE_MIGRATIONS: readonly string[] = [
     `CREATE TABLE IF NOT EXISTS chapter_reads (
       target_key TEXT NOT NULL, chapter_id TEXT NOT NULL, open_ms INTEGER NOT NULL, fine_at INTEGER,
       PRIMARY KEY (target_key, chapter_id))`,
+    `CREATE TABLE IF NOT EXISTS focus_threads (
+      thread_id TEXT PRIMARY KEY, target_key TEXT NOT NULL, run_id TEXT NOT NULL, focus_id TEXT NOT NULL,
+      label TEXT NOT NULL, created_at INTEGER NOT NULL)`,
+    `CREATE TABLE IF NOT EXISTS focus_findings (
+      target_key TEXT NOT NULL, run_id TEXT NOT NULL, id TEXT NOT NULL, focus_id TEXT NOT NULL, label TEXT NOT NULL,
+      file TEXT NOT NULL, line INTEGER NOT NULL, side TEXT NOT NULL, start_line INTEGER, start_side TEXT,
+      severity TEXT NOT NULL, body TEXT NOT NULL, evidence TEXT NOT NULL, introduced INTEGER,
+      status TEXT NOT NULL, reason TEXT, note TEXT, draft_file TEXT, draft_line INTEGER, draft_side TEXT, decided_at INTEGER,
+      PRIMARY KEY (target_key, run_id, id))`,
+    // Separate from value so older builds' settings saves leave it intact.
+    `ALTER TABLE review_preferences ADD COLUMN focuses TEXT`,
 ];
 
 /** The plugin's SQLite database, a former install brought in and SQLITE_MIGRATIONS applied, as the Store opens it. */
 export function migrateSqlite(bb: BbPluginApi) {
   const db = bb.storage.database();
-  importFormerInstall(bb, db);
+  assertSqliteLedger(db, SQLITE_MIGRATIONS);
+  importFormerInstall(bb, db, () => assertSqliteLedger(db, SQLITE_MIGRATIONS, "former"));
   bb.storage.migrate(db, [...SQLITE_MIGRATIONS]);
   return db;
 }
@@ -907,23 +926,37 @@ export function storeOn(sql: Sql): Store {
 
   return {
     ...agentCommentStore(sql),
+    async listFocusThreads() {
+      return sql.all<import("./focus-model").FocusThread>(`SELECT thread_id AS "threadId", target_key AS "targetKey", run_id AS "runId", focus_id AS "focusId", label, created_at AS "createdAt" FROM focus_threads ORDER BY created_at, thread_id`);
+    },
+    async recordFocusThread(t) {
+      await sql.run(`INSERT INTO focus_threads (thread_id,target_key,run_id,focus_id,label,created_at) VALUES (?,?,?,?,?,?)`, [t.threadId, t.targetKey, t.runId, t.focusId, t.label, t.createdAt]);
+    },
+    async focusFindings(targetKey, runId) {
+      const rows = await sql.all<Omit<import("./focus-model").FocusFinding, "introduced"> & { introduced: number | null }>(`SELECT target_key AS "targetKey", run_id AS "runId", id, focus_id AS "focusId", label, file, line, side, start_line AS "startLine", start_side AS "startSide", severity, body, evidence, introduced, status, reason, note, draft_file AS "draftFile", draft_line AS "draftLine", draft_side AS "draftSide", decided_at AS "decidedAt" FROM focus_findings WHERE target_key=? AND run_id=? ORDER BY id`, [targetKey, runId]);
+      return rows.map((row) => Object.fromEntries(Object.entries({ ...row, introduced: row.introduced === null ? undefined : !!row.introduced }).filter(([, value]) => value != null)) as unknown as import("./focus-model").FocusFinding);
+    },
+    async saveFocusFinding(f) {
+      await sql.run(`INSERT INTO focus_findings (target_key,run_id,id,focus_id,label,file,line,side,start_line,start_side,severity,body,evidence,introduced,status,reason,note,draft_file,draft_line,draft_side,decided_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT (target_key,run_id,id) DO UPDATE SET status=excluded.status,severity=excluded.severity,reason=excluded.reason,note=excluded.note,draft_file=excluded.draft_file,draft_line=excluded.draft_line,draft_side=excluded.draft_side,decided_at=excluded.decided_at`, [f.targetKey,f.runId,f.id,f.focusId,f.label,f.file,f.line,f.side,f.startLine ?? null,f.startSide ?? null,f.severity,f.body,f.evidence,f.introduced === undefined ? null : Number(f.introduced),f.status,f.reason ?? null,f.note ?? null,f.draftFile ?? null,f.draftLine ?? null,f.draftSide ?? null,f.decidedAt ?? null]);
+    },
+    async clearFocusFindings(targetKey) { await sql.run(`DELETE FROM focus_findings WHERE target_key=?`, [targetKey]); },
     async getPreferences() {
-      const row = await sql.get<{ value: string; revision: number; knobs: string | null }>(`SELECT value, revision, knobs FROM review_preferences WHERE id=1`);
+      const row = await sql.get<{ value: string; revision: number; knobs: string | null; focuses: string | null }>(`SELECT value, revision, knobs, focuses FROM review_preferences WHERE id=1`);
       // No row, or a value that won't parse: defaults, as fresh copies.
       let value = {};
       try { if (row) value = JSON.parse(row.value); } catch { /* reads as defaults */ }
-      const preferences = readPreferences(value, row?.knobs ?? null);
+      const preferences = readPreferences(value, row?.knobs ?? null, row?.focuses ?? null);
       return { preferences, revision: row?.revision ?? 0 };
     },
     async savePreferences(preferences, revision) {
       const parsed = preferencesSchema.parse(preferences);
-      const { knobs, ...rest } = parsed;
+      const { knobs, focuses, ...rest } = parsed;
       // Knobs this version doesn't know, saved by a newer one before a rollback, stay for it.
       const raw = (await sql.get<{ knobs: string | null }>(`SELECT knobs FROM review_preferences WHERE id=1`))?.knobs;
       const value = JSON.stringify(rest), saved = JSON.stringify({ ...unknownKnobs(raw ?? null), ...savedKnobs(knobs) });
       const result = revision === 0
-        ? await sql.run(`INSERT INTO review_preferences (id,value,revision,knobs) VALUES (1,?,1,?) ON CONFLICT DO NOTHING`, [value, saved])
-        : await sql.run(`UPDATE review_preferences SET value=?,knobs=?,revision=revision+1 WHERE id=1 AND revision=?`, [value, saved, revision]);
+        ? await sql.run(`INSERT INTO review_preferences (id,value,revision,knobs,focuses) VALUES (1,?,1,?,?) ON CONFLICT DO NOTHING`, [value, saved, JSON.stringify(focuses)])
+        : await sql.run(`UPDATE review_preferences SET value=?,knobs=?,focuses=?,revision=revision+1 WHERE id=1 AND revision=?`, [value, saved, JSON.stringify(focuses), revision]);
       if (!result.changes) throw new Error("Settings changed in another window. Reload settings before saving.");
       return { preferences: parsed, revision: revision + 1 };
     },
@@ -1110,6 +1143,9 @@ export function storeOn(sql: Sql): Store {
         await sql.run(`INSERT INTO reply_drafts (target_key,thread_id,body,author,updated_at) SELECT ?, thread_id, body, author, updated_at FROM reply_drafts WHERE target_key=? ON CONFLICT(target_key,thread_id) DO NOTHING`, [into, from]);
         // The reviewer's removals of its agent's comments, so this review's agent doesn't raise them again.
         await sql.run(`UPDATE agent_comment_changes SET target_key=? WHERE target_key=?`, [into, from]);
+        // Focus identities follow the review; findings belong to another head, so only this review's survive.
+        await sql.run(`UPDATE focus_threads SET target_key=? WHERE target_key=?`, [into, from]);
+        await sql.run(`DELETE FROM focus_findings WHERE target_key=?`, [from]);
         // Its agent's conversation goes on here, unless this review has one: then it's kept apart, named in mergedFrom.
         const agentThreadId = await this.getAssistantThread(from);
         const adopted = !!agentThreadId && !await this.getAssistantThread(into);
@@ -1792,7 +1828,7 @@ export const REVIEW_TABLES = [
   "reviews", "patches", "guides", "drafts", "file_views", "agent_threads", "agent_messages",
   "generations", "draft_comment_revisions", "review_lifecycle", "reviewer_notes", "assistant_threads", "review_context",
   "discussion_entries", "discussion_waits", "review_snapshots", "feedback_threads", "feedback_fetches",
-  "assessment_items", "assessment_runs", "reply_drafts", "guide_backups", "agent_comment_changes", "chapter_reads",
+  "assessment_items", "assessment_runs", "reply_drafts", "guide_backups", "agent_comment_changes", "chapter_reads", "focus_threads", "focus_findings",
 ] as const;
 
 type Placement = { at: CommentLocation; line: number; startLine?: number; side?: "RIGHT" | "LOCAL" };

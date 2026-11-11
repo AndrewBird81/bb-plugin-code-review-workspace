@@ -7,6 +7,7 @@ import { placeOn, reanchorDraft, type FeatureReview, type MainThread, type PushR
 import type { AsyncStore } from "./store-queue";
 import { diffFilesHead, featureBase, folderHas, folderHasBranch, folderHasSince, folderHead, isNotFound, isSecretPath, readFeatureDiff, readFeatureRevisions, type FeatureDiff, type FolderPr, type HiddenFile } from "./env-diff";
 import { featureKey, mergedSurvivor, prReviewKey, targetKey } from "./targets";
+import { stopFocusRunIn } from "./focus-run";
 import { beginGuide, guideWriterUnavailable, stopGuide } from "./generate";
 import { pruneDiffs } from "./feedback-view";
 import { readPrSnapshot } from "./pr-snapshot";
@@ -631,6 +632,7 @@ export async function becomePr(deps: Deps, key: string, pr: { repo: string; numb
     // Something of yours put in the PR's review while GitHub and the folder were read: offered, not merged on its own.
     const offered = other && clicked !== "merge" ? await offerIn(tx, false) : null;
     if (offered) return offered;
+    if (other) await stopFocusRunIn(bb, tx, prKey, "stopped", true);
     // In one transaction: a merge that fails leaves the review as it was, to become the PR's when it's found again.
     return tx.transaction((db) => convertIn(db, review, pr, snapshot, ahead?.outcome === "available" ? ahead : null, other ? prKey : null));
   });

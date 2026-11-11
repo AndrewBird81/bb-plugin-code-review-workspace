@@ -117,6 +117,11 @@ export function createStorageCommand(bb: BbPluginApi, storage: StorageChoice) {
       } catch (error) {
         return { exitCode: 1, stderr: `bb review storage ${command} needs the Postgres settings: ${redact(describe(error))}.` };
       }
+      if (command !== "verify") {
+        // Report both ledgers before either migrator can refuse; allow only the upgrades this command performs.
+        const problems = [...sqliteMigrationProblems(bb.storage.database(), "main", true), ...await pgMigrationProblems(pg, settings.postgresSchema, command === "migrate")];
+        if (problems.length) throw new StorageProblems(problems);
+      }
       const exitCode = command === "verify" ? await verify(pg, signal, say, progress)
         : command === "migrate" ? await migrate(pg, signal, say, progress)
           : await exportSqlite(pg, replace, signal, say, progress);

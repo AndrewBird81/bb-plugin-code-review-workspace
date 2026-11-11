@@ -13,6 +13,29 @@ export interface AgentExecution {
   serviceTier?: string;
 }
 
+export interface Focus {
+  id: string;
+  label: string;
+  enabled: boolean;
+  template?: string;
+  instructions?: string;
+  agent: Omit<AgentExecution, "hostId" | "permissionMode"> | null;
+}
+
+export interface FocusSettings {
+  enabled: boolean;
+  githubLabel: boolean;
+  mergeEffort: "same" | "high";
+  focuses: Focus[];
+}
+
+export const defaultFocusSettings: FocusSettings = {
+  enabled: false,
+  githubLabel: true,
+  mergeEffort: "same",
+  focuses: [{ id: "docs", label: "Docs", enabled: true, template: "docs", agent: null }],
+};
+
 export interface ReviewPreferences {
   guideDetail: "concise" | "standard" | "detailed";
   guideInstructions: string;
@@ -49,6 +72,8 @@ export interface ReviewPreferences {
   threadListReviews: boolean;
   /** Feature switches and tuning (lib/knobs.ts), saved apart from the rest. */
   knobs: Knobs;
+  /** Focus configuration, saved apart from value; no execution until Phase 1. */
+  focuses: FocusSettings;
 }
 
 /** Assistant instructions share bb's 4,096-character instructions with the fixed rules and the guide. */
@@ -69,7 +94,7 @@ export const defaultPreferences: ReviewPreferences = {
   wakeOnReplies: "questions", pushChecks: "off", trackGithubReviews: true, trackTeamRequests: false, autoStartRepos: [],
   verificationPrompt: "Check whether the author properly addressed each piece of my earlier feedback. Start with list_feedback and read_changes_since_review, and read files with read_file when you need context.\nRecord a verdict with one line of evidence for every item with assess_feedback.\nThen look for new problems the fix commits introduce, and add each as an inline draft comment.\nDraft a reply with draft_thread_reply only on open threads where one adds something: what's still missing, or a short thanks naming the fixing commit. Keep everything terse.",
   unattendedAuthors: "members", runRepoChecks: false, threadListReviews: true,
-  knobs: defaultKnobs,
+  knobs: defaultKnobs, focuses: defaultFocusSettings,
 };
 
 /** An auto-start repository: "*", "owner/*", or "owner/repo", as GitHub spells them, trimmed and lowercase. */

@@ -44,7 +44,7 @@ export function InboxRow({ review, pinnable, short = false, onOpen, onChanged }:
   const localDiffChanges = useKnob("localDiffChanges");
   const [snoozeOpen, setSnoozeOpen] = useState(false);
   // The agent's alone: the status line already spins while the guide is built.
-  const status = reviewIndicator({ agentStatus: review.agentStatus });
+  const status = reviewIndicator({ agentStatus: review.agentStatus, focusRun: review.focusRun });
   const rowRef = useRef<HTMLDivElement>(null);
   /**
    * Once an action moves the review to another section, the focus that was on the row goes to the next row in its

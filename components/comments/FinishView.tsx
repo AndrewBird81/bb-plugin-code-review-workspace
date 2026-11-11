@@ -2,14 +2,16 @@ import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "rea
 import { UrlLink, useBbNavigate, useRpc } from "@get-bb/plugin-sdk/app";
 import { toast } from "sonner";
 import type { rpcContract } from "../../src/rpc-contract";
-import { SUMMARY_AT, VERDICT_LABEL, verdictPicked, type Verdict } from "../../src/draft";
+import { SUMMARY_AT, VERDICT_LABEL, verdictPicked, sameLocation, toGithubReviewPayload, type Verdict } from "../../src/draft";
 import type { CommentFilter, CommentItem } from "../../lib/comments";
 import { flaggedDoubt, quickRead, riskiest, unviewedDoubt } from "../../lib/approve-guard";
 import { readOf } from "../../lib/agent-coverage";
 import { summaryLines, type SummaryLine } from "../../lib/summary-lines";
 import { settled } from "../../lib/feedback";
+import { invalidComments } from "../../src/review-positions";
+import { moveToSummary } from "../../lib/move-to-summary";
 import { readDraftRecovery } from "../../lib/draft-recovery";
-import { useKnob } from "../../lib/settings";
+import { useKnob, useSettings } from "../../lib/settings";
 import { needsOrder, reviewState, type ReviewItem } from "../../lib/review-state";
 import { reviewIdentity } from "../../lib/review-identity";
 import { prDraftWaiting, pushAnywayOffered, pushFlagText, pushTarget } from "../../lib/push";
@@ -123,7 +125,7 @@ export function FinishView({ shown, revision }: {
                 onEdit={() => d.openComposer(SUMMARY_AT, false)} onAsk={() => d.openComposer(SUMMARY_AT, false, true)} onRemove={() => void d.saveSummary("", d.revisionRef.current)}
                 onUndo={() => void d.undo(SUMMARY_AT)} onRequest={(text) => void d.requestSummary(text)} />
             </Part>
-            {isPr && <Verdicts revision={revision} />}
+            {isPr ? <Verdicts revision={revision} /> : review?.focusRun && <FocusCoverage items={d.agentCoverage ? d.draft.unchecked ?? [] : []} />}
             {isPr && <BeforeYouApprove />}
             {isPr ? <GoesToGitHub items={items} replyDrafts={items.filter((item) => item.kind === "thread" && item.replyDraft).length} onList={openList} />
               : <Part title="Stays in BB"><p className="text-sm text-muted-foreground">{d.hint}</p>{notes.show && <PrivateNotes targetKey={targetKey} />}</Part>}
@@ -362,7 +364,8 @@ function PrDraftReady() {
 
 /** The verdict, the agent's suggestion with Switch to it, and its two ways into the draft: Use as draft and Request what's left. */
 function Verdicts({ revision }: { revision: string }) {
-  const { targetKey, openFinish } = useWorkspace();
+  const { targetKey, openFinish, review } = useWorkspace();
+  const focusRun = useSettings().preferences.focuses.enabled ? review?.focusRun : undefined;
   const d = useDraft();
   const rpc = useRpc<typeof rpcContract>();
   const feedback = useComments(targetKey, "feedback");
@@ -416,14 +419,14 @@ function Verdicts({ revision }: { revision: string }) {
         </Button>)}
       </div>
       {d.ownPr && <p id={ownPrId} className="text-xs text-muted-foreground">{OWN_PR}</p>}
-      {(suggested && (suggested !== d.draft.verdict || !verdictPicked(d.draft)) && !(d.ownPr && suggested !== "COMMENT") || run && (run.suggestedVerdict || left || said) || checked || unchecked.length > 0) && (
+      {(suggested && (suggested !== d.draft.verdict || !verdictPicked(d.draft)) && !(d.ownPr && suggested !== "COMMENT") || run && (run.suggestedVerdict || left || said) || checked || unchecked.length > 0 || focusRun) && (
         <section aria-label="Agent’s suggestion" className="flex flex-wrap items-center gap-x-2 gap-y-1.5 rounded-lg bg-(--ansi-13)/5 px-2.5 py-2">
           <p className="flex min-w-0 flex-1 basis-40 items-center gap-1.5 text-xs text-muted-foreground"><Icon name="Sparkles" className="size-3.5 shrink-0 text-(--ansi-13)" aria-hidden />
             {suggested && !(d.ownPr && suggested !== "COMMENT") ? `Agent suggests ${VERDICT_LABEL[suggested]}` : run?.suggestedVerdict ? `Agent suggests ${VERDICT_LABEL[run.suggestedVerdict]}` : left ? "The agent found open items" : "Agent’s check"}
           </p>
           {suggested && suggested !== d.draft.verdict && !d.ownPr && d.editable && <Button size="sm" variant="outline" className={cn("h-7 px-2 text-xs", TOUCH_CONTROL)} disabled={d.busy} onClick={() => d.chooseVerdict(suggested)}>Switch to {VERDICT_LABEL[suggested]}</Button>}
           {d.agentCoverage && d.agentCoverage.total > 0 && <MetaLine className="basis-full text-xs text-muted-foreground" items={[`Read ${readOf(d.agentCoverage)}`]} />}
-          {unchecked.length > 0 && <Unchecked items={unchecked} />}
+          <FocusCoverage items={unchecked} />
           {said && <div className="min-w-0 basis-full"><Clamped body={said} link /></div>}
           {run && (run.suggestedVerdict || left) && <span className="flex flex-wrap gap-1.5">
             {feedback?.suggestionInDraft
@@ -449,14 +452,70 @@ function Verdicts({ revision }: { revision: string }) {
   );
 }
 
+/** Run accounting stays in BB; finding prose is text, never the agent's Markdown. */
+function FocusCoverage({ items }: { items: readonly string[] }) {
+  const { targetKey, review, showLocation } = useWorkspace();
+  const rpc = useRpc<typeof rpcContract>();
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const enabled = useSettings().preferences.focuses.enabled;
+  const run = enabled ? review?.focusRun : undefined;
+  const findings = run ? review?.focusFindings ?? [] : [];
+  const active = run?.state === "finding" || run?.state === "merging";
+  const unchecked: ReactNode[] = items.slice(0, 5);
+  const gaps: ReactNode[] = [];
+  for (const focus of run?.focuses ?? []) {
+    if (focus.error || focus.state === "stopped") gaps.push(<span>{focus.label}: {focus.error ?? "stopped"}</span>);
+    for (const item of focus.unchecked ?? []) gaps.push(<span>{focus.label}: {item}</span>);
+    const reasons = new Map<string, number>();
+    for (const finding of findings.filter((finding) => finding.focusId === focus.focusId && finding.status === "not-checked")) {
+      const reason = finding.reason ?? "unsettled";
+      reasons.set(reason, (reasons.get(reason) ?? 0) + 1);
+    }
+    for (const [reason, count] of reasons) gaps.push(<span>{focus.label}: {plural(count, "finding")} not checked · {reason}</span>);
+  }
+  unchecked.push(...gaps);
+  async function again() {
+    setBusy(true);
+    try {
+      const result = await rpc.call("rerunFocusRun", { targetKey });
+      if (!result.ok) toast.error(result.error ?? "The focuses couldn’t start.");
+    } catch (error) { toast.error(error instanceof Error ? error.message : "Something went wrong"); }
+    finally { setBusy(false); }
+  }
+  const tokens = [...(run?.focuses.flatMap((focus) => focus.tokens ? [focus.tokens] : []) ?? []), ...(run?.mergeTokens ? [run.mergeTokens] : [])];
+  const total = tokens.reduce((sum, usage) => sum + usage.input + usage.output, 0);
+  const partial = active || run?.focuses.some((focus) => !focus.tokens) || run?.mergeDispatchedAt !== undefined && !run.mergeTokens;
+  const details = findings.filter((finding) => finding.status === "dropped" || finding.status === "folded");
+  if (!run && !unchecked.length) return null;
+  return <div className="min-w-0 basis-full space-y-1 text-xs text-muted-foreground">
+    {run && <>
+      <button type="button" aria-expanded={open} disabled={!details.length} onClick={() => setOpen(!open)} className={cn("flex min-h-7 items-center gap-1 rounded-md text-left enabled:hover:text-foreground", TOUCH_CONTROL)}>
+        <span>Focuses: {run.focuses.map((focus) => focus.label).join(", ")} · {plural(findings.length, "finding")} · {findings.filter((finding) => finding.status === "kept").length} kept, {findings.filter((finding) => finding.status === "folded").length} folded, {findings.filter((finding) => finding.status === "dropped").length} dropped · {findings.filter((finding) => finding.status === "not-checked").length} not checked{tokens.length > 0 ? ` · ${total >= 1000 ? `${Math.round(total / 1000)}k` : total} tokens${partial ? " (partial)" : ""}` : ""}</span>
+        {details.length > 0 && <Icon name={open ? "ChevronDown" : "ChevronRight"} className="size-3 shrink-0" aria-hidden />}
+      </button>
+      {open && <ul className="space-y-2 pl-3">{details.map((finding) => <li key={finding.id} className="break-words">
+        <div className="flex items-center gap-2">
+          <span className="min-w-0 flex-1">{finding.file}:{finding.line} · {finding.status === "folded" ? `Folded into ${finding.draftFile ?? finding.file}:${finding.draftLine ?? finding.line}` : finding.reason ? finding.reason[0].toUpperCase() + finding.reason.slice(1) : "Dropped"}</span>
+          <Button variant="outline" size="sm" className={cn("shrink-0 text-xs", TOUCH_CONTROL)} onClick={() => showLocation(finding.draftFile ?? finding.file, finding.draftLine ?? finding.line, finding.draftSide ?? finding.side)}>Show</Button>
+        </div>
+        <p className="whitespace-pre-wrap">{finding.body}</p>
+        {finding.note && <p className="whitespace-pre-wrap">{finding.note}</p>}
+        {finding.evidence && <p className="whitespace-pre-wrap">{finding.evidence}</p>}
+      </li>)}</ul>}
+    </>}
+    {unchecked.length > 0 && <Unchecked items={unchecked} action={gaps.length > 0 ? <Button variant="outline" size="sm" className={TOUCH_CONTROL} disabled={busy || active} onClick={() => void again()}>Check again</Button> : undefined} />}
+  </div>;
+}
+
 /** What the agent says it didn't read or run, folded under its suggestion. It stays in BB. */
-function Unchecked({ items }: { items: readonly string[] }) {
+function Unchecked({ items, action }: { items: readonly ReactNode[]; action?: ReactNode }) {
   const [open, setOpen] = useState(false);
   return <div className="min-w-0 basis-full">
     <button type="button" aria-expanded={open} onClick={() => setOpen(!open)} className={cn("flex min-h-7 items-center gap-1 rounded-md text-xs text-muted-foreground hover:text-foreground", TOUCH_CONTROL)}>
       What it didn’t check<Icon name={open ? "ChevronDown" : "ChevronRight"} className="size-3" aria-hidden />
     </button>
-    {open && <ul className="list-disc space-y-0.5 pb-1 pl-5 text-xs text-muted-foreground">{items.slice(0, 5).map((item, index) => <li key={index}><InlineCode text={item} /></li>)}</ul>}
+    {open && <><ul className="list-disc space-y-0.5 pb-1 pl-5 text-xs text-muted-foreground">{items.map((item, index) => <li key={index}>{typeof item === "string" ? <InlineCode text={item} /> : item}</li>)}</ul>{action}</>}
   </div>;
 }
 
@@ -514,8 +573,15 @@ function BeforeYouApprove() {
  */
 function GoesToGitHub({ items, replyDrafts, onList }: { items: readonly CommentItem[]; replyDrafts: number; onList: (filter: CommentFilter, id?: string | null) => void }) {
   const d = useDraft();
-  const { reveal, showLocation } = useWorkspace();
+  const { reveal, showLocation, patch } = useWorkspace();
   const comments = d.posting;
+  const { preferences } = useSettings();
+  const stale = comments.filter((c) => d.stale.some((at) => sameLocation(at, c)));
+  const outside = invalidComments(patch, comments).filter((c) => !stale.some((at) => sameLocation(at, c)));
+  const moved = [...stale, ...outside];
+  const posting = moveToSummary({ ...d.draft, comments }, moved, preferences.knobs.preExistingFindings);
+  const showLabels = preferences.focuses.githubLabel && posting.comments.some((c) => c.focus);
+  const payload = toGithubReviewPayload({ ...d.draft, ...posting }, preferences.knobs.preExistingFindings, false, preferences.focuses.githubLabel);
   // Sent to fix from your own change, resolved or dismissed: they stay in BB. Those not on GitHub yet go with Send.
   const held = d.draft.comments.length - comments.length - d.notOnGithub;
   const agent = comments.filter((comment) => comment.author === "agent").length;
@@ -548,6 +614,16 @@ function GoesToGitHub({ items, replyDrafts, onList }: { items: readonly CommentI
           Approving with {plural(d.blockingCount, "blocking comment")}.
         </Row>}
       </ul>
+      {showLabels && moved.length > 0 && <div className="mt-3 space-y-1">
+        <p className="text-xs font-medium text-muted-foreground">Moves to summary on Submit anyway</p>
+        <p className="whitespace-pre-wrap break-words text-sm">{posting.body}</p>
+      </div>}
+      {showLabels && payload.comments.length > 0 && <ul className="mt-3 space-y-3">
+        {payload.comments.map((comment, index) => <li key={index} className="space-y-1">
+          <p className="break-all font-mono text-xs text-muted-foreground">{comment.path}:{comment.line}</p>
+          <p className="whitespace-pre-wrap break-words text-sm">{comment.body}</p>
+        </li>)}
+      </ul>}
       {held > 0 && <p className="px-0.5 text-xs text-muted-foreground">{held} sent to fix won’t post to GitHub. Reopen {held === 1 ? "it" : "one"} to post it.</p>}
       {d.notOnGithub > 0 && <p className="px-0.5 text-xs text-muted-foreground">{d.notOnGithub === 1 ? "1 comment isn’t on GitHub yet. It goes" : `${d.notOnGithub} comments aren’t on GitHub yet. They go`} with Send, not Submit.</p>}
     </Part>

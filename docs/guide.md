@@ -666,6 +666,8 @@ Open **Settings** from ⚙ in BB's title bar on All reviews, or **Review setting
 
 Save settings to apply them across this installation. Restore defaults stages a change for you to save; it does not change settings immediately, and keeps the diff's layout and how new and deleted files show. Those are set in a review's Diff options, for every review.
 
+**Review with focuses** is an opt-in under Review agent’s settings. Docs reads the diff independently; the review agent confirms its findings before drafting comments marked “Docs” in BB. Each focus adds an agent run, unattended at its provider’s lowest permissions, which can still edit files in the review’s checkout. Stop ends focuses without stopping the review agent’s own review. Focuses do not rerun automatically on pushes.
+
 ### Feature switches
 
 These switches turn a feature off; each is on by default. A setting that depends on another is indented, and disabled while that one is off.
@@ -893,6 +895,8 @@ Notes for reviews and pages from before the current releases. New installs can s
 - **The updater asks you to close pages after they're all closed.** See [docs/operations.md](operations.md#updates).
 - **The review agent or the main thread beside a review, in two panes.** BB doesn't tell a plugin which pane's side panel a tab shows in, so with one review in two panes, **Ask agent** and **Show beside review** are pressed in both while either pane shows the tab. **Switch between review and main thread**, from a page that isn't a thread's, goes from the review you last clicked or typed in, else the one the window's address shows; and Review ↗ above a main thread's message box hides while the window's address is that review's. A key you bound to the switch instead of ⌘⇧. isn't in its tooltips: BB doesn't tell a plugin.
 - **Anything else:** `bb plugin logs code-review-workspace` shows the plugin's log.
+
+Third-party template licenses and attribution: [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md).
 
 ## Uninstall
 

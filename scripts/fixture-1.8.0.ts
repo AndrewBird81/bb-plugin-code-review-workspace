@@ -239,7 +239,7 @@ if (mode === "write") {
   const payloads: Record<string, unknown> = {};
   for (const k of Object.keys(keys.comments)) {
     const draft = await store.getDraft(k);
-    payloads[k] = { plain: JSON.stringify(toGithubReviewPayload(draft, false, false)), preExisting: JSON.stringify(toGithubReviewPayload(draft, true, false)), own: JSON.stringify(toGithubReviewPayload(draft, false, true)) };
+    payloads[k] = { plain: JSON.stringify(toGithubReviewPayload(draft, false, false, false)), preExisting: JSON.stringify(toGithubReviewPayload(draft, true, false, false)), own: JSON.stringify(toGithubReviewPayload(draft, false, true, false)) };
   }
   await store.dispose();
   rmSync(join(out, "data.db"), { force: true });

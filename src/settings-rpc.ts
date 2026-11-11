@@ -23,12 +23,17 @@ export function register(deps: ServeDeps) {
     async savePreferences({ preferences, revision }) {
       const { result, refresh } = await store.exclusive(async (tx) => {
         const before = (await tx.getPreferences()).preferences;
-        const result = await tx.savePreferences({ ...preferences, threadListReviews: preferences.threadListReviews ?? before.threadListReviews, rereviewShows: preferences.rereviewShows ?? before.rereviewShows, markdownFiles: preferences.markdownFiles ?? before.markdownFiles, knobs: { ...before.knobs, ...preferences.knobs } }, revision);
+        const result = await tx.savePreferences({ ...preferences, threadListReviews: preferences.threadListReviews ?? before.threadListReviews, rereviewShows: preferences.rereviewShows ?? before.rereviewShows, markdownFiles: preferences.markdownFiles ?? before.markdownFiles, knobs: { ...before.knobs, ...preferences.knobs }, focuses: { ...before.focuses, ...preferences.focuses, focuses: preferences.focuses?.focuses.map((focus) => {
+          const previous = before.focuses.focuses.find((saved) => saved.id === focus.id);
+          // Old pages omit agent. New pages always send it, including null, so reset can omit instructions.
+          return focus.agent === undefined ? { ...previous, ...focus, agent: previous?.agent ?? null } : { ...focus, agent: focus.agent };
+        }) ?? before.focuses.focuses } }, revision);
         bb.realtime.publish("preferences", {});
         // These are in the assistants' instructions; whether they may run the repo's checks depends on the last two. So
         // are the agent checks the knobs turn on, and whether it acts when asked, which chooses its tools too.
         const refresh = (["assistantInstructions", "runRepoChecks", "unattendedAuthors"] as const).some((key) => result.preferences[key] !== before[key])
-          || (["preExistingFindings", "agentCoverage", "testWeakening", "reviewAgentActs"] as const).some((knob) => result.preferences.knobs[knob] !== before.knobs[knob]);
+          || (["preExistingFindings", "agentCoverage", "testWeakening", "reviewAgentActs"] as const).some((knob) => result.preferences.knobs[knob] !== before.knobs[knob])
+          || result.preferences.focuses.enabled !== before.focuses.enabled;
         return { result, refresh };
       });
       // Started after the block, which its reads of the store would wait for.

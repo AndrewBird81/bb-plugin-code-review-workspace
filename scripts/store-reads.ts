@@ -26,7 +26,7 @@ export interface StoreEntities {
     /** Comment locations with rows behind them; the dump adds the ones its reads return. */
     locations: CommentLocation[];
   }>;
-  /** Threads the store may know as a generation's worker, an assistant thread, or a legacy agent thread. */
+  /** Threads recorded as a generation worker, assistant, focus, or legacy agent. */
   threadIds: string[];
 }
 
@@ -53,8 +53,9 @@ export function storeEntities(db: Database.Database): StoreEntities {
   const generations = rows<{ target_key: string; generation_id: string; worker_id: string | null }>("generations", `SELECT * FROM generations`);
   const heads = (...tablesWithHeads: string[]) => tablesWithHeads.flatMap((table) => rows<{ target_key: string; head_sha: string }>(table, `SELECT DISTINCT target_key, head_sha FROM ${quoteName(table)}`));
   const snapshots = heads("review_snapshots"), assessments = heads("assessment_items", "assessment_runs");
-  const located = ["draft_comment_revisions", "discussion_entries", "discussion_waits", "agent_comment_changes"]
+  const located = ["draft_comment_revisions", "discussion_entries", "discussion_waits", "agent_comment_changes", "focus_findings"]
     .flatMap((table) => rows<CommentLocation & { target_key: string }>(table, `SELECT DISTINCT target_key, file, line, side FROM ${quoteName(table)}`));
+  located.push(...rows<CommentLocation & { target_key: string }>("focus_findings", `SELECT DISTINCT target_key, draft_file AS file, draft_line AS line, draft_side AS side FROM focus_findings WHERE draft_file IS NOT NULL AND draft_line IS NOT NULL AND draft_side IS NOT NULL`));
   return {
     reviews: targetKeys.map((targetKey) => ({
       targetKey,
@@ -67,6 +68,7 @@ export function storeEntities(db: Database.Database): StoreEntities {
       ...generations.flatMap((g) => g.worker_id === null ? [] : [g.worker_id]),
       ...rows<{ thread_id: string }>("assistant_threads", `SELECT thread_id FROM assistant_threads`).map((row) => row.thread_id),
       ...rows<{ thread_id: string }>("agent_threads", `SELECT thread_id FROM agent_threads`).map((row) => row.thread_id),
+      ...rows<{ thread_id: string }>("focus_threads", `SELECT thread_id FROM focus_threads`).map((row) => row.thread_id),
     ]),
   };
 }

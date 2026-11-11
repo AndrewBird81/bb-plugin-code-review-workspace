@@ -5,9 +5,9 @@
 // - ms timestamps and counters are BIGINT; line and PR numbers stay INTEGER; the 0/1 flag is SMALLINT.
 // - JSON stays TEXT: JSONB would reorder keys that the Store compares as strings.
 // - target_key, and each text column in a primary key or index, is COLLATE "C", so it sorts by code point as in SQLite
-//   whatever the database's collation, and tables join on target_key with one collation.
+//   whatever the database's collation, and tables join on target_key with one collation. Focus run ids share it too.
 // plugin_updates (src/plugin-updates.ts) stays in SQLite, so it isn't here.
-import { createHash } from "node:crypto";
+import { assertMigrationLedger, statementHash, type MigrationRecord } from "./schema-guard";
 import pg from "pg";
 import type { Sql } from "./sql";
 
@@ -83,9 +83,17 @@ export const PG_MIGRATIONS: readonly string[] = [
   `CREATE TABLE IF NOT EXISTS chapter_reads (
     target_key TEXT COLLATE "C" NOT NULL, chapter_id TEXT COLLATE "C" NOT NULL, open_ms BIGINT NOT NULL, fine_at BIGINT,
     PRIMARY KEY (target_key, chapter_id))`,
+  `CREATE TABLE IF NOT EXISTS focus_threads (
+    thread_id TEXT COLLATE "C" PRIMARY KEY, target_key TEXT COLLATE "C" NOT NULL, run_id TEXT COLLATE "C" NOT NULL, focus_id TEXT NOT NULL,
+    label TEXT NOT NULL, created_at BIGINT NOT NULL)`,
+  `CREATE TABLE IF NOT EXISTS focus_findings (
+    target_key TEXT COLLATE "C" NOT NULL, run_id TEXT COLLATE "C" NOT NULL, id TEXT COLLATE "C" NOT NULL, focus_id TEXT NOT NULL, label TEXT NOT NULL,
+    file TEXT NOT NULL, line INTEGER NOT NULL, side TEXT NOT NULL, start_line INTEGER, start_side TEXT,
+    severity TEXT NOT NULL, body TEXT NOT NULL, evidence TEXT NOT NULL, introduced SMALLINT,
+    status TEXT NOT NULL, reason TEXT, note TEXT, draft_file TEXT, draft_line INTEGER, draft_side TEXT, decided_at BIGINT,
+    PRIMARY KEY (target_key, run_id, id))`,
+  `ALTER TABLE review_preferences ADD COLUMN focuses TEXT`,
 ];
-
-const statementHash = (statement: string) => createHash("sha256").update(statement).digest("hex");
 
 /** Whether migratePg has made `schema`'s tables: for the plugin, only bb review storage migrate does. */
 export async function pgSchemaMigrated(sql: Sql, schema: string): Promise<boolean> {
@@ -102,17 +110,14 @@ export async function migratePg(sql: Sql, schema: string, statements: readonly s
   const hashes = statements.map(statementHash);
   await sql.transaction(async () => {
     await sql.get(`SELECT pg_advisory_xact_lock(hashtext(?))`, [`code-review-workspace:migrations:${schema}`]);
+    const rows = await pgSchemaMigrated(sql, schema)
+      ? await sql.all<MigrationRecord>(`SELECT id, statement_hash FROM crw_migrations ORDER BY id`)
+      : [];
+    assertMigrationLedger(rows, statements, "Postgres");
     // Checked first: CREATE SCHEMA IF NOT EXISTS needs the database's CREATE privilege even when the schema is there.
     if (!await sql.get(`SELECT 1 FROM pg_namespace WHERE nspname=?`, [schema])) await sql.run(`CREATE SCHEMA ${pg.escapeIdentifier(schema)}`);
     await sql.run(`CREATE TABLE IF NOT EXISTS crw_migrations (id INTEGER PRIMARY KEY, statement_hash TEXT NOT NULL, applied_at BIGINT NOT NULL)`);
-    const applied = new Map((await sql.all<{ id: number; statement_hash: string }>(`SELECT id, statement_hash FROM crw_migrations ORDER BY id`))
-      .map((row) => [row.id, row.statement_hash]));
-    hashes.forEach((hash, id) => {
-      const recorded = applied.get(id);
-      if (recorded !== undefined && recorded !== hash) {
-        throw new Error(`Postgres migration ${id} does not match the statement it recorded; append a new migration instead of changing or reusing an index`);
-      }
-    });
+    const applied = new Set(rows.map((row) => row.id));
     for (const [id, statement] of statements.entries()) {
       if (applied.has(id)) continue;
       await sql.run(statement);

@@ -441,7 +441,7 @@ export function register(deps: ServeDeps, { submit }: {
         bb.realtime.publish(`draft:${k}`, {});
         return `Marked ${VERDICT_LABEL[verdict]} as your suggested verdict in the reviewer's draft${saved?.ok ? ", with your summary" : ""}. ${UNATTENDED}`;
       }
-      const { draft, preExisting } = await store.exclusive(async (tx) => ({ draft: await tx.getDraft(k), preExisting: (await tx.getPreferences()).preferences.knobs.preExistingFindings }));
+      const { draft, preferences } = await store.exclusive(async (tx) => ({ draft: await tx.getDraft(k), preferences: (await tx.getPreferences()).preferences }));
       const comments: Comment[] = draft.comments.map(({ file, line, side, startLine, startSide, severity, introduced, body }) => ({ file, line, side, body, ...(startLine === undefined ? {} : { startLine, startSide }), ...(severity ? { severity } : {}), ...(introduced === false ? { introduced } : {}) }));
       const summary = body ?? draft.body;
       // What GitHub refuses, said before anything is shown.
@@ -469,7 +469,7 @@ export function register(deps: ServeDeps, { submit }: {
       const w: Write = { kind: "review", verdict, body: summary, comments, was: { body: draft.body, verdict: draft.verdict }, force: checked.warnings ?? [], headSha: review.headSha ?? null, posts: posting.comments.length, posting: checked.posts ?? [] };
       return previewed(threadId, signal, review, turn, w, verdict === "APPROVE" ? "approve" : verdict === "REQUEST_CHANGES" ? "request-changes" : "post", (account) => ({
         title: `${verdict === "APPROVE" ? "Approve" : verdict === "REQUEST_CHANGES" ? "Request changes on" : "Post to"} ${where(review)}${by(account)}`, action: VERDICT_LABEL[verdict], button: VERDICT_BUTTON[verdict],
-        parts: [...posting.body.trim() ? [{ label: "Summary", body: posting.body }] : [], ...posting.comments.map((c) => ({ label: `${c.file}:${linesOf(c)}`, body: postedBody(c, preExisting), path: true }))],
+        parts: [...posting.body.trim() ? [{ label: "Summary", body: posting.body }] : [], ...posting.comments.map((c) => ({ label: `${c.file}:${linesOf(c)}`, body: postedBody(c, preferences.knobs.preExistingFindings, preferences.focuses.githubLabel ? c.focus : undefined), path: true }))],
         notes: [...notes, ...!posting.body.trim() && !posting.comments.length ? ["No summary or comments: the verdict alone."] : []],
       }), answer);
     },

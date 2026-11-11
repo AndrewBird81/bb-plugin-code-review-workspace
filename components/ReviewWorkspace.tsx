@@ -61,6 +61,7 @@ import { StepBar } from "./comments/StepBar";
 import { NavigatorHost } from "./shell/NavigatorHost";
 import { PhoneDock } from "./shell/PhoneDock";
 import { returnFocus } from "./shell/side-parts";
+import { FocusStrip } from "./shell/FocusStrip";
 import { REWRITE_GUIDE, ReviewNotices, useNewCommits, type Notice } from "./shell/ReviewNotices";
 import { useBranchKeptNotices, useFeatureNotices } from "./shell/FeatureNotices";
 import { useFixNotices } from "./shell/FixNotices";
@@ -1672,6 +1673,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
           {/* With the keyboard up leaving a phone held sideways' room or less, the band and notices give way to the code. */}
           <div className="contents [[data-keyboard=short]_&]:hidden">
             <ReaderBar threads={isPr && diffThreads.threads.length > 0} onCompareShown={setCompareShown} />
+            <FocusStrip targetKey={targetKey} run={review?.focusRun} head={review?.focusHead ?? review?.headSha} latestHead={review?.latestHeadSha} updateAction={prFolder ? updateButton : updateGuide} findings={review?.focusFindings} generalWorking={review?.agentStatus?.indicator === "runtime"} />
             <ReviewNotices notices={notices} />
           </div>
           {/* A spacer, not top padding: padding would hold sticky file headers 16px down, with code showing above them. */}

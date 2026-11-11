@@ -488,3 +488,10 @@ test("on your own PR, a GitHub thread that went with a Send is under the fix chi
   expect(shownItems(items, "done").map((item) => item.id)).toEqual(["T4"]);
   expect(shownItems(items, "open")).toEqual([]);
 });
+
+test("a focus is in the shared draft state line, but never on a reviewer comment", () => {
+  const base = { file: "a.ts", line: 1, side: "RIGHT" as const, body: "Wrong docs", author: "agent" as const, focus: "Docs" };
+  expect(draftStatus(base, "agent-draft", { posts: true, own: false })).toMatchObject({ label: "Agent draft · Docs · not submitted" });
+  expect(draftStatus(base, "agent-draft", { posts: false, own: true })).toMatchObject({ label: "Agent · Docs · Open" });
+  expect(draftStatus({ ...base, author: undefined }, "draft", { posts: true, own: false })).toMatchObject({ label: "Draft · not submitted" });
+});
