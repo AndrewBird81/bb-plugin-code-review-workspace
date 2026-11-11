@@ -9,7 +9,7 @@ import type { FocusRun } from "../src/focus-model";
 
 afterEach(cleanup);
 
-test("Focuses is explicit-save opt-in, with a fixed General/Docs list and permission warning", async () => {
+test("Focuses is explicit-save opt-in, with a General/Docs list and permission warning", async () => {
   const save = vi.fn(async (record: any) => ({ ...record, revision: 1 }));
   const slot = renderSlot({ component: ReviewSettings }, {}, { rpc: { getPreferences: () => ({ preferences: defaultPreferences, revision: 0 }), savePreferences: save, setReviewPresence: () => ({ ok: true }) } });
   const toggle = await slot.findByRole("checkbox", { name: "Review with focuses" }) as HTMLInputElement;
@@ -17,7 +17,7 @@ test("Focuses is explicit-save opt-in, with a fixed General/Docs list and permis
   expect(slot.getByText(/can still edit files/)).toBeTruthy();
   expect(slot.getByText("General")).toBeTruthy();
   expect(slot.getAllByText("Docs").some((element) => element.tagName === "STRONG")).toBe(true);
-  expect(slot.queryByRole("button", { name: "Edit focus" })).toBeNull();
+  expect(slot.getByRole("button", { name: "Edit Docs" }).matches(":disabled")).toBe(true);
   const label = slot.getByRole("checkbox", { name: "Label comments on GitHub with their focus" }) as HTMLInputElement;
   expect(label.checked).toBe(true);
   expect(label.disabled).toBe(true);
