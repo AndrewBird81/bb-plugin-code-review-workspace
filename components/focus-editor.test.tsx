@@ -65,11 +65,34 @@ test("add blank or template, validate editor, remove, cap saved and hold Save ab
   expect(slot.queryByRole("button", { name: "Edit New" })).toBeNull();
   for (let i = 4; i < 12; i++) {
     fireEvent.click(slot.getByRole("button", { name: "Add focus" }));
-    fireEvent.click(slot.getByRole("button", { name: "Docs and comments" }));
+    fireEvent.click(slot.getByRole("button", { name: docs.label }));
     fireEvent.click(within(slot.getByRole("dialog", { name: "Edit focus" })).getByRole("button", { name: "Done" }));
   }
   expect((slot.getByRole("button", { name: "Add focus" }) as HTMLButtonElement).disabled).toBe(true);
   expect(slot.getByText("12 saved focuses maximum")).toBeTruthy();
+});
+
+test("typing the template text again drops the override on Done", async () => {
+  const { slot, save } = await settings();
+  fireEvent.click(slot.getByRole("button", { name: "Edit Docs" }));
+  const dialog = within(slot.getByRole("dialog", { name: "Edit focus" }));
+  fireEvent.change(dialog.getByRole("textbox", { name: "Instructions" }), { target: { value: "Edited" } });
+  fireEvent.change(dialog.getByRole("textbox", { name: "Instructions" }), { target: { value: docs.instructions } });
+  fireEvent.change(dialog.getByRole("textbox", { name: "Name" }), { target: { value: "Renamed" } });
+  fireEvent.click(dialog.getByRole("button", { name: "Done" }));
+  fireEvent.click(slot.getByRole("button", { name: "Save settings" }));
+  await slot.findByText("Settings saved");
+  expect(save.mock.calls[0][0].preferences.focuses.focuses[0]).not.toHaveProperty("instructions");
+});
+
+test("template choices and attribution use shipped metadata", async () => {
+  const { slot } = await settings();
+  fireEvent.click(slot.getByRole("button", { name: "Add focus" }));
+  fireEvent.click(slot.getByRole("button", { name: docs.label }));
+  const dialog = within(slot.getByRole("dialog", { name: "Edit focus" }));
+  const source = dialog.getByRole("link", { name: docs.holder });
+  expect(source.getAttribute("href")).toBe(docs.source);
+  expect(dialog.getByText(new RegExp(docs.license))).toBeTruthy();
 });
 
 test("focus override stages execution-only picker values, then null restores the review agent", async () => {

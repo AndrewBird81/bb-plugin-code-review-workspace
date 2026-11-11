@@ -63,7 +63,7 @@ export function FocusSettings({ value, reviewAgent, disabled, onChange }: { valu
       </div>)}
       <Button variant="outline" size="sm" className={TARGET} disabled={value.focuses.length >= 12} aria-expanded={adding} onClick={() => setAdding(!adding)}>Add focus</Button>
       {adding && <div className="flex flex-wrap gap-2">
-        {focusTemplates.map((template) => <Button key={template.id} variant="outline" className={TARGET} onClick={() => add(template.id)}>Docs and comments</Button>)}
+        {focusTemplates.map((template) => <Button key={template.id} variant="outline" className={TARGET} onClick={() => add(template.id)}>{template.label}</Button>)}
         <Button variant="outline" className={TARGET} onClick={() => add()}>Blank focus</Button>
       </div>}
       {value.focuses.length >= 12 && <p className="text-xs text-muted-foreground">12 saved focuses maximum</p>}
@@ -78,7 +78,7 @@ export function FocusSettings({ value, reviewAgent, disabled, onChange }: { valu
         {problem && <p role="alert" className="text-xs text-destructive-text">{problem}</p>}
         <label className="space-y-2 text-sm font-medium">Instructions<Textarea aria-label="Instructions" maxLength={8000} rows={8} value={instructions} onChange={(event) => update((focus) => ({ ...focus, instructions: event.target.value }))} /></label>
         <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground"><span>{instructions.length.toLocaleString()} of 8,000</span>{template && <Button variant="ghost" size="sm" className={TARGET} onClick={() => update(({ instructions: _edited, ...focus }) => focus)}>Reset to template</Button>}</div>
-        {template && <p className="text-xs text-muted-foreground">Based on comment-analyzer from anthropics/claude-plugins-official ({template.license}), changed. <a className="inline-flex min-h-11 items-center underline underline-offset-4" href="https://github.com/AndrewBird81/bb-plugin-code-review-workspace/blob/main/THIRD_PARTY_NOTICES.md" target="_blank" rel="noreferrer">Licenses ↗</a></p>}
+        {template && <p className="text-xs text-muted-foreground">Based on <a className="inline-flex min-h-11 items-center underline underline-offset-4" href={template.source} target="_blank" rel="noreferrer">{template.holder}</a> ({template.license}), changed. <a className="inline-flex min-h-11 items-center underline underline-offset-4" href="https://github.com/AndrewBird81/bb-plugin-code-review-workspace/blob/main/THIRD_PARTY_NOTICES.md" target="_blank" rel="noreferrer">Licenses ↗</a></p>}
         <div className="space-y-2"><p className="text-sm font-medium">Agent</p><div role="group" aria-label="Focus agent" className="flex flex-wrap gap-2">
           <Button variant="outline" className={TARGET} aria-pressed={!focus.agent} onClick={() => update((focus) => ({ ...focus, agent: null }))}>The review agent’s</Button>
           <Button variant="outline" className={TARGET} aria-pressed={!!focus.agent} onClick={() => void customize()}>Custom</Button>
@@ -90,6 +90,7 @@ export function FocusSettings({ value, reviewAgent, disabled, onChange }: { valu
           <Button variant="ghost" className={TARGET} onClick={() => setEditing(null)}>Cancel</Button>
           <Button className={TARGET} disabled={disabled || !!problem || !!incomplete || instructions.length > 8000} onClick={() => {
             const saved = { ...focus, label: focus.label.trim() };
+            if (template && saved.instructions === template.instructions) delete saved.instructions;
             onChange((current) => ({ ...current, focuses: editing.added ? [...current.focuses, saved] : current.focuses.map((entry) => entry.id === focus.id ? saved : entry) }));
             setEditing(null);
           }}>Done</Button>
