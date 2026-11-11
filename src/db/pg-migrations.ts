@@ -8,6 +8,7 @@
 //   whatever the database's collation, and tables join on target_key with one collation. Focus run ids share it too.
 // plugin_updates (src/plugin-updates.ts) stays in SQLite, so it isn't here.
 import { createHash } from "node:crypto";
+import { assertMigrationLedger, type MigrationRecord } from "./schema-guard";
 import pg from "pg";
 import type { Sql } from "./sql";
 
@@ -112,17 +113,14 @@ export async function migratePg(sql: Sql, schema: string, statements: readonly s
   const hashes = statements.map(statementHash);
   await sql.transaction(async () => {
     await sql.get(`SELECT pg_advisory_xact_lock(hashtext(?))`, [`code-review-workspace:migrations:${schema}`]);
+    const rows = await pgSchemaMigrated(sql, schema)
+      ? await sql.all<MigrationRecord>(`SELECT id, statement_hash FROM crw_migrations ORDER BY id`)
+      : [];
+    assertMigrationLedger(rows, statements, "Postgres");
     // Checked first: CREATE SCHEMA IF NOT EXISTS needs the database's CREATE privilege even when the schema is there.
     if (!await sql.get(`SELECT 1 FROM pg_namespace WHERE nspname=?`, [schema])) await sql.run(`CREATE SCHEMA ${pg.escapeIdentifier(schema)}`);
     await sql.run(`CREATE TABLE IF NOT EXISTS crw_migrations (id INTEGER PRIMARY KEY, statement_hash TEXT NOT NULL, applied_at BIGINT NOT NULL)`);
-    const applied = new Map((await sql.all<{ id: number; statement_hash: string }>(`SELECT id, statement_hash FROM crw_migrations ORDER BY id`))
-      .map((row) => [row.id, row.statement_hash]));
-    hashes.forEach((hash, id) => {
-      const recorded = applied.get(id);
-      if (recorded !== undefined && recorded !== hash) {
-        throw new Error(`Postgres migration ${id} does not match the statement it recorded; append a new migration instead of changing or reusing an index`);
-      }
-    });
+    const applied = new Set(rows.map((row) => row.id));
     for (const [id, statement] of statements.entries()) {
       if (applied.has(id)) continue;
       await sql.run(statement);

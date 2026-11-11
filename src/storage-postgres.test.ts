@@ -13,7 +13,7 @@ import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import { createFakePluginHost, makePluginAgentConfigurationContext, type FakePluginHarness } from "@get-bb/plugin-sdk/testing";
 import plugin from "../server";
 import { pgSql, type PgSql } from "./db/pg";
-import { migratePg } from "./db/pg-migrations";
+import { migratePg, PG_MIGRATIONS } from "./db/pg-migrations";
 import { testPgOptions, testPgUrl, testSchemaName } from "./db/pg-test.test-support";
 import { STORAGE_OWNER_KEY } from "./storage";
 import { storeOn } from "./store";
@@ -87,6 +87,25 @@ async function opened(harness: FakePluginHarness) {
 }
 
 describe.skipIf(!testPgUrl)("the plugin on Postgres storage", () => {
+  test("a future ledger reports an update is needed and never opens the Store or changes the ledger", async () => {
+    const { schema, settings } = postgresSettings();
+    const { bb, harness } = await host(settings);
+    const sql = connection(schema);
+    await sql.run(`INSERT INTO crw_migrations (id, statement_hash, applied_at) VALUES (?, 'future', 1)`, [PG_MIGRATIONS.length]);
+    const before = await sql.all(`SELECT * FROM crw_migrations ORDER BY id`);
+    await plugin(bb);
+    try {
+      harness.behavior.runService("storage");
+      await vi.waitFor(() => expect(harness.inspection.needsConfigurationMessages).toHaveLength(1));
+      expect(harness.inspection.needsConfigurationMessages[0]).toContain(
+        `database is from a newer Code Review Workspace (migration ${PG_MIGRATIONS.length}); update the plugin`);
+      expect(registered(harness)).toEqual({ tools: 0, rpc: 0, events: 0 });
+      expect(await sql.all(`SELECT * FROM crw_migrations ORDER BY id`)).toEqual(before);
+    } finally {
+      await harness.lifecycle.dispose();
+    }
+  });
+
   test("opened at activation, the store serves the tools, RPC handlers and events, writes to Postgres, never to SQLite, and lets the writer lock go on dispose", async () => {
     const { schema, settings } = postgresSettings();
     const { bb, harness } = await host(settings);

@@ -318,7 +318,7 @@ describe.skipIf(!testPgUrl)("bb review storage, moving the reviews (CRW_TEST_PG_
     expect(await run(harness, "verify")).toMatchObject({ exitCode: 0 });
   });
 
-  test("migrate reports every value Postgres can't take, and SQLite's migrations from a newer version, together, and copies nothing", async () => {
+  test("migrate reports incompatible values, but refuses a newer SQLite ledger before attempting a copy", async () => {
     const { schema, settings } = postgresSettings();
     const { bb, harness } = await host(settings);
     const { db } = seed(bb);
@@ -340,7 +340,9 @@ describe.skipIf(!testPgUrl)("bb review storage, moving the reviews (CRW_TEST_PG_
     expect(db.inTransaction).toBe(false);
 
     db.prepare(`INSERT INTO _bb_migrations (id, applied_at, statement_hash) VALUES (43, 1, 'later')`).run();
-    expect((await run(harness, "migrate")).stderr).toBe("Nothing was copied:\n  - SQLite's data.db has migration 43, which this version doesn't have: a newer version made it.");
+    const before = db.prepare("SELECT * FROM _bb_migrations ORDER BY id").all();
+    expect((await run(harness, "migrate")).stderr).toBe("database is from a newer Code Review Workspace (migration 43); update the plugin. Nothing was changed.");
+    expect(db.prepare("SELECT * FROM _bb_migrations ORDER BY id").all()).toEqual(before);
     expect(await schemaExists(schema)).toBe(false);
   });
 

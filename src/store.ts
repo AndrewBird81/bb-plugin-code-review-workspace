@@ -19,6 +19,7 @@ import { summaryLine, withSummaryLine } from "../lib/move-to-summary";
 import { localIdOf, reviewIdentity } from "../lib/review-identity";
 import { NOT_PUSHED, notPushedView } from "../lib/push";
 import { revisionOf } from "./review-revision";
+import { assertSqliteLedger } from "./db/schema-guard";
 
 export interface ReviewLifecycle {
   focusRun?: import("./focus-model").FocusRun;
@@ -816,7 +817,8 @@ export const SQLITE_MIGRATIONS: readonly string[] = [
 /** The plugin's SQLite database, a former install brought in and SQLITE_MIGRATIONS applied, as the Store opens it. */
 export function migrateSqlite(bb: BbPluginApi) {
   const db = bb.storage.database();
-  importFormerInstall(bb, db);
+  assertSqliteLedger(db, SQLITE_MIGRATIONS);
+  importFormerInstall(bb, db, () => assertSqliteLedger(db, SQLITE_MIGRATIONS, "former"));
   bb.storage.migrate(db, [...SQLITE_MIGRATIONS]);
   return db;
 }
