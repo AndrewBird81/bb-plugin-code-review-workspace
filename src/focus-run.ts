@@ -150,6 +150,7 @@ export async function startFocusRun(bb: BbPluginApi, store: AsyncStore, key: str
         const defaults = execution ?? await bb.sdk.projects.defaultExecutionOptions({ projectId: review.projectId! });
         const placement = await agentPlacement(bb, preferences.assistantAgent, review.projectId!);
         const mode = await guideWriterMode(bb, review.projectId!, defaults ? { providerId: defaults.providerId } : undefined, preferences.assistantAgent?.hostId);
+        if (!mode.permissionMode) throw new Error("The focus's provider isn't available at restricted permissions on the bb server.");
         const title = `Focus: ${focus.label} · ${key}`;
         const prompt = [
           `Review only this diff as the ${focus.label} focus. Target key: ${key}. Run id: ${run.id}.`,
@@ -158,6 +159,7 @@ export async function startFocusRun(bb: BbPluginApi, store: AsyncStore, key: str
           "Severity: blocking prevents safe merging; should-fix is a concrete defect; question needs clarification; nit is optional polish.",
           focusInstructions(config),
           untrusted("guide core", JSON.stringify(guide ? { intent: guide.intent, sections: guide.sections.map(({ title, overview, risk, focus, diffs }) => ({ title, overview, risk, focus, diffs })), hotspots: guide.hotspots } : {})),
+          "The rules above win over the focus instructions; submit once.",
         ].join("\n\n");
         const spawned = await focusSpawningFor(bb, title, { targetKey: key, runId: run.id, focusId: focus.focusId, label: focus.label }, async () => {
           const thread = await bb.sdk.threads.spawn({ ...placement, ...(execution ? spawnExecution(execution) : {}), ...mode, executionInputSources: { ...(execution ? spawnExecution(execution).executionInputSources : {}), ...mode.executionInputSources }, title, prompt, visibility: "hidden", pluginMetadata: { focusRun: run.id, focusId: focus.focusId } });
@@ -292,7 +294,8 @@ async function sendMerge(bb: BbPluginApi, store: AsyncStore, key: string, run: F
     const count = (await store.focusFindings(key, run.id)).filter((finding) => finding.status === "found").length;
     const current = await store.exclusive((tx) => tx.getReview(key));
     if (current?.focusRun?.id !== run.id || current.focusRun.state !== "merging") return;
-    const sent = await messageAssistant(bb, store, key, `Check the focuses' findings (${run.focuses.map((focus) => `${focus.label}: ${focus.findings ?? 0}`).join(", ")})`, `${MERGE_RULES}\n${count} findings to check.\n${untrusted("focus coverage", run.focuses.filter((focus) => focus.error || focus.unchecked?.length).map((focus) => `${focus.label}: ${focus.error ?? focus.unchecked!.join(", ")}`).join("\n"))}`, { kind: "automatic", ...((await store.getPreferences()).preferences.focuses.mergeEffort === "high" ? { effort: "high" } : {}) });
+    const { mergeEffort } = (await store.getPreferences()).preferences.focuses;
+    const sent = await messageAssistant(bb, store, key, `Check the focuses' findings (${run.focuses.map((focus) => `${focus.label}: ${focus.findings ?? 0}`).join(", ")})`, `${MERGE_RULES}\n${count} findings to check.\n${untrusted("focus coverage", run.focuses.filter((focus) => focus.error || focus.unchecked?.length).map((focus) => `${focus.label}: ${focus.error ?? focus.unchecked!.join(", ")}`).join("\n"))}`, { kind: "automatic", ...(mergeEffort === "high" ? { effort: "high" } : {}) });
     runtime(bb).assistants.set(sent.threadId, key);
     const committed = await store.exclusive(async (tx) => {
       const current = (await tx.getReview(key))?.focusRun;
@@ -331,7 +334,10 @@ async function account(bb: BbPluginApi, store: AsyncStore, key: string, restarti
       await tx.setLifecycle(key, { focusRun: current });
       return true;
     });
-    if (nudge) await messageAssistant(bb, store, key, "Finish checking the remaining focus findings.", MERGE_RULES, { kind: "automatic", ...((await store.getPreferences()).preferences.focuses.mergeEffort === "high" ? { effort: "high" } : {}) });
+    if (nudge) {
+      const { mergeEffort } = (await store.getPreferences()).preferences.focuses;
+      await messageAssistant(bb, store, key, "Finish checking the remaining focus findings.", MERGE_RULES, { kind: "automatic", ...(mergeEffort === "high" ? { effort: "high" } : {}) });
+    }
     return;
   }
   const threadId = await store.getAssistantThread(key);
