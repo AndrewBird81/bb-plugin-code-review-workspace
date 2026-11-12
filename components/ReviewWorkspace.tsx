@@ -5,6 +5,7 @@ import { Toaster, toast } from "sonner";
 import type { SelectedLineRange } from "@pierre/diffs";
 import type { rpcContract } from "../src/rpc-contract";
 import type { AgentMessageContext } from "../src/store";
+import type { AgentChoice } from "../src/agent";
 import { sameLocation, type CommentLocation } from "../src/draft";
 import type { FileInterdiff } from "../src/interdiff";
 import { baselineOf, computeTurn, type TurnReason } from "../lib/turn";
@@ -769,13 +770,14 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   }, [rpc, targetKey, load]);
 
   // Update guide, or a local review's Rewrite guide, starts the guide writer; a local review's Update doesn't.
-  const rebuild = useCallback(async (how: "rereview" | "rewriteGuide" | "updateFeature" = "rereview") => {
+  /** writer: the guide writer picked for this build of the guide (rereview), in place of Settings'. */
+  const rebuild = useCallback(async (how: "rereview" | "rewriteGuide" | "updateFeature" = "rereview", writer: AgentChoice | null = null) => {
     if (rebuilding) return;
     setRebuilding(true);
     setLoadError(null);
     const failed = how === "updateFeature" ? "Couldn’t update the review." : "Couldn’t rebuild the guide.";
     try {
-      const result = await rpc.call(how, { targetKey });
+      const result = how === "rereview" ? await rpc.call(how, { targetKey, ...(writer ? { agent: writer } : {}) }) : await rpc.call(how, { targetKey });
       if (!result.ok) setLoadError(result.error ?? failed);
       else await load();
     } catch (err) {
@@ -1603,7 +1605,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     if (loading) return <ReviewSkeleton />;
     if (!review) return <ReviewError title="Review not found" message="This review may have been removed. Return to your reviews or refresh the connection." onRetry={() => void load()} onBack={back} primary="back" />;
     if (review.status === "tracked") return <TrackedReview review={review} onBack={back} />;
-    if (review.status === "error") return <ReviewError review={review} onRetry={() => void rebuild()} onBack={back} busy={rebuilding} />;
+    if (review.status === "error") return <ReviewError review={review} onRetry={(writer) => void rebuild("rereview", writer)} onBack={back} busy={rebuilding} />;
     return <ReviewSkeleton review={review} onBack={back} onStop={stopGenerating ? () => void stopGuide() : undefined} stopping={stopping} />;
   }
 

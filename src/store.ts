@@ -2,7 +2,7 @@ import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import { renameOverviewChapter, type Guide } from "./guide";
 import { diffSide, isLocal, isSummary, postedBody, rangeOf, sameLocation, SUMMARY_AT, type Claim, type CommentLocation, type Discussion, type DiscussionEntry, type Draft, type DraftComment, type GithubReviewComment, type Severity, type Verdict } from "./draft";
 import { createHash, randomUUID } from "node:crypto";
-import { preferencesSchema, readPreferences, savedKnobs, unknownKnobs, type PreferencesRecord, type ReviewPreferences, type ReviewerNotesRecord } from "./preferences";
+import { preferencesSchema, readPreferences, savedKnobs, unknownKnobs, type AgentExecution, type PreferencesRecord, type ReviewPreferences, type ReviewerNotesRecord } from "./preferences";
 import type { AssessmentSummary, TurnSignals } from "../lib/turn";
 import type { AssessmentItem, AssessmentRun, ReplyDraft } from "../lib/feedback";
 import type { FeedbackThread, PrConversationItem } from "./github/types";
@@ -182,6 +182,11 @@ export interface ReviewLifecycle {
   flaggedSeen?: string[];
   /** What the review agent did on GitHub or sent, oldest first: the last 100 (setLifecycle drops the rest). */
   activity?: ActivityEntry[];
+  /**
+   * The review agent chosen for this review as it was started, which its conversations start on in place of Settings'
+   * (src/agent.ts getConversation). Absent or null: Settings' review agent, else the project's defaults.
+   */
+  reviewAgent?: Omit<AgentExecution, "permissionMode"> | null;
   /** Push (src/push.ts): the last one, from your click to GitHub, or a push no one asked for. Null once you said Got it. */
   push?: PushRun | null;
   /**
@@ -543,9 +548,9 @@ export interface Store extends AgentCommentStore {
   /**
    * Merge review `from` into `into`, in one transaction: its comments follow their lines onto `into`'s diff, its Sends
    * number on after `into`'s, and its summary, notes, viewed marks and what it knows of the PR join `into`'s; its
-   * agent's conversation becomes `into`'s when `into` has none (`adopted`). `from` is left archived and empty, but for
-   * the tracked comments `into` couldn't take, pointing at `into`. Returns what it took; null, changing nothing, when
-   * either was merged into a review already.
+   * agent's conversation becomes `into`'s when `into` has none (`adopted`), with the review agent picked for it. `from`
+   * is left archived and empty, but for the tracked comments `into` couldn't take, pointing at `into`. Returns what it
+   * took; null, changing nothing, when either was merged into a review already.
    */
   mergeReview(from: string, into: string): Promise<{ moved: MergeNote; adopted: boolean } | null>;
   savePatch(targetKey: string, patch: string): Promise<void>;
@@ -1145,6 +1150,9 @@ export function storeOn(sql: Sql): Store {
         const agentThreadId = await this.getAssistantThread(from);
         const adopted = !!agentThreadId && !await this.getAssistantThread(into);
         if (adopted) await sql.run(`UPDATE assistant_threads SET target_key=? WHERE target_key=?`, [into, from]);
+        // An adopted conversation brings the review agent picked for it, over this review's own pick, so its next
+        // conversation starts on the agent of the one that went on here; with none picked, this review keeps its own.
+        const reviewAgent = adopted && source.reviewAgent ? { reviewAgent: source.reviewAgent } : {};
 
         // Thread Sends from both: the later Send's.
         const sends = [...target.sends ?? [], ...(source.sends ?? []).map((send) => ({ ...send, n: send.n + top }))];
@@ -1170,7 +1178,7 @@ export function storeOn(sql: Sql): Store {
           ...(source.submittedAt ?? 0) > (target.submittedAt ?? 0) ? { submittedVerdict: source.submittedVerdict, submittedAt: source.submittedAt, submittedHeadSha: source.submittedHeadSha, submittedReviewId: source.submittedReviewId } : {},
           ...branches.length ? { keptBranches: branches } : {},
           ...target.feature?.prReview ? { feature: { ...target.feature, prReview: undefined } } : {},
-          prOffer: null, mergeDeclined: null,
+          prOffer: null, mergeDeclined: null, ...reviewAgent,
           mergedFrom: [...target.mergedFrom ?? [], ...source.mergedFrom ?? [], { key: from, at: now, id, agentThreadId: adopted ? null : agentThreadId }],
         });
 

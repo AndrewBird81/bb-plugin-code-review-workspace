@@ -151,7 +151,7 @@ export function register(deps: ServeDeps) {
     // Panel: start a review by pasting a GitHub PR URL. The nav panel isn't
     // project-scoped, so the frontend can't reliably supply a projectId —
     // resolve one server-side (prefer the personal project, else the first).
-    async startReview({ input }) {
+    async startReview({ input, agent }) {
       let projectId: string | undefined;
       try {
         projectId = await personalProjectId(bb);
@@ -159,7 +159,7 @@ export function register(deps: ServeDeps) {
         return { ok: false, error: "Couldn't resolve a project to run generation." };
       }
       if (!projectId) return { ok: false, error: "No project available to run generation." };
-      return createPrReview(deps, { input, projectId });
+      return createPrReview(deps, { input, projectId, ...(agent ? { agent } : {}) });
     },
 
     // Read
@@ -233,7 +233,7 @@ export function register(deps: ServeDeps) {
       const baseChanged = m.base && m.latestBase && m.latestBase !== m.base ? { baseChanged: { from: m.base, to: m.latestBase } } : {};
       return { hasNewCommits: !!m.headSha && guideBehind(m), current: m.latestHeadSha, ...(m.headSha ? { stored: m.headSha } : {}), ...baseChanged };
     },
-    async rereview({ targetKey }) {
+    async rereview({ targetKey, agent }) {
       await sync.one(targetKey, true);
       const answered = await store.exclusive(async (tx) => {
         // An archived PR keeps the guide it has; one whose first guide stopped or failed can still build it.
@@ -243,7 +243,7 @@ export function register(deps: ServeDeps) {
         return null;
       });
       // A rebuild that started since is found, in the turn that would begin the guide.
-      return answered ?? rerunReview(deps, targetKey);
+      return answered ?? rerunReview(deps, targetKey, agent ? { agent } : {});
     },
     async stopGuide({ targetKey }) {
       if (!(await store.getPreferences()).preferences.knobs.stopGenerating) return { ok: false, error: "Stopping a guide is off in Settings." };

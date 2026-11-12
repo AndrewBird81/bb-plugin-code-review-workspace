@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { defaultPreferences } from "../src/preferences";
 import { defaultKnobs } from "../lib/knobs";
 import type { Turn } from "../lib/turn";
+import { findPicker } from "./provider-picker.test-support";
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }));
 /** The saved views the fake server keeps, across a test's page loads. */
@@ -538,6 +539,88 @@ test("a pasted link to a PR that isn't listed starts its review, and says why wh
   refuse = false;
   fireEvent.click(slot.getByRole("button", { name: /^Review acme\/web#7/ }));
   await waitFor(() => expect(slot.inspection.navigateCalls).toEqual([{ method: "toPluginPanel", path: "review", options: { subPath: "pr-new-7" } }]));
+  slot.lifecycle.unmount();
+});
+
+test("a pasted PR's review agent starts at Settings', and a pick, with its machine, goes to that review alone", async () => {
+  const assistantAgent = { providerId: "claude-code", model: "opus", reasoningLevel: "high", permissionMode: "full" } as const;
+  const { slot, calls } = await inbox([{ targetKey: "a", title: "A change", status: "ready" }], {
+    getPreferences: () => ({ preferences: { ...defaultPreferences, assistantAgent }, revision: 3 }),
+    listMachines: () => ({ machines: [{ hostId: "server", name: "Server", connected: true, server: true }, { hostId: "laptop", name: "Laptop", connected: true, server: false }] }),
+    startReview: () => ({ ok: false, error: "Not now." }),
+  });
+  await slot.findByText("A change");
+  const find = slot.getByRole("searchbox", { name: "Find a review, or paste a PR link" });
+  fireEvent.change(find, { target: { value: "acme/web#7" } });
+  const group = await slot.findByRole("group", { name: "Review agent" });
+  const picker = await findPicker(within(group));
+  expect((within(picker).getByRole("textbox", { name: "Provider ID" }) as HTMLInputElement).value).toBe("claude-code");
+  expect((within(picker).getByRole("textbox", { name: "Model" }) as HTMLInputElement).value).toBe("opus");
+  expect(picker.dataset.routingKind).toBe("primary");
+  // Left as it is, the review gets Settings' agent as before: no pick is sent.
+  fireEvent.submit(find);
+  await slot.findByRole("alert");
+  expect(calls("startReview")).toEqual([{ input: "https://github.com/acme/web/pull/7" }]);
+  // Another model, on the laptop: the picker lists the laptop's providers, and the review starts there.
+  fireEvent.change(within(picker).getByRole("textbox", { name: "Model" }), { target: { value: "sonnet" } });
+  fireEvent.click(within(picker).getByRole("button", { name: "Apply execution selection" }));
+  fireEvent.change(within(group).getByRole("combobox", { name: "Machine" }), { target: { value: "laptop" } });
+  await waitFor(() => expect(slot.getByTestId("bb-provider-model-picker").dataset.routingId).toBe("laptop"));
+  fireEvent.click(slot.getByRole("button", { name: /^Review acme\/web#7/ }));
+  await waitFor(() => expect(calls("startReview")).toHaveLength(2));
+  expect(calls("startReview")[1]).toEqual({ input: "https://github.com/acme/web/pull/7", agent: { hostId: "laptop", providerId: "claude-code", model: "sonnet", reasoningLevel: "high" } });
+  // Settings stay as they are.
+  expect(calls("savePreferences")).toEqual([]);
+  // Another PR starts again at Settings' agent.
+  fireEvent.change(find, { target: { value: "acme/web#8" } });
+  const next = await findPicker(within(await slot.findByRole("group", { name: "Review agent" })));
+  expect((within(next).getByRole("textbox", { name: "Model" }) as HTMLInputElement).value).toBe("opus");
+  slot.lifecycle.unmount();
+});
+
+test("with no review agent in Settings, a pasted PR's picker starts at the project's defaults, and one machine shows no machine choice", async () => {
+  const defaults = { providerId: "codex", model: "gpt-6-astra", reasoningLevel: "low", permissionMode: "auto", serviceTier: "default" };
+  const { slot, calls } = await inbox([{ targetKey: "a", title: "A change", status: "ready" }], {
+    getAgentDefaults: () => ({ defaults }),
+    listMachines: () => ({ machines: [{ hostId: "server", name: "Server", connected: true, server: true }] }),
+    startReview: () => ({ ok: false, error: "Not now." }),
+  });
+  await slot.findByText("A change");
+  fireEvent.change(slot.getByRole("searchbox", { name: "Find a review, or paste a PR link" }), { target: { value: "acme/web#7" } });
+  const group = await slot.findByRole("group", { name: "Review agent" });
+  const picker = await findPicker(within(group));
+  expect((within(picker).getByRole("textbox", { name: "Model" }) as HTMLInputElement).value).toBe("gpt-6-astra");
+  await waitFor(() => expect(calls("listMachines")).toHaveLength(1));
+  expect(within(group).queryByRole("combobox", { name: "Machine" })).toBeNull();
+  fireEvent.change(within(picker).getByRole("textbox", { name: "Reasoning level" }), { target: { value: "high" } });
+  fireEvent.click(within(picker).getByRole("button", { name: "Apply execution selection" }));
+  fireEvent.click(slot.getByRole("button", { name: /^Review acme\/web#7/ }));
+  await waitFor(() => expect(calls("startReview")).toEqual([{ input: "https://github.com/acme/web/pull/7", agent: { providerId: "codex", model: "gpt-6-astra", reasoningLevel: "high", serviceTier: "default" } }]));
+  slot.lifecycle.unmount();
+});
+
+test("a review agent setting changed while All reviews is open shows in a pasted PR's picker, and is what the review starts on", async () => {
+  let assistantAgent = { providerId: "claude-code", model: "opus", reasoningLevel: "high", permissionMode: "full" };
+  const { slot, calls } = await inbox([{ targetKey: "a", title: "A change", status: "ready" }], {
+    getPreferences: () => ({ preferences: { ...defaultPreferences, assistantAgent }, revision: 3 }),
+    listMachines: () => ({ machines: [{ hostId: "server", name: "Server", connected: true, server: true }] }),
+    startReview: () => ({ ok: false, error: "Not now." }),
+  });
+  await slot.findByText("A change");
+  const find = slot.getByRole("searchbox", { name: "Find a review, or paste a PR link" });
+  fireEvent.change(find, { target: { value: "acme/web#7" } });
+  const picker = await findPicker(within(await slot.findByRole("group", { name: "Review agent" })));
+  expect((within(picker).getByRole("textbox", { name: "Model" }) as HTMLInputElement).value).toBe("opus");
+  assistantAgent = { ...assistantAgent, model: "sonnet" };
+  await slot.emitRealtime("preferences", {});
+  await waitFor(() => expect((within(picker).getByRole("textbox", { name: "Model" }) as HTMLInputElement).value).toBe("sonnet"));
+  fireEvent.submit(find);
+  await slot.findByRole("alert");
+  expect(calls("startReview")).toEqual([{ input: "https://github.com/acme/web/pull/7" }]);
+  // Another PR's picker starts at the setting as it is now, too.
+  fireEvent.change(find, { target: { value: "acme/web#8" } });
+  const next = await findPicker(within(await slot.findByRole("group", { name: "Review agent" })));
+  expect((within(next).getByRole("textbox", { name: "Model" }) as HTMLInputElement).value).toBe("sonnet");
   slot.lifecycle.unmount();
 });
 

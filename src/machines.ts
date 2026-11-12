@@ -43,12 +43,15 @@ export async function agentPlacement(bb: BbPluginApi, agent: Pick<AgentExecution
   return { projectId: personal.id, environment: { type: "host", hostId: agent.hostId, workspace: { type: "personal" } } };
 }
 
-/** Why an agent can't start on its chosen machine now, or null when it can. */
-export async function machineUnavailable(bb: BbPluginApi, agent: Pick<AgentExecution, "hostId"> | null, role: string): Promise<string | null> {
+/**
+ * Why an agent can't start on its chosen machine now, or null when it can. `where` says where to choose another: Review
+ * settings, or the picker a review was started from.
+ */
+export async function machineUnavailable(bb: BbPluginApi, agent: Pick<AgentExecution, "hostId"> | null, role: string, where = "in Review settings"): Promise<string | null> {
   if (!agent?.hostId) return null;
   const host = await findHost(bb, agent.hostId);
-  if (!host || removed(host)) return `The machine chosen for the ${role} was removed. Choose another in Review settings.`;
-  if (host.status !== "connected") return `${host.name} is offline. Wake it, or choose another machine for the ${role} in Review settings.`;
+  if (!host || removed(host)) return `The machine chosen for the ${role} was removed. Choose another ${where}.`;
+  if (host.status !== "connected") return `${host.name} is offline. Wake it, or choose another machine for the ${role} ${where}.`;
   return null;
 }
 
