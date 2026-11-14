@@ -8,6 +8,7 @@ export const security = {
   source: "https://github.com/anthropics/claude-code-security-review/blob/0c6a49f1fa56a1d472575da86a94dbc1edb78eda/claudecode/prompts.py",
   sourceSha: "0c6a49f1fa56a1d472575da86a94dbc1edb78eda",
   license: "MIT",
+  licenseFile: "LICENSES/MIT-anthropics-claude-code-security-review.txt",
   holder: "Copyright (c) 2025 Anthropic",
   instructions: `Perform a security-focused review of vulnerabilities newly introduced by the diff, including newly reachable exploitation of existing code. Skip pre-existing security concerns. Focus only on high-confidence vulnerabilities with real exploitation potential, not general code quality or hardening advice.
 
@@ -57,5 +58,5 @@ False-positive precedents:
 
 Signal quality: is there a concrete exploit and clear attack path, a real security risk rather than a theoretical best practice, a specific location and reproducible scenario, and an actionable correction? Drop candidates that cannot pass this check. Confidence in an exploit is separate from its severity.
 
-Map upstream HIGH (directly exploitable remote execution, data breach or authentication bypass) to Blocking when the confirmed impact makes merging unsafe. Map MEDIUM (specific conditions but significant impact) to Should fix only when those conditions and consequences are concrete. Drop LOW defense-in-depth and low-impact issues rather than inflating them. Local-network-only exploitation can still justify Blocking; network proximity alone does not reduce impact.`,
+High-impact vulnerabilities (directly exploitable remote execution, data breach or authentication bypass) merit Blocking when the confirmed impact makes merging unsafe. Conditional vulnerabilities with significant impact merit Should fix only when those conditions and consequences are concrete. Drop defense-in-depth and low-impact issues rather than inflating them. Local-network-only exploitation can still justify Blocking; network proximity alone does not reduce impact.`,
 } as const;

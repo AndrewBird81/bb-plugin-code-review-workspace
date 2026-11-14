@@ -8,6 +8,7 @@ export const bugs = {
   source: "https://github.com/anthropics/claude-plugins-official/blob/b5b01ac4f889fec0c4c6bb89f27ca7c8574473f6/plugins/code-review/commands/code-review.md",
   sourceSha: "b5b01ac4f889fec0c4c6bb89f27ca7c8574473f6",
   license: "Apache-2.0",
+  licenseFile: "LICENSES/Apache-2.0-claude-plugins-official.txt",
   holder: "Anthropic, PBC",
   instructions: `Scan for obvious, significant bugs in introduced code. This is an independent second pass over correctness, intentionally overlapping the review agent's own review. Skip pre-existing issues.
 
@@ -16,15 +17,15 @@ Focus on the diff itself. A candidate must be demonstrable from the changed code
 Keep only HIGH SIGNAL issues:
 - Code that will fail to compile or parse: syntax errors, type errors, missing imports or unresolved references, unless ordinary automated checks already catch it.
 - Clear logic errors that definitely produce wrong results regardless of inputs.
-- Problems in introduced code with an unambiguous failure, including an obvious security defect. General security concerns are not enough.
+- Problems in introduced code with an unambiguous failure.
 
 Do NOT flag:
 - Potential issues that depend on specific inputs or state, or require assumptions outside the diff.
 - Code style or quality concerns, subjective suggestions or improvements.
 - Something that appears to be a bug but is actually correct in context.
 - Pedantic nitpicks that a senior engineer would not flag.
-- Issues a linter will catch; do not run a linter to verify them.
-- General code quality concerns, such as lack of test coverage or generic security advice, unless an applicable repository rule explicitly requires them. Leave exact-rule compliance to the Repo rules focus.
+- Issues a linter will catch.
+- General code quality concerns, such as lack of test coverage or generic security advice. Leave exact-rule compliance to the Repo rules focus.
 - Issues explicitly silenced under an applicable repository rule, such as a valid lint-ignore comment.
 
 If you are not certain an issue is real, do not flag it. False positives erode trust and waste reviewer time. Verify the proposed correction actually fixes the entire issue rather than moving it elsewhere.

@@ -8,6 +8,7 @@ export const rules = {
   source: "https://github.com/anthropics/claude-plugins-official/blob/b5b01ac4f889fec0c4c6bb89f27ca7c8574473f6/plugins/code-review/commands/code-review.md",
   sourceSha: "b5b01ac4f889fec0c4c6bb89f27ca7c8574473f6",
   license: "Apache-2.0",
+  licenseFile: "LICENSES/Apache-2.0-claude-plugins-official.txt",
   holder: "Anthropic, PBC",
   instructions: `Audit changes for compliance with explicit repository rules, with high precision to minimize false positives. Review only violations introduced by the diff; skip pre-existing violations.
 

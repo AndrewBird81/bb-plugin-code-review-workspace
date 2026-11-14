@@ -106,7 +106,7 @@ test("typing the template text again drops the override on Done", async () => {
   expect(save.mock.calls[0][0].preferences.focuses.focuses[0]).not.toHaveProperty("instructions");
 });
 
-test.each(focusTemplates)("template $id choices, instructions and attribution use shipped metadata", async (template) => {
+test.each(focusTemplates)("template $id choices, reset, instructions and attribution use shipped metadata", async (template) => {
   const { slot } = await settings();
   fireEvent.click(slot.getByRole("button", { name: "Add focus" }));
   for (const choice of focusTemplates) expect(slot.getByRole("button", { name: choice.label })).toBeTruthy();
@@ -114,7 +114,12 @@ test.each(focusTemplates)("template $id choices, instructions and attribution us
   const dialog = within(slot.getByRole("dialog", { name: "Edit focus" }));
   expect(dialog.getByRole("link", { name: template.holder }).getAttribute("href")).toBe(template.source);
   expect(dialog.getByText(new RegExp(template.license))).toBeTruthy();
-  expect((dialog.getByRole("textbox", { name: "Instructions" }) as HTMLTextAreaElement).value).toBe(template.instructions);
+  const instructions = dialog.getByRole("textbox", { name: "Instructions" }) as HTMLTextAreaElement;
+  expect(instructions.value).toBe(template.instructions);
+  fireEvent.change(instructions, { target: { value: "Custom instructions" } });
+  expect(instructions.value).toBe("Custom instructions");
+  fireEvent.click(dialog.getByRole("button", { name: "Reset to template" }));
+  expect(instructions.value).toBe(template.instructions);
 });
 
 test("default list can save; only enabled focuses count toward the four-focus cap", async () => {
@@ -150,7 +155,7 @@ test("focus override stages execution-only picker values, then null restores the
   expect(save.mock.calls[1][0].preferences.focuses.focuses[0].agent).toBeNull();
 });
 
-test.each([390, 844])("%ipx template choices wrap with 44px targets", async (width) => {
+test.each([390, 844])("%ipx template choices retain wrapping and touch-target classes", async (width) => {
   Object.defineProperty(window, "innerWidth", { configurable: true, value: width });
   const { slot } = await settings();
   fireEvent.click(slot.getByRole("button", { name: "Add focus" }));

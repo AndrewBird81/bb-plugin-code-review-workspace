@@ -8,6 +8,7 @@ export const tests = {
   source: "https://github.com/anthropics/claude-plugins-official/blob/b5b01ac4f889fec0c4c6bb89f27ca7c8574473f6/plugins/pr-review-toolkit/agents/pr-test-analyzer.md",
   sourceSha: "b5b01ac4f889fec0c4c6bb89f27ca7c8574473f6",
   license: "Apache-2.0",
+  licenseFile: "LICENSES/Apache-2.0-claude-plugins-official.txt",
   holder: "Anthropic, PBC",
   instructions: `Analyze test coverage quality for functionality added or changed in the diff, not academic completeness or 100% line coverage. Report only consequential gaps the change introduces, or existing coverage it invalidates or removes. Skip unrelated pre-existing missing tests.
 

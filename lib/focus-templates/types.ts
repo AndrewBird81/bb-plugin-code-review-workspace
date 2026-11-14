@@ -8,6 +8,7 @@ export const types = {
   source: "https://github.com/anthropics/claude-plugins-official/blob/b5b01ac4f889fec0c4c6bb89f27ca7c8574473f6/plugins/pr-review-toolkit/agents/type-design-analyzer.md",
   sourceSha: "b5b01ac4f889fec0c4c6bb89f27ca7c8574473f6",
   license: "Apache-2.0",
+  licenseFile: "LICENSES/Apache-2.0-claude-plugins-official.txt",
   holder: "Anthropic, PBC",
   instructions: `Find deficiencies in type designs added or changed by the diff, including existing invariants broken by changed construction or mutation. Skip pre-existing design weaknesses. Report deficiencies only: no per-type ratings, inventories or strengths.
 

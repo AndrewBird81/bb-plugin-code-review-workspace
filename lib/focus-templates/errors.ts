@@ -8,6 +8,7 @@ export const errors = {
   source: "https://github.com/anthropics/claude-plugins-official/blob/b5b01ac4f889fec0c4c6bb89f27ca7c8574473f6/plugins/pr-review-toolkit/agents/silent-failure-hunter.md",
   sourceSha: "b5b01ac4f889fec0c4c6bb89f27ca7c8574473f6",
   license: "Apache-2.0",
+  licenseFile: "LICENSES/Apache-2.0-claude-plugins-official.txt",
   holder: "Anthropic, PBC",
   instructions: `Examine error handling and fallback behavior for failures introduced by the diff, including existing handlers made incorrect by a changed caller. Skip unrelated pre-existing problems.
 

@@ -22,10 +22,9 @@ test("every shipped focus template carries its pinned source, individual notice,
     expect(entry).toContain(template.sourceSha);
     expect(entry).toContain(template.holder);
     expect(entry).toContain(`lib/focus-templates/${file}`);
-    const repo = new URL(template.source).pathname.split("/")[2];
-    const licenseFile = `LICENSES/${template.license === "MIT" ? "MIT-anthropics" : template.license}-${repo}.txt`;
-    expect(entry).toContain(licenseFile);
-    expect(read(licenseFile)).toContain(template.license === "MIT" ? "Permission is hereby granted" : "TERMS AND CONDITIONS");
+    expect(template.licenseFile).toMatch(/^LICENSES\/[^/]+\.txt$/);
+    expect(entry).toContain(template.licenseFile);
+    expect(read(template.licenseFile)).toContain(template.license === "MIT" ? "Permission is hereby granted" : "TERMS AND CONDITIONS");
     const header = read(`lib/focus-templates/${file}`).split("export const")[0].trim().split("\n");
     expect(header).toHaveLength(3);
     expect(header[0]).toContain(template.source);
@@ -36,7 +35,7 @@ test("every shipped focus template carries its pinned source, individual notice,
     expect(template.instructions.length).toBeLessThanOrEqual(8000);
     // Repo rules may name the generic instruction-file example, not the model/vendor.
     expect(template.instructions.replaceAll("CLAUDE.md", "")).not.toMatch(/anthropic|claude|codex|Task.tool|request access|licensed under|subagent|\bgh\b/i);
-    expect(template.instructions).not.toMatch(/add_draft_comment|submit_focus_findings/);
+    expect(template.instructions).not.toMatch(/add_draft_comment|submit_focus_findings|\bupstream\b/i);
   }
   const hashes = {
     "Apache-2.0-claude-plugins-official.txt": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",

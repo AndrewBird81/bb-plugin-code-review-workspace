@@ -8,6 +8,7 @@ export const docs = {
   source: "https://github.com/anthropics/claude-plugins-official/blob/dceb15d50832e6adf380bedc26dde03d251324b9/plugins/pr-review-toolkit/agents/comment-analyzer.md",
   sourceSha: "dceb15d50832e6adf380bedc26dde03d251324b9",
   license: "Apache-2.0",
+  licenseFile: "LICENSES/Apache-2.0-claude-plugins-official.txt",
   holder: "Anthropic, PBC",
   instructions: `You are a meticulous code comment analyzer with deep expertise in technical documentation and long-term code maintainability. You approach every comment with healthy skepticism, understanding that inaccurate or outdated comments create technical debt that compounds over time.
 
