@@ -1,8 +1,8 @@
 # Changelog
 
-## 1.13.0-beta.1 — 2026-11-11
+## 1.13.0 — 2026-11-14
 
-Review with focuses is an opt-in canary: independent agents check the diff, and the review agent confirms their findings before drafting comments. Still **BB 0.48+** (plugin SDK **0.6.79+**) with Node 24+; stable Git ranges such as `^1.0.0` exclude this prerelease. Tracking `@main` needs the backed-up source switch in the [canary runbook](docs/beta-releases/runbook.md), not an ordinary update from a stable range.
+Review with focuses, opt-in: independent agents each check the diff for one thing, such as docs, bugs or security, and the review agent confirms their findings before drafting comments, each labelled with the focus that raised it. Still **BB 0.48+** (plugin SDK **0.6.79+**) with Node 24+; installs at `^1.0.0` update to 1.13.0. 1.13.0 adds three migrations (40–42) on SQLite and on Postgres; back up before updating. 1.12.1 has no startup guard, so returning to it isn't covered by a simple downgrade; see Data and recovery below.
 
 - **Full-permission focuses, opt-in:** Settings → Focuses can allow `full` when a provider has no restricted mode (including Pi). Off by default, with a warning about shell commands, file edits and untrusted PR text; restricted modes remain preferred. No migration; guide-writer permissions are unchanged.
 - **Six more focus templates:** Repo rules, Bugs (an independent second bug pass), Error handling, Tests, Types, and Security join Docs in Settings and Add focus. All six start disabled; Docs stays enabled in the default list. Saved lists are unchanged. Pinned sources, change notices and Apache/MIT license copies ship with the templates.
