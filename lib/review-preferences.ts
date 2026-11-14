@@ -24,6 +24,7 @@ export interface Focus {
 
 export interface FocusSettings {
   enabled: boolean;
+  allowFullPermissions?: boolean;
   githubLabel: boolean;
   mergeEffort: "same" | "high";
   focuses: Focus[];

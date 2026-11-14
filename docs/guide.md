@@ -666,6 +666,8 @@ Save settings to apply them across this installation. Restore defaults stages a 
 
 **Review with focuses** is an opt-in under Review agent’s settings. Shipped templates: **Docs**, **Repo rules**, **Bugs**, **Error handling**, **Tests**, **Types**, and **Security**. Only Docs is enabled in the default list; the other six start off. Saved lists stay unchanged. Add focus offers all seven templates or a blank focus; at most four can be enabled. Bugs intentionally adds an independent second pass over the review agent’s own bug review. Each enabled focus reads the diff independently; the review agent confirms its findings before drafting comments marked with the focus’s name in BB. Each focus adds an agent run, unattended at its provider’s lowest permissions, which can still edit files in the review’s checkout. Stop ends focuses without stopping the review agent’s own review. Focuses do not rerun automatically on pushes.
 
+**Let focuses run with full permissions** in Settings → Focuses is off by default; when enabled, a focus falls back to `full` only if its provider offers no restricted mode, allowing shell commands and file edits without approval while reading untrusted PR text.
+
 ### Feature switches
 
 These switches turn a feature off; each is on by default. A setting that depends on another is indented, and disabled while that one is off.

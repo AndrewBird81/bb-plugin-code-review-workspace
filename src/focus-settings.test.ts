@@ -31,6 +31,23 @@ test("seven defaults save with only Docs enabled; saved lists are never expanded
   }
 });
 
+test.each([undefined, false, true])("full permissions setting round-trips with value %s", async (allowFullPermissions) => {
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
+  disposers.push(() => harness.lifecycle.dispose());
+  await plugin(bb);
+  const focuses = { ...defaultPreferences.focuses, ...(allowFullPermissions === undefined ? {} : { allowFullPermissions }) };
+  const saved = await harness.behavior.callRpc("savePreferences", { preferences: { ...defaultPreferences, focuses }, revision: 0 }) as any;
+  expect(saved.preferences.focuses).toEqual(focuses);
+  expect((await testStore(bb).getPreferences()).preferences.focuses).toEqual(focuses);
+  expect(readFocusSettings(JSON.stringify(focuses))).toEqual(focuses);
+  expect(readFocusSettings(JSON.stringify(focuses)).allowFullPermissions ?? false).toBe(allowFullPermissions ?? false);
+});
+
+test("full permissions setting rejects non-booleans and reads them as off", () => {
+  expect(focusSettingsSchema.safeParse({ ...defaultPreferences.focuses, allowFullPermissions: "true" }).success).toBe(false);
+  expect(readFocusSettings({ ...defaultPreferences.focuses, allowFullPermissions: "true" }).allowFullPermissions ?? false).toBe(false);
+});
+
 test("focus caps, unique ids and names, safe names, instruction cap and execution-only overrides", () => {
   const list = (n: number, enabled = false) => Array.from({ length: n }, (_, i) => ({ ...focus, id: String(i), label: `Focus ${i}`, enabled }));
   expect(focusSettingsSchema.safeParse({ ...settings, focuses: list(12) }).success).toBe(true);
