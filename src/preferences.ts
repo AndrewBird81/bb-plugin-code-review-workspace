@@ -68,6 +68,7 @@ export const focusSchema = z.object({
 
 export const focusSettingsSchema = z.object({
   enabled: z.boolean(),
+  allowFullPermissions: z.boolean().optional(),
   githubLabel: z.boolean(),
   mergeEffort: z.enum(["same", "high"]),
   focuses: z.array(focusSchema).max(12)
@@ -96,7 +97,7 @@ export function readFocusSettings(saved: unknown): FocusSettings {
   return Object.fromEntries(Object.entries(focusSettingsSchema.shape).map(([key, schema]) => {
     const parsed = schema.safeParse(record[key]);
     return [key, parsed.success ? parsed.data : structuredClone(defaultFocusSettings[key as keyof FocusSettings])];
-  })) as unknown as FocusSettings;
+  }).filter(([, value]) => value !== undefined)) as unknown as FocusSettings;
 }
 
 export const preferencesSchema = z.object({

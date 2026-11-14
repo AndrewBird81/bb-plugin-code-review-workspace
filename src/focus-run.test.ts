@@ -107,15 +107,47 @@ test("a missing override on server placement cannot inherit the project's broad 
   expect(s.harness.inspection.sdk.callsTo("threads.spawn")).toHaveLength(0);
 });
 
-test("mode lookup on an explicit host throws without a restricted mode; the guide writer keeps its fallback", async () => {
+test.each([
+  { allow: false, modes: ["full"], expected: null },
+  { allow: true, modes: ["full"], expected: "full" },
+  { allow: true, modes: ["full", "auto"], expected: "auto" },
+  { allow: true, modes: ["full", "auto", "accept-edits"], expected: "accept-edits" },
+  { allow: true, modes: [], expected: null },
+])("focus permissions $allow with $modes select $expected on server and remote", async ({ allow, modes, expected }) => {
+  for (const hostId of [undefined, "remote"]) {
+    const s = await setup();
+    s.harness.sdk.stub("hosts.get", async () => makeHostResponse({ id: "remote", name: "FloMac" }));
+    s.harness.sdk.stub("projects.list", async () => [{ id: "personal", kind: "personal" }]);
+    s.harness.sdk.stub("providers.list", async (input: any) => {
+      expect(input).toEqual(hostId ? { hostId } : undefined);
+      return [{ id: "pi", capabilities: { permissionModes: modes } }];
+    });
+    await s.store.savePreferences({ ...defaultPreferences,
+      assistantAgent: { providerId: "pi", model: "local", reasoningLevel: "high", permissionMode: "full", ...(hostId ? { hostId } : {}) },
+      focuses: { ...defaultPreferences.focuses, enabled: true, allowFullPermissions: allow },
+    }, 1);
+    await startFocusRun(s.bb, s.store, "r");
+    if (expected) {
+      await vi.waitFor(() => expect(s.harness.inspection.sdk.callsTo("threads.spawn")).toHaveLength(1));
+      expect(s.harness.inspection.sdk.callsTo("threads.spawn")[0][0]).toMatchObject({
+        providerId: "pi", permissionMode: expected, executionInputSources: { permissionMode: "explicit" },
+      });
+      await stopFocusRun(s.bb, s.store, "r");
+    } else {
+      await vi.waitFor(async () => expect((await s.store.getReview("r"))?.focusRun?.focuses[0]).toMatchObject({
+        state: "failed",
+        error: `The focus's provider isn't available at restricted permissions on ${hostId ? "FloMac" : "the bb server"}. ${allow ? "Pick another provider." : 'Pick another provider or turn on "Let focuses run with full permissions" in Settings → Focuses.'}`,
+      }));
+      expect(s.harness.inspection.sdk.callsTo("threads.spawn")).toHaveLength(0);
+    }
+  }
+});
+
+test("the guide writer keeps its fallback without a restricted mode or readable provider", async () => {
   const s = await setup();
   s.harness.sdk.stub("providers.list", async () => [{ id: "override", capabilities: { permissionModes: ["full"] } }]);
-  s.harness.sdk.stub("hosts.get", async () => makeHostResponse({ id: "remote", name: "Review workstation" }));
-  await expect(guideWriterMode(s.bb, "p", { providerId: "override" }, "remote")).rejects.toThrow(/Review workstation/);
   await expect(guideWriterMode(s.bb, "p", { providerId: "override" })).resolves.toEqual({});
   s.harness.sdk.stub("providers.list", async () => { throw new Error("offline"); });
-  s.harness.sdk.stub("hosts.get", async () => { throw Object.assign(new Error("Not found"), { status: 404 }); });
-  await expect(guideWriterMode(s.bb, "p", { providerId: "override" }, "remote")).rejects.toThrow(/the review agent's machine/);
   await expect(guideWriterMode(s.bb, "p", { providerId: "override" })).resolves.toEqual({});
 });
 
