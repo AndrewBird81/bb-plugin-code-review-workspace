@@ -40,6 +40,7 @@ When the guide is ready, the review agent reviews the change and drafts line com
 - Each comment has a severity: **Blocking**, **Should fix**, **Question**, or **Nit**.
 - A draft can carry a suggested change. **How the agent checked** says what it read or ran, with file:line, and stays in BB.
 - The automatic review asks for at most 10 comments, each confirmed in the code.
+- **Review with focuses** (opt-in, beta): **Docs**, **Repo rules**, **Bugs**, **Error handling**, **Tests**, **Types**, and **Security** templates read independently; the review agent confirms their findings. Only Docs starts enabled; saved lists stay unchanged. Add focus offers all seven or a blank focus, with at most four enabled. Bugs intentionally adds a second bug pass.
 - Problems the PR didn't introduce are marked **Pre-existing**, and don't count as blocking against Approve.
 - Remove an agent's comment with a reason (**Wrong**, **Intended**, **Already known**, or **Not worth it**), and it won't raise it again unless the code changes.
 

@@ -3,6 +3,7 @@ import { cleanup, fireEvent, within } from "@testing-library/react";
 import { renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import { defaultPreferences } from "../lib/review-preferences";
 import { docs } from "../lib/focus-templates/docs";
+import { focusTemplates } from "../lib/focus-templates";
 import { ReviewSettings } from "./ReviewSettings";
 
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
@@ -39,7 +40,7 @@ test("edit stages, cancel discards, reset follows template, and Save settings al
   fireEvent.change(slot.getByRole("combobox", { name: "Check findings at" }), { target: { value: "high" } });
   fireEvent.click(slot.getByRole("button", { name: "Save settings" }));
   await slot.findByText("Settings saved");
-  expect(save.mock.calls[0][0].preferences.focuses).toMatchObject({ mergeEffort: "high", focuses: [{ label: "Docs 2", agent: null }] });
+  expect(save.mock.calls[0][0].preferences.focuses).toEqual({ ...defaultPreferences.focuses, enabled: true, mergeEffort: "high", focuses: defaultPreferences.focuses.focuses.map((focus) => focus.id === "docs" ? { ...focus, label: "Docs 2" } : focus) });
   expect(save.mock.calls[0][0].preferences.focuses.focuses[0]).not.toHaveProperty("instructions");
 });
 
@@ -105,14 +106,25 @@ test("typing the template text again drops the override on Done", async () => {
   expect(save.mock.calls[0][0].preferences.focuses.focuses[0]).not.toHaveProperty("instructions");
 });
 
-test("template choices and attribution use shipped metadata", async () => {
+test.each(focusTemplates)("template $id choices, instructions and attribution use shipped metadata", async (template) => {
   const { slot } = await settings();
   fireEvent.click(slot.getByRole("button", { name: "Add focus" }));
-  fireEvent.click(slot.getByRole("button", { name: docs.label }));
+  for (const choice of focusTemplates) expect(slot.getByRole("button", { name: choice.label })).toBeTruthy();
+  fireEvent.click(slot.getByRole("button", { name: template.label }));
   const dialog = within(slot.getByRole("dialog", { name: "Edit focus" }));
-  const source = dialog.getByRole("link", { name: docs.holder });
-  expect(source.getAttribute("href")).toBe(docs.source);
-  expect(dialog.getByText(new RegExp(docs.license))).toBeTruthy();
+  expect(dialog.getByRole("link", { name: template.holder }).getAttribute("href")).toBe(template.source);
+  expect(dialog.getByText(new RegExp(template.license))).toBeTruthy();
+  expect((dialog.getByRole("textbox", { name: "Instructions" }) as HTMLTextAreaElement).value).toBe(template.instructions);
+});
+
+test("default list can save; only enabled focuses count toward the four-focus cap", async () => {
+  const { slot, save } = await settings();
+  for (const template of focusTemplates) expect((slot.getByRole("checkbox", { name: `Enable ${template.label}` }) as HTMLInputElement).checked).toBe(template.id === "docs");
+  expect(slot.queryByText("4 focuses can run at once")).toBeNull();
+  fireEvent.click(slot.getByRole("checkbox", { name: "Enable Bugs" }));
+  fireEvent.click(slot.getByRole("button", { name: "Save settings" }));
+  await slot.findByText("Settings saved");
+  expect(save.mock.calls[0][0].preferences.focuses.focuses).toHaveLength(7);
 });
 
 test("focus override stages execution-only picker values, then null restores the review agent", async () => {
@@ -136,6 +148,18 @@ test("focus override stages execution-only picker values, then null restores the
   fireEvent.click(slot.getByRole("button", { name: "Save settings" }));
   await vi.waitFor(() => expect(save).toHaveBeenCalledTimes(2));
   expect(save.mock.calls[1][0].preferences.focuses.focuses[0].agent).toBeNull();
+});
+
+test.each([390, 844])("%ipx template choices wrap with 44px targets", async (width) => {
+  Object.defineProperty(window, "innerWidth", { configurable: true, value: width });
+  const { slot } = await settings();
+  fireEvent.click(slot.getByRole("button", { name: "Add focus" }));
+  const choices = focusTemplates.map(({ label }) => slot.getByRole("button", { name: label }));
+  expect(choices[0].parentElement?.className).toContain("flex-wrap");
+  for (const choice of [...choices, slot.getByRole("button", { name: "Blank focus" })]) {
+    expect(choice.className).toContain("min-h-11");
+    expect(choice.className).toContain("whitespace-normal");
+  }
 });
 
 test("390px editor is the existing drawer with 44px targets and no host or permission picker", async () => {
