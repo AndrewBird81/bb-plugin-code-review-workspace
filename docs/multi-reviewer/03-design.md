@@ -411,7 +411,7 @@ Risky, flagged:
 - **Re-pin at copy time.** 04's SHA (`ea686ba…`) was research-day HEAD. Confirm the plugin directory's own LICENSE at the copied SHA; `claude-security` in the same repo is all rights reserved.
 - **Trademarks.** No focus, template or doc named after Claude, Anthropic or Codex.
 - **Upstream idioms** ("CLAUDE.md", "request access", Task-tool wording): removed while adapting; listed in the header's Changed line.
-- **Later templates:** security from `claude-code-security-review` (MIT, © 2025 Anthropic). Nothing from pr-agent verbatim.
+- **Shipped templates:** Docs, Repo rules, Bugs, Error handling, Tests and Types from pinned Apache-2.0 `claude-plugins-official`; Security from pinned MIT `claude-code-security-review` (© 2025 Anthropic). Nothing from pr-agent verbatim.
 
 ### 6.6 Migration and back-compat
 
@@ -543,4 +543,4 @@ Release 1 = Phases 0–4. Each is one PR. `npm run check` passes in all; checks 
 - **Unverified:** which providers emit `thread/tokenUsage/updated`, and whether `cost` is filled. Tokens shown best-effort; no cost in UI.
 - **Unverified:** `threads.delete` on a hidden archived plugin thread succeeds and leaves `focus_threads` identity checks sound; fallback is archive-only.
 - **Unverified:** merge-turn compaction with 20 findings; measure in Phase 1's manual run.
-- **Lawyer's minute:** Apache attribution with no named upstream holder (04 §1.5).
+- **Decided (owner, 2026-11-13):** Anthropic text is always copied from the Apache-2.0 `anthropics/claude-plugins-official` at a pinned SHA and attributed to Anthropic, PBC with URL and SHA. Copies of the same text elsewhere are ignored.

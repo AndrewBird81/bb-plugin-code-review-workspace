@@ -67,7 +67,7 @@ Before shipping, re-pin to the SHA actually copied and record it in each templat
 
 ### 1.5 Reading of Apache terms for this use
 
-- No upstream copyright line to preserve: the LICENSE copies carry only the boilerplate; `plugin.json` says author "Anthropic". Use "Copyright Anthropic, PBC" **[I]**; attributes to `plugin.json` author plus the MIT repos' "Anthropic, PBC". Lawyer: confirm.
+- **Decided (owner, 2026-11-13):** attribute Apache prompt text to Anthropic, PBC with URL and pinned SHA; see [03 Open items](03-design.md#open-items).
 - Prompts are expressive text, so treat as copyrightable "Work"; derivative = our adapted template.
 - Apache §6: no trademark grant. Don't name focuses or UI "Claude Code Review", "Anthropic", "Codex". Naming sources in notices is allowed ("reasonable and customary use in describing the origin").
 - MIT outbound + Apache inbound is the normal arrangement: the combined work stays MIT overall, the Apache-derived files keep Apache terms (§4 "additional or different license terms… for Your modifications… or for any such Derivative Works as a whole, provided Your use… otherwise complies"). **[I]**
@@ -196,8 +196,8 @@ Takeaways for our aggregator [I]:
 
 ### 5.3 For a lawyer to look at (not advice)
 
-1. **Provenance of Apache text.** `plugins/code-review/commands/code-review.md` was imported 2026-10-26 from `anthropics/claude-code`, whose repo is "All rights reserved" [V commit message + LICENSE.md]. Anthropic put it under Apache-2.0 in `claude-plugins-official`. Same licensor, so likely fine; confirm there's no per-file exception. The pr-review-toolkit agents were in the initial scaffolding (`4ca561fb85`) and the per-plugin LICENSE arrived 2026-02-20 [V].
-2. **No copyright holder named** in the Apache LICENSE copies and no NOTICE. What exact attribution string to carry ("Anthropic, PBC" vs "Anthropic")? I'd use "Anthropic, PBC" plus the source URL and SHA [I].
+1. **Provenance — decided (owner, 2026-11-13):** copy Apache prompt text only from pinned `anthropics/claude-plugins-official`; ignore copies elsewhere. See [03 Open items](03-design.md#open-items).
+2. **Attribution — decided (owner, 2026-11-13):** Anthropic, PBC with URL and SHA. See [03 Open items](03-design.md#open-items).
 3. **pr-agent relicensing.** Apache → AGPL (2025-05-22) → Apache (2026-05-20) → MIT (2026-07-09), under the new name "The PR Agent" (copyright line is an alias, not a legal entity I could verify). `pr_reviewer_prompts.toml` was modified inside the AGPL window [V: ≥1 commit in range]. Whether the current MIT grant covers contributions made under AGPL (CLA? contributor consent?) is not something I could determine. If we reuse pr-agent text, prefer short, original paraphrase of *ideas* (score rubric, down-score rules) or pin and accept the risk. I'd reuse its **ideas**, not verbatim text, unless someone checks the contributor/CLA position.
 4. **Prompts as copyrightable text, and "substantial portions".** MIT/Apache turn on copying text. Heavy rewrite reduces the question; light edits keep the obligations. Treat every adapted template as a derivative either way.
 5. **Anthropic docs / managed-service ideas.** Public docs are Anthropic's copyright; we're borrowing concepts (find→verify→rank; severity tiers; REVIEW.md idea). Concepts aren't copyrightable, but avoid copying wording, labels, and emoji conventions wholesale, and don't use the product names ("Claude Code Review", "REVIEW.md" as a *feature name* might be fine; the file name itself is generic, but confirm).

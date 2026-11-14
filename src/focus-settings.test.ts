@@ -4,13 +4,32 @@ import plugin from "../server";
 import { defaultPreferences, focusSettingsSchema, readFocusSettings } from "./preferences";
 import { testStore } from "./test-store.test-support";
 import { docs } from "../lib/focus-templates/docs";
-import { focusInstructions } from "../lib/focus-templates";
+import { focusInstructions, focusTemplates } from "../lib/focus-templates";
 
 const disposers: (() => Promise<void>)[] = [];
 afterEach(async () => { for (const dispose of disposers.splice(0)) await dispose(); });
 const agent = { providerId: "custom", model: "small", reasoningLevel: "high", serviceTier: "fast" };
 const focus = { id: "docs", label: "Docs", enabled: true, template: "docs", agent: null };
 const settings = { ...defaultPreferences.focuses, mergeEffort: "high", focuses: [{ ...focus, agent, instructions: "My instructions" }] };
+
+test("seven defaults save with only Docs enabled; saved lists are never expanded", async () => {
+  const defaults = defaultPreferences.focuses;
+  expect(defaults.focuses.map(({ id, label, template }) => ({ id, label, template }))).toEqual(focusTemplates.map(({ id, label }) => ({ id, label, template: id })));
+  expect(defaults.focuses.filter(({ enabled }) => enabled).map(({ id }) => id)).toEqual(["docs"]);
+  expect(focusSettingsSchema.parse(defaults)).toEqual(defaults);
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
+  disposers.push(() => harness.lifecycle.dispose());
+  await plugin(bb);
+  const saved = await harness.behavior.callRpc("savePreferences", { preferences: defaultPreferences, revision: 0 }) as any;
+  expect(saved.preferences.focuses).toEqual(defaults);
+  for (const focuses of [[focus], [], [{ ...focus, label: "My docs", instructions: "My saved text" }]]) {
+    const settings = { ...defaults, focuses };
+    expect(readFocusSettings(settings)).toEqual(settings);
+    const current = await testStore(bb).getPreferences();
+    await harness.behavior.callRpc("savePreferences", { preferences: { ...defaultPreferences, focuses: settings }, revision: current.revision });
+    expect((await testStore(bb).getPreferences()).preferences.focuses).toEqual(settings);
+  }
+});
 
 test("focus caps, unique ids and names, safe names, instruction cap and execution-only overrides", () => {
   const list = (n: number, enabled = false) => Array.from({ length: n }, (_, i) => ({ ...focus, id: String(i), label: `Focus ${i}`, enabled }));
@@ -31,7 +50,7 @@ test("focus caps, unique ids and names, safe names, instruction cap and executio
 test("bad fields default independently, including inside a focus; old records gain defaults", () => {
   expect(readFocusSettings({ ...settings, mergeEffort: "bad", githubLabel: "bad", focuses: [{ ...focus, instructions: 2, agent: { providerId: "incomplete" } }] })).toEqual({ ...defaultPreferences.focuses, focuses: [focus] });
   expect(readFocusSettings({ ...settings, enabled: "bad" })).toEqual({ ...settings, enabled: false });
-  expect(readFocusSettings({ enabled: true, focuses: [{ id: "docs", label: "Docs", enabled: true, template: "docs" }] })).toEqual({ ...defaultPreferences.focuses, enabled: true });
+  expect(readFocusSettings({ enabled: true, focuses: [{ id: "docs", label: "Docs", enabled: true, template: "docs" }] })).toEqual({ ...defaultPreferences.focuses, enabled: true, focuses: [focus] });
 });
 
 test("corrupt focuses do not replace valid neighbors or turn a blank focus into Docs", () => {

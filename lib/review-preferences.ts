@@ -33,7 +33,15 @@ export const defaultFocusSettings: FocusSettings = {
   enabled: false,
   githubLabel: true,
   mergeEffort: "same",
-  focuses: [{ id: "docs", label: "Docs", enabled: true, template: "docs", agent: null }],
+  focuses: [
+    { id: "docs", label: "Docs", enabled: true, template: "docs", agent: null },
+    { id: "rules", label: "Repo rules", enabled: false, template: "rules", agent: null },
+    { id: "bugs", label: "Bugs", enabled: false, template: "bugs", agent: null },
+    { id: "errors", label: "Error handling", enabled: false, template: "errors", agent: null },
+    { id: "tests", label: "Tests", enabled: false, template: "tests", agent: null },
+    { id: "types", label: "Types", enabled: false, template: "types", agent: null },
+    { id: "security", label: "Security", enabled: false, template: "security", agent: null },
+  ],
 };
 
 export interface ReviewPreferences {

@@ -664,7 +664,7 @@ Open **Settings** from ⚙ in BB's title bar on All reviews, or **Review setting
 
 Save settings to apply them across this installation. Restore defaults stages a change for you to save; it does not change settings immediately, and keeps the diff's layout and how new and deleted files show. Those are set in a review's Diff options, for every review.
 
-**Review with focuses** is an opt-in under Review agent’s settings. Docs reads the diff independently; the review agent confirms its findings before drafting comments marked “Docs” in BB. Each focus adds an agent run, unattended at its provider’s lowest permissions, which can still edit files in the review’s checkout. Stop ends focuses without stopping the review agent’s own review. Focuses do not rerun automatically on pushes.
+**Review with focuses** is an opt-in under Review agent’s settings. Shipped templates: **Docs**, **Repo rules**, **Bugs**, **Error handling**, **Tests**, **Types**, and **Security**. Only Docs is enabled in the default list; the other six start off. Saved lists stay unchanged. Add focus offers all seven templates or a blank focus; at most four can be enabled. Bugs intentionally adds an independent second pass over the review agent’s own bug review. Each enabled focus reads the diff independently; the review agent confirms its findings before drafting comments marked with the focus’s name in BB. Each focus adds an agent run, unattended at its provider’s lowest permissions, which can still edit files in the review’s checkout. Stop ends focuses without stopping the review agent’s own review. Focuses do not rerun automatically on pushes.
 
 ### Feature switches
 

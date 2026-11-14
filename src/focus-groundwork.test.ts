@@ -13,7 +13,7 @@ test("focus settings default off, read fields independently, and discard unknown
   expect(readPreferences({}, null, "not json").focuses).toEqual(defaults);
   expect(readPreferences({}, null, JSON.stringify({ enabled: true, focuses: "bad", future: true })).focuses).toEqual({ ...defaults, enabled: true });
   expect(readPreferences({}, null, { enabled: "bad", focuses: [], future: true }).focuses).toEqual({ ...defaults, focuses: [] });
-  expect(readPreferences({}, null, { ...defaults, focuses: [{ ...defaults.focuses[0], future: true }] }).focuses).toEqual(defaults);
+  expect(readPreferences({}, null, { ...defaults, focuses: [{ ...defaults.focuses[0], future: true }] }).focuses).toEqual({ ...defaults, focuses: [defaults.focuses[0]] });
   expect(readPreferences({}, null, { ...defaults, focuses: [{ id: "docs", label: 1 }] }).focuses).toEqual({ ...defaults, focuses: [] });
 });
 
@@ -73,7 +73,7 @@ test("pre-focus pages keep the saved settings, and focus saves drop fields this 
   const { focuses: _omitted, ...older } = defaultPreferences;
   const saved = await harness.behavior.callRpc("savePreferences", { preferences: older, revision: 1 }) as any;
   expect(saved.preferences.focuses).toEqual(focuses);
-  const future = { ...focuses, futureSetting: "future", focuses: [{ ...focuses.focuses[0], futureField: "future" }] };
+  const future = { ...focuses, futureSetting: "future", focuses: focuses.focuses.map((focus) => ({ ...focus, futureField: "future" })) };
   await store.savePreferences({ ...defaultPreferences, focuses: future }, 2);
   expect((await store.getPreferences()).preferences.focuses).toEqual(focuses);
   for (const invalid of [{ enabled: "yes", focuses: [] }, { enabled: true, focuses: Array(13).fill(defaults.focuses[0]) }]) {

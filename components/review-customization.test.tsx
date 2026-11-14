@@ -534,7 +534,7 @@ test("a setting that depends on another is disabled while that one is off, and T
   const texts = ["Automatic review", /^Sent to the review agent when a guide is ready/, "Re-review check", /^Sent to the review agent when a review comes back/,
     "After the author pushes", /^The review agent checks once the author’s pushes settle/, "Include team requests", /^Also show PRs that ask a team/,
     "Include PRs you’ve reviewed", /^Open PRs you’ve reviewed on GitHub/, "Include your own PRs", /^Your open PRs on GitHub/, "Reading pace", /^A medium- or high-risk chapter that takes 6 minutes or more/, "Code and config", "Tests", "Docs"];
-  const dimmed = () => texts.map((text) => (text === "Docs" ? slot.getAllByText(text).find((element) => element.tagName !== "STRONG")! : slot.getByText(text)).closest(".opacity-80") !== null);
+  const dimmed = () => texts.map((text) => (text === "Docs" || text === "Tests" ? slot.getAllByText(text).find((element) => element.tagName !== "STRONG")! : slot.getByText(text)).closest(".opacity-80") !== null);
   expect(dimmed()).toEqual(texts.map(() => false));
   for (const label of ["Run the automatic review", "Run the re-review check", "Track reviews from GitHub", "Check before you approve", "Start agents on their own"]) fireEvent.click(toggle(label));
   expect(dependents()).toEqual({ automaticReview: true, check: true, pushes: true, reviewed: true, own: true, team: true, paces: [true, true, true], authors: false });
