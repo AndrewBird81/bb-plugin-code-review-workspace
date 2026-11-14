@@ -149,13 +149,16 @@ export async function startFocusRun(bb: BbPluginApi, store: AsyncStore, key: str
         const defaults = execution ?? await bb.sdk.projects.defaultExecutionOptions({ projectId: review.projectId! });
         const placement = await agentPlacement(bb, preferences.assistantAgent, review.projectId!);
         const hostId = preferences.assistantAgent?.hostId;
-        const providers = await bb.sdk.providers.list(hostId ? { hostId } : undefined).catch(() => []);
+        let lookupError: unknown;
+        const providers = await bb.sdk.providers.list(hostId ? { hostId } : undefined).catch((error: unknown) => { lookupError = error; return []; });
         const modes = providers.find((provider) => provider.id === defaults?.providerId)?.capabilities.permissionModes ?? [];
         const permissionMode = (["accept-edits", "auto"] as const).find((candidate) => modes.includes(candidate))
           ?? (preferences.focuses.allowFullPermissions && modes.includes("full") ? "full" as const : undefined);
         if (!permissionMode) {
           const machine = hostId ? (await machineStatus(bb, hostId))?.name ?? "the review agent's machine" : "the bb server";
-          throw new Error(`The focus's provider isn't available at restricted permissions on ${machine}. Pick another provider or turn on "Let focuses run with full permissions" in Settings → Focuses.`);
+          const advice = preferences.focuses.allowFullPermissions ? "Pick another provider."
+            : 'Pick another provider or turn on "Let focuses run with full permissions" in Settings → Focuses.';
+          throw new Error(`The focus's provider isn't available at restricted permissions on ${machine}. ${advice}`, { cause: lookupError });
         }
         const mode = { permissionMode, executionInputSources: { permissionMode: "explicit" as const } };
         const title = `Focus: ${focus.label} · ${key}`;
