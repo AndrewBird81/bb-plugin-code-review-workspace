@@ -244,6 +244,19 @@ export const rpcContract = defineRpcContract({
     input: z.object({ targetKey: z.string(), pinned: z.boolean() }).strict(),
     output: z.object({ ok: z.boolean(), error: z.string().optional() }),
   },
+  /**
+   * Into a BB thread section by its id, or "threads" for BB's Threads group, unpinning it; null puts it back where it goes
+   * by itself, Needs review while it waits on you.
+   */
+  moveReview: {
+    input: z.object({ targetKey: z.string(), sectionId: z.string().min(1).nullable() }).strict(),
+    output: z.object({ ok: z.boolean(), error: z.string().optional() }),
+  },
+  /** The BB section that shows Needs review (src/needs-section.ts); `recreate` makes it again after it was deleted. */
+  needsReviewSection: {
+    input: z.object({ recreate: z.boolean().optional() }).strict(),
+    output: z.object({ sectionId: z.string() }),
+  },
   /** An empty name, or the PR's title, puts the PR's title back. */
   renameReview: {
     input: z.object({ targetKey: z.string(), name: z.string().trim().max(NAME_LIMIT) }).strict(),

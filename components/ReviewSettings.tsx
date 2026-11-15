@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ComponentProps } from "react";
-import { UrlLink, useRpc, useRealtime, useBbNavigate, experimental_PermissionModePicker as PermissionModePicker, experimental_ProviderModelPicker as ProviderModelPicker } from "@get-bb/plugin-sdk/app";
+import { UrlLink, useRpc, useRealtime, useBbNavigate, experimental_useSidebarThreads, experimental_PermissionModePicker as PermissionModePicker, experimental_ProviderModelPicker as ProviderModelPicker } from "@get-bb/plugin-sdk/app";
 import type { PluginRpcResult } from "@get-bb/plugin-sdk/app";
 import type { rpcContract } from "../src/rpc-contract";
 import type { PreferencesRecord } from "../src/preferences";
@@ -444,7 +444,8 @@ export function ReviewSettings({ onBack, back }: { onBack?: () => void; back?: s
           </section>
           <section className="space-y-4 rounded-xl border border-border bg-card p-5 shadow-xs">
             <SectionHeading icon="PanelLeft" title="BB’s thread list" />
-            <label className="flex items-start gap-2.5"><input type="checkbox" className="mt-0.5 size-4 shrink-0 accent-primary" checked={record.preferences.threadListReviews} onChange={(event) => { setSaved(false); setRecord({ ...record, preferences: { ...record.preferences, threadListReviews: event.target.checked } }); }} /><span className="space-y-1"><span className="block text-sm font-medium">Show reviews in the thread list</span><span className="block text-xs text-muted-foreground">Adds Needs review below Threads, and lets you pin reviews with your pinned threads. BB has no supported place for plugins there, so Code Review Workspace adds them to BB’s own list. If a BB update makes that list misbehave, or you’d rather keep it to threads, turn this off. Your pins are kept for when you turn it back on.</span></span></label>
+            <label className="flex items-start gap-2.5"><input type="checkbox" className="mt-0.5 size-4 shrink-0 accent-primary" checked={record.preferences.threadListReviews} onChange={(event) => { setSaved(false); setRecord({ ...record, preferences: { ...record.preferences, threadListReviews: event.target.checked } }); }} /><span className="space-y-1"><span className="block text-sm font-medium">Show reviews in the thread list</span><span className="block text-xs text-muted-foreground">Fills a Needs review section with the reviews waiting on you, and lets you pin reviews or move them to any section from their menu. BB has no supported place for plugins there, so Code Review Workspace adds them to BB’s own list. If a BB update makes that list misbehave, or you’d rather keep it to threads, turn this off. Your pins and sections are kept for when you turn it back on.</span></span></label>
+            {record.preferences.threadListReviews && <NeedsSectionNotice />}
           </section>
           <section className="space-y-4 rounded-xl border border-border bg-card p-5 shadow-xs">
             <SectionHeading icon="Lock" title="Trust" description="A PR’s description, comments, and code can try to steer an agent that reads them. Choose what runs without your click." />
@@ -476,4 +477,22 @@ export function ReviewSettings({ onBack, back }: { onBack?: () => void; back?: s
 export function ReviewSettingsPage({ returnTo = "" }: { returnTo?: string }) {
   const navigate = useBbNavigate();
   return <ReviewSettings back={returnTo ? "Back to review" : "All reviews"} onBack={() => navigate.toPluginPanel("review", { subPath: returnTo })} />;
+}
+
+/** Needs review's BB section, once deleted: where its reviews went, and a button that makes it again. */
+function NeedsSectionNotice() {
+  const rpc = useRpc<typeof rpcContract>();
+  const sidebar = experimental_useSidebarThreads();
+  const [id, setId] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { rpc.call("needsReviewSection", {}).then((result) => setId(result.sectionId), () => {}); }, [rpc]);
+  if (!id || sidebar.status !== "ready" || sidebar.sections.some((section) => section.id === id)) return null;
+  const recreate = () => {
+    setBusy(true);
+    rpc.call("needsReviewSection", { recreate: true }).then((result) => setId(result.sectionId), () => {}).finally(() => setBusy(false));
+  };
+  return <div className="flex flex-wrap items-center gap-3 pl-6.5">
+    <p className="min-w-0 flex-1 text-xs text-muted-foreground">The Needs review section was deleted, so reviews waiting on you are in a group of their own at the end of the list.</p>
+    <Button variant="outline" size="sm" className={TOUCH_CONTROL} aria-disabled={busy} onClick={() => { if (!busy) recreate(); }}>Add the section back</Button>
+  </div>;
 }

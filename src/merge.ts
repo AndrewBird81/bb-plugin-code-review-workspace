@@ -26,7 +26,7 @@ export async function hasUserContent(tx: AsyncStore, review: ReviewMeta): Promis
   return !!draft.comments.length || !!draft.body.trim() || !!draft.verdictChosen
     || !!(await tx.getReviewerNotes(k)).body.trim() || !!(await tx.getReviewContext(k))?.trim()
     || !!review.sends?.length || !!Object.keys(review.threadSends ?? {}).length || !!(await tx.listReplyDrafts(k)).size
-    || !!review.submittedAt || !!review.readyToApprove || !!review.name || !!review.pinnedAt || !!review.snoozedAt || !!review.snoozedUntil
+    || !!review.submittedAt || !!review.readyToApprove || !!review.name || !!review.pinnedAt || !!review.sectionId || !!review.snoozedAt || !!review.snoozedUntil
     || !!(await tx.getFileViews(k)).length || !!await tx.getAssistantThread(k) || !!(await tx.listAgentMessages(k)).length;
 }
 

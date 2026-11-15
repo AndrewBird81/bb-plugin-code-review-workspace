@@ -31,6 +31,8 @@ export interface ReviewLifecycle {
   userArchivedAt?: number | null;
   /** Pinned by the reviewer, into BB's Pinned group in the thread list, since this time. */
   pinnedAt?: number | null;
+  /** The BB thread section the reviewer moved it to, or "threads" for BB's Threads group; null where it goes by itself. */
+  sectionId?: string | null;
   /** The reviewer's own name for the review, shown in place of its PR's title or ref (lib/review-name.ts); null for none. */
   name?: string | null;
   /** The thread `bb review` last ran in for this review, since `sourceThreadAt`: where the change was made. Never one of this plugin's agents. */
@@ -1166,7 +1168,7 @@ export function storeOn(sql: Sql): Store {
           readyToApprove: target.readyToApprove ?? source.readyToApprove ?? null,
           activity: [...target.activity ?? [], ...source.activity ?? []].sort((a, b) => a.at - b.at),
           reviewBodies: [...target.reviewBodies ?? [], ...source.reviewBodies ?? []].sort((a, b) => a.at - b.at),
-          name: target.name ?? source.name ?? null, pinnedAt: pinned.length ? Math.min(...pinned) : null,
+          name: target.name ?? source.name ?? null, pinnedAt: pinned.length ? Math.min(...pinned) : null, sectionId: target.sectionId ?? source.sectionId ?? null,
           ...(source.submittedAt ?? 0) > (target.submittedAt ?? 0) ? { submittedVerdict: source.submittedVerdict, submittedAt: source.submittedAt, submittedHeadSha: source.submittedHeadSha, submittedReviewId: source.submittedReviewId } : {},
           ...branches.length ? { keptBranches: branches } : {},
           ...target.feature?.prReview ? { feature: { ...target.feature, prReview: undefined } } : {},

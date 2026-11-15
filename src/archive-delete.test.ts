@@ -54,6 +54,40 @@ test("pinning records when, unpinning clears it, and both tell open pages", asyn
   expect(await harness.behavior.callRpc("pinReview", { targetKey: "missing", pinned: true })).toMatchObject({ ok: false });
 });
 
+test("moving a review into a section unpins it and tells open pages; null puts it back where it goes by itself", async () => {
+  const { harness, store } = await setup();
+  await store.setLifecycle("pr-1", { pinnedAt: 5 });
+  expect(await harness.behavior.callRpc("moveReview", { targetKey: "pr-1", sectionId: "sec_later" })).toEqual({ ok: true });
+  expect(await store.getReview("pr-1")).toMatchObject({ sectionId: "sec_later", pinnedAt: null });
+  expect(harness.inspection.realtimeSignals.map((s) => s.channel)).toEqual(expect.arrayContaining(["reviews", "review:pr-1"]));
+  expect(await harness.behavior.callRpc("moveReview", { targetKey: "pr-1", sectionId: null })).toEqual({ ok: true });
+  expect((await store.getReview("pr-1"))?.sectionId).toBeNull();
+  expect(await harness.behavior.callRpc("moveReview", { targetKey: "missing", sectionId: "threads" })).toMatchObject({ ok: false });
+});
+
+test("Needs review's section is made once, a section already named so is taken, and a deleted one is made again only when asked", async () => {
+  const sections: { id: string; name: string }[] = [{ id: "sec_a", name: "Later" }];
+  const created: string[] = [];
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: { threadSections: {
+    list: async () => sections.map((section) => ({ ...section, createdAt: 1, updatedAt: 1 })),
+    create: async ({ name }: { name: string }) => { const section = { id: `sec_${created.length + 1}`, name }; created.push(section.id); sections.push(section); return { ...section, createdAt: 1, updatedAt: 1 }; },
+  } } as any });
+  await plugin(bb);
+  // Two windows at once make one.
+  const [first, second] = await Promise.all([harness.behavior.callRpc("needsReviewSection", {}), harness.behavior.callRpc("needsReviewSection", {})]);
+  expect(first).toEqual({ sectionId: "sec_1" });
+  expect(second).toEqual({ sectionId: "sec_1" });
+  expect(created).toEqual(["sec_1"]);
+  // Deleted in BB: kept as it was, so the page falls back, until Settings asks for it again.
+  sections.splice(1);
+  expect(await harness.behavior.callRpc("needsReviewSection", {})).toEqual({ sectionId: "sec_1" });
+  expect(await harness.behavior.callRpc("needsReviewSection", { recreate: true })).toEqual({ sectionId: "sec_2" });
+  // One you made yourself, by that name, is taken rather than another made.
+  sections.splice(1, 1, { id: "sec_mine", name: "Needs review" });
+  expect(await harness.behavior.callRpc("needsReviewSection", { recreate: true })).toEqual({ sectionId: "sec_mine" });
+  expect(created).toEqual(["sec_1", "sec_2"]);
+});
+
 test("renaming keeps your name for the review, trimmed, and tells open pages; an empty name, or the PR's title, puts the title back", async () => {
   const { harness, store } = await setup();
   await store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, repo: "acme/web", title: "Expire cache entries", status: "ready", createdAt: 1 });
