@@ -37,7 +37,7 @@ const settings = (threadListReviews = true) => ({ preferences: { ...defaultPrefe
 async function renderSidebar(list: unknown[] = reviews, threads: unknown[] = [pinnedThread], status: "ready" | "loading" = "ready") {
   const app = await loadPluginApp(() => import("../app"));
   const overlay = app.appOverlays.find((registration) => registration.id === "needs-review")!;
-  return renderSlot(overlay, {}, { rpc: { listReviews: () => ({ reviews: list }), pinReview: () => ({ ok: true }), getPreferences: () => settings() }, sidebarThreads: { status, threads: threads as any } });
+  return renderSlot(overlay, {}, { rpc: { listReviews: () => ({ reviews: list }), archiveReview: () => ({ ok: true }), getPreferences: () => settings() }, sidebarThreads: { status, threads: threads as any } });
 }
 
 test("Needs review goes last in BB's thread list, below Threads, with only the reviews waiting on you, in the tab's order", async () => {
@@ -74,20 +74,20 @@ test("a row opens its review and closes the phone sidebar; a modified click is l
   slot.lifecycle.unmount();
 });
 
-test("a row's tooltip says where the PR is, why it's yours and for how long, as its description does; its pin hides at rest, and on touch for good", async () => {
+test("a row's tooltip says where the PR is, why it's yours and for how long, as its description does; its Archive hides at rest, and on touch for good", async () => {
   threadList();
   const slot = await renderSidebar([{ ...reviews[2], signals: { requestedBy: "alice" } }]);
   const row = await within(document.body).findByRole("link", { name: /Direct request/ });
   expect(row.getAttribute("title")).toBe("acme/web#1 · Requested by @alice · 2h");
-  const pin = within(document.body).getByRole("button", { name: "Pin Direct request" });
+  const pin = within(document.body).getByRole("button", { name: "Archive Direct request" });
   // Touch and screen readers get no tooltip, so the row says where and why in words too.
   expect(within(document.body).getByRole("link", { name: /Direct request/, description: "acme/web#1, Requested by @alice" })).toBe(row);
-  // A screen that can't hover keeps its rows clear, as BB's own are; the review's menu pins it.
+  // A screen that can't hover keeps its rows clear, as BB's own are; the review's menu archives it.
   expect(pin.className.split(" ")).toEqual(expect.arrayContaining(["[@media(hover:hover)]:opacity-0", "group-hover/row:opacity-100", "[@media(hover:none)]:hidden"]));
   slot.lifecycle.unmount();
 });
 
-test("a row shows its review agent's status with BB's glyph where BB's rows show a thread's, giving way to the pin on hover; a guide being built spins", async () => {
+test("a row shows its review agent's status with BB's glyph where BB's rows show a thread's, giving way to Archive on hover; a guide being built spins", async () => {
   threadList();
   const slot = await renderSidebar([{ ...reviews[2], agentStatus: { indicator: "unread-success", unread: true } }, { ...reviews[3], status: "generating" }, reviews[0]]);
   const row = await within(document.body).findByRole("link", { name: /Direct request/ });
@@ -98,8 +98,8 @@ test("a row shows its review agent's status with BB's glyph where BB's rows show
   expect(glyph(/Direct request/)!.parentElement!.className.split(" ")).toContain("group-hover/row:opacity-0");
   expect(glyph(/Blocks merge/)!.getAttribute("data-thread-status-glyph")).toBe("runtime");
   expect(glyph(/Team request/)).toBeNull();
-  // On touch, where the pin hides, a row with no status keeps no trailing slot, as before.
-  const slotOf = (name: string) => within(document.body).getByRole("button", { name: `Pin ${name}` }).parentElement!.className.split(" ");
+  // On touch, where Archive hides, a row with no status keeps no trailing slot, as before.
+  const slotOf = (name: string) => within(document.body).getByRole("button", { name: `Archive ${name}` }).parentElement!.className.split(" ");
   expect(slotOf("Team request")).toContain("[@media(hover:none)]:hidden");
   expect(slotOf("Direct request")).not.toContain("[@media(hover:none)]:hidden");
   slot.lifecycle.unmount();
@@ -178,7 +178,7 @@ test("a renamed review's row says your name, with the PR's title first in its to
   const row = await within(document.body).findByRole("link", { name: /Requests rework/ });
   expect(row.getAttribute("title")).toBe("Direct request · acme/web#1 · Requested by @alice · 2h");
   expect(within(document.body).getByRole("link", { name: /Requests rework/, description: "Direct request, acme/web#1, Requested by @alice" })).toBe(row);
-  expect(within(document.body).getByRole("button", { name: "Pin Requests rework" })).toBeTruthy();
+  expect(within(document.body).getByRole("button", { name: "Archive Requests rework" })).toBeTruthy();
   slot.lifecycle.unmount();
 });
 
@@ -269,22 +269,22 @@ test("a pinned review sits in BB's Pinned group after its threads, and leaves Ne
   expect(pinnedRows.children).toHaveLength(3);
   const needs = within(document.body).getByRole("region", { name: "Needs review" });
   expect(within(needs).getAllByRole("link").map((link) => link.textContent)).toEqual(["Blocks merge1h"]);
-  expect(within(pinnedRows).getByRole("button", { name: "Unpin Direct request" })).toBeTruthy();
+  expect(within(pinnedRows).getByRole("button", { name: "Archive Direct request" })).toBeTruthy();
   slot.lifecycle.unmount();
   expect(pinnedRows.children).toHaveLength(2);
 });
 
-test("Pin moves a review into Pinned at once, and Unpin moves it back", async () => {
+test("Archive on hover takes a review out of the list at once, as BB's does a thread's, and Undo puts it back", async () => {
   threadList();
-  const slot = await renderSidebar([reviews[2], reviews[3]]);
-  fireEvent.click(await within(document.body).findByRole("button", { name: "Pin Direct request" }));
-  const pinnedRows = document.querySelector<HTMLElement>('[data-testid="pinned-rows"]')!;
-  expect(await within(pinnedRows).findByRole("link", { name: /Direct request/ })).toBeTruthy();
-  expect(slot.inspection.rpcCalls.filter((call) => call.method === "pinReview").map((call) => call.input)).toEqual([{ targetKey: "pr-direct", pinned: true }]);
-  fireEvent.click(within(pinnedRows).getByRole("button", { name: "Unpin Direct request" }));
-  const needs = within(document.body).getByRole("region", { name: "Needs review" });
-  expect(await within(needs).findByRole("link", { name: /Direct request/ })).toBeTruthy();
-  expect(within(pinnedRows).queryByRole("link")).toBeNull();
+  let list = [reviews[2], reviews[3]];
+  const archiveReview = vi.fn(({ targetKey, archived }: any) => { list = archived ? list.filter((r) => r.targetKey !== targetKey) : [reviews[2], reviews[3]]; return { ok: true }; });
+  const app = await loadPluginApp(() => import("../app"));
+  const overlay = app.appOverlays.find((registration) => registration.id === "needs-review")!;
+  const slot = renderSlot(overlay, {}, { rpc: { listReviews: () => ({ reviews: list }), archiveReview, getPreferences: () => settings() }, sidebarThreads: { status: "ready", threads: [pinnedThread] } });
+  fireEvent.click(await within(document.body).findByRole("button", { name: "Archive Direct request" }));
+  expect(within(document.body).queryByRole("link", { name: /Direct request/ })).toBeNull();
+  await waitFor(() => expect(archiveReview).toHaveBeenCalledWith({ targetKey: "pr-direct", archived: true }));
+  expect(slot.inspection.rpcCalls.some((call) => call.method === "pinReview")).toBe(false);
   slot.lifecycle.unmount();
 });
 

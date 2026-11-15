@@ -297,7 +297,7 @@ test("a local review goes by one name everywhere: its row, BB's thread list, its
   list.lifecycle.unmount();
   // BB's thread list.
   document.body.insertAdjacentHTML("beforeend", `<div data-bb-plugin-root data-bb-plugin="thread-list"><div><div data-sidebar-visibility-group="threads"><div data-sidebar-sticky-group><div data-sidebar="group-label">Threads</div></div></div></div></div>`);
-  const sidebar = renderSlot(app.appOverlays.find((overlay) => overlay.id === "needs-review")!, {}, { rpc: { listReviews: () => ({ reviews }), pinReview: () => ({ ok: true }), getPreferences: () => settings }, sidebarThreads: { status: "ready", threads: [] } });
+  const sidebar = renderSlot(app.appOverlays.find((overlay) => overlay.id === "needs-review")!, {}, { rpc: { listReviews: () => ({ reviews }), archiveReview: () => ({ ok: true }), getPreferences: () => settings }, sidebarThreads: { status: "ready", threads: [] } });
   expect(await within(document.body).findByRole("link", { name: /^Guide/ })).toBeTruthy();
   sidebar.lifecycle.unmount();
   document.body.innerHTML = "";

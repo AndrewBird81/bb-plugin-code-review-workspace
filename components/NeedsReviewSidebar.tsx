@@ -156,17 +156,22 @@ function useSidebarReviews(enabled: boolean) {
   // Also on reconnecting, as after a phone sleeps, for what changed meanwhile, and on turning it on.
   const connection = useRealtimeConnectionState();
   useEffect(() => { if (connection === "connected") load(); }, [connection, load]);
-  const setPinned = useCallback((targetKey: string, pinned: boolean) => {
-    setReviews((list) => list.map((review) => review.targetKey === targetKey ? { ...review, pinnedAt: pinned ? Date.now() : null } : review));
+  // Out of the list at once, as BB's archive takes a thread's row; Undo puts it back.
+  const archive = useCallback((targetKey: string) => {
+    setReviews((list) => list.filter((review) => review.targetKey !== targetKey));
     const failed = (error?: string) => { toast.error(error ?? "Couldn’t update this review. Try again."); load(); };
-    rpc.call("pinReview", { targetKey, pinned }).then((result) => { if (!result.ok) failed(result.error); }, () => failed());
+    const unarchive = () => rpc.call("archiveReview", { targetKey, archived: false }).then((result) => { if (!result.ok) failed(result.error); else load(); }, () => failed());
+    rpc.call("archiveReview", { targetKey, archived: true }).then((result) => {
+      if (!result.ok) failed(result.error);
+      else toast.success("Review archived", { action: { label: "Undo", onClick: () => void unarchive() } });
+    }, () => failed());
   }, [rpc, load]);
   return useMemo(() => ({
     // Archive takes a review out of Pinned and its section; unarchiving puts it back.
     pinned: reviews.filter((review) => review.pinnedAt && reviewState(review).group !== "archive").sort((a, b) => a.pinnedAt! - b.pinnedAt!),
     unpinned: reviews.filter((review) => !review.pinnedAt && reviewState(review).group !== "archive"),
-    setPinned, reload: load,
-  }), [reviews, setPinned, load]);
+    archive, reload: load,
+  }), [reviews, archive, load]);
 }
 
 /**
@@ -232,7 +237,7 @@ export function NeedsReviewSidebar() {
   const { localDiffChanges } = preferences;
   const sidebarReviews = useSidebarReviews(enabled);
   const pinned = enabled ? sidebarReviews.pinned : [];
-  const { setPinned, reload } = sidebarReviews;
+  const { archive, reload } = sidebarReviews;
   // Whether BB draws its Pinned group: it does while you have a pinned thread. Until it says, pinned reviews wait.
   const sidebar = experimental_useSidebarThreads();
   const known = sidebar.status === "ready";
@@ -278,7 +283,7 @@ export function NeedsReviewSidebar() {
   const copyLink = (targetKey: string) => {
     navigator.clipboard.writeText(new URL(`/plugins/${pluginId}/review/${targetKey}`, location.href).href).then(() => toast.success("Link copied"), () => toast.error("Couldn’t copy the link."));
   };
-  const rows = (list: ReviewItem[], isPinned: boolean, where: string) => {
+  const rows = (list: ReviewItem[], where: string) => {
     // Rows that would read the same as another: only they make room for what tells them apart.
     const names = list.map((review) => reviewIdentity(review).name);
     const twins = names.map((name, at) => names.some((other, index) => index !== at && other === name));
@@ -323,19 +328,19 @@ export function NeedsReviewSidebar() {
           {waited && <span className="shrink-0 text-xs tabular-nums text-subtle-foreground">{waited}</span>}
         </a>
         {describedBy && <span id={describedBy} className="sr-only">{said.join(", ")}</span>}
-        {/* BB's trailing slot: the review's status at rest, and on hover where there's a pointer, the pin in its place, as
+        {/* BB's trailing slot: the review's status at rest, and on hover where there's a pointer, Archive in its place, as
             BB's row actions take its status's. A touch screen, which can't hover, keeps its rows clear but for the status,
-            as BB's own are: the review's menu pins it there. */}
+            as BB's own are: the review's menu archives it there. */}
         <span className={cn("relative mr-0.5 inline-flex size-7 shrink-0 items-center justify-center max-md:pointer-coarse:size-9", !status && "[@media(hover:none)]:hidden")}>
           {status && <span aria-hidden className="pointer-events-none inline-flex size-4 items-center justify-center text-subtle-foreground group-hover/row:opacity-0 group-has-[button:focus-visible]/row:opacity-0">
             <ThreadStatusGlyph indicator={status.indicator} />
           </span>}
-          <button type="button" aria-label={`${isPinned ? "Unpin" : "Pin"} ${title}`} onClick={() => setPinned(review.targetKey, !isPinned)}
+          <button type="button" aria-label={`Archive ${title}`} onClick={() => archive(review.targetKey)}
             className="absolute inset-0 inline-flex items-center justify-center rounded-md text-subtle-foreground outline-none ring-sidebar-ring hover:bg-state-hover hover:text-muted-foreground focus-visible:opacity-100 focus-visible:ring-2 group-hover/row:opacity-100 [@media(hover:hover)]:opacity-0 [@media(hover:none)]:hidden">
-            <Icon name={isPinned ? "PinOff" : "Pin"} className="size-4" aria-hidden />
+            <Icon name="Archive" className="size-4" aria-hidden />
           </button>
         </span>
-        {/* The review's menu, as BB's rows have theirs: beside the pin on hover, over how long it's waited, and open on a right-click. */}
+        {/* The review's menu, as BB's rows have theirs: beside Archive on hover, over how long it's waited, and open on a right-click. */}
         <span className="absolute right-8 top-1/2 -translate-y-1/2 rounded-md bg-sidebar-accent opacity-0 group-hover/row:opacity-100 has-[[data-state=open]]:opacity-100 has-[:focus-visible]:opacity-100 max-md:pointer-coarse:right-10 [@media(hover:none)]:pointer-events-none">
           <ReviewActions review={review} pinnable describedBy={describedBy} onChanged={reload}
             items={[{ label: "Copy link", icon: "ArrowUpRight", hostIcon: "Link", onSelect: () => copyLink(review.targetKey) }]}
@@ -346,16 +351,16 @@ export function NeedsReviewSidebar() {
   </ul>;
   };
   return <>
-    {needs.length > 0 && createPortal(<Group label="Needs review" count={needs.length} collapsedKey={NEEDS_COLLAPSED_KEY} icon={<HostIcon name={`${pluginId}/review`} fallback="GitPullRequest" className="mr-1 size-3.5 shrink-0" aria-hidden />}>{rows(needs, false, "needs")}</Group>, needsSlot)}
+    {needs.length > 0 && createPortal(<Group label="Needs review" count={needs.length} collapsedKey={NEEDS_COLLAPSED_KEY} icon={<HostIcon name={`${pluginId}/review`} fallback="GitPullRequest" className="mr-1 size-3.5 shrink-0" aria-hidden />}>{rows(needs, "needs")}</Group>, needsSlot)}
     {known && pinned.length > 0 && (bbPinned
       // Inside BB's Pinned, after its threads; collapsing Pinned hides them with the rest.
-      ? createPortal(rows(pinned, true, "pinned"), inBbPinned)
+      ? createPortal(rows(pinned, "pinned"), inBbPinned)
       // With no pinned thread BB draws no Pinned, so the reviews get one of the same look.
-      : createPortal(<Group label="Pinned" collapsedKey={PINNED_COLLAPSED_KEY}>{rows(pinned, true, "pinned")}</Group>, ownPinned))}
+      : createPortal(<Group label="Pinned" collapsedKey={PINNED_COLLAPSED_KEY}>{rows(pinned, "pinned")}</Group>, ownPinned))}
     {/* In BB's sections, after their threads: collapsing or hiding one hides its reviews with the rest. */}
     {[...bySection].map(([id, list]) => {
       const key = id === "threads" ? "threads" : `section:${id}`;
-      return <InGroup key={key} groupKey={key}><div className="mt-0.5">{rows(list, false, id)}</div></InGroup>;
+      return <InGroup key={key} groupKey={key}><div className="mt-0.5">{rows(list, id)}</div></InGroup>;
     })}
   </>;
 }
