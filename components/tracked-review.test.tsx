@@ -59,7 +59,7 @@ test("a tracked review's page bar goes back to All reviews and has the review's 
   fireEvent.click(bar.getByRole("button", { name: "Review actions" }));
   const menu = within(await slot.findByRole("dialog"));
   // Pin once Settings say reviews show in BB's thread list.
-  await waitFor(() => expect(menu.getAllByRole("button").map((button) => button.textContent).filter(Boolean)).toEqual(["Build the guide", "Snooze", "Pin", "Rename…", "Archive", "Open on GitHub", "Review settings…", "Delete…"]));
+  await waitFor(() => expect(menu.getAllByRole("button").map((button) => button.textContent).filter(Boolean)).toEqual(["Build the guide", "Snooze", "Pin", "Rename…", "Move to section", "Archive", "Open on GitHub", "Review settings…", "Delete…"]));
   fireEvent.click(menu.getByRole("button", { name: "Review settings…" }));
   expect(slot.inspection.navigateCalls).toEqual([{ method: "toPluginPanel", path: "review", options: { subPath: "settings/pr-42" } }]);
   fireEvent.click(bar.getByRole("button", { name: "All reviews" }));

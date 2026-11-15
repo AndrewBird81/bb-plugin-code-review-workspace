@@ -15,6 +15,7 @@ import { InlineCode } from "./ui/inline-code";
 import { Input } from "./ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 import { MENU_ITEM, SnoozeChoices } from "./SnoozeChoices";
+import { useSectionChoices } from "./section-choices";
 import { TOUCH_CONTROL, TOUCH_TARGET } from "./touch";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "./ui/dialog";
 
@@ -26,8 +27,6 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
  */
 export type ReviewMenuItem = { label: string; icon: IconName; onSelect: () => void; keys?: string; description?: string; detail?: string; agent?: boolean; hostIcon?: string };
 
-/** Move to section ›'s choices, in the thread list's order: BB sections, by id, and its Threads group, "threads". */
-export type SectionChoices = { id: string; label: string; selected: boolean }[];
 
 /**
  * What can be done to a review from its menu or its row in the list, each said in a toast. Snooze, Pin, Rename and
@@ -86,11 +85,9 @@ export function useReviewActions(review: ReviewItem, onChanged?: () => void) {
  * the page's `afterRename` items, and Archive, then Open on GitHub and the page's `trailing` items, then Delete…, which asks first. A tracked review
  * builds its guide; a review you gave can wait until its author responds, and any request until a time you pick.
  */
-export function ReviewActions({ review, items, afterRename, trailing, pinnable = false, sections, onChanged, onMoved, onDeleted, describedBy, className }: {
+export function ReviewActions({ review, items, afterRename, trailing, pinnable = false, onChanged, onMoved, onDeleted, describedBy, className }: {
   review: ReviewItem;
-  /** Offer Move to section ›, after Rename…, as BB's thread menus do. */
-  sections?: SectionChoices;
-  /** Offer Pin: Settings shows reviews in BB's thread list. */
+  /** Offer Pin, and Move to section › after Rename… as BB's thread menus do: Settings shows reviews in BB's thread list. */
   pinnable?: boolean;
   /** Listed first, such as the workspace's Update guide. */
   items?: ReviewMenuItem[];
@@ -108,6 +105,7 @@ export function ReviewActions({ review, items, afterRename, trailing, pinnable =
 }) {
   const navigate = useBbNavigate();
   const actions = useReviewActions(review, onChanged);
+  const sections = useSectionChoices(review, pinnable);
   const trigger = useRef<HTMLButtonElement>(null);
   const menu = useRef<HTMLDivElement>(null);
   const [menuOpen, setMenuOpen] = useState(false);

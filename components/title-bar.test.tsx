@@ -72,11 +72,11 @@ function handlers(review: Record<string, unknown> = {}, rpc: Record<string, unkn
 }
 
 /** The review's page, and BB's title bar as the host renders it, apart from the page, with the panel's headerContent. */
-async function renderReview({ review, rpc, titleBar = true, panel }: { review?: Record<string, unknown>; rpc?: Record<string, unknown>; titleBar?: boolean; panel?: { openTab: () => boolean } } = {}) {
+async function renderReview({ review, rpc, titleBar = true, panel, sidebarThreads }: { review?: Record<string, unknown>; rpc?: Record<string, unknown>; titleBar?: boolean; panel?: { openTab: () => boolean }; sidebarThreads?: any } = {}) {
   patchReviewState("pr-42", { activeId: "c1" });
   const app = await loadPluginApp(() => import("../app"));
   const registration = app.navPanels[0]!;
-  const bar = titleBar ? renderSlot({ component: registration.headerContent! }, { subPath: "pr-42" }, { rpc: handlers(review, rpc) as any }) : null;
+  const bar = titleBar ? renderSlot({ component: registration.headerContent! }, { subPath: "pr-42" }, { rpc: handlers(review, rpc) as any, ...sidebarThreads ? { sidebarThreads } : {} }) : null;
   const page = renderSlot(registration, { subPath: "pr-42" }, { rpc: handlers(review, rpc) as any, ...panel ? { experimental_panel: panel } : {} });
   await page.findByTestId("filediff");
   const band = () => within(page.getByRole("navigation", { name: "Breadcrumb" }).closest<HTMLElement>("[class*='@container/band']")!);
@@ -353,14 +353,32 @@ test("a local review's Review actions offers Rewrite guide after Rename, with th
   const { bar } = await renderReview({ review: { kind: "ref", gitRef: "main...feature", cwd: "/repo" }, rpc: { rereview } });
   fireEvent.click(await bar!.findByRole("button", { name: "Review actions" }));
   const rewrite = await bar!.findByRole("button", { name: "Rewrite guide" });
-  // Not where the menu opens: after Rename….
+  // Not where the menu opens: after Rename… and Move to section.
   const names = Array.from(rewrite.parentElement!.querySelectorAll("button")).map((item) => item.textContent);
-  expect(names.indexOf("Rewrite guide")).toBe(names.indexOf("Rename…") + 1);
+  expect(names.indexOf("Rewrite guide")).toBe(names.indexOf("Rename…") + 2);
   expect(rewrite.querySelector("svg")?.getAttribute("data-icon")).toBe("Sparkles");
   expect(rewrite.getAttribute("aria-description")).toBe("Starts the guide writer to write a new guide for the code now.");
   expect(bar!.queryByRole("button", { name: /^(Update|Rebuild) guide$/ })).toBeNull();
   fireEvent.click(rewrite);
   await waitFor(() => expect(rereview).toHaveBeenCalledWith({ targetKey: "pr-42" }));
+});
+
+test("Review actions offers Move to section after Rename, as BB's thread menus do, and moves the review", async () => {
+  fakeSize(1400, 900);
+  const moveReview = vi.fn(() => ({ ok: true }));
+  const sections = [{ id: "sec_needs", name: "Needs review", createdAt: 1, updatedAt: 1 }, { id: "sec_later", name: "Later", createdAt: 2, updatedAt: 2 }];
+  const { bar } = await renderReview({ review: { kind: "ref", gitRef: "main...feature", cwd: "/repo", sectionId: "sec_later" }, rpc: { moveReview, needsReviewSection: () => ({ sectionId: "sec_needs" }) }, sidebarThreads: { status: "ready", threads: [], sections } });
+  fireEvent.click(await bar!.findByRole("button", { name: "Review actions" }));
+  const move = await bar!.findByRole("button", { name: /Move to section/ });
+  const names = Array.from(move.parentElement!.querySelectorAll("button")).map((item) => item.textContent);
+  expect(names.indexOf("Move to section")).toBe(names.indexOf("Rename…") + 1);
+  expect(names.indexOf("Rewrite guide")).toBe(names.indexOf("Move to section") + 1);
+  fireEvent.click(move);
+  const choices = await waitFor(() => { const found = Array.from(document.querySelectorAll<HTMLButtonElement>("[data-move-choice]")); expect(found).toHaveLength(3); return found; });
+  // With no thread list drawn, in the order BB made them; the one it's in can't be picked.
+  expect(choices.map((choice) => [choice.textContent, choice.disabled])).toEqual([["Needs review", false], ["Later", true], ["Threads", false]]);
+  fireEvent.click(choices[2]!);
+  await waitFor(() => expect(moveReview).toHaveBeenCalledWith({ targetKey: "pr-42", sectionId: "threads" }));
 });
 
 test("after Keep both, Review actions offers Merge into one review on either review, its line saying which stays, while neither is archived", async () => {

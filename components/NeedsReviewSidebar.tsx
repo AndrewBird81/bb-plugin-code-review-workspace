@@ -16,7 +16,8 @@ import { cn } from "../lib/utils";
 import { Icon } from "./ui/icon";
 import { kindLook } from "./ReviewStatus";
 import { age } from "./time-ago";
-import { ReviewActions, type SectionChoices } from "./ReviewActions";
+import { ReviewActions } from "./ReviewActions";
+import { LIST, byProjectOrMachine } from "./section-choices";
 
 // BB's thread list has no slot for more rows, so Code Review Workspace puts its own in by hand: the reviews you pinned at the end of
 // BB's Pinned group, the ones you moved to a section at the end of it, and the rest of Needs review at the end of a BB section
@@ -26,8 +27,6 @@ import { ReviewActions, type SectionChoices } from "./ReviewActions";
 
 const NEEDS_COLLAPSED_KEY = "gr:needs-review-collapsed";
 const PINNED_COLLAPSED_KEY = "gr:pinned-reviews-collapsed";
-
-const LIST = '[data-bb-plugin="thread-list"]';
 
 /** Holds the thread list's groups: the parent of each group's wrapper. Null when the list isn't drawn. */
 function groupsContainer(): Element | null {
@@ -40,12 +39,6 @@ function groupsContainer(): Element | null {
  */
 const groupRows = (key: string) => () =>
   document.querySelector(`${LIST} [data-sidebar-visibility-group="${key}"] [data-sidebar-sticky-group] > [data-sidebar="group-label"] + div`);
-
-/** The thread list's groups' keys, top to bottom. */
-const groupOrder = () => Array.from(document.querySelectorAll<HTMLElement>(`${LIST} [data-sidebar-visibility-group]`)).map((group) => group.dataset.sidebarVisibilityGroup ?? "");
-
-/** Organized by project or machine, BB shows no sections. */
-const byProjectOrMachine = () => !!document.querySelector(`${LIST} [data-sidebar-visibility-group^="project:"], ${LIST} [data-sidebar-visibility-group^="machine:"]`);
 
 /** `read()` of the page, read again as the page changes, once a frame at most. */
 function usePageFact<T>(read: () => T): T {
@@ -282,16 +275,6 @@ export function NeedsReviewSidebar() {
     navigate.toPluginPanel("review", { subPath: targetKey });
     closePhoneSidebar();
   };
-  // Move to section ›'s choices, in the list's order, as BB's own: its sections, and Threads. None where BB shows no sections.
-  const order = groupOrder();
-  const place = (key: string) => { const at = order.indexOf(key); return at < 0 ? order.length : at; };
-  const choicesFor = (review: ReviewItem): SectionChoices | undefined => {
-    if (!sectionsShown || !known) return undefined;
-    const where = review.pinnedAt ? null : review.sectionId && liveSection(review.sectionId) ? review.sectionId : reviewState(review).group === "needs" ? needsSection : null;
-    return [...sidebar.sections.map((section) => ({ id: section.id, key: `section:${section.id}`, label: section.name })), { id: "threads", key: "threads", label: "Threads" }]
-      .sort((a, b) => place(a.key) - place(b.key))
-      .map(({ id, label }) => ({ id, label, selected: id === where }));
-  };
   const copyLink = (targetKey: string) => {
     navigator.clipboard.writeText(new URL(`/plugins/${pluginId}/review/${targetKey}`, location.href).href).then(() => toast.success("Link copied"), () => toast.error("Couldn’t copy the link."));
   };
@@ -354,7 +337,7 @@ export function NeedsReviewSidebar() {
         </span>
         {/* The review's menu, as BB's rows have theirs: beside the pin on hover, over how long it's waited, and open on a right-click. */}
         <span className="absolute right-8 top-1/2 -translate-y-1/2 rounded-md bg-sidebar-accent opacity-0 group-hover/row:opacity-100 has-[[data-state=open]]:opacity-100 has-[:focus-visible]:opacity-100 max-md:pointer-coarse:right-10 [@media(hover:none)]:pointer-events-none">
-          <ReviewActions review={review} pinnable sections={choicesFor(review)} describedBy={describedBy} onChanged={reload}
+          <ReviewActions review={review} pinnable describedBy={describedBy} onChanged={reload}
             items={[{ label: "Copy link", icon: "ArrowUpRight", hostIcon: "Link", onSelect: () => copyLink(review.targetKey) }]}
             className="size-7 text-subtle-foreground hover:bg-state-hover hover:text-muted-foreground max-md:pointer-coarse:size-9" />
         </span>
