@@ -3,8 +3,7 @@ import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import { agentReadsHead } from "./agent-reads";
 import { messageAssistant, refreshAssistants } from "./agent";
 import { automaticReviewPrompt, spawnExecution } from "./preferences";
-import { guideWriterMode } from "./generate";
-import { agentPlacement } from "./machines";
+import { agentPlacement, machineStatus } from "./machines";
 import { mayRunUnattended } from "../lib/trust";
 import { focusInstructions } from "../lib/focus-templates";
 import { focusSpawningFor } from "./focus-identity";
@@ -149,8 +148,19 @@ export async function startFocusRun(bb: BbPluginApi, store: AsyncStore, key: str
         const execution = selected ? { providerId: selected.providerId, model: selected.model, reasoningLevel: selected.reasoningLevel, ...(selected.serviceTier ? { serviceTier: selected.serviceTier } : {}) } : null;
         const defaults = execution ?? await bb.sdk.projects.defaultExecutionOptions({ projectId: review.projectId! });
         const placement = await agentPlacement(bb, preferences.assistantAgent, review.projectId!);
-        const mode = await guideWriterMode(bb, review.projectId!, defaults ? { providerId: defaults.providerId } : undefined, preferences.assistantAgent?.hostId);
-        if (!mode.permissionMode) throw new Error("The focus's provider isn't available at restricted permissions on the bb server.");
+        const hostId = preferences.assistantAgent?.hostId;
+        let lookupError: unknown;
+        const providers = await bb.sdk.providers.list(hostId ? { hostId } : undefined).catch((error: unknown) => { lookupError = error; return []; });
+        const modes = providers.find((provider) => provider.id === defaults?.providerId)?.capabilities.permissionModes ?? [];
+        const permissionMode = (["accept-edits", "auto"] as const).find((candidate) => modes.includes(candidate))
+          ?? (preferences.focuses.allowFullPermissions && modes.includes("full") ? "full" as const : undefined);
+        if (!permissionMode) {
+          const machine = hostId ? (await machineStatus(bb, hostId))?.name ?? "the review agent's machine" : "the bb server";
+          const advice = preferences.focuses.allowFullPermissions ? "Pick another provider."
+            : 'Pick another provider or turn on "Let focuses run with full permissions" in Settings → Focuses.';
+          throw new Error(`The focus's provider isn't available at restricted permissions on ${machine}. ${advice}`, { cause: lookupError });
+        }
+        const mode = { permissionMode, executionInputSources: { permissionMode: "explicit" as const } };
         const title = `Focus: ${focus.label} · ${key}`;
         const prompt = [
           `Review only this diff as the ${focus.label} focus. Target key: ${key}. Run id: ${run.id}.`,

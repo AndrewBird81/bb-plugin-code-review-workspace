@@ -37,7 +37,7 @@ const settings = (threadListReviews = true) => ({ preferences: { ...defaultPrefe
 async function renderSidebar(list: unknown[] = reviews, threads: unknown[] = [pinnedThread], status: "ready" | "loading" = "ready") {
   const app = await loadPluginApp(() => import("../app"));
   const overlay = app.appOverlays.find((registration) => registration.id === "needs-review")!;
-  return renderSlot(overlay, {}, { rpc: { listReviews: () => ({ reviews: list }), pinReview: () => ({ ok: true }), getPreferences: () => settings() }, sidebarThreads: { status, threads: threads as any } });
+  return renderSlot(overlay, {}, { rpc: { listReviews: () => ({ reviews: list }), archiveReview: () => ({ ok: true }), getPreferences: () => settings() }, sidebarThreads: { status, threads: threads as any } });
 }
 
 test("Needs review goes last in BB's thread list, below Threads, with only the reviews waiting on you, in the tab's order", async () => {
@@ -74,20 +74,20 @@ test("a row opens its review and closes the phone sidebar; a modified click is l
   slot.lifecycle.unmount();
 });
 
-test("a row's tooltip says where the PR is, why it's yours and for how long, as its description does; its pin hides at rest, and on touch for good", async () => {
+test("a row's tooltip says where the PR is, why it's yours and for how long, as its description does; its Archive hides at rest, and on touch for good", async () => {
   threadList();
   const slot = await renderSidebar([{ ...reviews[2], signals: { requestedBy: "alice" } }]);
   const row = await within(document.body).findByRole("link", { name: /Direct request/ });
   expect(row.getAttribute("title")).toBe("acme/web#1 · Requested by @alice · 2h");
-  const pin = within(document.body).getByRole("button", { name: "Pin Direct request" });
+  const pin = within(document.body).getByRole("button", { name: "Archive Direct request" });
   // Touch and screen readers get no tooltip, so the row says where and why in words too.
   expect(within(document.body).getByRole("link", { name: /Direct request/, description: "acme/web#1, Requested by @alice" })).toBe(row);
-  // A screen that can't hover keeps its rows clear, as BB's own are; the review's menu pins it.
+  // A screen that can't hover keeps its rows clear, as BB's own are; the review's menu archives it.
   expect(pin.className.split(" ")).toEqual(expect.arrayContaining(["[@media(hover:hover)]:opacity-0", "group-hover/row:opacity-100", "[@media(hover:none)]:hidden"]));
   slot.lifecycle.unmount();
 });
 
-test("a row shows its review agent's status with BB's glyph where BB's rows show a thread's, giving way to the pin on hover; a guide being built spins", async () => {
+test("a row shows its review agent's status with BB's glyph where BB's rows show a thread's, giving way to Archive on hover; a guide being built spins", async () => {
   threadList();
   const slot = await renderSidebar([{ ...reviews[2], agentStatus: { indicator: "unread-success", unread: true } }, { ...reviews[3], status: "generating" }, reviews[0]]);
   const row = await within(document.body).findByRole("link", { name: /Direct request/ });
@@ -98,8 +98,8 @@ test("a row shows its review agent's status with BB's glyph where BB's rows show
   expect(glyph(/Direct request/)!.parentElement!.className.split(" ")).toContain("group-hover/row:opacity-0");
   expect(glyph(/Blocks merge/)!.getAttribute("data-thread-status-glyph")).toBe("runtime");
   expect(glyph(/Team request/)).toBeNull();
-  // On touch, where the pin hides, a row with no status keeps no trailing slot, as before.
-  const slotOf = (name: string) => within(document.body).getByRole("button", { name: `Pin ${name}` }).parentElement!.className.split(" ");
+  // On touch, where Archive hides, a row with no status keeps no trailing slot, as before.
+  const slotOf = (name: string) => within(document.body).getByRole("button", { name: `Archive ${name}` }).parentElement!.className.split(" ");
   expect(slotOf("Team request")).toContain("[@media(hover:none)]:hidden");
   expect(slotOf("Direct request")).not.toContain("[@media(hover:none)]:hidden");
   slot.lifecycle.unmount();
@@ -178,7 +178,7 @@ test("a renamed review's row says your name, with the PR's title first in its to
   const row = await within(document.body).findByRole("link", { name: /Requests rework/ });
   expect(row.getAttribute("title")).toBe("Direct request · acme/web#1 · Requested by @alice · 2h");
   expect(within(document.body).getByRole("link", { name: /Requests rework/, description: "Direct request, acme/web#1, Requested by @alice" })).toBe(row);
-  expect(within(document.body).getByRole("button", { name: "Pin Requests rework" })).toBeTruthy();
+  expect(within(document.body).getByRole("button", { name: "Archive Requests rework" })).toBeTruthy();
   slot.lifecycle.unmount();
 });
 
@@ -269,22 +269,22 @@ test("a pinned review sits in BB's Pinned group after its threads, and leaves Ne
   expect(pinnedRows.children).toHaveLength(3);
   const needs = within(document.body).getByRole("region", { name: "Needs review" });
   expect(within(needs).getAllByRole("link").map((link) => link.textContent)).toEqual(["Blocks merge1h"]);
-  expect(within(pinnedRows).getByRole("button", { name: "Unpin Direct request" })).toBeTruthy();
+  expect(within(pinnedRows).getByRole("button", { name: "Archive Direct request" })).toBeTruthy();
   slot.lifecycle.unmount();
   expect(pinnedRows.children).toHaveLength(2);
 });
 
-test("Pin moves a review into Pinned at once, and Unpin moves it back", async () => {
+test("Archive on hover takes a review out of the list at once, as BB's does a thread's, and Undo puts it back", async () => {
   threadList();
-  const slot = await renderSidebar([reviews[2], reviews[3]]);
-  fireEvent.click(await within(document.body).findByRole("button", { name: "Pin Direct request" }));
-  const pinnedRows = document.querySelector<HTMLElement>('[data-testid="pinned-rows"]')!;
-  expect(await within(pinnedRows).findByRole("link", { name: /Direct request/ })).toBeTruthy();
-  expect(slot.inspection.rpcCalls.filter((call) => call.method === "pinReview").map((call) => call.input)).toEqual([{ targetKey: "pr-direct", pinned: true }]);
-  fireEvent.click(within(pinnedRows).getByRole("button", { name: "Unpin Direct request" }));
-  const needs = within(document.body).getByRole("region", { name: "Needs review" });
-  expect(await within(needs).findByRole("link", { name: /Direct request/ })).toBeTruthy();
-  expect(within(pinnedRows).queryByRole("link")).toBeNull();
+  let list = [reviews[2], reviews[3]];
+  const archiveReview = vi.fn(({ targetKey, archived }: any) => { list = archived ? list.filter((r) => r.targetKey !== targetKey) : [reviews[2], reviews[3]]; return { ok: true }; });
+  const app = await loadPluginApp(() => import("../app"));
+  const overlay = app.appOverlays.find((registration) => registration.id === "needs-review")!;
+  const slot = renderSlot(overlay, {}, { rpc: { listReviews: () => ({ reviews: list }), archiveReview, getPreferences: () => settings() }, sidebarThreads: { status: "ready", threads: [pinnedThread] } });
+  fireEvent.click(await within(document.body).findByRole("button", { name: "Archive Direct request" }));
+  expect(within(document.body).queryByRole("link", { name: /Direct request/ })).toBeNull();
+  await waitFor(() => expect(archiveReview).toHaveBeenCalledWith({ targetKey: "pr-direct", archived: true }));
+  expect(slot.inspection.rpcCalls.some((call) => call.method === "pinReview")).toBe(false);
   slot.lifecycle.unmount();
 });
 
@@ -377,4 +377,116 @@ test("short branch names: the last part, cut in the middle when long, and more o
   expect(shortNames(["team/snooze-flaky-checks-a-on-retries", "team/snooze-flaky-checks-b-on-retries"])).toEqual(["snooze-flaky-checks-a-on-retries", "snooze-flaky-checks-b-on-retries"]);
   // The same branch twice is one name.
   expect(shortNames(["x/fix", "x/fix"])).toEqual(["fix", "fix"]);
+});
+
+/** BB's list organized by time: sections Later and Needs review, then Threads, each group's rows after its label; `collapsed` ones have none. */
+function sectionedList({ collapsed = [] as string[], byProject = false } = {}) {
+  const group = (key: string, label: string) => `<div data-sidebar-visibility-group="${key}"><div data-sidebar-sticky-section><div data-sidebar-windowed-item>
+    <div data-sidebar-sticky-group ${key.startsWith("section:") ? `data-sidebar-section-id="${key.slice(8)}"` : ""}><div data-sidebar="group-label">${label}</div>${collapsed.includes(key) ? "" : `<div class="mt-1" data-testid="rows-${key}"><div>A thread in ${label}</div></div>`}</div>
+  </div></div></div>`;
+  document.body.insertAdjacentHTML("beforeend", `<div data-bb-plugin-root data-bb-plugin="thread-list"><div data-testid="groups">
+    ${byProject ? group("project:proj_1", "web") : `${group("section:sec_later", "Later")}${group("section:sec_needs", "Needs review")}`}${group("threads", "Threads")}
+  </div></div>`);
+  return (key: string) => document.querySelector<HTMLElement>(`[data-testid="rows-${key}"]`);
+}
+const bbSections = [{ id: "sec_needs", name: "Needs review", createdAt: 1, updatedAt: 1 }, { id: "sec_later", name: "Later", createdAt: 2, updatedAt: 2 }];
+
+async function renderSectioned(list: unknown[], { sections = bbSections, rpc = {} as Record<string, (input: any) => unknown> } = {}) {
+  const app = await loadPluginApp(() => import("../app"));
+  const overlay = app.appOverlays.find((registration) => registration.id === "needs-review")!;
+  return renderSlot(overlay, {}, {
+    rpc: { listReviews: () => ({ reviews: list }), pinReview: () => ({ ok: true }), moveReview: () => ({ ok: true }), needsReviewSection: () => ({ sectionId: "sec_needs" }), getPreferences: () => settings(), ...rpc },
+    sidebarThreads: { status: "ready", threads: [pinnedThread], sections },
+  });
+}
+const linkNames = (rows: HTMLElement) => within(rows).queryAllByRole("link").map((row) => row.textContent);
+
+test("with BB's Needs review section, reviews waiting on you go at the end of its rows, and no group of their own", async () => {
+  const rowsOf = sectionedList();
+  const slot = await renderSectioned(reviews);
+  const needs = rowsOf("section:sec_needs")!;
+  await waitFor(() => expect(linkNames(needs)).toEqual(["Blocks merge1h", "Direct request2h", "Team request1d"]));
+  expect(needs.firstElementChild!.textContent).toBe("A thread in Needs review");
+  expect(within(document.body).queryByRole("region", { name: "Needs review" })).toBeNull();
+  slot.lifecycle.unmount();
+  expect(within(needs).queryAllByRole("link")).toHaveLength(0);
+});
+
+test("a review you moved stays in its section whether or not it waits on you; one whose section is gone goes back where it goes by itself", async () => {
+  const rowsOf = sectionedList();
+  const slot = await renderSectioned([
+    { ...reviews[1], sectionId: "sec_later" }, { ...reviews[2], sectionId: "threads" }, { ...reviews[3], sectionId: "sec_deleted" },
+  ]);
+  await waitFor(() => expect(linkNames(rowsOf("section:sec_later")!)).toEqual(["Waiting on the author"]));
+  expect(linkNames(rowsOf("threads")!)).toEqual(["Direct request2h"]);
+  expect(linkNames(rowsOf("section:sec_needs")!)).toEqual(["Blocks merge1h"]);
+  slot.lifecycle.unmount();
+});
+
+test("a collapsed section shows none of its reviews", async () => {
+  const rowsOf = sectionedList({ collapsed: ["section:sec_needs"] });
+  const slot = await renderSectioned([reviews[2], { ...reviews[1], sectionId: "sec_later" }]);
+  await waitFor(() => expect(linkNames(rowsOf("section:sec_later")!)).toEqual(["Waiting on the author"]));
+  expect(within(document.body).queryByRole("link", { name: /Direct request/ })).toBeNull();
+  expect(within(document.body).queryByRole("region", { name: "Needs review" })).toBeNull();
+  slot.lifecycle.unmount();
+});
+
+test("with Needs review's section deleted in BB, its reviews get a group of their own, last", async () => {
+  sectionedList();
+  const slot = await renderSectioned([reviews[2]], { sections: [bbSections[1]!] });
+  const own = await within(document.body).findByRole("region", { name: "Needs review" });
+  expect(document.querySelector('[data-testid="groups"]')!.lastElementChild!.contains(own)).toBe(true);
+  expect(within(own).getAllByRole("link").map((row) => row.textContent)).toEqual(["Direct request2h"]);
+  slot.lifecycle.unmount();
+});
+
+test("organized by project, where BB shows no sections, Needs review is a group of its own and the menu offers no Move to section", async () => {
+  sectionedList({ byProject: true });
+  const slot = await renderSectioned([{ ...reviews[2], sectionId: "sec_later" }, { ...reviews[1], sectionId: "sec_later" }]);
+  const own = await within(document.body).findByRole("region", { name: "Needs review" });
+  expect(within(own).getAllByRole("link").map((row) => row.textContent)).toEqual(["Direct request2h"]);
+  fireEvent.click(within(own).getByRole("button", { name: "Review actions" }));
+  expect(await within(document.body).findByRole("button", { name: /Copy link/ })).toBeTruthy();
+  expect(within(document.body).queryByRole("button", { name: /Move to section/ })).toBeNull();
+  slot.lifecycle.unmount();
+});
+
+test("a right-click opens the review's menu, as on BB's rows: Copy link, Pin, Rename, and Move to section, in the list's order", async () => {
+  const rowsOf = sectionedList();
+  const write = vi.fn(async () => {});
+  Object.defineProperty(navigator, "clipboard", { value: { writeText: write }, configurable: true });
+  const slot = await renderSectioned([reviews[2]]);
+  const row = await within(rowsOf("section:sec_needs")!).findByRole("link", { name: /Direct request/ });
+  fireEvent.contextMenu(row);
+  const menuItem = (name: RegExp) => within(document.body).findByRole("button", { name });
+  expect(await menuItem(/^Pin$/)).toBeTruthy();
+  expect(await menuItem(/Rename/)).toBeTruthy();
+  fireEvent.click(await menuItem(/Copy link/));
+  await waitFor(() => expect(write).toHaveBeenCalledWith(expect.stringMatching(/\/plugins\/test-plugin\/review\/pr-direct$/)));
+  fireEvent.contextMenu(row);
+  fireEvent.click(await menuItem(/Move to section/));
+  const choices = within(document.body).getAllByRole("button").filter((button) => button.hasAttribute("data-move-choice"));
+  // Later is above Needs review in the list, though made after it.
+  expect(choices.map((choice) => [choice.textContent, (choice as HTMLButtonElement).disabled])).toEqual([["Later", false], ["Needs review", true], ["Threads", false]]);
+  fireEvent.click(choices[0]!);
+  await waitFor(() => expect(slot.inspection.rpcCalls.filter((call) => call.method === "moveReview").map((call) => call.input)).toEqual([{ targetKey: "pr-direct", sectionId: "sec_later" }]));
+  slot.lifecycle.unmount();
+});
+
+test("Settings offers Needs review's section back once it was deleted in BB", async () => {
+  await loadPluginApp(() => import("../app"));
+  const { ReviewSettings } = await import("./ReviewSettings");
+  const recreate = vi.fn((input: any) => ({ sectionId: input.recreate ? "sec_new" : "sec_needs" }));
+  const slot = renderSlot({ component: ReviewSettings }, {}, { rpc: { setReviewPresence: () => ({ ok: true }), getPreferences: () => settings(), needsReviewSection: recreate }, sidebarThreads: { status: "ready", sections: [bbSections[1]!] } });
+  fireEvent.click(await slot.findByRole("button", { name: "Add the section back" }));
+  await waitFor(() => expect(recreate).toHaveBeenCalledWith({ recreate: true }));
+  slot.lifecycle.unmount();
+  cleanup();
+  // While it's there, nothing.
+  const present = renderSlot({ component: ReviewSettings }, {}, { rpc: { setReviewPresence: () => ({ ok: true }), getPreferences: () => settings(), needsReviewSection: recreate }, sidebarThreads: { status: "ready", sections: bbSections } });
+  await present.findByRole("checkbox", { name: /Show reviews in the thread list/ });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  expect(present.queryByRole("button", { name: "Add the section back" })).toBeNull();
+  present.lifecycle.unmount();
 });

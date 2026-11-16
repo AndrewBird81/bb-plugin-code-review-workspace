@@ -16,18 +16,41 @@ import { cn } from "../lib/utils";
 import { Icon } from "./ui/icon";
 import { kindLook } from "./ReviewStatus";
 import { age } from "./time-ago";
+import { ReviewActions } from "./ReviewActions";
+import { LIST, byProjectOrMachine } from "./section-choices";
 
 // BB's thread list has no slot for more rows, so Code Review Workspace puts its own in by hand: the reviews you pinned at the end of
-// BB's Pinned group, and the rest of Needs review in a group of its own, last. It finds the list by BB's own data attributes
-// and goes back in whenever the list redraws; without the list it shows nowhere.
+// BB's Pinned group, the ones you moved to a section at the end of it, and the rest of Needs review at the end of a BB section
+// of that name (src/needs-section.ts), so BB drags, collapses and hides it as any other. Without that section, or with the
+// list organized by project or machine, where BB shows no sections, Needs review is a group of its own, last. It finds the list
+// by BB's own data attributes and goes back in whenever the list redraws; without the list it shows nowhere.
 
 const NEEDS_COLLAPSED_KEY = "gr:needs-review-collapsed";
 const PINNED_COLLAPSED_KEY = "gr:pinned-reviews-collapsed";
 
 /** Holds the thread list's groups: the parent of each group's wrapper. Null when the list isn't drawn. */
 function groupsContainer(): Element | null {
-  const label = document.querySelector('[data-bb-plugin="thread-list"] [data-sidebar="group-label"]');
-  return label?.closest("[data-sidebar-sticky-group]")?.parentElement?.parentElement ?? null;
+  return document.querySelector(`${LIST} [data-sidebar-visibility-group]`)?.parentElement ?? null;
+}
+
+/**
+ * The rows of a group BB keys `key` ("section:<id>", or "threads"): what follows its label. Null while it's collapsed, hidden
+ * in More, or scrolled out of the list's window.
+ */
+const groupRows = (key: string) => () =>
+  document.querySelector(`${LIST} [data-sidebar-visibility-group="${key}"] [data-sidebar-sticky-group] > [data-sidebar="group-label"] + div`);
+
+/** `read()` of the page, read again as the page changes, once a frame at most. */
+function usePageFact<T>(read: () => T): T {
+  const [fact, setFact] = useState(read);
+  useEffect(() => {
+    let frame = 0;
+    const observer = new MutationObserver(() => { if (!frame) frame = requestAnimationFrame(() => { frame = 0; setFact(read); }); });
+    observer.observe(document.body, { childList: true, subtree: true });
+    setFact(read);
+    return () => { observer.disconnect(); cancelAnimationFrame(frame); };
+  }, [read]);
+  return fact;
 }
 
 /** The rows of BB's Pinned group, the one group whose header doesn't stick. Null when Pinned is collapsed or not shown. */
@@ -112,8 +135,8 @@ function useSidebarPreferences(): { enabled: boolean | null; localDiffChanges: b
 export const useThreadListReviews = (): boolean | null => useSidebarPreferences().enabled;
 
 /**
- * Reviews waiting on you, in the Needs review tab's order, and the ones you pinned, in the order you pinned them. Listed
- * only while `enabled`, as every BB window runs this.
+ * The reviews you pinned, in the order you pinned them, and the rest not archived. Listed only while `enabled`, as every BB
+ * window runs this.
  */
 function useSidebarReviews(enabled: boolean) {
   const rpc = useRpc<typeof rpcContract>();
@@ -133,17 +156,45 @@ function useSidebarReviews(enabled: boolean) {
   // Also on reconnecting, as after a phone sleeps, for what changed meanwhile, and on turning it on.
   const connection = useRealtimeConnectionState();
   useEffect(() => { if (connection === "connected") load(); }, [connection, load]);
-  const setPinned = useCallback((targetKey: string, pinned: boolean) => {
-    setReviews((list) => list.map((review) => review.targetKey === targetKey ? { ...review, pinnedAt: pinned ? Date.now() : null } : review));
+  // Out of the list at once, as BB's archive takes a thread's row; Undo puts it back.
+  const archive = useCallback((targetKey: string) => {
+    setReviews((list) => list.filter((review) => review.targetKey !== targetKey));
     const failed = (error?: string) => { toast.error(error ?? "Couldn’t update this review. Try again."); load(); };
-    rpc.call("pinReview", { targetKey, pinned }).then((result) => { if (!result.ok) failed(result.error); }, () => failed());
+    const unarchive = () => rpc.call("archiveReview", { targetKey, archived: false }).then((result) => { if (!result.ok) failed(result.error); else load(); }, () => failed());
+    rpc.call("archiveReview", { targetKey, archived: true }).then((result) => {
+      if (!result.ok) failed(result.error);
+      else toast.success("Review archived", { action: { label: "Undo", onClick: () => void unarchive() } });
+    }, () => failed());
   }, [rpc, load]);
   return useMemo(() => ({
-    // Archive takes a review out of Pinned; unarchiving puts it back.
+    // Archive takes a review out of Pinned and its section; unarchiving puts it back.
     pinned: reviews.filter((review) => review.pinnedAt && reviewState(review).group !== "archive").sort((a, b) => a.pinnedAt! - b.pinnedAt!),
-    needs: reviews.filter((review) => !review.pinnedAt && reviewState(review).group === "needs").sort(needsOrder),
-    setPinned,
-  }), [reviews, setPinned]);
+    unpinned: reviews.filter((review) => !review.pinnedAt && reviewState(review).group !== "archive"),
+    archive, reload: load,
+  }), [reviews, archive, load]);
+}
+
+/**
+ * The id of BB's section for Needs review: undefined until read, null where there's none to be had. Read again as BB's
+ * sections change, so one Settings makes again is used at once.
+ */
+function useNeedsSectionId(enabled: boolean, sections: readonly { id: string }[]): string | null | undefined {
+  const rpc = useRpc<typeof rpcContract>();
+  const [id, setId] = useState<string | null | undefined>(undefined);
+  const ids = sections.map((section) => section.id).join(",");
+  useEffect(() => {
+    if (!enabled) return;
+    let live = true;
+    rpc.call("needsReviewSection", {}).then((result) => { if (live) setId(result.sectionId); }, () => { if (live) setId(null); });
+    return () => { live = false; };
+  }, [rpc, enabled, ids]);
+  return id;
+}
+
+/** `children` at the end of the rows of the group BB keys `groupKey`, wherever BB draws them. */
+function InGroup({ groupKey, children }: { groupKey: string; children: ReactNode }) {
+  const find = useMemo(() => groupRows(groupKey), [groupKey]);
+  return createPortal(children, useSlot(true, "last", find));
 }
 
 /** BB closes its phone drawer when you open a thread from it, but has no call for plugins: press its toggle, as you would. */
@@ -185,12 +236,32 @@ export function NeedsReviewSidebar() {
   const enabled = preferences.enabled === true;
   const { localDiffChanges } = preferences;
   const sidebarReviews = useSidebarReviews(enabled);
-  const needs = enabled ? sidebarReviews.needs : [], pinned = enabled ? sidebarReviews.pinned : [];
-  const { setPinned } = sidebarReviews;
+  const pinned = enabled ? sidebarReviews.pinned : [];
+  const { archive, reload } = sidebarReviews;
   // Whether BB draws its Pinned group: it does while you have a pinned thread. Until it says, pinned reviews wait.
   const sidebar = experimental_useSidebarThreads();
   const known = sidebar.status === "ready";
   const bbPinned = sidebar.threads.some((thread) => thread.isPinned && !thread.isArchived && !thread.isHidden);
+  const needsSectionId = useNeedsSectionId(enabled, sidebar.sections);
+  // BB shows sections only organized by time; Needs review's must still be there, as BB says once its list loads.
+  const sectionsShown = !usePageFact(byProjectOrMachine);
+  const liveSection = (id: string) => known && (id === "threads" || sidebar.sections.some((section) => section.id === id));
+  const needsSection = needsSectionId && liveSection(needsSectionId) ? needsSectionId : null;
+  // Until BB and the plugin say where Needs review's section is, its reviews wait, so its own group doesn't flash up.
+  const needsDecided = needsSectionId === null || (needsSectionId !== undefined && known);
+  // Each review where you moved it, else, while it waits on you, in Needs review's section; any left go in a group of their own.
+  const bySection = new Map<string, ReviewItem[]>();
+  const needs: ReviewItem[] = [];
+  for (const review of enabled ? sidebarReviews.unpinned : []) {
+    const moved = sectionsShown && review.sectionId && liveSection(review.sectionId) ? review.sectionId : null;
+    const waiting = reviewState(review).group === "needs";
+    const at = moved ?? (waiting && sectionsShown && needsSection) ?? null;
+    if (at) bySection.set(at, [...bySection.get(at) ?? [], review]);
+    else if (waiting && needsDecided) needs.push(review);
+  }
+  needs.sort(needsOrder);
+  // In a section, those waiting on you first, in Needs review's order, then the rest as they came.
+  for (const list of bySection.values()) list.sort((a, b) => Number(reviewState(b).group === "needs") - Number(reviewState(a).group === "needs") || (reviewState(a).group === "needs" ? needsOrder(a, b) : 0));
   const needsSlot = useSlot(needs.length > 0, "last", groupsContainer);
   const inBbPinned = useSlot(known && pinned.length > 0 && bbPinned, "last", bbPinnedRows);
   const ownPinned = useSlot(known && pinned.length > 0 && !bbPinned, "first", groupsContainer);
@@ -209,7 +280,10 @@ export function NeedsReviewSidebar() {
     navigate.toPluginPanel("review", { subPath: targetKey });
     closePhoneSidebar();
   };
-  const rows = (list: ReviewItem[], isPinned: boolean) => {
+  const copyLink = (targetKey: string) => {
+    navigator.clipboard.writeText(new URL(`/plugins/${pluginId}/review/${targetKey}`, location.href).href).then(() => toast.success("Link copied"), () => toast.error("Couldn’t copy the link."));
+  };
+  const rows = (list: ReviewItem[], where: string) => {
     // Rows that would read the same as another: only they make room for what tells them apart.
     const names = list.map((review) => reviewIdentity(review).name);
     const twins = names.map((name, at) => names.some((other, index) => index !== at && other === name));
@@ -232,8 +306,15 @@ export function NeedsReviewSidebar() {
       const status = reviewIndicator(review);
       // The tooltip reaches neither touch nor a screen reader: the row also says it in words, with the agent's status.
       const said = [from, where, why, status?.label].filter(Boolean);
-      const describedBy = said.length ? `gr-row-why-${isPinned ? "pinned" : "needs"}-${review.targetKey}` : undefined;
-      return <li key={review.targetKey} className="group/row flex h-[var(--bb-sidebar-row-height)] min-w-0 items-center rounded-md text-sm text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground max-md:pointer-coarse:h-[var(--bb-sidebar-row-height-coarse)]">
+      const describedBy = said.length ? `gr-row-why-${where}-${review.targetKey}` : undefined;
+      // A right-click opens the review's menu, as on BB's rows.
+      const menu = (event: MouseEvent<HTMLElement>) => {
+        const trigger = event.currentTarget.querySelector<HTMLElement>('[aria-label="Review actions"]');
+        if (!trigger) return;
+        event.preventDefault();
+        trigger.click();
+      };
+      return <li key={review.targetKey} onContextMenu={menu} className="group/row relative flex h-[var(--bb-sidebar-row-height)] min-w-0 items-center rounded-md text-sm text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground max-md:pointer-coarse:h-[var(--bb-sidebar-row-height-coarse)]">
         <a href={`/plugins/${pluginId}/review/${review.targetKey}`} title={tooltip} aria-describedby={describedBy} onClick={(event) => open(event, review.targetKey)}
           className="flex h-full min-w-0 flex-1 items-center gap-2 rounded-md pl-2 pr-1 outline-none ring-sidebar-ring focus-visible:ring-2">
           <HostIcon name={`${pluginId}/review`} fallback={kindLook(review).icon} className="size-4 shrink-0 text-muted-foreground" aria-hidden />
@@ -247,29 +328,40 @@ export function NeedsReviewSidebar() {
           {waited && <span className="shrink-0 text-xs tabular-nums text-subtle-foreground">{waited}</span>}
         </a>
         {describedBy && <span id={describedBy} className="sr-only">{said.join(", ")}</span>}
-        {/* BB's trailing slot: the review's status at rest, and on hover where there's a pointer, the pin in its place, as
+        {/* BB's trailing slot: the review's status at rest, and on hover where there's a pointer, Archive in its place, as
             BB's row actions take its status's. A touch screen, which can't hover, keeps its rows clear but for the status,
-            as BB's own are: the review's menu pins it there. */}
+            as BB's own are: the review's menu archives it there. */}
         <span className={cn("relative mr-0.5 inline-flex size-7 shrink-0 items-center justify-center max-md:pointer-coarse:size-9", !status && "[@media(hover:none)]:hidden")}>
           {status && <span aria-hidden className="pointer-events-none inline-flex size-4 items-center justify-center text-subtle-foreground group-hover/row:opacity-0 group-has-[button:focus-visible]/row:opacity-0">
             <ThreadStatusGlyph indicator={status.indicator} />
           </span>}
-          <button type="button" aria-label={`${isPinned ? "Unpin" : "Pin"} ${title}`} onClick={() => setPinned(review.targetKey, !isPinned)}
+          <button type="button" aria-label={`Archive ${title}`} onClick={() => archive(review.targetKey)}
             className="absolute inset-0 inline-flex items-center justify-center rounded-md text-subtle-foreground outline-none ring-sidebar-ring hover:bg-state-hover hover:text-muted-foreground focus-visible:opacity-100 focus-visible:ring-2 group-hover/row:opacity-100 [@media(hover:hover)]:opacity-0 [@media(hover:none)]:hidden">
-            <Icon name={isPinned ? "PinOff" : "Pin"} className="size-4" aria-hidden />
+            <Icon name="Archive" className="size-4" aria-hidden />
           </button>
+        </span>
+        {/* The review's menu, as BB's rows have theirs: beside Archive on hover, over how long it's waited, and open on a right-click. */}
+        <span className="absolute right-8 top-1/2 -translate-y-1/2 rounded-md bg-sidebar-accent opacity-0 group-hover/row:opacity-100 has-[[data-state=open]]:opacity-100 has-[:focus-visible]:opacity-100 max-md:pointer-coarse:right-10 [@media(hover:none)]:pointer-events-none">
+          <ReviewActions review={review} pinnable describedBy={describedBy} onChanged={reload}
+            items={[{ label: "Copy link", icon: "ArrowUpRight", hostIcon: "Link", onSelect: () => copyLink(review.targetKey) }]}
+            className="size-7 text-subtle-foreground hover:bg-state-hover hover:text-muted-foreground max-md:pointer-coarse:size-9" />
         </span>
       </li>;
     })}
   </ul>;
   };
   return <>
-    {needs.length > 0 && createPortal(<Group label="Needs review" count={needs.length} collapsedKey={NEEDS_COLLAPSED_KEY} icon={<HostIcon name={`${pluginId}/review`} fallback="GitPullRequest" className="mr-1 size-3.5 shrink-0" aria-hidden />}>{rows(needs, false)}</Group>, needsSlot)}
+    {needs.length > 0 && createPortal(<Group label="Needs review" count={needs.length} collapsedKey={NEEDS_COLLAPSED_KEY} icon={<HostIcon name={`${pluginId}/review`} fallback="GitPullRequest" className="mr-1 size-3.5 shrink-0" aria-hidden />}>{rows(needs, "needs")}</Group>, needsSlot)}
     {known && pinned.length > 0 && (bbPinned
       // Inside BB's Pinned, after its threads; collapsing Pinned hides them with the rest.
-      ? createPortal(rows(pinned, true), inBbPinned)
+      ? createPortal(rows(pinned, "pinned"), inBbPinned)
       // With no pinned thread BB draws no Pinned, so the reviews get one of the same look.
-      : createPortal(<Group label="Pinned" collapsedKey={PINNED_COLLAPSED_KEY}>{rows(pinned, true)}</Group>, ownPinned))}
+      : createPortal(<Group label="Pinned" collapsedKey={PINNED_COLLAPSED_KEY}>{rows(pinned, "pinned")}</Group>, ownPinned))}
+    {/* In BB's sections, after their threads: collapsing or hiding one hides its reviews with the rest. */}
+    {[...bySection].map(([id, list]) => {
+      const key = id === "threads" ? "threads" : `section:${id}`;
+      return <InGroup key={key} groupKey={key}><div className="mt-0.5">{rows(list, id)}</div></InGroup>;
+    })}
   </>;
 }
 NeedsReviewSidebar.displayName = "NeedsReviewSidebar";

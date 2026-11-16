@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ComponentProps } from "react";
-import { UrlLink, useRpc, useRealtime, useBbNavigate, experimental_PermissionModePicker as PermissionModePicker, experimental_ProviderModelPicker as ProviderModelPicker } from "@get-bb/plugin-sdk/app";
+import { UrlLink, useRpc, useRealtime, useBbNavigate, experimental_useSidebarThreads, experimental_PermissionModePicker as PermissionModePicker, experimental_ProviderModelPicker as ProviderModelPicker } from "@get-bb/plugin-sdk/app";
 import type { PluginRpcResult } from "@get-bb/plugin-sdk/app";
 import type { rpcContract } from "../src/rpc-contract";
 import type { PreferencesRecord } from "../src/preferences";
@@ -381,7 +381,9 @@ export function ReviewSettings({ onBack, back }: { onBack?: () => void; back?: s
               <label className={`flex items-center gap-2.5 ${TOUCH_CONTROL}`}><input type="checkbox" className="size-4 shrink-0 accent-primary" checked={record.preferences.focuses.githubLabel} disabled={!record.preferences.focuses.enabled} onChange={(event) => { setSaved(false); setRecord({ ...record, preferences: { ...record.preferences, focuses: { ...record.preferences.focuses, githubLabel: event.target.checked } } }); }} /><span className="text-sm font-medium">Label comments on GitHub with their focus</span></label>
               <p className="text-xs text-muted-foreground">Posts “Should fix (Docs): …”. Off: comments post as today. BB shows the focus either way.</p>
             </div>
-            <p className="text-xs text-muted-foreground">Each focus is one more agent run per review. Focuses run unattended at the lowest permissions their provider allows, which can still edit files in the review's checkout.</p>
+            <label className={`flex items-center gap-2.5 ${TOUCH_CONTROL}`}><input type="checkbox" className="size-4 shrink-0 accent-primary" checked={record.preferences.focuses.allowFullPermissions ?? false} disabled={!record.preferences.focuses.enabled} onChange={(event) => { setSaved(false); setRecord({ ...record, preferences: { ...record.preferences, focuses: { ...record.preferences.focuses, allowFullPermissions: event.target.checked } } }); }} /><span className="text-sm font-medium">Let focuses run with full permissions</span></label>
+            <p className="text-xs text-muted-foreground">At full permissions, a focus can run shell commands and edit files without approval, and it reads untrusted PR text. Only turn this on if you accept that risk (as with the review agent at full). Restricted permissions are still preferred.</p>
+            <p className="text-xs text-muted-foreground">Each focus is one more agent run per review. Focuses run unattended with restricted permissions when available, or full permissions only with your opt-in. Restricted permissions can still edit files in the review's checkout.</p>
             <FocusSettings value={record.preferences.focuses} reviewAgent={record.preferences.assistantAgent} disabled={busy || updating} onChange={(update) => { setSaved(false); setRecord((current) => current && { ...current, preferences: { ...current.preferences, focuses: update(current.preferences.focuses) } }); }} />
           </section>
           <section className="space-y-4 rounded-xl border border-border bg-card p-5 shadow-xs">
@@ -442,7 +444,8 @@ export function ReviewSettings({ onBack, back }: { onBack?: () => void; back?: s
           </section>
           <section className="space-y-4 rounded-xl border border-border bg-card p-5 shadow-xs">
             <SectionHeading icon="PanelLeft" title="BB’s thread list" />
-            <label className="flex items-start gap-2.5"><input type="checkbox" className="mt-0.5 size-4 shrink-0 accent-primary" checked={record.preferences.threadListReviews} onChange={(event) => { setSaved(false); setRecord({ ...record, preferences: { ...record.preferences, threadListReviews: event.target.checked } }); }} /><span className="space-y-1"><span className="block text-sm font-medium">Show reviews in the thread list</span><span className="block text-xs text-muted-foreground">Adds Needs review below Threads, and lets you pin reviews with your pinned threads. BB has no supported place for plugins there, so Code Review Workspace adds them to BB’s own list. If a BB update makes that list misbehave, or you’d rather keep it to threads, turn this off. Your pins are kept for when you turn it back on.</span></span></label>
+            <label className="flex items-start gap-2.5"><input type="checkbox" className="mt-0.5 size-4 shrink-0 accent-primary" checked={record.preferences.threadListReviews} onChange={(event) => { setSaved(false); setRecord({ ...record, preferences: { ...record.preferences, threadListReviews: event.target.checked } }); }} /><span className="space-y-1"><span className="block text-sm font-medium">Show reviews in the thread list</span><span className="block text-xs text-muted-foreground">Fills a Needs review section with the reviews waiting on you, and lets you pin reviews or move them to any section from their menu. BB has no supported place for plugins there, so Code Review Workspace adds them to BB’s own list. If a BB update makes that list misbehave, or you’d rather keep it to threads, turn this off. Your pins and sections are kept for when you turn it back on.</span></span></label>
+            {record.preferences.threadListReviews && <NeedsSectionNotice />}
           </section>
           <section className="space-y-4 rounded-xl border border-border bg-card p-5 shadow-xs">
             <SectionHeading icon="Lock" title="Trust" description="A PR’s description, comments, and code can try to steer an agent that reads them. Choose what runs without your click." />
@@ -474,4 +477,22 @@ export function ReviewSettings({ onBack, back }: { onBack?: () => void; back?: s
 export function ReviewSettingsPage({ returnTo = "" }: { returnTo?: string }) {
   const navigate = useBbNavigate();
   return <ReviewSettings back={returnTo ? "Back to review" : "All reviews"} onBack={() => navigate.toPluginPanel("review", { subPath: returnTo })} />;
+}
+
+/** Needs review's BB section, once deleted: where its reviews went, and a button that makes it again. */
+function NeedsSectionNotice() {
+  const rpc = useRpc<typeof rpcContract>();
+  const sidebar = experimental_useSidebarThreads();
+  const [id, setId] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { rpc.call("needsReviewSection", {}).then((result) => setId(result.sectionId), () => {}); }, [rpc]);
+  if (!id || sidebar.status !== "ready" || sidebar.sections.some((section) => section.id === id)) return null;
+  const recreate = () => {
+    setBusy(true);
+    rpc.call("needsReviewSection", { recreate: true }).then((result) => setId(result.sectionId), () => {}).finally(() => setBusy(false));
+  };
+  return <div className="flex flex-wrap items-center gap-3 pl-6.5">
+    <p className="min-w-0 flex-1 text-xs text-muted-foreground">The Needs review section was deleted, so reviews waiting on you are in a group of their own at the end of the list.</p>
+    <Button variant="outline" size="sm" className={TOUCH_CONTROL} aria-disabled={busy} onClick={() => { if (!busy) recreate(); }}>Add the section back</Button>
+  </div>;
 }

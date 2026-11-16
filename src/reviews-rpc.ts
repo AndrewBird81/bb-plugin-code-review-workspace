@@ -12,6 +12,7 @@ import { isAssistantAnswering } from "./agent";
 import { agentStatuses } from "./agent-status";
 import type { AgentStatus } from "../lib/review-indicator";
 import { personalProjectId } from "./machines";
+import { needsSection } from "./needs-section";
 import { identityIn, placeFacts, reviewPlaces } from "./review-places";
 import { reviewIdentity } from "../lib/review-identity";
 import { agentReadsHead } from "./agent-reads";
@@ -279,6 +280,18 @@ export function register(deps: ServeDeps) {
         changed(targetKey);
         return { ok: true };
       });
+    },
+    async moveReview({ targetKey, sectionId }) {
+      return store.exclusive(async (tx) => {
+        if (!await tx.getReview(targetKey)) return { ok: false, error: "This review no longer exists." };
+        // As BB's Move to section does a pinned thread's: out of Pinned, into the section.
+        await tx.setLifecycle(targetKey, { sectionId, pinnedAt: null });
+        changed(targetKey);
+        return { ok: true };
+      });
+    },
+    async needsReviewSection({ recreate }) {
+      return { sectionId: await needsSection(bb, recreate) };
     },
     async renameReview({ targetKey, name }) {
       return store.exclusive(async (tx) => {

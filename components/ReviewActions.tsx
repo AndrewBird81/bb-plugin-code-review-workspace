@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useId, useRef, useState, type FormEvent } from "react";
-import { useBbNavigate, useRpc } from "@get-bb/plugin-sdk/app";
+import { experimental_Icon as HostIcon, useBbNavigate, useRpc } from "@get-bb/plugin-sdk/app";
 import { toast } from "sonner";
 import type { rpcContract } from "../src/rpc-contract";
 import { reviewState, type ReviewItem } from "../lib/review-state";
@@ -15,6 +15,7 @@ import { InlineCode } from "./ui/inline-code";
 import { Input } from "./ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 import { MENU_ITEM, SnoozeChoices } from "./SnoozeChoices";
+import { useSectionChoices } from "./section-choices";
 import { TOUCH_CONTROL, TOUCH_TARGET } from "./touch";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "./ui/dialog";
 
@@ -24,7 +25,8 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
  * it, its `backtick` spans, as a branch, in monospace as a notice's. `agent`: it starts an agent, so its icon takes the
  * agent's tone.
  */
-export type ReviewMenuItem = { label: string; icon: IconName; onSelect: () => void; keys?: string; description?: string; detail?: string; agent?: boolean };
+export type ReviewMenuItem = { label: string; icon: IconName; onSelect: () => void; keys?: string; description?: string; detail?: string; agent?: boolean; hostIcon?: string };
+
 
 /**
  * What can be done to a review from its menu or its row in the list, each said in a toast. Snooze, Pin, Rename and
@@ -68,7 +70,14 @@ export function useReviewActions(review: ReviewItem, onChanged?: () => void) {
   const buildGuide = useCallback(() => run(() => rpc.call("startTrackedReview", { targetKey }), "Building the guide"), [rpc, run, targetKey]);
   // The page that showed it goes, rather than reading it again.
   const remove = useCallback(() => run(() => rpc.call("deleteReview", { targetKey }), "Review deleted", { changed: false }), [rpc, run, targetKey]);
-  return { busy, setArchived, setPinned, rename, snooze, unsnooze, buildGuide, remove };
+  /** Into a BB section, or "threads"; null puts it back where it goes by itself. Undo puts back where it was, and its pin. */
+  const move = useCallback((sectionId: string | null, label: string, undoable = true): Promise<boolean> => {
+    const { sectionId: before = null, pinnedAt } = review;
+    return run(() => rpc.call("moveReview", { targetKey, sectionId }), `Moved to ${label}`, { undo: undoable ? () => void (async () => {
+      if (await move(before, "where it was", false) && pinnedAt) await setPinned(true, false);
+    })() : undefined });
+  }, [rpc, run, targetKey, review, setPinned]);
+  return { busy, setArchived, setPinned, rename, snooze, unsnooze, buildGuide, remove, move };
 }
 
 /**
@@ -78,7 +87,7 @@ export function useReviewActions(review: ReviewItem, onChanged?: () => void) {
  */
 export function ReviewActions({ review, items, afterRename, trailing, pinnable = false, onChanged, onMoved, onDeleted, describedBy, className }: {
   review: ReviewItem;
-  /** Offer Pin: Settings shows reviews in BB's thread list. */
+  /** Offer Pin, and Move to section › after Rename… as BB's thread menus do: Settings shows reviews in BB's thread list. */
   pinnable?: boolean;
   /** Listed first, such as the workspace's Update guide. */
   items?: ReviewMenuItem[];
@@ -96,11 +105,12 @@ export function ReviewActions({ review, items, afterRename, trailing, pinnable =
 }) {
   const navigate = useBbNavigate();
   const actions = useReviewActions(review, onChanged);
+  const sections = useSectionChoices(review, pinnable);
   const trigger = useRef<HTMLButtonElement>(null);
   const menu = useRef<HTMLDivElement>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   // The menu, or its Snooze choices in its place.
-  const [view, setView] = useState<"actions" | "snooze">("actions");
+  const [view, setView] = useState<"actions" | "snooze" | "move">("actions");
   const [confirming, setConfirming] = useState(false);
   // Rename…'s dialog, and the name in its box.
   const [renaming, setRenaming] = useState(false);
@@ -134,14 +144,17 @@ export function ReviewActions({ review, items, afterRename, trailing, pinnable =
   useEffect(() => {
     if (!switched.current) return;
     switched.current = false;
-    menu.current?.querySelector<HTMLElement>(view === "snooze" ? "[role=group] button" : "[data-snooze-item]")?.focus();
+    menu.current?.querySelector<HTMLElement>(view === "snooze" ? "[role=group] button" : view === "move" ? "[data-move-choice]" : `[data-${from.current}-item]`)?.focus();
   }, [view]);
-  const show = (next: "actions" | "snooze") => {
+  // Which submenu the menu came back from, to focus its item.
+  const from = useRef<"snooze" | "move">("snooze");
+  const show = (next: "actions" | "snooze" | "move") => {
     switched.current = true;
+    if (next !== "actions") from.current = next;
     setView(next);
   };
   const item = (entry: ReviewMenuItem) => <Button key={entry.label} variant="ghost" size="sm" aria-label={entry.detail && entry.label} aria-keyshortcuts={entry.keys} aria-description={entry.detail?.replaceAll("`", "") ?? entry.description} className={cn(MENU_ITEM, entry.detail && "h-auto items-start py-1.5 [&>svg]:mt-0.5")} onClick={() => pick(entry.onSelect)}>
-    <Icon name={entry.icon} className={cn(entry.agent && "text-(--ansi-13)")} aria-hidden />
+    {entry.hostIcon ? <HostIcon name={entry.hostIcon} fallback={entry.icon} aria-hidden /> : <Icon name={entry.icon} className={cn(entry.agent && "text-(--ansi-13)")} aria-hidden />}
     {entry.detail ? <span className="flex min-w-0 flex-col text-left">{entry.label}<span className="whitespace-normal text-xs font-normal text-subtle-foreground">{entry.detail.split("`").map((part, index) => index % 2 ? <span key={index} className="whitespace-nowrap font-mono">{part}</span> : part)}</span></span> : entry.label}{entry.keys && <kbd aria-hidden className="ml-auto hidden font-sans text-xs text-subtle-foreground pointer-fine:inline">{entry.keys}</kbd>}
   </Button>;
 
@@ -172,8 +185,17 @@ export function ReviewActions({ review, items, afterRename, trailing, pinnable =
           <Icon name="MoreHorizontal" aria-hidden />
         </Button>
       </PopoverTrigger>
-      <PopoverContent ref={menu} align="end" mobileTitle={view === "snooze" ? "Snooze" : "Review actions"} className="w-64 max-w-[calc(100vw-24px)] p-1">
-        {view === "snooze" ? <>
+      <PopoverContent ref={menu} align="end" mobileTitle={view === "snooze" ? "Snooze" : view === "move" ? "Move to section" : "Review actions"} className="w-64 max-w-[calc(100vw-24px)] p-1">
+        {view === "move" && sections ? <>
+          <Button variant="ghost" size="sm" aria-label="Back to review actions" className={cn(MENU_ITEM, "font-semibold text-foreground")} onClick={() => show("actions")}>
+            <Icon name="ChevronLeft" aria-hidden />Move to section
+          </Button>
+          <div role="separator" className="my-1 h-px bg-border" />
+          {sections.map((choice) => <Button key={choice.id} data-move-choice variant="ghost" size="sm" aria-current={choice.selected || undefined} disabled={choice.selected || actions.busy} className={MENU_ITEM}
+            onClick={() => pick(() => actions.move(choice.id, choice.label))}>
+            <span className="min-w-0 flex-1 truncate text-left">{choice.label}</span>{choice.selected && <Icon name="Check" className="ml-auto" aria-hidden />}
+          </Button>)}
+        </> : view === "snooze" ? <>
           <Button variant="ghost" size="sm" aria-label="Back to review actions" className={cn(MENU_ITEM, "font-semibold text-foreground")} onClick={() => show("actions")}>
             <Icon name="ChevronLeft" aria-hidden />Snooze
           </Button>
@@ -188,6 +210,9 @@ export function ReviewActions({ review, items, afterRename, trailing, pinnable =
             </Button>}
           {pin && item({ label: review.pinnedAt ? "Unpin" : "Pin", icon: review.pinnedAt ? "PinOff" : "Pin", onSelect: () => void actions.setPinned(!review.pinnedAt) })}
           {item({ label: "Rename…", icon: "Edit", onSelect: () => { setDraft(title); setRenaming(true); } })}
+          {sections && <Button data-move-item variant="ghost" size="sm" className={MENU_ITEM} onClick={() => show("move")}>
+            <HostIcon name="SectionMove" fallback="Layers" aria-hidden />Move to section<Icon name="ChevronRight" className="ml-auto text-subtle-foreground" aria-hidden />
+          </Button>}
           {afterRename?.map(item)}
           {archivable && item({ label: review.userArchivedAt ? "Unarchive" : "Archive", icon: review.userArchivedAt ? "ArchiveRestore" : "Archive", onSelect: () => void moving(actions.setArchived(!review.userArchivedAt)) })}
           <div role="separator" className="my-1 h-px bg-border" />
