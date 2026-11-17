@@ -1568,7 +1568,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     reveal: showComment, showLocation, followUp, askAgent, openFinish: showDraftSummary,
     fullscreen: { available: canFullscreen, on: fullscreen, toggle: toggleFullscreen }, leave,
     snooze, newCommits, rebuild, reload: load, pinnable: preferences?.preferences.threadListReviews === true, showShortcuts,
-    shortcuts: shortcutsOn, mainThread, patch, injection, reviewId: identity?.id, reviewName: identity?.name,
+    shortcuts: shortcutsOn, mainThread, patch, injection,
   } : null, [targetKey, review, guide, sections, activeId, selectChapter, layout, toggleNav, findInReview, navView, changeNavView, shownPanel, openPanel, togglePanel, closePanel, views, toggleViewed, markChapterViewed, nextUnviewed, foldAllFiles, baselineSha, compareFrom, pickCompare, flip, since, sinceOnly, sinceError, sinceWhat, diffLayout, toggleLayout, newFiles, changeNewFiles, markdownFiles, changeMarkdownFiles, unifiedOnly, wrapLines, changeWrap, hideWhitespace, changeHideWhitespace, showThreads, setShowThreads, commentsFolded, changeCommentsFolded, showComment, showLocation, followUp, askAgent, showDraftSummary, canFullscreen, fullscreen, toggleFullscreen, leave, snooze, newCommits, rebuild, load, preferences, showShortcuts, shortcutsOn, mainThread, patch, injection, identity?.id, identity?.name]);
 
   // A comment asked for from another page, as its row on a thread's Review tab asks, whether the review opens now or

@@ -83,7 +83,7 @@ test("a renamed review's Overview leads with your name, still opening the PR, wi
   expect(main(slot).getByText("PR title:").parentElement!.textContent).toBe("PR title: Fix token refresh race");
   fireEvent.click(slot.getByRole("button", { name: "Start reading: Refresh" }));
   await waitFor(() => expect(slot.queryByRole("heading", { name: "Token lock" })).toBeNull());
-  expect(slot.experimental_pageTitle).toMatchObject({ breadcrumbs: [{ label: "web#42" }, { label: "Token lock" }] });
+  expect(slot.experimental_pageTitle).toMatchObject({ title: "web#42 · Token lock" });
   slot.lifecycle.unmount();
 });
 

@@ -128,7 +128,7 @@ test("a thread card you're writing a reply in stays open when comments fold, wit
   const { slot, diff } = await renderWorkspace();
   fireEvent.click(diff().getByRole("button", { name: "Show GitHub thread on src/a.ts:2" }));
   const card = within(diff().getByRole("article", { name: "GitHub thread on src/a.ts:2" }));
-  fireEvent.click(card.getByRole("button", { name: "Reply" }));
+  fireEvent.click(card.getByRole("button", { name: "Reply on GitHub" }));
   const box = card.getByRole("textbox", { name: "Reply on src/a.ts:2" }) as HTMLTextAreaElement;
   fireEvent.change(box, { target: { value: "Half a thought" } });
   press("i");

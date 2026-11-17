@@ -78,11 +78,11 @@ test("BB's title bar and the window's title lead with the open review's id, its 
   patchReviewState("pr-1", { activeId: "c1" });
   const review = await render("pr-1", { "pr-1": pr });
   await review.findAllByTestId("filediff");
-  await waitFor(() => expect(review.experimental_pageTitle).toEqual({ breadcrumbs: [{ label: "api#4512" }, { label: "Fix login race" }], windowTitle: "api#4512 · Fix login race" }));
+  await waitFor(() => expect(review.experimental_pageTitle).toEqual({ title: "api#4512 · Fix login race", windowTitle: "api#4512 · Fix login race" }));
   // Two panes, each its own review, each its own title.
   const other = await render("ref-1", { "ref-1": { kind: "ref", gitRef: "main...bb/snooze-checks-thr_ab12", cwd: "/Users/ana/src/web", name: "Snoozing", status: "ready", createdAt: 1, place: { repo: "flosports/web", machine: "MaxBook", path: "/Users/ana/src/web" } } });
   await other.findAllByTestId("filediff");
-  await waitFor(() => expect(other.experimental_pageTitle).toMatchObject({ breadcrumbs: [{ label: "web:snooze-checks" }, { label: "Snoozing" }], windowTitle: "web:snooze-checks · Snoozing" }));
+  await waitFor(() => expect(other.experimental_pageTitle).toMatchObject({ title: "web:snooze-checks · Snoozing", windowTitle: "web:snooze-checks · Snoozing" }));
   expect(review.experimental_pageTitle).toMatchObject({ windowTitle: "api#4512 · Fix login race" });
   review.lifecycle.unmount();
   other.lifecycle.unmount();
@@ -304,7 +304,7 @@ test("a local review goes by one name everywhere: its row, BB's thread list, its
   // Its Overview and BB's title bar.
   const page = await render("ref-1", { "ref-1": local });
   expect(await page.findByRole("heading", { level: 2, name: "Guide" })).toBeTruthy();
-  await waitFor(() => expect(page.experimental_pageTitle).toMatchObject({ breadcrumbs: [{ label: "web:snooze-checks" }, { label: "Guide" }] }));
+  await waitFor(() => expect(page.experimental_pageTitle).toMatchObject({ title: "web:snooze-checks · Guide" }));
   page.lifecycle.unmount();
 });
 

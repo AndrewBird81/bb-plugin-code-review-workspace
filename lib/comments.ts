@@ -608,7 +608,7 @@ export interface ToSend {
   severities: string;
   byAuthor: { you: number; agent: number };
   olderDiff: number;
-  /** Drafted replies on the threads shown; Send reply posts each. */
+  /** Drafted replies on the threads shown; Post to GitHub posts each. */
   replyDrafts: number;
   /** Who wrote the summary that goes with the verdict; null without one. */
   summary: Author | null;

@@ -84,7 +84,7 @@ test("a teammate's Request changes with only a summary waits in Needs you, once,
   expect(card.getByText("@dana")).toBeTruthy();
   expect(card.getByText("Requested changes")).toBeTruthy();
   // A summary has no reply box or Resolve of its own: the review agent drafts the reply.
-  expect(card.queryByRole("button", { name: "Reply" })).toBeNull();
+  expect(card.queryByRole("button", { name: "Reply on GitHub" })).toBeNull();
   expect(card.queryByRole("button", { name: /Resolve/ })).toBeNull();
   fireEvent.click(card.getByRole("button", { name: "Send @dana’s review to a fresh thread" }));
   // A choice, not a warning: where it goes, each place said in a line, the fresh thread first and focused.

@@ -18,7 +18,7 @@ const unsaved = new Map<string, string>();
 
 /**
  * A thread's reply, inside its card as a dashed box: the reply drafted on the server (yours or the agent's), or one
- * you're writing. Send reply posts it now; what you write is kept as the thread's draft when you leave the box.
+ * you're writing. Post to GitHub posts it now; what you write is kept as the thread's draft when you leave the box.
  */
 export function ReplyBox({ targetKey, item, where, actions, busy, writing, onClose, replyButton }: {
   targetKey: string;
@@ -152,7 +152,7 @@ export function ReplyBox({ targetKey, item, where, actions, busy, writing, onClo
       <div className="flex flex-wrap items-center gap-1">
         {/* While it posts, Send keeps the focus it was pressed with. */}
         <Button size="sm" variant={fill} data-reply-action="send" className={cn(action, "aria-disabled:pointer-events-none aria-disabled:bg-muted/60 aria-disabled:text-subtle-foreground aria-disabled:shadow-none")} disabled={!busy && !text.trim()} aria-disabled={busy || undefined} onClick={() => { if (!busy) void send(); }}>
-          {busy ? <Icon name="Loading" className="size-3.5 animate-spin motion-reduce:animate-none" aria-hidden /> : <Icon name="Github" className="size-3.5" aria-hidden />}Send reply
+          {busy ? <Icon name="Loading" className="size-3.5 animate-spin motion-reduce:animate-none" aria-hidden /> : <Icon name="Github" className="size-3.5" aria-hidden />}Post to GitHub
         </Button>
         {!editing && <Button variant="ghost" size="sm" className={action} disabled={busy} onClick={() => { focusBox.current = true; setEditing(true); }}>Edit</Button>}
         <Button variant="ghost" size="sm" data-reply-action="discard" className={cn(action, "hover:text-destructive-text")} disabled={busy} onClick={() => void discard()}>Discard</Button>

@@ -95,7 +95,7 @@ After new commits, **Since your review** shows only what changed since the commi
 
 - Rebases and merges from the base branch don't show up as changes.
 - The agent marks each of your earlier threads, and each ask in your review summary, **Addressed**, **Partial**, **Not addressed**, **Author disagrees**, **Unclear**, or **Deferred**, with one line of evidence. A deferral keeps blocking approval until you confirm it.
-- It drafts replies to your threads. Each waits until you choose **Send reply**.
+- It drafts replies to your threads. Each waits until you choose **Post to GitHub**.
 - **Request what's left** drafts a Request changes listing what's still open, deferrals you confirmed aside.
 - Compare with any earlier commit of the PR, not just your last review.
 

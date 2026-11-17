@@ -93,7 +93,7 @@ test("BB's title bar goes to the main thread, and shows it beside the diff in BB
   expect(panelTabCalls(page)).toEqual(["openTab:main"]);
   const slot = renderPanelTab(app, "main", "br-1", options);
   const tab = await slot.findByRole("region", { name: "Main thread" });
-  expect(within(tab).getByRole("heading", { level: 2 }).textContent).toBe("Main thread·api:feat/snooze·Build snooze");
+  expect(within(tab).getByRole("heading", { level: 2 }).textContent).toBe("Main thread");
   const chat = await within(tab).findByTestId("bb-thread-chat");
   expect(chat.dataset).toMatchObject({ threadId: "coder", variant: "compact", permissionPolicy: "inherit" });
   // Which thread, on which machine, and that it's working now, so a Send waits.
@@ -147,7 +147,7 @@ async function renderTab(review: Record<string, unknown>, rpc: Record<string, un
   const { testWorkspace } = await import("./draft-tray.test-support");
   const { MainThreadPanel } = await import("./MainThreadPanel");
   const api = testWorkspace(review.targetKey as string, { review: review as any, mainThread: { threadId: "coder", title: "Build snooze", machine: "MaxBook" } });
-  const component = () => <WorkspaceProvider api={api}><MainThreadPanel active reviewId="api:feat/snooze" /></WorkspaceProvider>;
+  const component = () => <WorkspaceProvider api={api}><MainThreadPanel active /></WorkspaceProvider>;
   return renderSlot({ component }, {}, { rpc: rpc as any, sidebarThreads: { threads } as any });
 }
 const listed = (id: string, displayTitle: string, over: Record<string, unknown> = {}) => ({ id, displayTitle, projectId: "p1", status: "idle", isHidden: false, isArchived: false, environment: { id: "env1" }, ...over });

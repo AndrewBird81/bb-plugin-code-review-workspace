@@ -33,11 +33,6 @@ export function workspaceFor(targetKey: string): WorkspaceApi | null {
   return workspaces.get(targetKey) ?? null;
 }
 
-/** Whether the review's page is a narrow pane beside BB's side panel (lib/workspace-layout.ts), read alone. */
-export function useNarrowPane(targetKey: string | null): boolean {
-  return useSyncExternalStore(subscribe, () => (targetKey === null ? false : workspaces.get(targetKey)?.layout.narrowPane ?? false));
-}
-
 /** The review's workspace while one shows it with its guide loaded; null otherwise, so no other review's controls show. */
 export function useWorkspaceFor(targetKey: string | null): WorkspaceApi | null {
   return useSyncExternalStore(subscribe, () => (targetKey === null ? null : workspaces.get(targetKey) ?? null));

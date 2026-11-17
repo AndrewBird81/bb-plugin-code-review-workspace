@@ -15,15 +15,12 @@ import { Textarea } from "./ui/textarea";
 import { TOUCH_CONTROL, TOUCH_TARGET } from "./touch";
 import { Markdown } from "@get-bb/plugin-sdk/app";
 import { Badge, SpeakerMark } from "./ui/badge";
-import { TabTitle } from "./TabTitle";
 
 /** What to ask the agent about: `context`, quoted from the diff, or `quote`, text to quote as it is, such as a failing check. */
 export interface DockInjection { context: AgentMessageContext; quote?: string; nonce: number; }
 export interface AgentDockProps {
   targetKey: string;
   /** The review's id and name (lib/review-identity.ts), which its header names it by. */
-  reviewId?: string;
-  reviewName?: string;
   /** The review's patch, for quoting selected lines. */
   patch: string;
   injection?: DockInjection;
@@ -57,7 +54,7 @@ const UNSET_AGENT: AgentChoice = { providerId: "", model: "", reasoningLevel: "m
 // The Review agent tab in BB's side panel (components/PanelTabs.tsx), mounted again for each review it shows, and by BB
 // 0.48 each time its panel opens. A review's conversation is a hidden bb thread shown with ThreadChat; until it exists, a
 // first-message composer chooses its agent.
-export const AgentDock = memo(function AgentDock({ targetKey, reviewId, reviewName, patch, injection, active = true, bare = false, wasDeleted = false }: AgentDockProps) {
+export const AgentDock = memo(function AgentDock({ targetKey, patch, injection, active = true, bare = false, wasDeleted = false }: AgentDockProps) {
   const rpc = useRpc<typeof rpcContract>();
   const composers = useComposers();
   const [conversation, setConversation] = useState<Conversation | null>(null);
@@ -218,7 +215,7 @@ export const AgentDock = memo(function AgentDock({ targetKey, reviewId, reviewNa
   return <section aria-label="Review agent" className="flex h-full min-h-0 flex-1 flex-col">
     <div className="flex h-11 shrink-0 items-center gap-2 border-b border-border pl-3 pr-1.5">
       <Icon name="Sparkles" className="size-4 shrink-0 text-(--ansi-13)" aria-hidden />
-      <TabTitle title="Review agent" reviewId={reviewId} reviewName={reviewName} />
+      <h2 className="min-w-0 flex-1 truncate text-sm font-medium">Review agent</h2>
       {(threadId || conversation?.legacy.length) ? <Button ref={resetRef} variant="ghost" size="icon" className="size-7 shrink-0 pointer-coarse:size-11" aria-label="New conversation" onClick={() => setConfirmingReset(true)}><Icon name="MessageSquarePlus" className="size-3.5" aria-hidden /></Button> : null}
     </div>
     {confirmingReset && <div role="alertdialog" aria-label="Start a new conversation" onKeyDown={(event) => {

@@ -117,10 +117,10 @@ test("a quote put in the first message's box marks the message inserted while an
   }
 });
 
-test("the agent's header names its review by its id", async () => {
-  await renderDock({ reviewId: "api#4512" }, { getConversation: unstarted });
+test("the agent's header says what the tab is, and leaves the review's id and name to BB's title bar", async () => {
+  await renderDock({}, { getConversation: unstarted });
   await screen.findByText("Ask about this change.");
-  expect(within(screen.getByRole("region", { name: "Review agent" })).getByRole("heading", { level: 2 }).textContent).toBe("Review agent·api#4512");
+  expect(within(screen.getByRole("region", { name: "Review agent" })).getByRole("heading", { level: 2 }).textContent).toBe("Review agent");
 });
 
 test("an ask made before the tab mounts, as the ask that opens BB's panel is, is taken as it opens, once", async () => {

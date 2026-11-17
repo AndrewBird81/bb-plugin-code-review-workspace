@@ -62,7 +62,7 @@ export function ReviewAgentTab({ subPath }: PluginNavPanelProps) {
   if (!targetKey) return null;
   if (!api) return waiting(shown);
   // Keyed by the review: switching reviews switches the conversation.
-  return <SettingsProvider><AgentDock key={targetKey} targetKey={targetKey} reviewId={api.reviewId} reviewName={api.reviewName} patch={api.patch} injection={api.injection} active={visible} /></SettingsProvider>;
+  return <SettingsProvider><AgentDock key={targetKey} targetKey={targetKey} patch={api.patch} injection={api.injection} active={visible} /></SettingsProvider>;
 }
 ReviewAgentTab.displayName = "ReviewAgentTab";
 
@@ -72,6 +72,6 @@ export function MainThreadTab({ subPath }: PluginNavPanelProps) {
   // BB lists it only beside a review.
   if (!targetKey) return null;
   if (!api) return <Notice>Opening the review…</Notice>;
-  return <SettingsProvider><WorkspaceView api={api}><MainThreadPanel key={targetKey} active={visible} reviewId={api.reviewId} reviewName={api.reviewName} /></WorkspaceView></SettingsProvider>;
+  return <SettingsProvider><WorkspaceView api={api}><MainThreadPanel key={targetKey} active={visible} /></WorkspaceView></SettingsProvider>;
 }
 MainThreadTab.displayName = "MainThreadTab";
