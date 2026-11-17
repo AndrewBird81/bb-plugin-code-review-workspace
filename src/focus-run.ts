@@ -332,6 +332,10 @@ async function account(bb: BbPluginApi, store: AsyncStore, key: string, restarti
     const threadId = await store.getAssistantThread(key);
     const queued = threadId ? await bb.sdk.threads.queuedMessages.list({ threadId }) : [];
     if (queued.some((entry) => entry.id === run.mergeMessageId)) return;
+    // Live, the idle that ends the General review is the one that dispatches the queued merge: gone from the queue,
+    // it's being dispatched or cancelled, and message.dispatched or message.cancelled says which. After a restart those
+    // events may be lost, so it's interrupted.
+    if (!restarting && !failed) return;
     return finish(bb, store, key, run, "interrupted");
   }
   const findings = await store.focusFindings(key, run.id);

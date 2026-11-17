@@ -435,6 +435,22 @@ test("a cancelled queued merge settles immediately without waiting for another a
   expect((await s.store.focusFindings("r", id))[0].reason).toBe("merge message removed");
 });
 
+// Seen live: the General review's last idle arrives ~1 s before message.dispatched for the merge queued behind it.
+test("the idle that dispatches a queued merge doesn't end the run before message.dispatched", async () => {
+  const s = await setup();
+  recordFocusTools(s.bb, "assistant", true);
+  focusRuntimeSpawned(s.bb, "assistant");
+  const id = await complete(s);
+  await vi.waitFor(async () => expect((await s.store.getReview("r"))?.focusRun?.mergeMessageId).toBe("merge"));
+  // The queue is already empty: the merge message is being dispatched.
+  await idle(s);
+  expect((await s.store.getReview("r"))?.focusRun?.state).toBe("merging");
+  expect((await s.store.focusFindings("r", id))[0].status).toBe("found");
+  for (const handler of focusEvents(s.bb, s.store)["message.dispatched"] ?? []) await (handler as any)({ entry: makeQueueEntry({ id: "merge", threadId: "assistant" }) });
+  expect((await s.store.getReview("r"))?.focusRun?.mergeDispatchedAt).toBeDefined();
+  expect((await s.store.getReview("r"))?.focusRun?.state).toBe("merging");
+});
+
 test("an empty successful report ends without a merge", async () => {
   const s = await setup();
   await startFocusRun(s.bb, s.store, "r");
