@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.14.0 — 2026-11-17
+
+Reviews in BB's own thread sections, and a focus merge that no longer drops its findings. Still **BB 0.48+** (plugin SDK **0.6.79+**) with Node 24+; installs at `^1.0.0` update to 1.14.0. 1.14.0 adds no migration: a review's section is kept with its other lifecycle fields, so rolling back to 1.13.0 keeps everything, and reviews you moved go back to where they go by themselves.
+
+- **Thread sections:** with Show reviews in the thread list on, Needs review is a real BB section, which BB drags, collapses, renames and hides like any other. Every review menu, the review page's included, has **Move to section**; moving a pinned review unpins it, as BB does a thread. If you delete the Needs review section, its reviews go to a group of their own, and Settings offers **Add the section back**.
+- **Archive on hover:** a sidebar review's hover shows Archive, as BB's threads do, in place of Pin, with Undo.
+- **Focus merge:** when the merge of the focuses' findings was queued behind the General review, the idle that ended the General review ended the run as interrupted a second before the merge message reached the agent, so every finding was marked not checked and the agent found none to check. It now waits for BB to say the message was sent or cancelled; after a restart or a failed turn it still fails closed.
+- **No bb thread:** `bb review` with no arguments, `bb review ready` and `bb review report --commit` say the shell has no bb thread (`BB_THREAD_ID` isn't set) when it hasn't, instead of that nothing waits on this thread.
+
 ## 1.13.0 — 2026-11-14
 
 Review with focuses, opt-in: independent agents each check the diff for one thing, such as docs, bugs or security, and the review agent confirms their findings before drafting comments, each labelled with the focus that raised it. Still **BB 0.48+** (plugin SDK **0.6.79+**) with Node 24+; installs at `^1.0.0` update to 1.13.0. 1.13.0 adds three migrations (40–42) on SQLite and on Postgres; back up before updating. 1.12.1 has no startup guard, so returning to it isn't covered by a simple downgrade; see Data and recovery below.
