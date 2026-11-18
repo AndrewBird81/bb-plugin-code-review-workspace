@@ -347,10 +347,10 @@ test.skipIf(!process.env.BB_E2E_URL)("Send 3 → reports → Resolve 2 / Reopen 
     }
     await page.reload();
     await card(1).getByText("Done · Note on c1").waitFor();
-    await card(1).getByRole("button", { name: "Resolve", exact: true }).click();
-    await card(1).getByText("Resolved", { exact: true }).waitFor();
-    await card(2).getByRole("button", { name: "Resolve", exact: true }).click();
-    await card(2).getByText("Resolved", { exact: true }).waitFor();
+    await card(1).getByRole("button", { name: "Done for me", exact: true }).click();
+    await card(1).getByText("Done for me", { exact: true }).waitFor();
+    await card(2).getByRole("button", { name: "Done for me", exact: true }).click();
+    await card(2).getByText("Done for me", { exact: true }).waitFor();
     await card(3).getByRole("button", { name: "Reopen", exact: true }).click();
     await card(3).getByText("Open", { exact: true }).waitFor();
     await page.screenshot({ animations: "disabled", path: "docs/verification/2026-09-09/fix-cards-desktop.png" });
