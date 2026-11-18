@@ -2,7 +2,7 @@
 
 Everything Code Review Workspace does, in the order you'll meet it. For what it is and how to install it, start with the [README](../README.md).
 
-Two agents work on each review. The **guide writer** is a hidden agent that writes the chaptered guide (**Guide writer agent** in Settings). The **review agent** drafts comments, the summary, and a suggested verdict, answers you in **Ask agent**, and does review work on GitHub when you ask (**Review agent** in Settings).
+Two agents work on each review. The **guide writer** is a hidden agent that writes the chaptered guide (**Guide writer agent** in Settings). The **review agent** drafts comments, the summary, and a suggested verdict, answers you in the **Review agent** tab, and does review work on GitHub when you ask (**Review agent** in Settings).
 
 - [Install and first run](#install-and-first-run)
 - [Updates](#updates)
@@ -173,10 +173,10 @@ bb review approve acme/web#42 acme/web#43 --body 'LGTM'
 
 ### Layout
 
-- The code first. A review's commands sit in BB's **Code Review Workspace** title bar: **Comments**, with a badge counting what needs you; **Ask agent**; with a main thread, **Main thread ↗**, which goes to it, its ↗ there however narrow the bar, and **Show beside review**, two columns, which shows its chat in BB's side panel, or hides it; **Finish review**, with the verdict and how many comments will be sent, or on a local review, which submits nothing, how many open comments Send would send; **Review actions** (⋯); and **Full screen**.
-- Over the code is one 44px band: the chapters toggle and **Find in review** while the chapters aren't docked (docked, they head the chapters), **‹ All reviews**, the chapter you're on with its progress ring, the compare select on a re-review, **Fold comments**, and **Diff options**.
-- **Full screen** covers BB's bars, on an iPhone too; the band then ends with the review's commands, and toasts, **Undo** among them, show over it. A phone has no band: see [Phone and iPad](#phone-and-ipad).
-- The review agent and the main thread are tabs in BB's own side panel, at the window's right, as on a thread's page: see [The review agent](#the-review-agent) and [Send comments to the main thread](#send-comments-to-the-main-thread). Beside it, a review under 600px wide keeps BB's title bar and the band, down to 480px, with its commands as icons, except on a phone's touch screen. Mid-width, **Main thread ↗** keeps its label and **Ask agent** is its icon. While either chat shows, BB's toasts sit above its message box.
+- BB's title bar names the review with no plugin buttons. The review bar holds the chapters toggle and current chapter, then **Comments** (needs-you badge), **Agent**, **Main thread** with one, **Finish**, and **⋯**. Finish is filled with the submit count, or a local review's Send count; outlined while Finish review shows.
+- The chapter title truncates. CSS container queries show **Comments**, **Agent**, **Main thread** and **Finish review** from 880px of bar width; narrower, icons and counts plus **Finish**. **⋯** groups All reviews, Find (`/`), Go to main thread ↗, Fold comments (`i`), Diff options, Full screen (`⇧F`), guide and review actions, Keyboard shortcuts (`?`) and Review settings.
+- **Full screen** covers BB's bars, on an iPhone too. The same review bar remains, adding the review id before the chapter. Toasts, **Undo** included, stay above it; a phone uses the dock instead.
+- The review agent and main thread are tabs in BB's side panel. **Agent** and **Main thread** are pressed while their tab shows; clicking again closes it. A desktop pane 560px wide keeps the review bar. While either chat shows, BB's toasts sit above its message box.
 - The chapters and the review's own panel (Comments or Finish review) dock beside the code while it keeps at least 560px; otherwise they slide over it, and Esc, a tap on the code, ✕, or choosing something closes them. The panel docks narrower, down to 320px, before it covers the code. With no room for both, the chapters wait while the panel is docked and dock again when it closes.
 - Drag the line between a side and the code to resize it; double-click or double-tap it for the default width. Widths are kept for every review.
 
@@ -228,7 +228,7 @@ Syntax-highlighted diffs and viewed-file tracking.
 
 ### Diff options
 
-**Diff options** (the sliders icon, at the band's end) holds how the code draws:
+**Diff options** (in the review bar's **⋯**) holds how the code draws:
 
 - **Layout**, Unified or Split (saved for every review; the diff goes unified when its pane is narrower than 960px, and says Split needs a wider pane).
 - **New and deleted files**, As file or As diff (saved for every review).
@@ -238,7 +238,7 @@ Syntax-highlighted diffs and viewed-file tracking.
 - **Collapse all** and **Expand all** for the chapter's files.
 - With a mouse or trackpad, **Keyboard shortcuts**.
 
-Where the band has no room for them, it also holds **Fold comments in code** and the comparison (see [Since your review](#since-your-review)). On a phone, and on one held sideways, it opens as a drawer from the bottom, without Layout: the diff is unified there.
+The comparison is here too; **Fold comments in code** is a direct **⋯** item (see [Since your review](#since-your-review)). On a phone, and on one held sideways, it opens as a drawer from the bottom, without Layout: the diff is unified there.
 
 ### Code owners, All files, and Find
 
@@ -251,11 +251,11 @@ Where the band has no room for them, it also holds **Fold comments in code** and
 - Comments show in the code, under their lines, as on GitHub, each with all its actions, so a whole re-review can happen in the code. See [Comments and Finish review](#comments-and-finish-review).
 - Everyone's GitHub review threads show under their lines, with **Reply on GitHub** and **Resolve on GitHub**. Resolved and outdated threads are folded; outdated threads and file comments wait in their file's fold, "Outdated (1) · File comments (1)". **GitHub threads in code** in Diff options hides them all.
 - CI failures with annotations show on their lines too, including ones CI reports after you open the review, with **View check**, unless **CI failures in the code** is off in Settings → Reading; the Overview lists failing checks either way. A failure's note also offers **Comment**, which opens a Blocking comment at the line quoting the failure, and **Ask agent**, which quotes it into the agent's box, unsent.
-- **Fold comments** (`i`, or the band's button) shrinks every comment in the code to a one-line marker, with **Show** to open one, so the code reads on its own. On a phone they start folded. On a phone, and in a review under 440px wide, a marker takes two lines, its state on the first and its severity and first line on the second; one with **Not on GitHub yet** does so under 600px wide, as beside BB's side panel in a 1440px window.
+- **Fold comments** (`i`, or **⋯ → Fold comments in code**) shrinks every comment in the code to a one-line marker, with **Show** to open one, so the code reads on its own. On a phone they start folded. On a phone, and in a review under 440px wide, a marker takes two lines, its state on the first and its severity and first line on the second; one with **Not on GitHub yet** does so under 600px wide, as beside BB's side panel in a 1440px window.
 
 ### The review agent
 
-**Ask agent** (`a`) opens the review agent in BB's side panel, its **Review agent** tab, beside the review; the button, pressed while the tab shows, closes the panel. The tab shows the review you're on, and switches when you switch reviews. In full screen, Ask agent leaves it, as BB's panel is outside it; on a phone, BB's panel covers the page, and its ✕ brings the review back. A BB app from before its side panel, before 0.48, opens the agent's chat as a thread beside the review instead, once one has started; to start one there, update the BB app.
+**Agent** (`a`) opens the review agent in BB's side panel, its **Review agent** tab, beside the review; the button, pressed while the tab shows, closes the panel. The tab shows the review you're on, and switches when you switch reviews. In full screen, Agent leaves it, as BB's panel is outside it; on a phone, BB's panel covers the page, and its ✕ brings the review back. A BB app from before its side panel, before 0.48, opens the agent's chat as a thread beside the review instead, once one has started; to start one there, update the BB app.
 
 - The conversation is BB's own chat: streamed answers, stop, queued messages, approvals, attachments, and a per-message model and effort picker.
 - The agent can add, edit, and delete draft comments and write the summary, and the changes appear in Comments and the code as it works. When you ask, it posts for you too: see [Posting when you ask](#posting-when-you-ask).
@@ -336,7 +336,7 @@ A review is pinned to the PR snapshot it was generated from. If the PR gets new 
 | ⇧F | Full screen on or off |
 | ? | Show these shortcuts |
 
-They work anywhere in a review, its commands in BB's title bar and the chapters or a panel open over the code included, except while you type, or with Ctrl, Meta, or Alt held; `]` and `[` also work where AltGr or Option types them. With Caps Lock on, a letter acts as its lower case: Caps Lock V marks the file, and only Shift gives `⇧V`, `⇧F`, `⇧J`, and `⇧K`. Holding a key repeats only `j`, `k`, `⇧J`, and `⇧K`. `j`, `k`, `v`, `]`, and `[` move the focus to the file or comment they go to; a screen reader hears each command's key.
+They work anywhere in a review, its review-bar commands and the chapters or a panel open over the code included, except while you type, or with Ctrl, Meta, or Alt held; `]` and `[` also work where AltGr or Option types them. With Caps Lock on, a letter acts as its lower case: Caps Lock V marks the file, and only Shift gives `⇧V`, `⇧F`, `⇧J`, and `⇧K`. Holding a key repeats only `j`, `k`, `⇧J`, and `⇧K`. `j`, `k`, `v`, `]`, and `[` move the focus to the file or comment they go to; a screen reader hears each command's key.
 
 With **Comment keys** on (under Single-key shortcuts in Settings → Reading), these act on the comment `]` or `[` last landed on, or a row you chose in Comments:
 
@@ -367,7 +367,7 @@ Give them keys of your own where BB lets you. The commands need a BB that suppor
 
 - Every control is a 44px target on a touch screen, iPads included. The gutter's **+** shows only with a mouse or trackpad; on touch, tap a line, then another for a range.
 - On an iPad, the layout is the desktop's at touch sizes, and a docked panel that no longer fits after a resize hides, and docks again when there's room.
-- On a phone there's no band: a dock at the bottom holds **‹** (All reviews), the chapter you're on, **Comments**, **Ask agent**, **Main thread** while the review has one, and **Full screen**. The chapters and Comments open one sheet above it; **Ask agent** opens BB's side panel over the page, whose tabs include **Main thread**; **Main thread** goes to the main thread. Menus open as drawers from the bottom.
+- On a phone there's no band: the dock holds the chapter (review id above it), **Comments**, **Agent**, **Finish** with its count, and **⋯**. Chapters, Comments and Finish open sheets. Agent opens BB's side panel. All reviews, Go to main thread ↗ and Full screen are in ⋯; menus open as drawers.
 
 Every layout detail, held either way and on foldables such as the iPhone Duo, is in [docs/devices.md](devices.md).
 
@@ -437,9 +437,9 @@ Code Review Workspace alerts only about what happens after it starts following a
 ### Which review you're in
 
 - Every review goes by a short id: the repository's name and the PR's number, `api#4512`, or for local work the repository and branch, `api:feat/snooze-checks` (a bb branch reads as its slug: `bb/snooze-checks-thr_…` is `snooze-checks`). Where two repositories in your list share a name, the id names the owner, `flosports/api#4512`; where two local reviews of one branch are in different folders, it adds the end of the folder's path that tells them apart, `api:HEAD (thr_a-1/api)` for bb's worktrees; and where they're in one folder, as `main...feat` and `feat`, it says each ref as given.
-- BB's title bar, after the panel's name, and the window's title lead with it, then the review's name: `api#4512 › Fix login race` in the bar, `api#4512 · Fix login race` as the window's title. Each pane's bar names its own review, so two reviews in split panes, or two windows, read apart, and a long name is cut before the id is. In a window under 720px the bar shows them as one title, cut at its end.
+- BB's title bar and the window title use one string at every width: `api#4512 · Fix login race`, cut at its end. No plugin commands share that title bar on a review.
 - A folder's review goes by its main thread's title, frozen when the review starts, then by its PR's once it has one. A local ref's review with no name of yours goes by its guide's title. Either goes by your name once you [rename](#rename) it.
-- The band keeps the id in a chip after ‹ on every page of the review. The name follows it in a chapter only where BB's title bar doesn't show it, in full screen or on a BB without page titles, and where the band has room. Short of room, the repository's name is cut first, and `#4512` never; hovering the chip shows the whole id, with the repository in full, and the name. On a phone, the dock's chapter tab has the id over the chapter, a long one cut from its end ("web:feat/snooz…").
+- Only in full screen does the bar show the id chip before the chapter. A phone's chapter button keeps the review id above its title, a long one cut from its end.
 - The page bar of a review without a guide yet, the review agent's and the main thread's tabs, a PR's row in BB's thread list (its `#n`), Needs You alerts, review agent and **Fix in a new thread** threads, and what Send sends all name the review by its id. A local review's row in All reviews says its id and machine, `api:feat/x · MaxBook`, and its Overview the machine and folder of its checkout.
 
 ### Rename
@@ -476,7 +476,7 @@ On a re-review, the diff opens on what changed since your review, however you ge
 
 - A switch in each chapter's intro flips between the two in one tap, on every device, and says how many of the chapter's files changed: "Since your review · 1 of 3 files | All changes". A chapter with nothing new says "Nothing changed in this chapter since your review".
 - **Since your review** shows only what changed since the commit you last reviewed, with new lines marked. It compares the PR's diff then with its diff now, so rebases and merges from the base branch don't show up as changes, and a diff that didn't change, as after a rebase, opens on all of it. Viewed marks survive a rebase, and chapters show how many of their files changed.
-- The compare select in the band says what the diff shows too: **All changes**, **Since your review**, or since a commit. Its menu lists your last review, then the PR's earlier commits: pick one to see what changed since it ("Since abc1234"). On a PR you haven't reviewed, **Compare with a commit…** in Diff options does the same. Once you've sent comments to the main thread, the menu also lists **Since your last Send**, with the Send's number and when it went: what changed since the diff that Send went at, on a local review too. A newer Send lets that choice go, as a new push does. Where the band has no room for the select, Diff options holds the comparison. A comparison that fails says why, and the diff shows all changes.
+- The compare select in **⋯ → Diff options** says what the diff shows too: **All changes**, **Since your review**, or since a commit. Its menu lists your last review, then the PR's earlier commits: pick one to see what changed since it ("Since abc1234"). On a PR you haven't reviewed, **Compare with a commit…** in Diff options does the same. Once you've sent comments to the main thread, the menu also lists **Since your last Send**, with the Send's number and when it went: what changed since the diff that Send went at, on a local review too. A newer Send lets that choice go, as a new push does. A comparison that fails says why, and the diff shows all changes.
 - What you choose holds for that review in this browser, a picked commit too, until the author pushes and its guide updates; then it opens on your Settings choice again. Opening a file or a line the comparison hides, from the chapters, a comment, or a Find result, shows all changes, and that holds too.
 
 ### Reviews found on GitHub
@@ -494,7 +494,7 @@ On a re-review, the diff opens on what changed since your review, however you ge
 - Where a submitted review appears depends on whose turn it is (see [All reviews](#all-reviews)).
 - Merged and closed PRs move to Archive automatically; their guides, conversations, and unsent drafts remain accessible.
 - GitHub is checked every one to two minutes for reviews in progress, sooner when GitHub notifies you about a PR, and through Refresh. A failed GitHub read preserves saved state.
-- To set aside any other review, choose **Archive** from its **Review actions** menu (⋯) in All reviews or the review's title bar. It stays in Archive, even when new commits arrive, until you choose **Unarchive**, start it again with `bb review`, update or rebuild its guide, or the author re-requests your review.
+- To set aside any other review, choose **Archive** from its **Review actions** menu (⋯) in All reviews or the review bar. It stays in Archive, even when new commits arrive, until you choose **Unarchive**, start it again with `bb review`, update or rebuild its guide, or the author re-requests your review.
 - **Delete** permanently removes the review's guide, drafts, private notes, and agent conversation, including its hidden worker threads and guide writers, after confirmation, and this browser forgets where you left it and its agent dock; nothing changes on GitHub. Delete is unavailable while a guide is generating or the agent is answering. A deleted PR isn't added back from GitHub until you start it again.
 
 ### Notifications
@@ -515,7 +515,7 @@ Needs You is optional. If it is disabled, missing, or restarting, Code Review Wo
 
 ### The Comments list
 
-**Comments** (`c`, or **Comments** in BB's title bar) lists everything said about the change, beside the code, never instead of it: your draft comments and the agent's, everyone's GitHub threads, and your discussions with the agent.
+**Comments** (`c`, or **Comments** in the review bar) lists everything said about the change, beside the code, never instead of it: your draft comments and the agent's, everyone's GitHub threads, and your discussions with the agent.
 
 - Its chips, **All**, **Needs you**, **Not submitted**, and **On GitHub**, show a count each and filter the list; on a touch screen they wrap to a second row where they don't fit. **Not submitted** counts what Submit posts: it lists comments not on GitHub yet, "Draft · goes with Send", without counting them, and says "2 aren't on GitHub yet. They go with Send, not Submit."
 - Once you've sent a comment to the main thread, chips for where the fixes stand follow, on a local review too: **Open**, **Sent** (not reported yet), **Done** and **Declined** (as reported, or as the check found), **Done for me**, and **Won't fix**; then only chips that count any show, and they wrap. On your own PR, teammates' threads and reviews you sent are under Sent, Done and Declined too.
@@ -575,7 +575,7 @@ What you write in a reply, on anyone's GitHub thread, waits as a reply draft ("R
 
 ### Finish review
 
-**Finish review** (`s`, **Finish review** in BB's title bar, which opens it or takes you to it and never closes it, or the bar at Comments' foot, which says the verdict and how many comments will be sent, on a local review how many open comments Send would send; a phone's dock says "2 to send", counting comments not on GitHub yet too, which go with Send) holds what goes to GitHub when you submit: the summary, the verdict, and exactly what will be posted.
+**Finish review** (`s`, **Finish** in the review bar or phone dock, or Comments' footer) holds the summary, verdict and exactly what will be posted. Finish opens or takes you to its view, never closes it. Its count is what Submit posts, or on a local review what Send would send; Comments' separate badge counts what needs you.
 
 - **Summary · posted with your verdict:** the comment GitHub shows with your verdict, above the line comments. It works like a line comment. The review agent writes it, labeled "Agent summary · not submitted", and suggests a verdict; only you pick the verdict. Under it, each changed line it cites, such as `playlist.go:192`, opens in the code, marked with the severity of the comment there, or **Not in your comments** when no comment raises it: the agent puts its findings in line comments first, so you meet them reading the chapters. A comment the agent added that you haven't reviewed yet, as one it added while updating the summary, reads **New from agent—not yet reviewed** there, and on its card, pill and row in Comments, until its card has been in view for a moment, or you edit it. **Edit** makes the summary yours, and **Remove** clears it. **Ask agent** opens a discussion with the agent under the summary: ask why, or say what to change, and the agent changes the summary there. It sees the summary and the draft comments; **Show changes** shows what an edit changed. **Undo** puts back its latest change. The agent never replaces a summary you wrote unless you ask on it, and then only while it answers that ask, not in work it was already doing. While it works on the summary, Edit waits; if the summary changes while you're editing it, the box says so before you save. When a summary the agent wrote no longer fits your comments, or the verdict you picked, it says so, with **Update**. With no summary, **Write summary** or **Ask agent to write it**. Since Move to summary can put an agent's words in it, the card shows any summary's images as links, yours too; GitHub gets it as written.
 - **Verdict:** Approve, Comment, or Request changes, the agent's suggestion marked with a sparkle. "Agent suggests …" shows its suggested summary, or its check's, with **Use as draft**, **Request what's left**, and, when you picked another verdict, **Switch to** it. Beside it, Finish review says how many of the changed files the agent read as the change leaves them ("Read 6 of 8 files", lockfiles and generated files aside; on a re-review, of the files changed since your review, "Read 1 of 2 files changed since your review", what it read of their changes since counting too) and folds **What it didn't check**, as the agent wrote it (unless **Show what the agent checked** is off). On your own PR only Comment is offered, as GitHub refuses the others.
@@ -616,7 +616,7 @@ The loop, for a thread's work in its folder:
   - A main thread that was deleted: **Start a fresh thread** in its folder, which becomes the main thread.
   - A folder BB removed: **Start a fresh thread** in a new worktree from the branch; its uncommitted work went with the folder. The review then reads that worktree, and still pushes to its branch.
   - Comments not sent yet, or an approval already sent for this diff, before **Send approval**: **Send anyway**. An approval never starts a thread: with the main thread or its folder gone, Send anyway only records it.
-- **Main thread ↗**, in BB's title bar or the phone's dock, goes to the main thread: from reviewing to doing in one click, as the thread's **Review · 2 open ↗** comes back. **Show beside review**, beside it, shows the **Main thread** tab in BB's side panel instead: the main thread's chat beside the diff, with its own permissions, which thread it is, on which machine, and whether it's working now, so a Send waits for its turn. **Change thread** picks another thread working in the folder, or **Start a fresh thread here**, and Finish review's **Change main thread** opens the tab with that menu open; **Main thread ↗** goes to it. A review with no main thread has neither, nor the tab, and with Send to thread off there's no tab.
+- **Main thread** in the review bar toggles its chat beside the diff in BB's side panel. **Go to main thread ↗** in **⋯** navigates to its page, also on a phone. The tab keeps the thread's permissions and shows its name, machine and whether it is working. **Change thread** picks another thread working in the folder, or **Start a fresh thread here**. Finish review's **Change main thread** opens that menu in the tab. With no main thread, neither the toggle, menu navigation nor tab appears; Send to thread off also hides them.
 - **Send** and **Send to fix** say where the comments went, with **Watch**: the main thread beside the review, or on a phone, its page. Finish review's **Watch**, on a desktop or an iPad, shows the review agent's chat beside the review while it drafts the PR.
 - Ask the review agent to fix a comment and it sends it with Send to fix, and says so. Say "you do it" and it writes the exact patch, which goes with that comment's Send for the main thread to apply as written: one thread writes the folder. A turn you didn't start sends nothing.
 - **Push**, in Finish review on a local review of a branch in a GitHub repo (or a message of just "push" to the review agent in the review; "push anyway" for Push anyway), pushes exactly what you reviewed:
@@ -897,7 +897,7 @@ Notes for reviews and pages from before the current releases. New installs can s
 - **No alerts.** Install Needs You 0.2.0-beta.3 or later, enable its **Extension activity**, and check **Settings → Notifications**.
 - **"Couldn’t open the review session. The plugin may be updating."** Try again in a moment. If it stays, run `bb review storage status` on the BB server: in maintenance, or while it can't open its Postgres storage, it says why, and so does `bb plugin list`. See [Maintenance mode](operations.md#maintenance-mode).
 - **The updater asks you to close pages after they're all closed.** See [docs/operations.md](operations.md#updates).
-- **The review agent or the main thread beside a review, in two panes.** BB doesn't tell a plugin which pane's side panel a tab shows in, so with one review in two panes, **Ask agent** and **Show beside review** are pressed in both while either pane shows the tab. **Switch between review and main thread**, from a page that isn't a thread's, goes from the review you last clicked or typed in, else the one the window's address shows; and Review ↗ above a main thread's message box hides while the window's address is that review's. A key you bound to the switch instead of ⌘⇧. isn't in its tooltips: BB doesn't tell a plugin.
+- **The review agent or the main thread beside a review, in two panes.** BB doesn't tell a plugin which pane's side panel a tab shows in, so with one review in two panes, **Agent** and **Main thread** are pressed in both while either pane shows the tab. **Switch between review and main thread**, from a page that isn't a thread's, goes from the review you last clicked or typed in, else the one the window's address shows; and Review ↗ above a main thread's message box hides while the window's address is that review's. A key you bound to the switch instead of ⌘⇧. isn't in its tooltips: BB doesn't tell a plugin.
 - **Anything else:** `bb plugin logs code-review-workspace` shows the plugin's log.
 
 Third-party template licenses and attribution: [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md).
