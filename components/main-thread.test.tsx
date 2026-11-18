@@ -2,6 +2,7 @@
 // The main thread: Main thread ↗ in BB's title bar and a phone's dock, which goes to it, and its tab in BB's side panel
 // beside the diff, showing the thread that writes the code with BB's chat, which thread and machine it is, Change main
 // thread and Go to thread; and Send now on a comment's card.
+import { findReviewAction } from "./review-bar.test-support";
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
@@ -74,20 +75,19 @@ async function renderReview(review: Record<string, unknown>, size: [number, numb
   const app = await loadPluginApp(() => import("../app"));
   const registration = app.navPanels[0]!;
   const options = { rpc: handlers(review, rpc) as any, sidebarThreads: { threads: [{ id: "coder", displayTitle: "Build snooze", status: "active" }] } as any };
-  const bar = renderSlot({ component: registration.headerContent! }, { subPath: review.targetKey as string }, options);
   const page = renderSlot(registration, { subPath: review.targetKey as string }, options);
   await page.findByTestId("filediff");
-  return { app, bar, page, options };
+  return { app, bar: page, page, options };
 }
 
-test("BB's title bar goes to the main thread, and shows it beside the diff in BB's side panel: its own chat, which can't widen its permissions, named with its machine", async () => {
+test("The review bar shows the main thread beside the diff, and ⋯ goes to it in BB's side panel: its own chat, which can't widen its permissions, named with its machine", async () => {
   const getSourceThread = vi.fn(() => MAIN);
   const { app, bar, page, options } = await renderReview(folderReview, [1440, 1000], { getSourceThread });
   // Main thread ↗ is the switch from reviewing to doing.
-  fireEvent.click(await bar.findByRole("button", { name: "Go to main thread" }));
+  fireEvent.click(await findReviewAction(page, "Go to main thread ↗"));
   expect(bar.inspection.navigateCalls).toEqual([{ method: "toThread", threadId: "coder" }]);
   // Show beside review opens BB's Main thread tab.
-  const beside = bar.getByRole("button", { name: "Show main thread beside review" });
+  const beside = bar.getByRole("button", { name: "Main thread" });
   expect(beside.getAttribute("aria-pressed")).toBe("false");
   fireEvent.click(beside);
   expect(panelTabCalls(page)).toEqual(["openTab:main"]);
@@ -100,7 +100,7 @@ test("BB's title bar goes to the main thread, and shows it beside the diff in BB
   expect(within(tab).getByText("MaxBook")).toBeTruthy();
   expect(within(tab).getByText(/Working: a Send waits for its turn/)).toBeTruthy();
   expect(getSourceThread).toHaveBeenCalledWith({ targetKey: "br-1" });
-  await waitFor(() => expect(bar.getByRole("button", { name: "Show main thread beside review" }).getAttribute("aria-pressed")).toBe("true"));
+  await waitFor(() => expect(beside.getAttribute("aria-pressed")).toBe("true"));
   fireEvent.click(within(tab).getByRole("button", { name: "Main thread" }));
   expect(slot.inspection.navigateCalls).toEqual([{ method: "toThread", threadId: "coder" }]);
   slot.lifecycle.unmount();
@@ -111,7 +111,8 @@ test("BB's title bar goes to the main thread, and shows it beside the diff in BB
 test("on a phone, the dock's Main thread goes to the main thread", async () => {
   const { page, bar } = await renderReview(folderReview, [390, 844]);
   const dock = within(page.getByRole("group", { name: "Review commands" }));
-  fireEvent.click(dock.getByRole("button", { name: "Go to main thread" }));
+  expect(dock.queryByRole("button", { name: "Main thread" })).toBeNull();
+  fireEvent.click(await findReviewAction(page, "Go to main thread ↗"));
   expect(page.inspection.navigateCalls).toEqual([{ method: "toThread", threadId: "coder" }]);
   expect(page.queryByRole("dialog", { name: "Main thread" })).toBeNull();
   page.lifecycle.unmount();
@@ -120,9 +121,9 @@ test("on a phone, the dock's Main thread goes to the main thread", async () => {
 
 test("a review with no main thread, or with Send to thread off, has no Main thread tab", async () => {
   const { app, page, bar } = await renderReview({ ...folderReview, mainThread: null, sourceThreadId: null }, [1440, 1000]);
-  await bar.findByRole("button", { name: "Ask agent" });
+  await bar.findByRole("button", { name: "Agent" });
   expect(bar.queryByRole("button", { name: "Go to main thread" })).toBeNull();
-  expect(bar.queryByRole("button", { name: "Show main thread beside review" })).toBeNull();
+  expect(bar.queryByRole("button", { name: "Main thread" })).toBeNull();
   // BB's panel doesn't list the tab either; it does beside a review with one.
   const visible = (subPath: string) => {
     const tab = app.tabs.find((registration) => registration.id === "main")!;
@@ -210,7 +211,7 @@ test("an ask of the Main thread tab that BB doesn't open goes, rather than open 
   const { bar, page } = await renderReview(folderReview, [1440, 1000]);
   askChangeThread("br-1");
   // The harness's panel declines, as BB does where it doesn't list the tab.
-  fireEvent.click(await bar.findByRole("button", { name: "Show main thread beside review" }));
+  fireEvent.click(await bar.findByRole("button", { name: "Main thread" }));
   expect(toast.error).toHaveBeenCalledWith("The main thread isn’t available here.");
   page.lifecycle.unmount();
   bar.lifecycle.unmount();

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { experimental_Icon as HostIcon, useBbNavigate, useRpc } from "@get-bb/plugin-sdk/app";
 import { toast } from "sonner";
 import type { rpcContract } from "../src/rpc-contract";
@@ -85,11 +85,15 @@ export function useReviewActions(review: ReviewItem, onChanged?: () => void) {
  * the page's `afterRename` items, and Archive, then Open on GitHub and the page's `trailing` items, then Delete…, which asks first. A tracked review
  * builds its guide; a review you gave can wait until its author responds, and any request until a time you pick.
  */
-export function ReviewActions({ review, items, afterRename, trailing, pinnable = false, onChanged, onMoved, onDeleted, describedBy, className }: {
+export function ReviewActions({ review, leading, options, afterOptions, items, afterRename, trailing, pinnable = false, onChanged, onMoved, onDeleted, describedBy, className }: {
   review: ReviewItem;
   /** Offer Pin, and Move to section › after Rename… as BB's thread menus do: Settings shows reviews in BB's thread list. */
   pinnable?: boolean;
-  /** Listed first, such as the workspace's Update guide. */
+  /** The workspace's navigation and display group, before the review actions. */
+  leading?: ReviewMenuItem[];
+  options?: (close: () => void) => ReactNode;
+  afterOptions?: ReviewMenuItem[];
+  /** Listed first in the review actions, such as Update guide. */
   items?: ReviewMenuItem[];
   /** Listed after Rename…, such as a local review's Rewrite guide: what starts an agent isn't where the menu opens. */
   afterRename?: ReviewMenuItem[];
@@ -110,7 +114,7 @@ export function ReviewActions({ review, items, afterRename, trailing, pinnable =
   const menu = useRef<HTMLDivElement>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   // The menu, or its Snooze choices in its place.
-  const [view, setView] = useState<"actions" | "snooze" | "move">("actions");
+  const [view, setView] = useState<"actions" | "snooze" | "move" | "options">("actions");
   const [confirming, setConfirming] = useState(false);
   // Rename…'s dialog, and the name in its box.
   const [renaming, setRenaming] = useState(false);
@@ -144,16 +148,16 @@ export function ReviewActions({ review, items, afterRename, trailing, pinnable =
   useEffect(() => {
     if (!switched.current) return;
     switched.current = false;
-    menu.current?.querySelector<HTMLElement>(view === "snooze" ? "[role=group] button" : view === "move" ? "[data-move-choice]" : `[data-${from.current}-item]`)?.focus();
+    menu.current?.querySelector<HTMLElement>(view === "snooze" ? "[role=group] button" : view === "move" ? "[data-move-choice]" : view === "options" ? "button" : `[data-${from.current}-item]`)?.focus();
   }, [view]);
   // Which submenu the menu came back from, to focus its item.
-  const from = useRef<"snooze" | "move">("snooze");
-  const show = (next: "actions" | "snooze" | "move") => {
+  const from = useRef<"snooze" | "move" | "options">("snooze");
+  const show = (next: "actions" | "snooze" | "move" | "options") => {
     switched.current = true;
     if (next !== "actions") from.current = next;
     setView(next);
   };
-  const item = (entry: ReviewMenuItem) => <Button key={entry.label} variant="ghost" size="sm" aria-label={entry.detail && entry.label} aria-keyshortcuts={entry.keys} aria-description={entry.detail?.replaceAll("`", "") ?? entry.description} className={cn(MENU_ITEM, entry.detail && "h-auto items-start py-1.5 [&>svg]:mt-0.5")} onClick={() => pick(entry.onSelect)}>
+  const item = (entry: ReviewMenuItem) => <Button key={entry.label} variant="ghost" size="sm" aria-label={entry.detail && entry.label} aria-keyshortcuts={entry.keys === "⇧F" ? "Shift+F" : entry.keys} aria-description={entry.detail?.replaceAll("`", "") ?? entry.description} className={cn(MENU_ITEM, entry.detail && "h-auto items-start py-1.5 [&>svg]:mt-0.5")} onClick={() => pick(entry.onSelect)}>
     {entry.hostIcon ? <HostIcon name={entry.hostIcon} fallback={entry.icon} aria-hidden /> : <Icon name={entry.icon} className={cn(entry.agent && "text-(--ansi-13)")} aria-hidden />}
     {entry.detail ? <span className="flex min-w-0 flex-col text-left">{entry.label}<span className="whitespace-normal text-xs font-normal text-subtle-foreground">{entry.detail.split("`").map((part, index) => index % 2 ? <span key={index} className="whitespace-nowrap font-mono">{part}</span> : part)}</span></span> : entry.label}{entry.keys && <kbd aria-hidden className="ml-auto hidden font-sans text-xs text-subtle-foreground pointer-fine:inline">{entry.keys}</kbd>}
   </Button>;
@@ -185,8 +189,13 @@ export function ReviewActions({ review, items, afterRename, trailing, pinnable =
           <Icon name="MoreHorizontal" aria-hidden />
         </Button>
       </PopoverTrigger>
-      <PopoverContent ref={menu} align="end" mobileTitle={view === "snooze" ? "Snooze" : view === "move" ? "Move to section" : "Review actions"} className="w-64 max-w-[calc(100vw-24px)] p-1">
-        {view === "move" && sections ? <>
+      <PopoverContent ref={menu} align="end" mobileTitle={view === "snooze" ? "Snooze" : view === "move" ? "Move to section" : view === "options" ? "Diff options" : "Review actions"} className={cn("max-w-[calc(100vw-24px)] p-1", view === "options" ? "w-80" : "w-64")}>
+        {view === "options" && options ? <>
+          <Button variant="ghost" size="sm" aria-label="Back to review actions" className={MENU_ITEM} onClick={() => show("actions")}>
+            <Icon name="ChevronLeft" aria-hidden />Review actions
+          </Button>
+          {options(() => open(false))}
+        </> : view === "move" && sections ? <>
           <Button variant="ghost" size="sm" aria-label="Back to review actions" className={cn(MENU_ITEM, "font-semibold text-foreground")} onClick={() => show("actions")}>
             <Icon name="ChevronLeft" aria-hidden />Move to section
           </Button>
@@ -202,6 +211,12 @@ export function ReviewActions({ review, items, afterRename, trailing, pinnable =
           <div role="separator" className="my-1 h-px bg-border" />
           <SnoozeChoices disabled={actions.busy} onUntilAuthor={untilAuthor ? () => pick(() => moving(actions.snooze())) : undefined} onPick={untilTime ? (until) => pick(() => moving(actions.snooze(until))) : undefined} />
         </> : <>
+          {leading?.map(item)}
+          {options && <Button data-options-item variant="ghost" size="sm" className={MENU_ITEM} onClick={() => show("options")}>
+            <Icon name="SlidersHorizontal" aria-hidden />Diff options<Icon name="ChevronRight" className="ml-auto text-subtle-foreground" aria-hidden />
+          </Button>}
+          {afterOptions?.map(item)}
+          {(!!leading?.length || options) && <div role="separator" className="my-1 h-px bg-border" />}
           {items?.map(item)}
           {review.status === "tracked" && item({ label: "Build the guide", icon: "Sparkles", onSelect: () => void actions.buildGuide() })}
           {snoozed ? item({ label: "Back to Needs review", icon: "ArrowTurnBackward", onSelect: () => void moving(actions.unsnooze()) })

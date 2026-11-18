@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { getCompare } from "./review-bar.test-support";
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
@@ -71,13 +72,18 @@ type Slot = Awaited<ReturnType<typeof renderWorkspace>>["slot"];
 const shown = (slot: Slot) => Array.from(slot.getByRole("main").querySelectorAll<HTMLElement>("[data-file]")).map((el) => el.dataset.file);
 const chapters = (slot: Slot) => within(slot.getByRole("navigation", { name: "Chapters" }));
 /** The band's compare select, as it names what the diff shows. */
-const select = (slot: Slot) => slot.getByRole("button", { name: /^Show changes: / }).getAttribute("aria-label");
+const select = (slot: Slot) => {
+  const button = getCompare(slot, /^Show changes: /);
+  const label = button.getAttribute("aria-label");
+  fireEvent.keyDown(button, { key: "Escape" });
+  return label;
+};
 /** One of the switch's two choices above the chapter's files. */
 const choice = (slot: Slot, name: string | RegExp) => within(slot.getByRole("radiogroup", { name: "Changes shown" })).getByRole("radio", { name });
 const checked = (slot: Slot, name: string | RegExp) => choice(slot, name).getAttribute("aria-checked") === "true";
 const openDrafts = async (slot: Slot) => fireEvent.click(await slot.findByRole("button", { name: "Comments" }));
 
-test.each([false, true])("a re-review opens on what changed since your review, however you go in: Review changes, a chapter, Continue, or a comment (title-bar fallback: %s)", async (fallback) => {
+test("a re-review opens on what changed since your review, however you go in: Review changes, a chapter, Continue, or a comment", async () => {
   const { slot } = await renderWorkspace({ opened: false });
   // Review changes goes to the first chapter that changed.
   fireEvent.click(await slot.findByRole("button", { name: "Review changes: Parsing" }));
@@ -86,10 +92,7 @@ test.each([false, true])("a re-review opens on what changed since your review, h
   expect(checked(slot, "Since your review · 1 of 2 files")).toBe(true);
   fireEvent.click(chapters(slot).getByText("Logging"));
   await waitFor(() => expect(shown(slot)).toEqual(["src/e.ts"]));
-  const breadcrumb = within(slot.getByRole("navigation", { name: "Breadcrumb" }));
-  if (fallback) await breadcrumb.findByRole("button", { name: "pr-42 Parse rows" });
-  // Without BB's title bar, the fallback appends the review title to this button's name.
-  fireEvent.click(breadcrumb.getByRole("button", { name: /^pr-42(?: |$)/ }));
+  fireEvent.click(slot.getByRole("button", { name: /^Overview/ }));
   fireEvent.click(await slot.findByRole("button", { name: "Continue: Logging" }));
   await waitFor(() => expect(shown(slot)).toEqual(["src/e.ts"]));
   // A comment on a file that changed shows there, still narrowed.
@@ -213,7 +216,7 @@ async function narrowedToB() {
 }
 /** A choice in the band's compare select, which shows wherever you are in the code. */
 async function pick(slot: Slot, name: string | RegExp) {
-  fireEvent.click(slot.getByRole("button", { name: /^Show changes: / }));
+  fireEvent.click(getCompare(slot, /^Show changes: /));
   fireEvent.click(await slot.findByRole("menuitemradio", { name }));
 }
 
@@ -387,7 +390,7 @@ test("the switch above a chapter's files flips between Since your review and All
 test("a commit picked in the compare select names itself in the switch, and All changes there lets it go", async () => {
   const { slot, rpc } = await renderWorkspace();
   await waitFor(() => expect(shown(slot)).toEqual(["src/a.ts"]));
-  fireEvent.click(slot.getByRole("button", { name: /^Show changes: / }));
+  fireEvent.click(getCompare(slot, /^Show changes: /));
   fireEvent.click(await within(await slot.findByRole("menu", { name: "Show changes" })).findByText("Cache rows"));
   await waitFor(() => expect(checked(slot, "Since c2bbbbb · 1 of 2 files")).toBe(true));
   expect(shown(slot)).toEqual(["src/b.ts"]);
@@ -423,7 +426,7 @@ test("your switch holds for the review across chapters and coming back, until a 
 test("a commit you picked is remembered too, until a push", async () => {
   let { slot, rpc, push } = await renderWorkspace();
   await waitFor(() => expect(shown(slot)).toEqual(["src/a.ts"]));
-  fireEvent.click(slot.getByRole("button", { name: /^Show changes: / }));
+  fireEvent.click(getCompare(slot, /^Show changes: /));
   fireEvent.click(await within(await slot.findByRole("menu", { name: "Show changes" })).findByText("Cache rows"));
   await waitFor(() => expect(shown(slot)).toEqual(["src/b.ts"]));
   slot.lifecycle.unmount();
@@ -580,7 +583,7 @@ test("a commit picked never shows with the comparison it replaces, not even for 
       : { baseline: { sha: "old", at: 1, verdict: "COMMENT" }, files: interdiff(reviewed, patch) }),
   } });
   await waitFor(() => expect(shown(slot)).toEqual(["src/a.ts"]));
-  fireEvent.click(slot.getByRole("button", { name: /^Show changes: / }));
+  fireEvent.click(getCompare(slot, /^Show changes: /));
   const pick = await within(await slot.findByRole("menu", { name: "Show changes" })).findByText("Cache rows");
   // Every text the code's column showed meanwhile.
   const texts: string[] = [];
@@ -609,7 +612,7 @@ test("a comparison that failed stops saying so once it arrives: a commit picked,
   } });
   await waitFor(() => expect(select(slot)).toBe("Show changes: All changes. Couldn’t compare with your last review: timed out"));
   const pick = async (name: string) => {
-    fireEvent.click(slot.getByRole("button", { name: /^Show changes: / }));
+    fireEvent.click(getCompare(slot, /^Show changes: /));
     fireEvent.click(await within(await slot.findByRole("menu", { name: "Show changes" })).findByText(name));
   };
   await pick("Cache rows");

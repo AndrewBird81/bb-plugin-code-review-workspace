@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { openDiffOptions } from "./review-bar.test-support";
 import { afterEach, expect, test, vi } from "vitest";
 import { act, cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
@@ -175,7 +176,7 @@ test("a narrow workspace on a wide screen lays out by its own width: the chapter
 
 /** Diff options' Layout: its Unified and Split. */
 async function layoutChoices(slot: Awaited<ReturnType<typeof renderWorkspace>>["slot"]) {
-  fireEvent.click(within(slot.getByRole("main")).getByRole("button", { name: "Diff options" }));
+  openDiffOptions(slot);
   const layout = within(await slot.findByRole("radiogroup", { name: "Layout" }));
   return { unified: layout.getByRole("radio", { name: "Unified" }), split: layout.getByRole("radio", { name: "Split" }) };
 }
@@ -207,7 +208,7 @@ test("Diff options' New and deleted files, or a file's Show as diff, draws a new
   const { slot } = await renderWorkspace({ rpc: { getReviewBundle, savePreferences } });
   await slot.findByText("fresh");
   expect(drawn.at(-1)!.options.diffIndicators).toBe("bars");
-  fireEvent.click(within(slot.getByRole("main")).getByRole("button", { name: "Diff options" }));
+  openDiffOptions(slot);
   const choices = within(await slot.findByRole("radiogroup", { name: "New and deleted files" }));
   expect(choices.getByRole("radio", { name: "As file" }).getAttribute("aria-checked")).toBe("true");
   fireEvent.click(choices.getByRole("radio", { name: "As diff" }));
@@ -231,7 +232,7 @@ test("Diff options' Markdown files opens Markdown rendered, saved for every revi
   const { slot } = await renderWorkspace({ rpc: { getReviewBundle, savePreferences, getFileContents } });
   const file = () => slot.container.querySelector<HTMLElement>('[data-file="docs/a.md"]')!;
   await waitFor(() => expect(file().querySelector("[data-md-rendered]")).toBeNull());
-  fireEvent.click(within(slot.getByRole("main")).getByRole("button", { name: "Diff options" }));
+  openDiffOptions(slot);
   const choices = within(await slot.findByRole("radiogroup", { name: "Markdown files" }));
   expect(choices.getByRole("radio", { name: "Source" }).getAttribute("aria-checked")).toBe("true");
   fireEvent.click(choices.getByRole("radio", { name: "Rendered" }));
@@ -293,7 +294,7 @@ test("Wrap long lines wraps the diff's code and sticks in this browser, and star
   const { slot } = await renderWorkspace();
   await slot.findByText("aa");
   expect(drawn.at(-1)!.options.overflow).not.toBe("wrap");
-  fireEvent.click(within(slot.getByRole("main")).getByRole("button", { name: "Diff options" }));
+  openDiffOptions(slot);
   const wrap = await slot.findByRole("switch", { name: "Wrap long lines" });
   expect(wrap.getAttribute("aria-checked")).toBe("false");
   fireEvent.click(wrap);

@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { findReviewAction } from "./review-bar.test-support";
 import { afterEach, expect, test, vi } from "vitest";
 import { act, cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
@@ -74,29 +75,37 @@ async function renderPhone(local: Array<Record<string, unknown>> = []) {
 test("the dock names where you are and what's waiting: the chapter and its viewed files, the comments to send, and what needs you", async () => {
   const { slot, dock } = await renderPhone();
   expect(await dock.findByRole("button", { name: "pr-42, Chapters: Chapter 1 of 2, Parsing, 0 of 1 files viewed" })).toBeTruthy();
-  expect(await dock.findByRole("button", { name: "Comments, 2 to send" })).toBeTruthy();
+  expect(await dock.findByRole("button", { name: "Comments" })).toBeTruthy();
   act(() => setNeedsYou("pr-42", 3));
-  const comments = dock.getByRole("button", { name: "Comments, 2 to send, 3 need you" });
-  expect(comments.textContent).toBe("2 to send");
+  const comments = dock.getByRole("button", { name: "Comments, 3 need you" });
+  expect(comments.textContent).toBe("3");
   expect(comments.getAttribute("aria-controls")).toBe("gr-side-panel-pr-42");
   expect(dock.getByRole("button", { name: /^pr-42, Chapters:/ }).getAttribute("aria-controls")).toBe("gr-navigator-pr-42");
-  fireEvent.click(dock.getByRole("button", { name: "All reviews" }));
+  fireEvent.click(await findReviewAction(slot, "All reviews"));
   expect(slot.inspection.navigateCalls).toContainEqual({ method: "toPluginPanel", path: "review" });
   slot.lifecycle.unmount();
 });
 
-test("Finish review is part of Comments in the sheet: Comments stays pressed, and pressing it closes the sheet", async () => {
+test("Finish has its own button, filled with the count, outlined while its sheet shows; Comments opens Comments", async () => {
   const { slot, dock } = await renderPhone();
-  fireEvent.keyDown(document.body, { key: "s" });
+  const names = dock.getAllByRole("button").map(b => b.getAttribute("aria-label"));
+  expect(names).toEqual(["pr-42, Chapters: Chapter 1 of 2, Parsing, 0 of 1 files viewed", "Comments", "Agent", "Finish review: Comment, 2 comments", "Review actions"]);
+  const finish = dock.getByRole("button", { name: /^Finish review:/ });
+  expect(finish.textContent).toBe("Finish· 2");
+  expect(finish.className.split(" ")).toContain("bg-primary");
+  fireEvent.click(finish);
   const sheet = await slot.findByRole("dialog", { name: "Finish review" });
   expect(within(sheet).getByRole("button", { name: "Close" })).toBeTruthy();
-  const comments = dock.getByRole("button", { name: /^Comments/ });
-  expect(comments.getAttribute("aria-pressed")).toBe("true");
+  expect(finish.className.split(" ")).not.toContain("bg-primary");
+  const comments = dock.getByRole("button", { name: "Comments" });
+  expect(comments.getAttribute("aria-pressed")).toBe("false");
+  fireEvent.click(comments);
+  expect(slot.getByRole("dialog", { name: "Comments" })).toBeTruthy();
+  expect(finish.className.split(" ")).toContain("bg-primary");
   fireEvent.click(comments);
   expect(slot.queryByRole("dialog")).toBeNull();
   slot.lifecycle.unmount();
 });
-
 test("Esc, ✕ and a tap on the code above close the sheet, and the focus goes back to its tab, after a tap too", async () => {
   const { slot, dock } = await renderPhone();
   const tab = dock.getByRole("button", { name: /^pr-42, Chapters:/ });
@@ -206,7 +215,7 @@ test("while the dock shows, BB's toasts at the page's bottom sit above it, and d
 test("the dock's Ask agent opens BB's side panel on the Review agent tab, not a sheet; typing there leaves the dock in place", async () => {
   const { slot, dock } = await renderPhone();
   const group = slot.getByRole("group", { name: "Review commands" });
-  fireEvent.click(dock.getByRole("button", { name: "Ask agent" }));
+  fireEvent.click(dock.getByRole("button", { name: "Agent" }));
   expect(panelTabCalls(slot)).toEqual(["openTab:agent"]);
   expect(slot.queryByRole("dialog")).toBeNull();
   // A box in BB's panel, outside the review: the dock makes way only for the review's own.
@@ -239,20 +248,12 @@ test("Esc closes the sheet wherever the focus is in the review, the dock include
   slot.lifecycle.unmount();
 });
 
-test("in a pane under 400px, the dock's Comments shows the count alone, so the chapter keeps its title", async () => {
-  const { slot, dock } = await renderPhone();
-  const comments = await dock.findByRole("button", { name: "Comments, 2 to send" });
-  // The workspace is the container the dock's words query (jsdom can't apply it, so this checks the rule's place).
-  const words = within(comments).getByText(/to send/, { normalizer: (text) => text });
-  expect(words.textContent).toBe(" to send");
-  expect(words.className.split(" ")).toContain("@max-[400px]/review:hidden");
-  expect(comments.closest(".\\@container\\/review")).toBeTruthy();
-  expect(comments.textContent).toBe("2 to send");
+test("the dock keeps counts separate: Comments needs you, Finish counts what Submit posts", async () => {
+  const { slot, dock } = await renderPhone([{ file: "src/a.ts", line: 3, side: "LOCAL", body: "Only in the folder." }]);
+  expect(dock.getByRole("button", { name: "Comments" }).textContent).toBe("");
+  expect(await dock.findByRole("button", { name: "Finish review: Comment, 2 comments" })).toBeTruthy();
+  act(() => setNeedsYou("pr-42", 3));
+  expect(dock.getByRole("button", { name: "Comments, 3 need you" }).textContent).toBe("3");
   slot.lifecycle.unmount();
 });
 
-test("the dock's count of comments to send takes those not on GitHub yet too, which go with Send, as Not pushed yet's notice counts them", async () => {
-  const { slot, dock } = await renderPhone([{ file: "src/a.ts", line: 3, side: "LOCAL", body: "Only in the folder." }, { file: "src/a.ts", line: 4, side: "LOCAL", body: "Sent.", id: "c9", state: "sent", sendN: 1 }]);
-  expect(await dock.findByRole("button", { name: "Comments, 3 to send" })).toBeTruthy();
-  slot.lifecycle.unmount();
-});

@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { openDiffOptions } from "./review-bar.test-support";
 // Comments: one list beside the code for everything said about the review (spec §4), with the same items as cards at
 // their lines. It took over Feedback, Threads, and the comment list of Draft review.
 import { afterEach, expect, test, vi } from "vitest";
@@ -96,7 +97,7 @@ async function renderWorkspace({ review = {}, rpc = {} }: { review?: Record<stri
 type Slot = Awaited<ReturnType<typeof renderWorkspace>>["slot"];
 /** Comments, from the band's button where BB's title bar didn't take it, read from GitHub. A panel left open opens so again. */
 async function openComments(slot: Slot) {
-  const button = await slot.findByRole("button", { name: /^Comments/ });
+  const button = await within(slot.getByRole("group", { name: "Review commands" })).findByRole("button", { name: /^Comments/ });
   if (!slot.queryByRole("region", { name: "Comments" })) fireEvent.click(button);
   const list = within(slot.getByRole("region", { name: "Comments" }));
   await waitFor(() => expect(list.queryByText("Reading GitHub…")).toBeNull());
@@ -692,7 +693,7 @@ test("GitHub threads in code off hides them there; showing one from the list tur
   await code(slot, "src/a.ts").findByRole("article", { name: "GitHub thread on src/a.ts:2" });
   // Diff options' switch, from the band.
   const threadsInCode = async () => {
-    fireEvent.click(within(slot.getByRole("main")).getByRole("button", { name: "Diff options" }));
+    openDiffOptions(slot);
     return slot.findByRole("switch", { name: "GitHub threads in code" });
   };
   fireEvent.click(await threadsInCode());

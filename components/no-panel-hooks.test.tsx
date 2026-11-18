@@ -35,24 +35,24 @@ async function renderReview(agentThread: string | null) {
     getSourceThread: () => ({ thread: { threadId: "coder", title: "Build snooze", state: "open", machine: null } }),
     markSeen: () => ({ ok: true }),
   } as any };
-  const bar = renderSlot({ component: registration.headerContent! }, { subPath: "br-1" }, options);
+
   const page = renderSlot(registration, { subPath: "br-1" }, options);
   await page.findByTestId("filediff");
-  return { bar, page };
+  return { bar: page, page };
 }
 
 test("without BB's panel hooks, Ask agent opens the agent's chat, and Show beside review the main thread, each in a split", async () => {
   const { bar, page } = await renderReview("agent-1");
-  fireEvent.click(await bar.findByRole("button", { name: "Ask agent" }));
+  fireEvent.click(await bar.findByRole("button", { name: "Agent" }));
   await waitFor(() => expect(page.inspection.navigateCalls).toContainEqual({ method: "toThread", threadId: "agent-1", options: { split: true } }));
-  fireEvent.click(bar.getByRole("button", { name: "Show main thread beside review" }));
+  fireEvent.click(bar.getByRole("button", { name: "Main thread" }));
   expect(page.inspection.navigateCalls).toContainEqual({ method: "toThread", threadId: "coder", options: { split: true } });
   expect(toast.error).not.toHaveBeenCalled();
 });
 
 test("without BB's panel hooks and no agent chat yet, Ask agent says to update the BB app", async () => {
   const { bar, page } = await renderReview(null);
-  fireEvent.click(await bar.findByRole("button", { name: "Ask agent" }));
+  fireEvent.click(await bar.findByRole("button", { name: "Agent" }));
   await waitFor(() => expect(toast.error).toHaveBeenCalledWith("Update the BB app to start a review agent chat here."));
   expect(page.inspection.navigateCalls).toEqual([]);
 });

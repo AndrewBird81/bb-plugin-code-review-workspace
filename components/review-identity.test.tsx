@@ -8,7 +8,7 @@ import { defaultPreferences } from "../src/preferences";
 import { patchReviewState } from "../lib/panel-state";
 import { localIdOf, reviewIdentity } from "../lib/review-identity";
 import { publishReviewTitle, useReviewTitle } from "../lib/workspace-store";
-import { bandFit, chipWidth } from "./reading/ReaderBar";
+
 import { ID_CHIP, ReviewIdChip } from "./ReviewIdChip";
 import { endCut } from "./shell/PhoneDock";
 
@@ -118,43 +118,17 @@ test("a review without a guide yet, found on GitHub or building, has its title t
   }
 });
 
-test("the band keeps the id's chip at 480px, the review's title giving way first; the review's landmark names it whole", async () => {
-  const chip = chipWidth(reviewIdentity(pr as any));
-  // A tablet's band with the chapters over the code: their toggle, Find, ‹, Fold and Diff options at 44px.
-  expect(bandFit(480, 5, 44, null, { chip })).toMatchObject({ back: false, title: false });
-  // The title only where the whole breadcrumb fits beside it; in full screen, where BB's title bar doesn't name the
-  // review, before All reviews.
-  expect(bandFit(1100, 3, 32, null, { chip })).toMatchObject({ back: true, title: true });
-  expect(bandFit(700, 3, 32, null, { chip })).toMatchObject({ back: false, title: false });
-  expect(bandFit(700, 3, 32, null, { chip, named: true })).toMatchObject({ back: false, title: true });
-  // A tablet's pane, its band 480px beside the docked sides.
-  pane(1200, { room: 480 });
-  patchReviewState("pr-1", { activeId: "c1" });
-  const slot = await render("pr-1", { "pr-1": pr });
-  await slot.findAllByTestId("filediff");
-  const crumbs = within(slot.getByRole("navigation", { name: "Breadcrumb" }));
-  // Its name is the id it shows, the whole review its description.
-  const crumb = crumbs.getByRole("button", { name: "api#4512", description: "Pull request 4512 in flosports/api: Fix login race, by dana" });
-  expect(crumb.querySelector("[data-review-id]")!.getAttribute("title")).toBe("flosports/api#4512 · Fix login race");
-  expect(within(crumb).queryByText("Fix login race")).toBeNull();
-  expect(crumbs.getByText("Chapter 1 of 1: Parsing, 0 of 1 files viewed")).toBeTruthy();
-  expect(slot.getByRole("main", { name: "Review: Pull request 4512 in flosports/api: Fix login race, by dana" })).toBeTruthy();
-  // It goes to the Overview, which keeps the chip.
-  fireEvent.click(crumb);
-  await within(slot.getByRole("navigation", { name: "Breadcrumb" })).findByText("Overview");
-  expect(within(slot.getByRole("navigation", { name: "Breadcrumb" })).getByText("api#4512", { selector: ".sr-only" })).toBeTruthy();
-  slot.lifecycle.unmount();
-});
-
-test("the band leaves the review's name to BB's title bar where that shows it, and has it after the id where it doesn't", async () => {
+test("the band leaves the review id and name to BB's title, even without page-title support", async () => {
   pane(1600);
   patchReviewState("pr-1", { activeId: "c1" });
   for (const untitled of [false, true]) {
     const slot = await render("pr-1", { "pr-1": { ...pr, name: "Login race" } }, undefined, untitled);
     await slot.findAllByTestId("filediff");
     const crumbs = within(slot.getByRole("navigation", { name: "Breadcrumb" }));
-    const crumb = await crumbs.findByRole("button", { name: untitled ? "api#4512 Login race" : "api#4512" });
-    expect(!!within(crumb).queryByText("Login race"), String(untitled)).toBe(untitled);
+    expect(crumbs.queryByText("api#4512")).toBeNull();
+    expect(crumbs.queryByText("Login race")).toBeNull();
+    expect(crumbs.getByText("Chapter 1 of 1: Parsing, 0 of 1 files viewed")).toBeTruthy();
+    expect(slot.getByRole("main", { name: "Review: Pull request 4512 in flosports/api: Login race, by dana" })).toBeTruthy();
     slot.lifecycle.unmount();
   }
 });
@@ -256,8 +230,7 @@ test("a long repository's chip cuts only its name, never the PR's number, and sa
   expect(tail.textContent).toBe("#123");
   expect(tail.className.split(" ")).toEqual(expect.arrayContaining(["shrink-0", "whitespace-nowrap"]));
   expect(tail.className).not.toContain("truncate");
-  // The band reserves the number whole, and the name at most 160px.
-  expect(chipWidth(identity)).toBe(160 + Math.ceil(4 * 6.6) + 18);
+
 });
 
 test("a folder's review that became its PR's keeps its id from before, derived from its folder and branch", () => {

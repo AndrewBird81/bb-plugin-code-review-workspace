@@ -288,7 +288,7 @@ test("the title bar's Finish review says what the draft would submit, and opens 
   const { slot } = await renderWorkspace({}, { getDraft: vi.fn(() => ({ draft })) });
   // In the band, where BB's title bar didn't take it.
   const open = await slot.findByRole("button", { name: "Finish review: Request changes, 1 comment" });
-  expect(open.textContent).toBe("Finish· 1");
+  expect(open.textContent).toBe("Finish review· 1");
   // It opens Finish review, never closes it: no pressed state.
   expect(open.getAttribute("aria-pressed")).toBeNull();
   fireEvent.click(open);

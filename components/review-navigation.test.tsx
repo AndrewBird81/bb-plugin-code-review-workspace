@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { findCompare, getCompare } from "./review-bar.test-support";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { act, cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 import { toast } from "sonner";
@@ -321,10 +322,10 @@ test("under Since your review, opening a file unchanged since then turns the fil
   const { slot } = await renderWorkspace({ ...setup, rpc: { ...setup.rpc, getDraft: () => ({ draft: { targetKey: "pr-42", verdict: "COMMENT", body: "", comments: [comment] } }) } });
   // The band's compare select, narrowed to what changed since your review.
   const narrow = async () => {
-    fireEvent.click(await slot.findByRole("button", { name: /^Show changes: / }));
+    fireEvent.click(await findCompare(slot, /^Show changes: /));
     fireEvent.click(await slot.findByRole("menuitemradio", { name: /^Since your review/ }));
   };
-  const showing = () => slot.getByRole("button", { name: /^Show changes: / }).getAttribute("aria-label");
+  const showing = () => getCompare(slot, /^Show changes: /).getAttribute("aria-label");
   fireEvent.click(chapters(slot).getByText("Parsing"));
   await narrow();
   expect(slot.container.querySelector('[data-file="src/a.ts"]')).toBeNull();
@@ -879,7 +880,7 @@ test("a local review's Comments has no Feedback or Threads, and the agent goes b
   expect(slot.queryByRole("button", { name: "Threads" })).toBeNull();
   expect(slot.queryByRole("button", { name: "Feedback" })).toBeNull();
   expect(slot.queryByRole("button", { name: /assistant/i })).toBeNull();
-  expect(slot.getAllByRole("button", { name: "Ask agent" }).length).toBeGreaterThan(0);
+  expect(slot.getAllByRole("button", { name: "Agent" }).length).toBeGreaterThan(0);
   slot.lifecycle.unmount();
 }, 15_000);
 

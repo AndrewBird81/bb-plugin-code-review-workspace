@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { openDiffOptions } from "./review-bar.test-support";
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, waitFor, within } from "@testing-library/react";
 import { installTestPluginRuntime, loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
@@ -55,7 +56,7 @@ async function renderWorkspace() {
 
 /** Diff options' Hide whitespace changes. */
 async function hideWhitespace(slot: Awaited<ReturnType<typeof renderWorkspace>>) {
-  fireEvent.click(within(slot.getByRole("main")).getByRole("button", { name: "Diff options" }));
+  openDiffOptions(slot);
   return slot.findByRole("switch", { name: "Hide whitespace changes" });
 }
 

@@ -1,8 +1,9 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { useFullscreenPortalContainer } from "../../lib/portal-scope";
+import { hasNotPushed } from "../../lib/main-thread";
 import { cn } from "../../lib/utils";
 import { OVERVIEW, useWorkspace } from "../../lib/workspace-context";
-import { CompareMenu, compareLabel, compareProblem, sinceFrom, useCommits } from "../ComparePicker";
+import { CompareMenu, ComparePicker, compareLabel, compareProblem, sinceFrom, useCommits } from "../ComparePicker";
 import { TOUCH_COMPACT, TOUCH_CONTROL } from "../touch";
 import { Button } from "../ui/button";
 import { Hint } from "../ui/hint";
@@ -91,47 +92,29 @@ function ComparePage({ onBack, onPicked }: { onBack: () => void; onPicked: () =>
   </>;
 }
 
-/**
- * How the diff draws, behind one button: Layout, Wrap long lines, Hide whitespace changes, GitHub threads in code (the
- * PR has `threads`), and Fold comments in code on a phone, one held sideways, or where the band has no room for its
- * own (`foldInBand`); collapsing or expanding the chapter's files; and what the diff compares with, where the band has
- * no compare select (`compareInBand`). A bottom drawer on a phone and on one held sideways.
- */
-export function DiffOptions({ threads, compareInBand = false, foldInBand = false, className }: { threads: boolean; compareInBand?: boolean; foldInBand?: boolean; className?: string }) {
+/** Diff options, also used as a page of the review's ⋯ menu. */
+export function DiffOptionsPage({ threads, menu = false, onClose }: { threads: boolean; menu?: boolean; onClose: () => void }) {
   const { review, activeId, layout, compare, display, files, showShortcuts, shortcuts } = useWorkspace();
-  const container = useFullscreenPortalContainer();
   const fine = useMediaQuery("(any-pointer: fine)");
-  const [open, setOpen] = useState(false);
   const [page, setPage] = useState<"options" | "compare">("options");
   const content = useRef<HTMLDivElement>(null);
   const splitReason = useId();
-  // A page that opens takes the focus from the row that opened it, which it replaces.
   const turned = useRef(false);
   useEffect(() => {
     if (turned.current) content.current?.querySelector<HTMLElement>("button")?.focus();
     turned.current = false;
   }, [page]);
   const turn = (to: typeof page) => { turned.current = true; setPage(to); };
-  const close = () => { setOpen(false); setPage("options"); };
+  const close = onClose;
   const tablet = layout.mode === "tablet";
   const isPr = review.kind === "pr";
   const since = sinceFrom(compare, review);
-  // Without a compare select in the band, the comparison is here: switched on and off, and picked from the commits.
-  const comparing = !compareInBand && since !== undefined;
-  const picking = !compareInBand && isPr && !comparing;
-  return (
-    <Popover open={open} onOpenChange={(next) => { setOpen(next); if (!next) setPage("options"); }}>
-      <Hint label="Diff options" container={container}>
-        <PopoverTrigger asChild>
-          <Button variant="ghost" size="sm" aria-label="Diff options" className={cn("size-8 shrink-0 px-0 text-muted-foreground aria-expanded:bg-state-active aria-expanded:text-foreground", TOUCH_CONTROL, className)}>
-            <Icon name="SlidersHorizontal" aria-hidden />
-          </Button>
-        </PopoverTrigger>
-      </Hint>
-      <PopoverContent ref={content} align="end" aria-label="Diff options" mobileTitle="Diff options" className="w-80 max-w-[calc(100vw-24px)] p-1">
+  const comparing = since !== undefined;
+  const picking = isPr && !comparing;
+  return <div ref={content}>
         {page === "compare" ? <ComparePage onBack={() => turn("options")} onPicked={close} /> : <>
           <p aria-hidden className="px-2 pb-1 pt-1.5 text-xs font-medium text-muted-foreground">Diff options</p>
-          {comparing && <div className="border-b border-border pb-1">
+          {(comparing || hasNotPushed(review)) && menu ? <div className="border-b border-border p-1"><ComparePicker onPicked={close} /></div> : comparing && <div className="border-b border-border pb-1">
             <div className={cn(row, "hover:bg-transparent")}>
               Show changes
               <Segmented label="Show changes" value={compare.narrowed ? "since" : "all"} onChange={(value) => value === "all" ? compare.setNarrowed(false) : compare.pick(since ?? null)}
@@ -163,7 +146,7 @@ export function DiffOptions({ threads, compareInBand = false, foldInBand = false
             <Option label="Wrap long lines" on={display.wrap} onChange={display.setWrap} />
             <Option label="Hide whitespace changes" on={display.hideWhitespace} onChange={display.setHideWhitespace} />
             {isPr && threads && <Option label="GitHub threads in code" on={display.githubThreads} onChange={display.setGithubThreads} />}
-            {(!tablet || !foldInBand) && <Option label="Fold comments in code" on={display.commentsFolded} onChange={display.setCommentsFolded} />}
+            {!menu && <Option label="Fold comments in code" on={display.commentsFolded} onChange={display.setCommentsFolded} />}
           </div>
           {activeId !== OVERVIEW && <div className="mt-1 border-t border-border px-2 pb-1 pt-2">
             <p className="text-xs font-medium text-muted-foreground">Files in this chapter</p>
@@ -178,6 +161,24 @@ export function DiffOptions({ threads, compareInBand = false, foldInBand = false
             {fine && shortcuts && <Link label="Keyboard shortcuts" end={<kbd className="font-mono text-xs">?</kbd>} onSelect={() => { close(); showShortcuts(); }} />}
           </div>}
         </>}
+  </div>;
+}
+
+/** A standalone entry for the chapters sheet. The review bar uses the same content inside ⋯. */
+export function DiffOptions({ threads, className }: { threads: boolean; className?: string }) {
+  const container = useFullscreenPortalContainer();
+  const [open, setOpen] = useState(false);
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <Hint label="Diff options" container={container}>
+        <PopoverTrigger asChild>
+          <Button variant="ghost" size="sm" aria-label="Diff options" className={cn("size-8 shrink-0 px-0 text-muted-foreground aria-expanded:bg-state-active aria-expanded:text-foreground", TOUCH_CONTROL, className)}>
+            <Icon name="SlidersHorizontal" aria-hidden />
+          </Button>
+        </PopoverTrigger>
+      </Hint>
+      <PopoverContent align="end" aria-label="Diff options" mobileTitle="Diff options" className="w-80 max-w-[calc(100vw-24px)] p-1">
+        {open && <DiffOptionsPage threads={threads} onClose={() => setOpen(false)} />}
       </PopoverContent>
     </Popover>
   );

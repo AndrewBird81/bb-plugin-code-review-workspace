@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { queryCompare, findCompare } from "./review-bar.test-support";
 import { test, expect, vi, afterEach } from "vitest";
 import { render, screen, fireEvent, cleanup, waitFor, within } from "@testing-library/react";
 import { installTestPluginRuntime, loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
@@ -112,13 +113,13 @@ async function renderWorkspace(review: Record<string, unknown>, getSinceReview =
 test("the diff offers Since your review only when you reviewed another commit", async () => {
   const same = await renderWorkspace({ headSha: "old", signals: { lastReviewSha: "old" }, submittedVerdict: "COMMENT" });
   await same.slot.findAllByTestId("filediff");
-  expect(same.slot.queryByRole("button", { name: /^Show changes/ })).toBeNull();
+  expect(queryCompare(same.slot, /^Show changes/)).toBeNull();
   expect(same.getSinceReview).not.toHaveBeenCalled();
   same.slot.lifecycle.unmount();
 
   const { slot, getSinceReview } = await renderWorkspace({ headSha: "new", signals: { lastReviewSha: "old" }, submittedVerdict: "COMMENT" });
   // It opens on what changed since then.
-  const select = await slot.findByRole("button", { name: "Show changes: Since your review" });
+  const select = await findCompare(slot, "Show changes: Since your review");
   expect(getSinceReview).toHaveBeenCalledWith({ targetKey: "pr-42" });
   // Each chapter counts its files changed since your review.
   const chapters = within(slot.getByRole("navigation", { name: "Chapters" }));
@@ -127,7 +128,7 @@ test("the diff offers Since your review only when you reviewed another commit", 
   expect(slot.getByText("1 file unchanged since your review")).toBeTruthy();
   fireEvent.click(select);
   fireEvent.click(await slot.findByRole("menuitemradio", { name: "All changes in this PR" }));
-  expect(await slot.findByRole("button", { name: "Show changes: All changes" })).toBeTruthy();
+  expect(await findCompare(slot, "Show changes: All changes")).toBeTruthy();
   expect(slot.container.querySelector('[data-file="src/b.ts"]')).toBeTruthy();
   slot.lifecycle.unmount();
 });

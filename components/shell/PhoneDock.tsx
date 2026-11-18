@@ -1,20 +1,14 @@
 import { useEffect, useLayoutEffect, useMemo, useState } from "react";
-import { useBbNavigate } from "@get-bb/plugin-sdk/app";
-import { useAppPanel } from "../../lib/app-panel";
-import { useDraftStatus } from "../../lib/draft-status";
 import { reviewIdentity, type ReviewIdentity } from "../../lib/review-identity";
 import { TEXT_FIELD } from "../../lib/review-shortcuts";
 import { cn } from "../../lib/utils";
 import { NOT_PUSHED_PAGE, useWorkspace } from "../../lib/workspace-context";
-import { useNeedsYou, useTabShown } from "../../lib/workspace-store";
-import { useFullscreenPortalContainer } from "../../lib/portal-scope";
 import { Button } from "../ui/button";
-import { Hint } from "../ui/hint";
 import { Icon } from "../ui/icon";
 import { InlineCode } from "../ui/inline-code";
 import { ReviewIdChip } from "../ReviewIdChip";
 import { ChapterStep } from "./ChapterStep";
-import { sidePanelId } from "./SidePanel";
+import { ReviewControls } from "../TitleBarControls";
 import { OPAQUE } from "./side-parts";
 import { navigatorId } from "./TopBand";
 
@@ -83,21 +77,13 @@ function DockId({ identity }: { identity: ReviewIdentity }) {
 }
 
 /**
- * A phone's controls, at the bottom: All reviews, the chapter you're on, Comments, Ask agent, Main thread (with one),
- * and Full screen. The chapter and Comments are the tabs of the one sheet above it: the open one is pressed, and pressing
- * it again closes the sheet. Ask agent opens BB's side panel over the page; Main thread goes to the main thread. It
- * makes way while you type in the review, for the keyboard, and for the lines you select (`hidden`).
+ * The chapter, Comments, Agent, Finish and ⋯ at the thumb. Sheets, typing, selection and toasts keep their behaviour.
  */
-export function PhoneDock({ hidden }: { hidden: boolean }) {
-  const { targetKey, review, guide, sections, activeId, files, nav, panel, askAgent, fullscreen, leave, mainThread } = useWorkspace();
-  const navigate = useBbNavigate();
-  const appPanel = useAppPanel();
-  const agentShown = useTabShown(targetKey, "agent") && !fullscreen.on;
+export function PhoneDock({ hidden, threads = false }: { hidden: boolean; threads?: boolean }) {
+  const api = useWorkspace();
+  const { targetKey, review, guide, sections, activeId, files, nav } = api;
   // A phone has no band, and in full screen no title bar of BB's: the chapter's tab says which review this is.
   const identity = useMemo(() => reviewIdentity(review, guide.title), [review, guide.title]);
-  const status = useDraftStatus(targetKey);
-  const needsYou = useNeedsYou(targetKey);
-  const container = useFullscreenPortalContainer();
   const [dock, setDock] = useState<HTMLDivElement | null>(null);
   const [typing, setTyping] = useState(false);
   useEffect(() => {
@@ -116,13 +102,8 @@ export function PhoneDock({ hidden }: { hidden: boolean }) {
   const page = notPushed ? "Not pushed yet" : "Overview";
   const chapterFiles = chapter?.diffs.map((diff) => diff.file) ?? [];
   const viewed = chapterFiles.filter((file) => files.views.get(file)?.viewed).length;
-  // Finish review is part of Comments.
-  const comments = panel.view === "comments" || panel.view === "finish";
-  // What Submit posts and what goes with Send, as the notices count them: comments not on GitHub yet too.
-  const unsent = (status?.comments ?? 0) + (status?.local ?? 0);
   const away = hidden || typing;
   useToastsAbove(away ? null : dock);
-  const tab = "h-11 min-w-11 shrink-0 px-0 text-muted-foreground";
   return (
     <div
       ref={setDock}
@@ -132,9 +113,6 @@ export function PhoneDock({ hidden }: { hidden: boolean }) {
       className={cn("flex shrink-0 items-center gap-1 border-t border-border px-1.5 pt-[3px] pb-[calc(4px+var(--gr-safe-bottom,0px))]", away && "hidden")}
       style={OPAQUE}
     >
-      <Button variant="ghost" aria-label="All reviews" className={tab} onClick={() => void leave()}>
-        <Icon name="ChevronLeft" aria-hidden />
-      </Button>
       <Button
         variant="ghost"
         aria-label={`${identity.id}, ${chapter ? `Chapters: Chapter ${index + 1} of ${sections.length}, ${chapter.title}, ${viewed} of ${chapterFiles.length} files viewed` : `Chapters: ${page}`}`}
@@ -151,36 +129,7 @@ export function PhoneDock({ hidden }: { hidden: boolean }) {
         </span>
         <Icon name={nav.open ? "ChevronDown" : "ChevronUp"} className="text-subtle-foreground" aria-hidden />
       </Button>
-      <Button
-        variant="ghost"
-        aria-label={`Comments${unsent ? `, ${unsent} to send` : ""}${needsYou ? `, ${needsYou} need you` : ""}`}
-        aria-pressed={comments}
-        aria-controls={sidePanelId(targetKey)}
-        className={cn(tab, "relative gap-1", unsent > 0 && "px-2.5")}
-        onClick={() => comments ? panel.close() : panel.open("comments")}
-      >
-        <Icon name="MessageSquare" aria-hidden />
-        {/* What will be sent, the count alone in a narrow pane, so the chapter keeps its title; the dot is what needs
-            you, as the title bar's count is. */}
-        {unsent > 0 && <span aria-hidden className="text-xs font-medium tabular-nums">{unsent}<span className="@max-[400px]/review:hidden"> to send</span></span>}
-        {needsYou > 0 && <span aria-hidden className="absolute right-1.5 top-2 size-2 rounded-full bg-primary ring-2 ring-background" />}
-      </Button>
-      {/* The agent opens in BB's side panel, over the page on a phone, whose tabs include the main thread's. */}
-      <Button variant="ghost" aria-label="Ask agent" aria-pressed={agentShown} className={tab} onClick={() => agentShown ? appPanel?.close() : askAgent()}>
-        <Icon name="Sparkles" className="text-(--ansi-13)" aria-hidden />
-      </Button>
-      {mainThread && <Hint label={`Go to the main thread${mainThread.title ? `, ${mainThread.title}` : ""}`} container={container}>
-        <Button variant="ghost" aria-label="Go to main thread" className={cn(tab, "relative")} onClick={() => navigate.toThread(mainThread.threadId)}>
-          <Icon name="Code" aria-hidden />
-          {/* It leaves the review for the thread's page. */}
-          <Icon name="ArrowUpRight" className="absolute right-0.5 top-1.5 size-3" aria-hidden />
-        </Button>
-      </Hint>}
-      {fullscreen.available && (
-        <Button variant="ghost" aria-label={fullscreen.on ? "Exit full screen" : "Full screen"} className={tab} onClick={fullscreen.toggle}>
-          <Icon name={fullscreen.on ? "Minimize2" : "Maximize2"} aria-hidden />
-        </Button>
-      )}
+      <ReviewControls api={api} threads={threads} phone />
     </div>
   );
 }

@@ -27,7 +27,7 @@ export function useDraftStatus(targetKey: string): DraftStatus | null {
   return useSyncExternalStore(subscribe, () => statuses.get(targetKey) ?? null);
 }
 
-/** A local review's draft reports its open comments, for Finish review in the title bar; null on any other review. */
+/** A local review's draft reports its open comments, for Finish review in the review bar; null on any other review. */
 export function setLocalToSend(targetKey: string, open: number | null) {
   if ((localToSend.get(targetKey) ?? null) === open) return;
   if (open === null) localToSend.delete(targetKey);

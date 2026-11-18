@@ -984,7 +984,7 @@ test("a local review that becomes its PR's while open says so in the notice it s
   const converted = { kind: "pr", repo: "acme/web", number: 7, url: "https://github.com/acme/web/pull/7", headSha: "c0ffee", feature: folderReview.feature };
   review = converted;
   await slot.emitRealtime("review:pr-42", {});
-  await slot.findByText("web#7");
+  await waitFor(() => expect(slot.experimental_pageTitle?.title).toContain("web#7"));
   expect(slot.queryByText(/This review is now/)).toBeNull();
   // Its stored notice, until Got it, which the server clears.
   review = { ...converted, became: { at: 1, number: 7, url: "https://github.com/acme/web/pull/7", from: "web:feat/qa", carried: 2, local: 0, outside: 0 } };
@@ -1351,7 +1351,7 @@ test("a deferral the agent proposes waits for you: it needs you, Request what's 
   const view = await finish(slot);
   // Not settled yet: what's left still has it.
   expect(await view.findByRole("button", { name: "Request what’s left" })).toBeTruthy();
-  fireEvent.click(slot.getByRole("button", { name: /^Comments/ }));
+  fireEvent.click(within(slot.getByRole("complementary", { name: "Comments and Finish review" })).getByRole("button", { name: "Comments" }));
   const list = within(await slot.findByRole("region", { name: "Comments" }));
   // Its row says so; opened, its card says what to do.
   const row = list.getAllByRole("button").find((button) => button.textContent?.includes("Handle the empty list"))!;
@@ -1397,7 +1397,7 @@ test("a comment the agent added is New from agent—not yet reviewed, under the 
   const view = await finish(slot);
   const cited = within(view.getByRole("list", { name: "Lines the summary cites" }));
   expect(cited.getByRole("button", { name: "Show src/a.ts:1, New from agent—not yet reviewed, Should fix comment" }).textContent).toContain("New from agent—not yet reviewed");
-  fireEvent.click(slot.getByRole("button", { name: /^Comments/ }));
+  fireEvent.click(within(slot.getByRole("complementary", { name: "Comments and Finish review" })).getByRole("button", { name: "Comments" }));
   const list = within(await slot.findByRole("region", { name: "Comments" }));
   const row = list.getAllByRole("button").find((button) => button.textContent?.includes("Spacing breaks the parser."))!;
   expect(row.textContent).toContain("New from agent—not yet reviewed");

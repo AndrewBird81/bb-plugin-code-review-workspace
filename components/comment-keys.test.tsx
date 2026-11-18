@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { openDiffOptions } from "./review-bar.test-support";
 // Comment keys: on the comment ] or [ landed on, e edits, x removes, 1–4 and 0 set its severity, and r replies to a
 // GitHub thread (Settings → Reading → Comment keys, under Single-key shortcuts).
 import { afterEach, expect, test, vi } from "vitest";
@@ -184,7 +185,7 @@ test("r pressed before the thread's card is in the code opens its reply box once
   const card = () => slot.queryByRole("article", { name: "GitHub thread on src/b.ts:1" });
   const reply = () => slot.queryByRole("textbox", { name: "Reply on src/b.ts:1" });
   const threadsInCode = async () => {
-    fireEvent.click(within(slot.getByRole("main")).getByRole("button", { name: "Diff options" }));
+    openDiffOptions(slot);
     fireEvent.click(await slot.findByRole("switch", { name: "GitHub threads in code" }));
     fireEvent.keyDown(document.activeElement!, { key: "Escape" });
   };
@@ -295,7 +296,7 @@ test("Remove in the Comments list hands the focus to the next row", async () => 
   const { slot } = await renderReview();
   // Finish review, then ‹ Comments.
   press("s");
-  fireEvent.click(await slot.findByRole("button", { name: "Comments" }));
+  fireEvent.click(within(slot.getByRole("complementary", { name: "Comments and Finish review" })).getByRole("button", { name: "Comments" }));
   const list = within(await slot.findByRole("region", { name: "Comments" }));
   // ‹ Comments hands the focus to the chosen filter.
   await waitFor(() => expect(document.activeElement).toBe(list.getByRole("radio", { checked: true })));

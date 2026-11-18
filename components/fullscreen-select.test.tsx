@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { openDiffOptions, findCompare } from "./review-bar.test-support";
 import { afterEach, expect, test, vi } from "vitest";
 import { act, cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
@@ -49,12 +50,12 @@ test("in full screen, the compare select's menu and Diff options open inside the
   fireEvent.keyDown(document.body, { key: "F", shiftKey: true });
   const root = document.fullscreenElement!;
   expect(root).toBeTruthy();
-  fireEvent.click(await slot.findByRole("button", { name: "Show changes: Since your review" }));
+  fireEvent.click(await findCompare(slot, "Show changes: Since your review"));
   expect(root.contains(await slot.findByRole("menu", { name: "Show changes" }))).toBe(true);
   fireEvent.keyDown(document.activeElement!, { key: "Escape" });
   // The focus goes back to the select a moment after its menu closes.
   await act(() => new Promise((resolve) => setTimeout(resolve, 10)));
-  fireEvent.click(slot.getByRole("button", { name: "Diff options" }));
+  openDiffOptions(slot);
   expect(root.contains(await slot.findByRole("switch", { name: "Wrap long lines" }))).toBe(true);
   // Over the page, BB's toaster is under it: the workspace shows the toasts itself, Undo and all.
   const { toast } = await import("sonner");

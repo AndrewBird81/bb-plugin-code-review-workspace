@@ -61,10 +61,6 @@ export interface WorkspaceLayout {
   panelCanDock: boolean;
   /** The code is under 720px wide: long lines wrap unless you chose otherwise, and labels shorten. */
   narrowReader: boolean;
-  /** The pane is at least 1000px wide: room for the title bar's labeled controls. */
-  widePane: boolean;
-  /** A tablet's pane under PHONE_BELOW, as beside BB's side panel on a desktop: the title bar keeps to icons. */
-  narrowPane: boolean;
   /** It came with a phone's window resizing (a fold, an unfold, a rotation) rather than BB's pane alone. Not compared. */
   phoneResized: boolean;
 }
@@ -115,8 +111,6 @@ export function workspaceLayout(width: number, height: number, state: LayoutStat
   return {
     mode, nav, panel, navCanDock, panelCanDock,
     narrowReader: below(readerWidth(width, state, { nav, panel }), 720, previous?.narrowReader),
-    widePane: !below(width, 1000, previous && !previous.widePane),
-    narrowPane: mode === "tablet" && below(width, PHONE_BELOW, previous?.narrowPane),
     phoneResized,
   };
 }

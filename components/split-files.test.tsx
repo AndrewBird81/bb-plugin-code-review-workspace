@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { findCompare } from "./review-bar.test-support";
 import { afterEach, expect, test, vi } from "vitest";
 import { act, cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 import { toast } from "sonner";
@@ -124,7 +125,7 @@ test("since your review, a split file counts and shows only in the chapters whos
   expect(nav.getByText("1 changed").closest("li")!.textContent).toContain("Caching");
   fireEvent.click(nav.getByText("Parsing"));
   // The re-review shows only what changed since your review.
-  expect(await slot.findByRole("button", { name: "Show changes: Since your review" })).toBeTruthy();
+  expect(await findCompare(slot, "Show changes: Since your review")).toBeTruthy();
   await waitFor(() => expect(slot.container.querySelector('[data-file="src/a.ts"]')).toBeNull());
   fireEvent.click(nav.getByText("Caching"));
   await slot.findByText(/CACHE/);
@@ -141,10 +142,10 @@ test("since your review, a split file whose hunks here didn't change, picked in 
   const nav = within(slot.getByRole("navigation", { name: "Chapters" }));
   await waitFor(() => expect(nav.getByText("1 changed")).toBeTruthy());
   fireEvent.click(nav.getByText("Parsing"));
-  expect(await slot.findByRole("button", { name: "Show changes: Since your review" })).toBeTruthy();
+  expect(await findCompare(slot, "Show changes: Since your review")).toBeTruthy();
   await waitFor(() => expect(slot.container.querySelector('[data-file="src/a.ts"]')).toBeNull());
   fireEvent.click(nav.getAllByRole("button").find((button) => button.title.startsWith("src/a.ts"))!);
-  expect(await slot.findByRole("button", { name: "Show changes: All changes" })).toBeTruthy();
+  expect(await findCompare(slot, "Show changes: All changes")).toBeTruthy();
   expect(card(slot).getByText(/PARSE/)).toBeTruthy();
   slot.lifecycle.unmount();
 });

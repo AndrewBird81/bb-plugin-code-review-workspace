@@ -316,7 +316,7 @@ test("on a desktop, a window resize hides docked Comments as BB's pane narrowing
   const slot = await renderWorkspace();
   fireEvent.click(await slot.findByRole("button", { name: "Comments" }));
   const panel = dockedPanel(slot)!;
-  const options = slot.getByRole("button", { name: "Diff options" });
+  const options = slot.getByRole("button", { name: "Review actions" });
   options.focus();
   // Narrower than the code and the panel need, then snapped to half the screen, under a phone's width.
   screen.resize({ width: 680, height: 852 }, { width: 1000, height: 900 });
@@ -358,7 +358,7 @@ test("chapters opened folded and docked as it unfolded hide as BB's pane narrows
   expect(dockedChapters(slot)).toBeNull();
   expect(slot.queryByRole("dialog")).toBeNull();
   // Nor on the next render.
-  fireEvent.click(slot.getByRole("button", { name: "Fold comments in code" }));
+  fireEvent.keyDown(document.body, { key: "i" });
   expect(slot.queryByRole("dialog")).toBeNull();
   screen.pane(INNER_LANDSCAPE);
   expect(dockedChapters(slot)).toBeTruthy();
