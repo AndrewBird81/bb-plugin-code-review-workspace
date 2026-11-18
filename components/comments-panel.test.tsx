@@ -838,7 +838,7 @@ test.each(["inline", "row"] as const)("a thread ask lands in its private zone, w
   expect(list.queryByRole("button", { name: /Expand Private discussion on github:/ })).toBeNull();
   const publicDraft = card.getByRole("group", { name: "Reply draft · not posted yet on src/a.ts:2" });
   expect(publicDraft.closest('[aria-label="Private · only you and the agent"]')).toBeNull();
-  expect(within(publicDraft).getByText("Public · posts to GitHub as you")).toBeTruthy();
+  expect(within(publicDraft).getByText("Public · posts to GitHub now, as you")).toBeTruthy();
   expect(within(publicDraft).getByRole("button", { name: "Post to GitHub" })).toBeTruthy();
   expect(rpc.replyToFeedback).not.toHaveBeenCalled();
   expect(rpc.resolveThread).not.toHaveBeenCalled();

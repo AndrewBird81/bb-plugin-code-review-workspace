@@ -55,7 +55,8 @@ test("the band names the chapter without a back button, review id, review name, 
   expect(band(slot).queryByRole("button", { name: "Find in review" })).toBeNull();
   expect(band(slot).queryByRole("button", { name: "Diff options" })).toBeNull();
   expect(band(slot).queryByRole("button", { name: "Fold comments in code" })).toBeNull();
-  expect(band(slot).getByRole("button", { name: /chapters/ })).toBeTruthy();
+  // The docked chapters list has the toggle in its own head, so the bar doesn't repeat it.
+  expect(band(slot).queryByRole("button", { name: /chapters/ })).toBeNull();
 });
 
 test("the re-review switch remains in the chapter intro and switches both ways without a bar select", async () => {

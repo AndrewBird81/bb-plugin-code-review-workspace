@@ -72,7 +72,7 @@ test("the agent's drafted reply waits in its thread, not sent, and Post to GitHu
   const yours = await card(slot, 2);
   const draft = within(yours).getByRole("group", { name: "Reply draft · not posted yet on src/a.ts:2" });
   expect(within(draft).getByText("Thanks, will check.")).toBeTruthy();
-  expect(within(draft).getByText("Posts now, not with your review")).toBeTruthy();
+  expect(within(draft).getByText("Public · posts to GitHub now, as you")).toBeTruthy();
   fireEvent.click(within(draft).getByRole("button", { name: "Post to GitHub" }));
   await waitFor(() => expect(rpc.replyToFeedback).toHaveBeenCalledWith({ targetKey: "pr-42", threadId: "t1", body: "Thanks, will check.", account: "me" }));
   await waitFor(() => expect(within(yours).queryByRole("group", { name: /reply draft/ })).toBeNull());

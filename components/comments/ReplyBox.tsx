@@ -13,7 +13,7 @@ import type { CommentActions } from "./store";
 import { notSubmitted } from "./look";
 
 function PublicDestination() {
-  return <p className="flex items-center gap-1.5 border-t border-border px-3 py-1.5 text-xs text-muted-foreground"><Icon name="Github" className="size-3.5 shrink-0" aria-hidden />Public · posts to GitHub as you</p>;
+  return <p className="flex items-center gap-1.5 border-t border-border px-3 py-1.5 text-xs text-muted-foreground"><Icon name="Github" className="size-3.5 shrink-0" aria-hidden />Public · posts to GitHub now, as you</p>;
 }
 
 // Text typed in a reply box and not saved yet, by review and thread: a card that goes and comes back, such as a row
@@ -163,7 +163,6 @@ export function ReplyBox({ targetKey, item, where, actions, busy, writing, onClo
         </Button>
         {!editing && <Button variant="ghost" size="sm" className={action} disabled={busy} onClick={() => { focusBox.current = true; setEditing(true); }}>Edit</Button>}
         <Button variant="ghost" size="sm" data-reply-action="discard" className={cn(action, "hover:text-destructive-text")} disabled={busy} onClick={() => void discard()}>Discard</Button>
-        <span className="ml-auto text-[11px] text-subtle-foreground">Posts now, not with your review</span>
       </div>
     </div>
   );

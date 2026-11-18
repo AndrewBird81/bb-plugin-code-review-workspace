@@ -29,7 +29,7 @@ export function ReaderBar({ threads }: { threads: boolean }) {
     <div ref={setBar} className={cn("@container/band flex shrink-0 items-center gap-x-1 border-b border-border px-1.5", short ? "h-10" : "h-11")}>
       {/* The fold's width is at most 48px; the left group ends before its near edge. Labels never measure the bar. */}
       <div className="flex min-w-0 flex-1 items-center gap-1" style={{ maxWidth: "calc(var(--gr-fold-end, 100000px) - 48px)" }}>
-        <TopBand hidden={layout.nav === "overlay"} />
+        {layout.nav !== "docked" && <TopBand hidden={layout.nav === "overlay"} />}
         <nav aria-label="Breadcrumb" className="flex min-w-0 items-center gap-1.5 text-sm">
           {fullscreen.on && <span className={cn("flex min-w-0 shrink-[3] items-center", short ? TOUCH_COMPACT : TOUCH_CONTROL)}><ReviewIdChip identity={identity} /></span>}
           {!chapter ? <span className="flex min-w-0 items-center gap-1.5 font-medium">

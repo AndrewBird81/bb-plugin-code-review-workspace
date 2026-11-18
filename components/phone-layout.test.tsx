@@ -272,7 +272,8 @@ test("a wide screen's band names only the chapter, then the same review commands
   expect(crumbs.queryByText("pr-42")).toBeNull();
   expect(crumbs.getByText("Chapter 1 of 1: Parsing, 0 of 1 files viewed")).toBeTruthy();
   const controls = within(band(slot)).getAllByRole("button").map(b => b.getAttribute("aria-label"));
-  expect(controls).toEqual(["Hide chapters", "Comments", "Agent", "Finish review: Comment, 0 comments", "Review actions"]);
+  // The docked chapters list has the toggle in its own head, so the bar starts with the review commands.
+  expect(controls).toEqual(["Comments", "Agent", "Finish review: Comment, 0 comments", "Review actions"]);
   expect(slot.getByRole("navigation", { name: "Chapters" })).toBeTruthy();
   expect(slot.getByRole("button", { name: "Hide chapter overview" })).toBeTruthy();
   expect(slot.getByRole("complementary", { name: "Comments and Finish review" })).toBeTruthy();
@@ -306,7 +307,8 @@ test("the chapters toggle sits beside Find in review, and takes the same spot in
   expect(host.contains(chapters)).toBe(true);
   const toggle = within(host).getByRole("button", { name: "Hide chapters" });
   expect(toggle.closest("div")!.nextElementSibling).toBe(within(host).getByRole("search"));
-  expect(within(band(slot)).getByRole("button", { name: "Hide chapters" })).toBeTruthy();
+  // One toggle: the bar doesn't repeat the docked list's.
+  expect(within(band(slot)).queryByRole("button", { name: "Hide chapters" })).toBeNull();
   fireEvent.click(toggle);
   expect(slot.queryByRole("navigation", { name: "Chapters" })).toBeNull();
   const first = band(slot).querySelector("button")!;

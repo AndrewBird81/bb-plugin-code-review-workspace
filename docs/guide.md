@@ -173,7 +173,7 @@ bb review approve acme/web#42 acme/web#43 --body 'LGTM'
 
 ### Layout
 
-- BB's title bar names the review with no plugin buttons. The review bar holds the chapters toggle and current chapter, then **Comments** (needs-you badge), **Agent**, **Main thread** with one, **Finish**, and **⋯**. Finish is filled with the submit count, or a local review's Send count; outlined while Finish review shows.
+- BB's title bar names the review with no plugin buttons. The review bar holds the chapters toggle (in the chapters' own head while they're docked) and current chapter, then **Comments** (needs-you badge), **Agent**, **Main thread** with one, **Finish**, and **⋯**. Finish is filled with the submit count, or a local review's Send count; outlined while Finish review shows.
 - The chapter title truncates. CSS container queries show **Comments**, **Agent**, **Main thread** and **Finish review** from 880px of bar width; narrower, icons and counts plus **Finish**. **⋯** groups All reviews, Find (`/`), Go to main thread ↗, Fold comments (`i`), Diff options, Full screen (`⇧F`), guide and review actions, Keyboard shortcuts (`?`) and Review settings.
 - **Full screen** covers BB's bars, on an iPhone too. The same review bar remains, adding the review id before the chapter. Toasts, **Undo** included, stay above it; a phone uses the dock instead.
 - The review agent and main thread are tabs in BB's side panel. **Agent** and **Main thread** are pressed while their tab shows; clicking again closes it. A desktop pane 560px wide keeps the review bar. While either chat shows, BB's toasts sit above its message box.
@@ -564,7 +564,7 @@ Discussions with the review agent sit under a line, the summary, or a GitHub car
 - **Ask agent** on a comment opens a box under it: say what's wrong or ask why, and the agent answers there, or edits or removes the comment. The box says what the agent gets with your words: "It sees this comment and line 192." It answers your questions there, and after an edit says what it changed; **Show changes** beside "Agent edited the comment." strikes the words it took out and marks the ones it put in. **Undo** puts back its latest change.
 - **Ask agent** in the comment box, or on selected lines, asks about the lines without adding a comment.
 - On a GitHub card, **Ask agent** sends that thread and its line ("It sees this thread and its line."), or the PR item ("It sees this comment."), even on a closed or merged PR. Its placeholder is "Ask about this comment…".
-- The composer names its destination inside its own frame, under the text box: "🔒 Private · only you and the agent" with **Ask agent** in the agent tint; a GitHub reply has GitHub's mark, "Public · posts to GitHub as you", and **Post to GitHub**.
+- The composer names its destination inside its own frame, under the text box: "🔒 Private · only you and the agent" with **Ask agent** in the agent tint; a GitHub reply has GitHub's mark, "Public · posts to GitHub now, as you", and **Post to GitHub**.
 - **Ask agent**, at the foot of a discussion, opens its private composer there: under a line, in Comments, under the summary, or in a GitHub card's private zone. Send and Cancel return focus to **Ask agent**. "Reply" means GitHub only.
 - Text selected in the code, a long-press included, offers **Ask agent about selection** (unless **Ask agent about selected text** is off in Settings).
 - Discussions stay in BB: submitting sends only the comments. Discussions about GitHub threads stay after Submit.
