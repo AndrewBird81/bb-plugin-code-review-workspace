@@ -115,20 +115,20 @@ test("one list: chips count what they show, the groups come in order, and each i
   // Not submitted counts every draft comment, as Submit does; the one on an older diff shows in Needs you.
   expect(list.getAllByRole("radio").map((radio) => radio.getAttribute("aria-label"))).toEqual(["All, 8", "Needs you, 2", "Not submitted, 3", "On GitHub, 3"]);
   expect(chip(list, "All").getAttribute("aria-checked")).toBe("true");
-  expect(headings(list)).toEqual(["Needs you · 2", "Not submitted · only in BB · 3", "On GitHub · 3", "Private · with the agent · 1"]);
+  expect(headings(list)).toEqual(["Needs you · 2", "Not submitted · only in BB · 3", "On GitHub · 3", "Private · only you and the agent · 1"]);
   expect(list.getByText("1 blocking · 1 nit")).toBeTruthy();
   expect(list.getByText("+1 on an older diff, in Needs you")).toBeTruthy();
   expect(list.getByText("Yours: 1 of 1 handled")).toBeTruthy();
   expect(rows(list)).toEqual([
     "Older diff · not submitted · src/a.ts:1",
-    "You · Author replied · src/a.ts:2 · Blocking · agent's check: Partly addressed · Agent reply draft · not sent",
+    "You · Author replied · src/a.ts:2 · Blocking · agent's check: Partly addressed · Reply draft · not posted yet",
     "Draft · not submitted · src/a.ts:2 · Blocking",
     "Agent draft · not submitted · src/b.ts:1 · Nit",
     "@carol · Open · File comment · src/b.ts",
-    "Private · with the agent · src/b.ts:1 (old line)",
+    "Private · only you and the agent · src/b.ts:1 (old line)",
   ]);
   // Resolved and outdated threads fold under On GitHub.
-  expect(list.getByRole("button", { name: "1 resolved · 1 outdated" }).getAttribute("aria-expanded")).toBe("false");
+  expect(list.getByRole("button", { name: "1 resolved on GitHub · 1 outdated" }).getAttribute("aria-expanded")).toBe("false");
   // The same count as Submit's, in the Finish bar and the title bar.
   expect(slot.getByText("3 to send", { exact: false })).toBeTruthy();
   expect(slot.getByRole("button", { name: "Finish review: Comment, 3 comments" })).toBeTruthy();
@@ -150,14 +150,14 @@ test("a chip shows its group alone: Needs you by urgency, and Not submitted ever
   expect(chip(list, "All").getAttribute("aria-checked")).toBe("true");
   fireEvent.click(chip(list, "Needs you"));
   expect(headings(list)).toEqual(["Needs you · 2"]);
-  expect(rows(list)).toEqual(["Older diff · not submitted · src/a.ts:1", "You · Author replied · src/a.ts:2 · Blocking · agent's check: Partly addressed · Agent reply draft · not sent"]);
+  expect(rows(list)).toEqual(["Older diff · not submitted · src/a.ts:1", "You · Author replied · src/a.ts:2 · Blocking · agent's check: Partly addressed · Reply draft · not posted yet"]);
   fireEvent.click(chip(list, "Not submitted"));
   expect(rows(list)).toEqual(["Older diff · not submitted · src/a.ts:1", "Draft · not submitted · src/a.ts:2 · Blocking", "Agent draft · not submitted · src/b.ts:1 · Nit"]);
   fireEvent.click(chip(list, "On GitHub"));
-  fireEvent.click(list.getByRole("button", { name: "1 resolved · 1 outdated" }));
+  fireEvent.click(list.getByRole("button", { name: "1 resolved on GitHub · 1 outdated" }));
   expect(rows(list)).toEqual([
     "@carol · Open · File comment · src/b.ts",
-    "@bob · Resolved · src/a.ts:2 (old line)",
+    "@bob · Resolved on GitHub · src/a.ts:2 (old line)",
     "@dave · Open · Outdated · src/a.ts:9",
   ]);
   slot.lifecycle.unmount();
@@ -175,7 +175,7 @@ test("a row shows its item in the code, switching chapters, and its chevron open
   const card = list.getByRole("article", { name: "GitHub thread on src/a.ts:2" });
   expect(within(card).getByText("It's a constant.")).toBeTruthy();
   expect(within(card).getByText("Renamed in one place of two.")).toBeTruthy();
-  expect(within(card).getByRole("group", { name: "Agent reply draft · not sent on src/a.ts:2" })).toBeTruthy();
+  expect(within(card).getByRole("group", { name: "Reply draft · not posted yet on src/a.ts:2" })).toBeTruthy();
   fireEvent.click(list.getByRole("button", { name: "Collapse GitHub thread on src/a.ts:2" }));
   expect(list.queryByRole("article", { name: "GitHub thread on src/a.ts:2" })).toBeNull();
   slot.lifecycle.unmount();
@@ -189,13 +189,13 @@ test("a row and a pill show what waits with an item: a thread's reply draft, and
   const { slot } = await renderWorkspace({ rpc: { getDraft: () => ({ draft: { targetKey: "pr-42", verdict: "COMMENT", body: "", comments: structuredClone(comments) }, stale: [], discussions: talk }) } });
   const list = await openComments(slot);
   const row = (id: string) => within(slot.container.querySelector<HTMLElement>(`[data-comment-row="${id}"]`)!);
-  expect(row("t1").getByText("Agent reply draft · not sent")).toBeTruthy();
+  expect(row("t1").getByText("Reply draft · not posted yet")).toBeTruthy();
   expect(row("draft:src/a.ts:2:RIGHT").getByTitle("2 messages with the agent")).toBeTruthy();
   expect(list.getByRole("button", { name: /^Draft · not submitted · src\/a\.ts:2 · Blocking · 2 messages with the agent$/ })).toBeTruthy();
   fireEvent.keyDown(document.body, { key: "i" });
   const pill = within(await code(slot, "src/a.ts").findByRole("group", { name: "GitHub thread on src/a.ts:2, folded" }));
   // After its state, and on a phone ahead of its first line: CSS shows one of the two.
-  expect(pill.getAllByText("Agent reply draft · not sent")).toHaveLength(2);
+  expect(pill.getAllByText("Reply draft · not posted yet")).toHaveLength(2);
   slot.lifecycle.unmount();
 });
 
@@ -211,15 +211,15 @@ test("in the list, a discussion with the agent goes on from Reply at its foot, w
   const card = within(list.getByRole("article", { name: "Draft comment on src/a.ts:2" }));
   expect(card.queryByRole("button", { name: "Ask agent about the comment on src/a.ts:2" })).toBeNull();
   const thread = within(card.getByRole("region", { name: "Discussion with agent on src/a.ts:2" }));
-  fireEvent.click(thread.getByRole("button", { name: "Reply" }));
+  fireEvent.click(thread.getByRole("button", { name: "Ask agent" }));
   const box = card.getByRole("textbox", { name: "Message to agent" });
   await waitFor(() => expect(document.activeElement).toBe(box));
   fireEvent.keyDown(box, { key: "Escape" });
-  await waitFor(() => expect(document.activeElement).toBe(thread.getByRole("button", { name: "Reply" })));
+  await waitFor(() => expect(document.activeElement).toBe(thread.getByRole("button", { name: "Ask agent" })));
   // A question with no comment ends the same way, with Dismiss beside Reply; unanswered, its chat is a link apart.
   fireEvent.click(list.getByRole("button", { name: "Expand Private discussion on src/b.ts:1 (old line)" }));
   const question = within(list.getByRole("article", { name: "Private discussion on src/b.ts:1 (old line)" }));
-  expect(question.getAllByRole("button").map((button) => button.textContent)).toEqual(["Open its chat", "Reply", "Dismiss"]);
+  expect(question.getAllByRole("button").map((button) => button.textContent)).toEqual(["Open its chat", "Ask agent", "Done for me"]);
   slot.lifecycle.unmount();
 });
 
@@ -228,7 +228,7 @@ test("GitHub threads show at their lines with every message; a resolved one is a
   const open = await code(slot, "src/a.ts").findByRole("article", { name: "GitHub thread on src/a.ts:2" });
   expect(open.closest("[data-annotation]")!.getAttribute("data-annotation")).toBe("additions:2");
   // Where it is, in words as well as GitHub's mark, as every draft card says "not submitted".
-  expect(within(open).getByText("On GitHub")).toBeTruthy();
+  expect(within(open).getByText("On GitHub · public")).toBeTruthy();
   expect(within(open).getByText("It's a constant.")).toBeTruthy();
   expect(within(open).getByText("@alice")).toBeTruthy();
   expect(within(open).getByText("Author replied")).toBeTruthy();
@@ -266,11 +266,11 @@ test("a card shows the latest two replies and a long message's start until asked
   expect(earlier.className.split(" ")).toEqual(touch);
   fireEvent.click(earlier);
   expect(card.getByText("It's a constant.")).toBeTruthy();
-  const more = card.getByRole("button", { name: "More" });
+  const more = card.getByRole("button", { name: "Show all" });
   expect(more.getAttribute("aria-expanded")).toBe("false");
   expect(more.className.split(" ")).toEqual(touch);
   fireEvent.click(more);
-  expect(card.getByRole("button", { name: "Less" }).getAttribute("aria-expanded")).toBe("true");
+  expect(card.getByRole("button", { name: "Show less" }).getAttribute("aria-expanded")).toBe("true");
   fireEvent.click(card.getByRole("button", { name: "More on the thread on src/a.ts:2" }));
   fireEvent.click(within(await slot.findByRole("dialog")).getByRole("button", { name: "Open on GitHub" }));
   expect(slot.inspection.navigateCalls).toContainEqual({ method: "openUrl", url: "https://github.com/acme/web/pull/42#discussion_r111" });
@@ -299,7 +299,7 @@ test("a thread card hidden in the code keeps one plain line: its replies, and wh
 test("leaving a review forgets the comment last gone to, so reopening it doesn't open its fold again", async () => {
   let { slot } = await renderWorkspace();
   const list = await openComments(slot);
-  fireEvent.click(list.getByRole("button", { name: "1 resolved · 1 outdated" }));
+  fireEvent.click(list.getByRole("button", { name: "1 resolved on GitHub · 1 outdated" }));
   fireEvent.click(list.getByRole("button", { name: /^@dave · / }));
   await waitFor(() => expect(code(slot, "src/a.ts").getByText("This moved.")).toBeTruthy());
   slot.lifecycle.unmount();
@@ -438,14 +438,14 @@ test("a resolve in the code shows in the list at once, and one in the list in th
   await waitFor(() => expect(rpc.resolveThread).toHaveBeenCalledWith({ targetKey: "pr-42", threadId: "t1", account: "me" }));
   // Yours: your feedback is read from GitHub again too.
   await waitFor(() => expect(rpc.refreshFeedback).toHaveBeenCalledWith({ targetKey: "pr-42" }));
-  await list.findByRole("button", { name: "2 resolved · 1 outdated" });
+  await list.findByRole("button", { name: "2 resolved on GitHub · 1 outdated" });
   // Resolved from its card, the card stays open where it is rather than fold to a pill, so its button keeps the focus.
   expect(within(code(slot, "src/a.ts").getByRole("article", { name: "GitHub thread on src/a.ts:2" })).getByRole("button", { name: "Unresolve on GitHub" })).toBeTruthy();
-  fireEvent.click(list.getByRole("button", { name: "2 resolved · 1 outdated" }));
+  fireEvent.click(list.getByRole("button", { name: "2 resolved on GitHub · 1 outdated" }));
   fireEvent.click(list.getByRole("button", { name: /^Expand GitHub thread on src\/a\.ts:2$/ }));
   fireEvent.click(within(list.getByRole("article", { name: "GitHub thread on src/a.ts:2" })).getByRole("button", { name: "Unresolve on GitHub" }));
   await waitFor(() => expect(rpc.unresolveThread).toHaveBeenCalledWith({ targetKey: "pr-42", threadId: "t1", account: "me" }));
-  await waitFor(() => expect(within(code(slot, "src/a.ts").getByRole("article", { name: "GitHub thread on src/a.ts:2" })).queryByText("Resolved")).toBeNull());
+  await waitFor(() => expect(within(code(slot, "src/a.ts").getByRole("article", { name: "GitHub thread on src/a.ts:2" })).queryByText("Resolved on GitHub")).toBeNull());
   slot.lifecycle.unmount();
 });
 
@@ -529,7 +529,7 @@ test("⋯ Comment options: hide nits, show resolved threads, add a comment by li
   await waitFor(() => expect(list.queryByRole("button", { name: /src\/b\.ts:1 · Nit/ })).toBeNull());
   expect(list.getByText("1 blocking · 1 nit · 1 hidden")).toBeTruthy();
   fireEvent.click(menu.getByRole("switch", { name: "Show resolved threads" }));
-  expect(list.getByRole("button", { name: "@bob · Resolved · src/a.ts:2 (old line)" })).toBeTruthy();
+  expect(list.getByRole("button", { name: "@bob · Resolved on GitHub · src/a.ts:2 (old line)" })).toBeTruthy();
   fireEvent.click(menu.getByRole("button", { name: "Open PR on GitHub" }));
   expect(slot.inspection.navigateCalls).toContainEqual({ method: "openUrl", url: "https://github.com/acme/web/pull/42" });
   menu = await options();
@@ -751,7 +751,7 @@ test("on your own PR, every thread whose latest comment isn't yours or a bot's n
   const alices = list.getByRole("button", { name: /^Needs your reply to @alice/ });
   expect(within(alices).getByText("Needs your reply to @alice")).toBeTruthy();
   expect(alices.textContent).toContain("Your thread · It's a constant.");
-  expect(list.getByRole("button", { name: "1 resolved · 1 from bots" }).getAttribute("aria-expanded")).toBe("false");
+  expect(list.getByRole("button", { name: "1 resolved on GitHub · 1 from bots" }).getAttribute("aria-expanded")).toBe("false");
   // No one answers your feedback on your own PR: no "Yours: … handled", and no agent's check of it.
   expect(list.queryByText(/^Yours:/)).toBeNull();
   expect(list.queryByRole("button", { name: "Check again" })).toBeNull();
@@ -779,5 +779,169 @@ test("a comment on a line only in the folder shows in the list with Not on GitHu
   expect(list.getByText("1 isn’t on GitHub yet. It goes with Send, not Submit.")).toBeTruthy();
   expect(list.getAllByRole("radio").map((radio) => radio.getAttribute("aria-label"))).toContain("Not submitted, 0");
   expect(code(slot, "src/a.ts").queryByText("Only in the folder.")).toBeNull();
+  slot.lifecycle.unmount();
+});
+
+test.each(["inline", "row"] as const)("a thread ask lands in its private zone, with context and focus, in %s", async (variant) => {
+  let talk: any[] = [];
+  const draft = { targetKey: "pr-42", verdict: "COMMENT", body: "", comments: [] };
+  const askAgent = vi.fn(({ body }: any) => {
+    talk = [{ file: "github:t1", line: 0, side: "RIGHT", waiting: false, entries: [
+      { author: "reviewer", kind: "message", body, createdAt: now },
+      { author: "agent", kind: "message", body: "Valid concern.\n\n```ts\n" + "const veryLongName = 1;".repeat(40) + "\n```", createdAt: now + 1 },
+    ] }];
+    return { draft, stale: [], discussions: talk };
+  });
+  const { slot, rpc } = await renderWorkspace({ rpc: { getDraft: () => ({ draft, stale: [], discussions: talk }), askAgent } });
+  const list = await openComments(slot);
+  if (variant === "row") fireEvent.click(list.getByRole("button", { name: "Expand GitHub thread on src/a.ts:2" }));
+  const card = within(variant === "row" ? list.getByRole("article", { name: "GitHub thread on src/a.ts:2" }) : code(slot, "src/a.ts").getByRole("article", { name: "GitHub thread on src/a.ts:2" }));
+  const privateZone = card.getByRole("region", { name: "Private · only you and the agent" });
+  const zone = within(privateZone);
+  expect(privateZone.children).toHaveLength(1);
+  const publicZone = within(card.getByRole("region", { name: "On GitHub · public" }));
+  expect(publicZone.getByRole("button", { name: "Resolve on GitHub" })).toBeTruthy();
+  expect(publicZone.queryByRole("button", { name: "Ask agent" })).toBeNull();
+  expect(zone.queryByText("Send to fix")).toBeNull();
+  expect(card.getByText("On GitHub · public")).toBeTruthy();
+  expect(zone.queryByRole("button", { name: "Resolve on GitHub" })).toBeNull();
+  const ask = zone.getByRole("button", { name: "Ask agent" });
+  expect(ask.getAttribute("data-agent-reply")).toBe("github:t1:0:RIGHT");
+  fireEvent.click(ask);
+  let box = zone.getByRole("textbox", { name: "Message to agent" });
+  await waitFor(() => expect(document.activeElement).toBe(box));
+  expect(box.getAttribute("placeholder")).toBe("Ask about this comment…");
+  const frame = within(box.closest<HTMLElement>("[data-keyboard-box]")!);
+  expect(frame.getByText("Private · only you and the agent")).toBeTruthy();
+  expect(frame.getByText("It sees this thread and its line.")).toBeTruthy();
+  fireEvent.click(frame.getByRole("button", { name: "Cancel" }));
+  await waitFor(() => expect(document.activeElement).toBe(zone.getByRole("button", { name: "Ask agent" })));
+  fireEvent.click(zone.getByRole("button", { name: "Ask agent" }));
+  box = zone.getByRole("textbox", { name: "Message to agent" });
+  fireEvent.change(box, { target: { value: "Is this valid?" } });
+  fireEvent.click(within(box.closest<HTMLElement>("[data-keyboard-box]")!).getByRole("button", { name: "Ask agent" }));
+  await waitFor(() => expect(askAgent).toHaveBeenCalledWith({
+    targetKey: "pr-42", file: "github:t1", line: 0, side: "RIGHT", body: "Is this valid?", inserted: false,
+    thread: { id: "t1", where: "src/a.ts:2", at: { file: "src/a.ts", line: 2, side: "RIGHT" }, resolved: false, messages: [
+      { who: "@me", body: "**Blocking:** Why upper case?" }, { who: "@alice", body: "It's a constant." },
+    ] },
+  }));
+  await zone.findByText("Is this valid?");
+  await waitFor(() => expect(document.activeElement).toBe(zone.getByRole("button", { name: "Ask agent" })));
+  expect(zone.getByText("You")).toBeTruthy();
+  expect(zone.getByText("Agent").querySelector('[aria-label="Private"]')).toBeTruthy();
+  const all = zone.getByRole("button", { name: "Show all" });
+  expect(all.getAttribute("aria-expanded")).toBe("false");
+  fireEvent.click(all);
+  expect(all.getAttribute("aria-expanded")).toBe("true");
+  expect(list.queryByRole("button", { name: /Expand Private discussion on github:/ })).toBeNull();
+  const publicDraft = card.getByRole("group", { name: "Reply draft · not posted yet on src/a.ts:2" });
+  expect(publicDraft.closest('[aria-label="Private · only you and the agent"]')).toBeNull();
+  expect(within(publicDraft).getByText("Public · posts to GitHub as you")).toBeTruthy();
+  expect(within(publicDraft).getByRole("button", { name: "Post to GitHub" })).toBeTruthy();
+  expect(rpc.replyToFeedback).not.toHaveBeenCalled();
+  expect(rpc.resolveThread).not.toHaveBeenCalled();
+  slot.lifecycle.unmount();
+});
+
+test("an unsent thread ask survives reopening with its public context, never as a new line comment", async () => {
+  const askAgent = vi.fn(() => ({ draft: { targetKey: "pr-42", verdict: "COMMENT", body: "", comments: [] }, stale: [], discussions: [] }));
+  let { slot } = await renderWorkspace({ rpc: { askAgent } });
+  let card = within(await code(slot, "src/a.ts").findByRole("article", { name: "GitHub thread on src/a.ts:2" }));
+  fireEvent.click(card.getByRole("button", { name: "Ask agent" }));
+  fireEvent.change(card.getByRole("textbox", { name: "Message to agent" }), { target: { value: "Still valid?" } });
+  slot.lifecycle.unmount();
+  ({ slot } = await renderWorkspace({ rpc: { askAgent } }));
+  card = within(await code(slot, "src/a.ts").findByRole("article", { name: "GitHub thread on src/a.ts:2" }));
+  const box = await card.findByRole("textbox", { name: "Message to agent" });
+  expect((box as HTMLTextAreaElement).value).toBe("Still valid?");
+  expect(card.getByText("It sees this thread and its line.")).toBeTruthy();
+  fireEvent.click(within(box.closest<HTMLElement>("[data-keyboard-box]")!).getByRole("button", { name: "Ask agent" }));
+  await waitFor(() => expect(askAgent).toHaveBeenCalledWith(expect.objectContaining({ file: "github:t1", line: 0, body: "Still valid?", thread: expect.objectContaining({ id: "t1", at: { file: "src/a.ts", line: 2, side: "RIGHT" } }) })));
+  slot.lifecycle.unmount();
+});
+
+test.each(["MERGED", "CLOSED"])("a private ask still works on a %s PR", async (prState) => {
+  const askAgent = vi.fn(() => ({ draft: { targetKey: "pr-42", verdict: "COMMENT", body: "", comments: [] }, stale: [], discussions: [] }));
+  const { slot } = await renderWorkspace({ review: { prState }, rpc: { askAgent } });
+  const card = within(await code(slot, "src/a.ts").findByRole("article", { name: "GitHub thread on src/a.ts:2" }));
+  fireEvent.click(card.getByRole("button", { name: "Ask agent" }));
+  fireEvent.change(card.getByRole("textbox", { name: "Message to agent" }), { target: { value: "Follow up?" } });
+  fireEvent.click(within(card.getByRole("textbox", { name: "Message to agent" }).closest<HTMLElement>("[data-keyboard-box]")!).getByRole("button", { name: "Ask agent" }));
+  await waitFor(() => expect(askAgent).toHaveBeenCalledWith(expect.objectContaining({ file: "github:t1", line: 0, body: "Follow up?" })));
+  slot.lifecycle.unmount();
+});
+
+test.each(["review", "comment"] as const)("a PR %s has the same private ask, but no GitHub Reply or Resolve", async (kind) => {
+  const askAgent = vi.fn(() => ({ draft: { targetKey: "pr-42", verdict: "COMMENT", body: "", comments: [] }, stale: [], discussions: [] }));
+  const { slot } = await renderWorkspace({ review: { ownPr: true, author: "me", prConversation: [{ id: "P1", kind, author: "sam", bot: false, body: "Check the boundary.", at: now, url: "https://github.com/acme/web/pull/42", waiting: true }] }, rpc: { askAgent } });
+  const list = await openComments(slot);
+  const name = kind === "review" ? "GitHub review summary on the PR" : "GitHub comment on the PR";
+  fireEvent.click(list.getByRole("button", { name: `Expand ${name}` }));
+  const card = within(list.getByRole("article", { name }));
+  expect(card.queryByRole("button", { name: "Reply on GitHub" })).toBeNull();
+  expect(card.queryByRole("button", { name: "Resolve on GitHub" })).toBeNull();
+  const zone = within(card.getByRole("region", { name: "Private · only you and the agent" }));
+  expect(zone.getByText("Send to fix")).toBeTruthy();
+  fireEvent.click(zone.getByRole("button", { name: "Ask agent" }));
+  expect(zone.getByText("It sees this comment.")).toBeTruthy();
+  const box = zone.getByRole("textbox", { name: "Message to agent" });
+  fireEvent.change(box, { target: { value: "Is it valid?" } });
+  fireEvent.click(within(box.closest<HTMLElement>("[data-keyboard-box]")!).getByRole("button", { name: "Ask agent" }));
+  await waitFor(() => expect(askAgent).toHaveBeenCalledWith({ targetKey: "pr-42", file: "github:P1", line: 0, side: "RIGHT", body: "Is it valid?", inserted: false,
+    thread: { id: "P1", where: "the PR", resolved: false, messages: [{ who: "@sam", body: "Check the boundary." }] },
+  }));
+  slot.lifecycle.unmount();
+});
+
+test("a newer GitHub reply reopens Done for me in the list and code", async () => {
+  let live = threads();
+  const { slot } = await renderWorkspace({ review: { ownPr: true, author: "me", doneForMe: { t1: { at: now, latest: now - 5 * HOUR } } }, rpc: { getReviewThreads: () => ({ threads: live }) } });
+  const list = await openComments(slot);
+  await list.findByRole("button", { name: "Done for me (1)" });
+  expect(code(slot, "src/a.ts").getByText(/^Done for me · GitHub: Open/)).toBeTruthy();
+  live = live.map((thread) => thread.id === "t1" ? { ...thread, comments: [...thread.comments, said("new", 999, "alice", "Another concern.", 0)] } : thread);
+  await slot.emitRealtime("feedback:pr-42", {});
+  await code(slot, "src/a.ts").findByRole("article", { name: "GitHub thread on src/a.ts:2" });
+  expect(list.queryByRole("button", { name: "Done for me (1)" })).toBeNull();
+  fireEvent.click(chip(list, "Needs you"));
+  expect(list.getByRole("button", { name: "Expand GitHub thread on src/a.ts:2" })).toBeTruthy();
+  slot.lifecycle.unmount();
+});
+
+test.each(["thread", "review", "private"])("Done for me hides a %s in BB, folds it, and Undo restores it", async (kind) => {
+  const review: Record<string, any> = { ownPr: true, author: "me", prConversation: [{ id: "review-1", kind: "review", author: "sam", bot: false, body: "Please check the boundary.", at: now, url: "https://github.com/acme/web/pull/42#pullrequestreview-1", waiting: true }] };
+  const id = kind === "thread" ? "t1" : kind === "review" ? "review-1" : "private:src/b.ts:1:LEFT";
+  const latest = kind === "thread" ? now - 5 * HOUR : kind === "review" ? now : now - HOUR;
+  const setDoneForMe = vi.fn(({ id, done, latest }: any) => {
+    review.doneForMe = done ? { [id]: { at: now, latest } } : {};
+    return { ok: true };
+  });
+  const { slot, rpc } = await renderWorkspace({ review, rpc: { setDoneForMe } });
+  const list = await openComments(slot);
+  const name = kind === "thread" ? "GitHub thread on src/a.ts:2" : kind === "review" ? "GitHub review summary on the PR" : "Private discussion on src/b.ts:1 (old line)";
+  if (kind === "private") fireEvent.click(list.getByRole("button", { name: /^Private · only you and the agent · src\/b.ts:1/ }));
+  fireEvent.click(list.getByRole("button", { name: `Expand ${name}` }));
+  fireEvent.click(within(list.getByRole("article", { name })).getByRole("button", { name: "Done for me" }));
+  await waitFor(() => expect(setDoneForMe).toHaveBeenCalledWith({ targetKey: "pr-42", id, done: true, latest }));
+  await slot.emitRealtime("review:pr-42", {});
+  const fold = await list.findByRole("button", { name: "Done for me (1)" });
+  expect(fold.getAttribute("aria-expanded")).toBe("false");
+  expect(list.queryByRole("button", { name: "Undo" })).toBeNull();
+  if (kind !== "review") {
+    const inCode = code(slot, kind === "private" ? "src/b.ts" : "src/a.ts");
+    expect(inCode.getByText(kind === "thread" ? /^Done for me · GitHub: Open/ : /^Done for me · You:/)).toBeTruthy();
+    expect(inCode.getByRole("button", { name: "Undo" })).toBeTruthy();
+  }
+  fireEvent.click(fold);
+  const done = list.getByRole("region", { name: "Done for me" });
+  expect(done).toBe(slot.getByRole("region", { name: "Comments" }).lastElementChild);
+  expect(within(done).getByRole("button", { name: "Undo" })).toBeTruthy();
+  fireEvent.click(within(done).getByRole("button", { name: "Undo" }));
+  await waitFor(() => expect(setDoneForMe).toHaveBeenLastCalledWith({ targetKey: "pr-42", id, done: false, latest: null }));
+  await slot.emitRealtime("review:pr-42", {});
+  await waitFor(() => expect(list.queryByRole("button", { name: `Expand ${name}` }) ?? list.queryByRole("button", { name: `Collapse ${name}` })).toBeTruthy());
+  expect(list.queryByRole("button", { name: "Done for me (1)" })).toBeNull();
+  expect(rpc.resolveThread).not.toHaveBeenCalled();
   slot.lifecycle.unmount();
 });

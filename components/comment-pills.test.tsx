@@ -68,7 +68,7 @@ test("i folds every card in the code to a pill that says who, its state, its fir
   expect(lines?.firstElementChild?.textContent).toBe("Agent draft · not submitted · Blocking");
   const thread = diff().getByRole("group", { name: "GitHub thread on src/a.ts:2, folded" });
   expect(thread.textContent).toContain("@bob");
-  expect(thread.textContent).toContain("Resolved");
+  expect(thread.textContent).toContain("Resolved on GitHub");
   // Its first line as plain words.
   expect(thread.textContent).toContain("Nit: why upper case?");
   expect(thread.textContent).toContain("1 reply");
@@ -113,7 +113,7 @@ test("an open comment box never folds", async () => {
 test("a resolved thread starts as its pill; shown, its card's Hide folds it back", async () => {
   const { slot, diff } = await renderWorkspace();
   const pill = diff().getByRole("group", { name: "GitHub thread on src/a.ts:2, folded" });
-  expect(pill.textContent).toContain("Resolved");
+  expect(pill.textContent).toContain("Resolved on GitHub");
   expect(diff().queryByRole("article", { name: "GitHub thread on src/a.ts:2" })).toBeNull();
   fireEvent.click(within(pill).getByRole("button", { name: "Show GitHub thread on src/a.ts:2" }));
   // In full at once, not its one plain line.
@@ -151,8 +151,8 @@ test("going to a comment from the list opens its pill", async () => {
   await diff().findByRole("group", { name: "GitHub thread on src/a.ts:2, folded" });
   fireEvent.click(await slot.findByRole("button", { name: /^Comments/ }));
   const list = within(slot.getByRole("region", { name: "Comments" }));
-  fireEvent.click(await list.findByRole("button", { name: "1 resolved" }));
-  fireEvent.click(list.getByRole("button", { name: /^@bob · Resolved · src\/a\.ts:2/ }));
+  fireEvent.click(await list.findByRole("button", { name: "1 resolved on GitHub" }));
+  fireEvent.click(list.getByRole("button", { name: /^@bob · Resolved on GitHub · src\/a\.ts:2/ }));
   expect(await diff().findByRole("article", { name: "GitHub thread on src/a.ts:2" })).toBeTruthy();
   expect(diff().getByRole("group", { name: "Draft comment on src/a.ts:2, folded" })).toBeTruthy();
   slot.lifecycle.unmount();

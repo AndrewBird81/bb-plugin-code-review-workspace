@@ -73,6 +73,7 @@ export const CommentRow = memo(function CommentRow({ targetKey, item, expanded, 
   const talk = talkOf(item);
   const latest = latestOf(item);
   const show = onShow ? () => onShow(item) : () => onExpand?.(expanded ? null : item.id);
+  if (item.doneForMe) return <li data-comment-row={item.id}><CommentCard targetKey={targetKey} item={item} variant="row" /></li>;
   return (
     <li data-comment-row={item.id} className="group/row">
       <div className={cn("flex min-w-0 items-stretch rounded-lg bg-card transition-colors", expanded ? "rounded-b-none" : "hover:bg-state-hover/60", frameOf(item), expanded && "border-b-transparent", current && "ring-2 ring-primary/40")}>

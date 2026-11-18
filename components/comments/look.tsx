@@ -94,7 +94,7 @@ const STATE_LOOK: Record<ThreadItem["state"], { tone: Tone; icon?: IconName }> =
 export function ThreadState({ item, size = "sm" }: { item: ThreadItem; size?: "sm" | "md" }) {
   const look = STATE_LOOK[item.state];
   return <>
-    <Badge tone={look.tone} size={size} icon={look.icon && <Icon name={look.icon} aria-hidden />}>{item.label}</Badge>
+    <Badge tone={look.tone} size={size} icon={look.icon && <Icon name={look.icon} aria-hidden />}>{item.label}{item.state === "resolved" && item.resolvedBy && ` · by @${item.resolvedBy}`}</Badge>
     {item.outdated && <Badge size={size} icon={<Icon name="GitCommit" aria-hidden />}>{THREAD_FLAG_LABEL.outdated}</Badge>}
     {item.fileComment && <Badge size={size} icon={<Icon name="File" aria-hidden />}>{THREAD_FLAG_LABEL.fileComment}</Badge>}
   </>;

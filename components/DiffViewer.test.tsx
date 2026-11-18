@@ -282,29 +282,29 @@ test("a discussion goes on from Reply at its foot, as a GitHub thread does, in A
   expect(within(card).queryByRole("button", { name: "Ask agent" })).toBeNull();
   const thread = screen.getByRole("region", { name: "Discussion with agent on src/a.ts:2" });
   // The last thing in it, after the agent's answer.
-  const reply = within(thread).getByRole("button", { name: "Reply" });
+  const reply = within(thread).getByRole("button", { name: "Ask agent" });
   expect(thread.lastElementChild!.contains(reply)).toBe(true);
   fireEvent.click(reply);
   expect(draft.ask).toHaveBeenCalledWith(comment);
   cleanup();
   // Another box holding text holds it; one open here takes its place.
   renderWithDraft({ comments: [comment], discussions: [discussion], writing: true });
-  expect((within(screen.getByRole("region", { name: "Discussion with agent on src/a.ts:2" })).getByRole("button", { name: "Reply" }) as HTMLButtonElement).disabled).toBe(true);
+  expect((within(screen.getByRole("region", { name: "Discussion with agent on src/a.ts:2" })).getByRole("button", { name: "Ask agent" }) as HTMLButtonElement).disabled).toBe(true);
   cleanup();
   renderWithDraft({ comments: [comment], discussions: [discussion], composer: { ...at, editing: false, asking: true } }, {}, { body: "", change: vi.fn(), save: vi.fn(), askAgent: vi.fn(), cancel: vi.fn(), textareaRef: { current: null } });
   expect(screen.getByRole("textbox", { name: "Message to agent" })).toBeTruthy();
-  expect(screen.queryByRole("button", { name: "Reply" })).toBeNull();
+  expect(screen.getAllByRole("button", { name: "Ask agent" })).toHaveLength(1);
   cleanup();
   // A question with no comment: Dismiss heads it, and Reply ends it.
   const asked = renderWithDraft({ discussions: [discussion] });
-  const bare = screen.getByText("Private · with the agent").closest<HTMLElement>("[data-draft-at]")!;
-  expect(within(bare).getAllByRole("button").map((button) => button.textContent)).toEqual(["Dismiss", "Reply"]);
-  fireEvent.click(within(bare).getByRole("button", { name: "Reply" }));
+  const bare = screen.getByText("Private · only you and the agent").closest<HTMLElement>("[data-draft-at]")!;
+  expect(within(bare).getAllByRole("button").map((button) => button.textContent)).toEqual(["Ask agent"]);
+  fireEvent.click(within(bare).getByRole("button", { name: "Ask agent" }));
   expect(asked.ask).toHaveBeenCalledWith(discussion);
   cleanup();
   // A draft that can't change has none.
   renderWithDraft({ comments: [comment], discussions: [discussion], editable: false });
-  expect(screen.queryByRole("button", { name: "Reply" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Ask agent" })).toBeNull();
 });
 
 test("a viewed file, folded, dims its path alone, not its row's other text", () => {

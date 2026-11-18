@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { useBbNavigate, useRpc } from "@get-bb/plugin-sdk/app";
 import { toast } from "sonner";
 import type { rpcContract } from "../../src/rpc-contract";
-import { sameLocation, SEVERITIES, VERDICT_LABEL, type CommentLocation } from "../../src/draft";
+import { githubThreadOf, sameLocation, SEVERITIES, VERDICT_LABEL, type CommentLocation } from "../../src/draft";
 import { buildItems, checkTally, FILTER_LABEL, FIX_STATES, groups, isFixFilter, itemFix, needsYou, notOnGithub, shownItems, toSend, type CommentFilter, type CommentGroup, type CommentItem, type CommentSources, type FixState, type ThreadItem } from "../../lib/comments";
 import { clearOpenComments, forgetOpenComments, revealComment } from "../../lib/comments-fold";
 import { askReply, registerCommentKeys, registerCommentStepper, showCommentStep, useCommentStep } from "../../lib/comment-stops";
@@ -38,7 +38,7 @@ const TAB_FILTER: Record<Exclude<CommentsTab, "drafts">, CommentFilter> = { feed
 const FILTERS: CommentFilter[] = ["all", "needs-you", "not-submitted", "on-github"];
 /** A fix's chip's empty list. */
 const NO_FIX: Record<FixState, string> = {
-  open: "No open comments.", sent: "No comments waiting on a report.", done: "No comments reported done.", declined: "No comments reported declined.", resolved: "No resolved comments.", dismissed: "No dismissed comments.",
+  open: "No open comments.", sent: "No comments waiting on a report.", done: "No comments reported done.", declined: "No comments reported declined.", resolved: "No comments marked Done for me.", dismissed: "No comments marked Won't fix.",
 };
 
 /**
@@ -94,6 +94,7 @@ export function CommentsView({ shown, finish, tab, onTab, onShowThread }: {
   const expanded = useComments(targetKey, "expanded");
   const step = useCommentStep(targetKey);
   const [showFolded, setShowFolded] = useState(false);
+  const [showDone, setShowDone] = useState(false);
   const sendOn = useKnob("sendToThread");
 
   const sources = useMemo((): CommentSources => ({
@@ -101,8 +102,8 @@ export function CommentsView({ shown, finish, tab, onTab, onShowThread }: {
     threads: isPr ? threads : [], feedback: isPr ? feedback : null, replyDrafts: isPr ? replyDrafts : [],
     // Your own PR is yours as its author until your account is verified.
     sections, patch: draft.patch, viewer: draft.account ?? (ownPr ? review.author : null) ?? null, prUrl: review.url ?? null, closed, ownPr, status, checks: draft.checks,
-    conversation: ownPr ? review.prConversation ?? null : null,
-  }), [draft.loaded, draft.draft, draft.stale, draft.discussions, isPr, threads, feedback, replyDrafts, sections, draft.patch, draft.account, review.url, closed, ownPr, review.author, status, review.prConversation, draft.checks]);
+    conversation: ownPr ? review.prConversation ?? null : null, doneForMe: review.doneForMe,
+  }), [draft.loaded, draft.draft, draft.stale, draft.discussions, isPr, threads, feedback, replyDrafts, sections, draft.patch, draft.account, review.url, closed, ownPr, review.author, status, review.prConversation, review.doneForMe, draft.checks]);
   const items = useMemo(() => buildItems(sources), [sources]);
   const sending = useMemo(() => toSend(sources), [sources]);
   // Hidden nits leave the list and the code, not what Submit sends; one that needs you stays.
@@ -151,7 +152,7 @@ export function CommentsView({ shown, finish, tab, onTab, onShowThread }: {
   // The side panel's comment box, on an item in the list or a new one.
   const box = draft.showComposer && !draft.inline && !draft.onSummary ? { file: draft.file, line: Number(draft.line), side: draft.side } : null;
   const boxItem = box && (draft.editing || draft.asking)
-    ? items.find((item) => (item.kind === "draft" && sameLocation(item.comment, box)) || (item.kind === "private" && sameLocation(item.discussion, box)))
+    ? items.find((item) => (item.kind === "draft" && sameLocation(item.comment, box)) || (item.kind === "private" && sameLocation(item.discussion, box)) || (item.kind === "thread" && githubThreadOf(box) === item.id))
     : undefined;
   /** A new comment box at the top of the list, not on an item in it. */
   const writing = !!box && !boxItem && draft.editable;
@@ -239,7 +240,14 @@ export function CommentsView({ shown, finish, tab, onTab, onShowThread }: {
   const folded = counted.find((group) => group.id === "on-github")!.folded;
   const ready = draft.loaded && (!isPr || githubRead);
   const row = (item: CommentItem) => <CommentRow key={item.id} targetKey={targetKey} item={item} expanded={expanded === item.id} current={current === item.id} onShow={item.at ? show : null} onExpand={expand} />;
-  const groupBody = (group: CommentGroup, rows: CommentItem[], countedGroup: CommentGroup) => (
+  const groupBody = (group: CommentGroup, rows: CommentItem[], countedGroup: CommentGroup) => group.id === "done-for-me" ? (
+    <section key={group.id} aria-label="Done for me">
+      <button type="button" aria-expanded={showDone} onClick={() => setShowDone(!showDone)} className={cn("flex w-full items-center gap-1.5 rounded-md px-1 text-left text-xs text-muted-foreground", TOUCH_CONTROL)}>
+        <Icon name="ChevronRight" className={cn("size-3.5", showDone && "rotate-90")} aria-hidden />Done for me ({countedGroup.count})
+      </button>
+      {showDone && <ul className="space-y-1.5">{rows.map(row)}</ul>}
+    </section>
+  ) : (
     <section key={group.id} aria-labelledby={`gr-group-${group.id}`} className="space-y-1.5">
       <GroupHead id={`gr-group-${group.id}`} title={!isPr && group.id === "not-submitted" ? "Comments" : group.title} count={countedGroup.count} summary={[countedGroup.summary, group.id === "not-submitted" && hidden ? `${hidden} hidden` : null].filter(Boolean).join(" · ") || null} />
       {group.id === "needs-you" && ownPr && !closed && sendOn && <SendWaiting targetKey={targetKey} items={countedGroup.items} />}
@@ -277,7 +285,7 @@ export function CommentsView({ shown, finish, tab, onTab, onShowThread }: {
     <div hidden={!visible} className={cn("flex min-h-0 flex-1 flex-col", !visible && "hidden")}>
       {visible && (slot ? createPortal(headerActions, slot) : <div className="flex shrink-0 justify-end gap-1 border-b border-border px-2 py-1">{headerActions}</div>)}
       <section aria-label="Comments" ref={(el) => { scroller.current = el as HTMLDivElement | null; (draft.listRef as { current: HTMLElement | null }).current = el; }} className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain p-3">
-        {draft.showComposer && draft.inline && !draft.onSummary && (
+        {draft.showComposer && draft.inline && !draft.onSummary && !githubThreadOf({ file: draft.file, line: Number(draft.line), side: draft.side }) && (
           <div className="flex min-h-11 flex-wrap items-center gap-x-2 gap-y-1 rounded-lg bg-muted/40 py-1 pl-3 pr-1 text-xs text-muted-foreground">
             <Icon name="Edit" className="size-3.5 shrink-0" aria-hidden />
             <span className="min-w-0 flex-1 break-words">{draft.asking ? `Writing to the agent about ${draft.file}:${draft.boxLines}` : `Writing a comment on ${draft.file}:${draft.boxLines}`}</span>

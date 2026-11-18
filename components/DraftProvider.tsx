@@ -5,9 +5,11 @@ import { toast } from "sonner";
 import type { rpcContract } from "../src/rpc-contract";
 import type { ReviewItem } from "../lib/review-state";
 import { yoursByFolder } from "../lib/fixer";
-import type { CommentChecks } from "../lib/comments";
+import { githubContext, type CommentChecks } from "../lib/comments";
+import { useComments } from "./comments/store";
 import type { FixChange } from "./comments/FixTracking";
-import { commentsKey, isPreExisting, isSummary, linesOf, postable, rangeOf, sameLocation, SEVERITIES, severityCounts, SEVERITY_LABEL, sideOrder, summaryChanges, SUMMARY_AT, VERDICT_LABEL, type CommentLocation, type Discussion, type Draft, type DraftComment, type Severity, type Verdict } from "../src/draft";
+import type { GithubThreadContext } from "../src/discussions";
+import { commentsKey, githubThreadOf, isPreExisting, isSummary, linesOf, postable, rangeOf, sameLocation, SEVERITIES, severityCounts, SEVERITY_LABEL, sideOrder, summaryChanges, SUMMARY_AT, VERDICT_LABEL, type CommentLocation, type Discussion, type Draft, type DraftComment, type Severity, type Verdict } from "../src/draft";
 import { diffPositions, orderRange, type FilePositions } from "../src/review-positions";
 import { splitPatchByFile } from "../src/patch";
 import { carries, insertLines } from "../src/post-preview";
@@ -91,6 +93,10 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
   const [line, setLine] = useState("1");
   const [side, setSide] = useState<CommentLocation["side"]>("RIGHT");
   const [body, setBody] = useState("");
+  const [threadContext, setThreadContext] = useState<GithubThreadContext>();
+  const threadItems = useComments(targetKey, "items");
+  const recoveredThread = threadItems.find((item) => item.kind === "thread" && item.id === githubThreadOf({ file, line: Number(line), side }));
+  const askThread = threadContext ?? (recoveredThread?.kind === "thread" ? githubContext(recoveredThread) : undefined);
   // The box's text as it opened: the comment or summary it edits, or nothing. Text other than that is yours, unsaved.
   const openedBody = useRef("");
   // What the plugin put in the box, as it opened or by Suggest change; null when that isn't known, as for a box restored
@@ -239,7 +245,7 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
    * summary (SUMMARY_AT); with `ask`, a box for a message to the agent; a new comment starts with `start`. An unfinished
    * comment or message is shown instead.
    */
-  function openComposer(selected: (CommentLocation & Pick<CommentPrefill, "startLine" | "startSide">) | null, inDiff: boolean, ask = false, start?: CommentStart) {
+  function openComposer(selected: (CommentLocation & Pick<CommentPrefill, "startLine" | "startSide"> & { thread?: GithubThreadContext }) | null, inDiff: boolean, ask = false, start?: CommentStart) {
     const writing = !!body.trim();
     if (writing) toast.info(asking ? "Send or cancel your message to the agent first." : onSummary ? "Save or cancel the summary you’re writing first." : "Finish or cancel the comment you’re writing first.");
     else {
@@ -258,6 +264,7 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
       else if (summaryBox) { setFile(firstFile); setLine("1"); setSide("RIGHT"); }
       setStartLine(range.startLine); setStartSide(range.startSide);
       setAsking(ask);
+      setThreadContext(ask ? selected?.thread : undefined);
       setSummaryBox(summary);
       summaryBase.current = summary ? draft.body : null;
       const fresh = !summary && !existing ? start : undefined;
@@ -282,6 +289,7 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
     setBody(text);
   }
   function closeComposer() {
+    setThreadContext(undefined);
     setEditing(null); setAsking(false); setStartLine(undefined); setStartSide(undefined); setSeverity(undefined);
     const kept = legacySummary.current;
     if (kept) {
@@ -320,16 +328,17 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
    * summary, as a GitHub thread's Reply takes the focus back; else the comment's card, or the summary. Only while the
    * focus went with the box, not to something you chose since.
    */
-  function focusReply(at: CommentLocation, inDiff: boolean, frames = 10) {
+  function focusReply(at: CommentLocation, inDiff: boolean, frames = 10, from = bodyRef.current?.closest("[data-keyboard-box]")) {
     requestAnimationFrame(() => {
-      if (document.activeElement && document.activeElement !== document.body) return;
+      if (document.activeElement && document.activeElement !== document.body && !from?.contains(document.activeElement)) return;
       const key = locationKey(at);
       const summary = isSummary(at);
       const scope = summary ? summaryRef.current : inDiff ? document : listRef.current;
-      const reply = Array.from(scope?.querySelectorAll<HTMLButtonElement>(inDiff && !summary ? "[data-draft-at] [data-agent-reply]" : "[data-agent-reply]") ?? []).find((el) => el.dataset.agentReply === key);
+      const selector = inDiff && !summary ? githubThreadOf(at) ? "[data-comment-id] [data-agent-reply]" : "[data-draft-at] [data-agent-reply]" : "[data-agent-reply]";
+      const reply = Array.from(scope?.querySelectorAll<HTMLButtonElement>(selector) ?? []).find((el) => el.dataset.agentReply === key);
       // It may not show yet, or still wait on the draft's save.
       if (reply && !reply.disabled) reply.focus();
-      else if (frames > 1) focusReply(at, inDiff, frames - 1);
+      else if (frames > 1) focusReply(at, inDiff, frames - 1, from);
       else if (summary) focusSummary();
       else focusComment(at, inDiff);
     });
@@ -436,7 +445,7 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
     if (!body.trim()) return;
     const inserted = !filled.current || filled.current.some((text) => carries(body, insertLines(text)));
     await mutate(async () => {
-      const result = await enqueue(() => rpc.call("askAgent", { targetKey, file, line: Number(line), side, ...(startLine ? { startLine } : {}), body: body.trim(), inserted }));
+      const result = await enqueue(() => rpc.call("askAgent", { targetKey, file, line: Number(line), side, ...(startLine ? { startLine } : {}), body: body.trim(), inserted, ...(askThread ? { thread: askThread } : {}) }));
       apply(result as { draft: Draft }); closeComposer();
       focusReply({ file, line: Number(line), side }, inline);
     });
@@ -653,7 +662,7 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
   // can move it.
   // A LOCAL comment's box is on Not pushed yet's lines, never the review's diff.
   useEffect(() => {
-    if (!showComposer || !inline || summaryBox || !patch || side === "LOCAL" || onLine(drawnOf(file))) return;
+    if (!showComposer || !inline || summaryBox || !patch || side === "LOCAL" || githubThreadOf({ file, line: Number(line), side }) || onLine(drawnOf(file))) return;
     setInline(false);
     onOpenPanel?.("comments");
   }, [showComposer, inline, summaryBox, patch, drawnOf, file, line, side, onOpenPanel]);
@@ -695,7 +704,7 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
   // Submitting refuses comments drafted against an older diff, of those it posts.
   const staleComments = sortedComments.filter((comment) => postable(comment, own) && stale.some((at) => sameLocation(at, comment)));
   const summaryDiscussion = discussions.find(isSummary);
-  const lineDiscussions = useMemo(() => discussions.filter((d) => !isSummary(d)), [discussions]);
+  const lineDiscussions = useMemo(() => discussions.filter((d) => !isSummary(d) && !githubThreadOf(d)), [discussions]);
   // The Submit review button in the review's top bar follows this draft.
   const submittable = loaded && !loadError && !closed && !isLocal && !completed;
   // Open comments on lines only in the folder: they go with Send, not Submit.
@@ -712,7 +721,7 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
   const latest = useRef({ openComposer, removeComment, addComment, askAgent, dismissDiscussion, undo, changeBody, closeComposer, dropSummaryEdit, keepOnCurrentDiff, restoreComments, cancelComposer, suggestChange, markPreExisting, setFix });
   latest.current = { openComposer, removeComment, addComment, askAgent, dismissDiscussion, undo, changeBody, closeComposer, dropSummaryEdit, keepOnCurrentDiff, restoreComments, cancelComposer, suggestChange, markPreExisting, setFix };
   const open = useCallback((at: CommentLocation & { startLine?: number }, start?: CommentStart) => latest.current.openComposer(at, true, false, start), []);
-  const ask = useCallback((at: CommentLocation) => latest.current.openComposer(at, true, true), []);
+  const ask = useCallback((at: CommentLocation, thread?: GithubThreadContext) => latest.current.openComposer({ ...at, thread }, true, true), []);
   const remove = useCallback((comment: DraftComment) => { void latest.current.removeComment(comment); }, []);
   const dismiss = useCallback((at: CommentLocation) => { void latest.current.dismissDiscussion(at); }, []);
   const undoAt = useCallback((at: CommentLocation) => { void latest.current.undo(at); }, []);
@@ -754,11 +763,13 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
   const askSees = useMemo(() => {
     if (!showComposer || !asking || summaryBox) return undefined;
     const at = { file, line: Number(line), side };
+    if (githubThreadOf(at)) return askThread?.at ? "It sees this thread and its line." : "It sees this comment.";
     const from = startLine ?? discussions.find((d) => sameLocation(d, at))?.startLine ?? at.line;
     const lines = from === at.line ? `line ${at.line}` : `lines ${Math.min(from, at.line)}–${Math.max(from, at.line)}`;
     return draft.comments.some((c) => sameLocation(c, at)) ? `It sees this comment and ${lines}.` : `It sees ${lines}.`;
-  }, [showComposer, asking, summaryBox, file, line, side, startLine, discussions, draft.comments]);
-  const composerInDiff = editable && showComposer && inline;
+  }, [showComposer, asking, summaryBox, file, line, side, startLine, discussions, draft.comments, askThread?.at]);
+  const canAskThread = loaded && !loadError && review?.status !== "generating";
+  const composerInDiff = (editable || canAskThread && asking && !!githubThreadOf({ file, line: Number(line), side })) && showComposer && inline;
   const chat = useMemo(() => onOpenPanel ? () => onOpenPanel("agent") : null, [onOpenPanel]);
   const editingLine = showComposer && !summaryBox && !asking;
   // The review's diff shows what's on GitHub; Not pushed yet (`local`), the LOCAL comments on lines only in the folder.
@@ -766,12 +777,12 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
     const here = (at: Pick<CommentLocation, "side">) => (at.side === "LOCAL") === local;
     return {
       targetKey, comments: draft.comments.filter(here), stale, discussions: lineDiscussions.filter(here), editable, busy, writing, hideNits, open, ask, remove, dismiss, undo: undoAt, markPreExisting: markAt, chat, checks, setFix: fixAt,
-      unseen: draft.unseen, markSeen,
+      unseen: draft.unseen, markSeen, doneForMe: review?.doneForMe, canAskThread,
       composer: composerInDiff && here({ side }) ? { file, line: Number(line), side, ...(startLine ? { startLine } : {}), editing: editing !== null, asking } : null,
       editingAt: editingLine && here({ side }) ? { file, line: Number(line), side } : null,
     };
   };
-  const inlineDeps = [targetKey, draft.comments, draft.unseen, markSeen, stale, lineDiscussions, editable, busy, writing, hideNits, open, ask, remove, dismiss, undoAt, markAt, chat, checks, fixAt, composerInDiff, editingLine, file, line, side, startLine, editing, asking];
+  const inlineDeps = [review?.doneForMe, canAskThread, targetKey, draft.comments, draft.unseen, markSeen, stale, lineDiscussions, editable, busy, writing, hideNits, open, ask, remove, dismiss, undoAt, markAt, chat, checks, fixAt, composerInDiff, editingLine, file, line, side, startLine, editing, asking];
   const inlineDraft = useMemo(() => inlineOn(false), inlineDeps); // eslint-disable-line react-hooks/exhaustive-deps
   const localDraft = useMemo(() => inlineOn(true), inlineDeps); // eslint-disable-line react-hooks/exhaustive-deps
   const canSuggest = !!suggestable;
@@ -830,7 +841,7 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
   const counts = severityCounts(posting);
   const nitCount = draft.comments.filter((comment) => comment.severity === "nit").length;
   return {
-    targetKey, loadError, load, refresh, loaded, closed, review, draft, posting, checks, setFix, completed, submittedVerdict, receiptUrl, setWriteAnother, status,
+    targetKey, loadError, load, refresh, loaded, closed, review, canAskThread, draft, posting, checks, setFix, completed, submittedVerdict, receiptUrl, setWriteAnother, status,
     summaryRef, summaryDiscussion, editable, busy, submitting, writing, onSummary, summaryComposer, isLocal, chat, asking, summaryBase, openComposer, saveSummary, revisionRef, undo, requestSummary,
     showComposer, inline, edited, replacing, askSees, counts, preExistingCount, blocks, markPreExisting, markSeen, hideNits, nitCount, toggleNits, removeNits, listRef, sortedComments, stale, discussions, body, removeComment, setCommentSeverity, moveToSummary,
     file, boxLines, line, side, files, setFile, editing, showBoxInDiff, startLine, setLine, setSide, bodyRef, changeBody, canAdd, addComment, cancelComposer, composerError, rebuilding, olderDiff, keepOnCurrentDiff, composerControls, severity, setSeverity, suggestable, suggestChange,
