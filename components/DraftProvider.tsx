@@ -457,11 +457,6 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
       focusSummary();
     });
   }
-  async function dismissDiscussion({ file, line, side }: CommentLocation) {
-    await mutate(async () => {
-      apply(await enqueue(() => rpc.call("dismissDiscussion", { targetKey, file, line, side })) as { draft: Draft });
-    });
-  }
   async function undo({ file, line, side }: CommentLocation) {
     await mutate(async () => {
       apply(await enqueue(() => rpc.call("undoAgentChange", { targetKey, file, line, side })) as { draft: Draft });
@@ -718,12 +713,11 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
   // A new workspace of the review may already show its draft: the status goes with the last one.
   useEffect(() => holdReview("draft", targetKey, () => { setDraftStatus(targetKey, null); setLocalToSend(targetKey, null); }), [targetKey]);
   // The diff shows the draft's comments and discussions, and the comment box while it's open there.
-  const latest = useRef({ openComposer, removeComment, addComment, askAgent, dismissDiscussion, undo, changeBody, closeComposer, dropSummaryEdit, keepOnCurrentDiff, restoreComments, cancelComposer, suggestChange, markPreExisting, setFix });
-  latest.current = { openComposer, removeComment, addComment, askAgent, dismissDiscussion, undo, changeBody, closeComposer, dropSummaryEdit, keepOnCurrentDiff, restoreComments, cancelComposer, suggestChange, markPreExisting, setFix };
+  const latest = useRef({ openComposer, removeComment, addComment, askAgent, undo, changeBody, closeComposer, dropSummaryEdit, keepOnCurrentDiff, restoreComments, cancelComposer, suggestChange, markPreExisting, setFix });
+  latest.current = { openComposer, removeComment, addComment, askAgent, undo, changeBody, closeComposer, dropSummaryEdit, keepOnCurrentDiff, restoreComments, cancelComposer, suggestChange, markPreExisting, setFix };
   const open = useCallback((at: CommentLocation & { startLine?: number }, start?: CommentStart) => latest.current.openComposer(at, true, false, start), []);
   const ask = useCallback((at: CommentLocation, thread?: GithubThreadContext) => latest.current.openComposer({ ...at, thread }, true, true), []);
   const remove = useCallback((comment: DraftComment) => { void latest.current.removeComment(comment); }, []);
-  const dismiss = useCallback((at: CommentLocation) => { void latest.current.dismissDiscussion(at); }, []);
   const undoAt = useCallback((at: CommentLocation) => { void latest.current.undo(at); }, []);
   const markAt = useCallback((comment: DraftComment, preExisting: boolean) => { void latest.current.markPreExisting(comment, preExisting); }, []);
   const fixAt = useCallback((comment: DraftComment, state: FixChange) => latest.current.setFix(comment, state), []);
@@ -776,13 +770,13 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
   const inlineOn = (local: boolean): InlineDraft => {
     const here = (at: Pick<CommentLocation, "side">) => (at.side === "LOCAL") === local;
     return {
-      targetKey, comments: draft.comments.filter(here), stale, discussions: lineDiscussions.filter(here), editable, busy, writing, hideNits, open, ask, remove, dismiss, undo: undoAt, markPreExisting: markAt, chat, checks, setFix: fixAt,
+      targetKey, comments: draft.comments.filter(here), stale, discussions: lineDiscussions.filter(here), editable, busy, writing, hideNits, open, ask, remove, undo: undoAt, markPreExisting: markAt, chat, checks, setFix: fixAt,
       unseen: draft.unseen, markSeen, doneForMe: review?.doneForMe, canAskThread,
       composer: composerInDiff && here({ side }) ? { file, line: Number(line), side, ...(startLine ? { startLine } : {}), editing: editing !== null, asking } : null,
       editingAt: editingLine && here({ side }) ? { file, line: Number(line), side } : null,
     };
   };
-  const inlineDeps = [review?.doneForMe, canAskThread, targetKey, draft.comments, draft.unseen, markSeen, stale, lineDiscussions, editable, busy, writing, hideNits, open, ask, remove, dismiss, undoAt, markAt, chat, checks, fixAt, composerInDiff, editingLine, file, line, side, startLine, editing, asking];
+  const inlineDeps = [review?.doneForMe, canAskThread, targetKey, draft.comments, draft.unseen, markSeen, stale, lineDiscussions, editable, busy, writing, hideNits, open, ask, remove, undoAt, markAt, chat, checks, fixAt, composerInDiff, editingLine, file, line, side, startLine, editing, asking];
   const inlineDraft = useMemo(() => inlineOn(false), inlineDeps); // eslint-disable-line react-hooks/exhaustive-deps
   const localDraft = useMemo(() => inlineOn(true), inlineDeps); // eslint-disable-line react-hooks/exhaustive-deps
   const canSuggest = !!suggestable;

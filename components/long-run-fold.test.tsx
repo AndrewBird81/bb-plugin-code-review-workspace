@@ -59,7 +59,7 @@ const shown = (run: number) => root().querySelectorAll(`[data-gr-fold="${run}"][
 const hidden = (run: number) => root().querySelectorAll(`[data-gr-fold="${run}"]:not([data-gr-fold-open])`).length;
 const draftWith = (comments: CommentLocation[]): InlineDraft => ({
   comments: comments.map((at) => ({ ...at, body: "Still read anywhere?" })), stale: [], discussions: [], editable: false, busy: false, writing: false,
-  composer: null, editingAt: null, open() {}, ask() {}, remove() {}, dismiss() {}, undo() {}, chat: null,
+  composer: null, editingAt: null, open() {}, ask() {}, remove() {}, undo() {}, chat: null,
 });
 function show(props: Partial<Parameters<typeof DiffViewer>[0]> = {}, draft: InlineDraft | null = null, container?: HTMLElement) {
   return render(

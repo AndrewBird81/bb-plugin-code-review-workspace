@@ -57,8 +57,6 @@ export interface InlineDraft {
   canAskThread?: boolean;
   doneForMe?: ReviewLifecycle["doneForMe"];
   remove(comment: DraftComment): void;
-  /** Drop the discussion at a line that has no comment. */
-  dismiss(at: CommentLocation): void;
   /** Undo the agent's latest change in the discussion at a line. */
   undo(at: CommentLocation): void;
   /** Mark a comment as a problem in code the PR didn't change, or as from this PR. */

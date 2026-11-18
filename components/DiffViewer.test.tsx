@@ -117,7 +117,7 @@ test("the file header counts hunk lines that look like file headers", () => {
 const comment = { file: "src/a.ts", line: 2, side: "RIGHT" as const, author: "agent" as const, body: "Is the empty case tested?" };
 
 function renderWithDraft(draft: Partial<InlineDraft>, props: Partial<Parameters<typeof DiffViewer>[0]> = {}, composer?: InlineComposer) {
-  const value: InlineDraft = { comments: [], stale: [], discussions: [], editable: true, busy: false, writing: false, composer: null, open: vi.fn(), ask: vi.fn(), remove: vi.fn(), dismiss: vi.fn(), undo: vi.fn(), chat: null, editingAt: null, ...draft };
+  const value: InlineDraft = { comments: [], stale: [], discussions: [], editable: true, busy: false, writing: false, composer: null, open: vi.fn(), ask: vi.fn(), remove: vi.fn(), undo: vi.fn(), chat: null, editingAt: null, ...draft };
   render(
     <InlineDraftContext.Provider value={value}>
       <InlineComposerContext.Provider value={composer ?? null}>
@@ -179,7 +179,7 @@ test("a file's ▤ counts its drafts and its GitHub threads that aren't resolved
   const threads = { targetKey: "pr-42", threads: [thread("T1", 1), thread("T2", 2, true), { ...thread("T3", 9), isOutdated: true }] };
   render(
     <DiffThreadsContext.Provider value={threads}>
-      <InlineDraftContext.Provider value={{ comments: [comment, { ...comment, line: 1, author: undefined, body: "Name it." }], stale: [], discussions: [], editable: true, busy: false, writing: false, composer: null, open: vi.fn(), ask: vi.fn(), remove: vi.fn(), dismiss: vi.fn(), undo: vi.fn(), chat: null, editingAt: null }}>
+      <InlineDraftContext.Provider value={{ comments: [comment, { ...comment, line: 1, author: undefined, body: "Name it." }], stale: [], discussions: [], editable: true, busy: false, writing: false, composer: null, open: vi.fn(), ask: vi.fn(), remove: vi.fn(), undo: vi.fn(), chat: null, editingAt: null }}>
         <DiffViewer patch={patch} files={["src/a.ts"]} views={new Map()} onToggleViewed={() => {}} />
       </InlineDraftContext.Provider>
     </DiffThreadsContext.Provider>,
