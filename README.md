@@ -53,6 +53,8 @@ When the guide is ready, the review agent reviews the change and drafts line com
 **Ask agent** opens the review agent beside the code, in BB's own side panel and chat, as on a thread's page. It can read any file of the review: at the PR's head, at the diff's start, or at the commit you last reviewed.
 
 - Ask about a line, a range, or selected text. The discussion stays under its line, private to you, and never posts.
+- GitHub cards separate **On GitHub · public** from **Private · only you and the agent**. **Ask agent** answers privately under the thread, even on closed or merged PRs; **Reply on GitHub** and **Resolve on GitHub** stay public.
+- **Done for me** hides a GitHub thread, PR item or private line discussion in BB, with **Undo** in a folded group at the bottom of Comments. Nothing resolves on GitHub or gets deleted; a newer message reopens it.
 - On a failing GitHub Actions check, **Ask agent** quotes the end of its failed log into the agent's box.
 - The agent reads the PR's description, linked issues, commits, failing CI, other reviewers' open threads, and the repo's instruction files.
 
@@ -151,10 +153,10 @@ bb review my-feature --base main     # what the branch changed since it left mai
 bb review https://github.com/acme/web/pull/42
 ```
 
-- Your comments go to the review's main thread, the thread that writes the code: **Send** in Finish review takes the ones you pick, and **Send now** on a comment sends it alone. **Main thread ↗** goes to that thread, and back with its **Review · 2 open ↗**; **Show beside review** shows its chat in BB's side panel instead. **Fix in a new thread** starts a new one instead. Nothing goes to GitHub.
+- Your comments go to the review's main thread, the thread that writes the code: **Send** in Finish review takes the ones you pick, and **Send to fix** on a comment sends it alone. **Main thread ↗** goes to that thread, and back with its **Review · 2 open ↗**; **Show beside review** shows its chat in BB's side panel instead. **Fix in a new thread** starts a new one instead. Nothing goes to GitHub.
 - Each comment gets an id the thread reports on. It's told not to push until you say, unless you turn on **Let it push when done**.
-- Once it has reported them all, or says it's finished, the review comes back **Ready to re-review**, with the review agent's check of each fix. Each card says where its fix stands; only your click resolves, dismisses or reopens one, and a reopened comment goes with the next Send.
-- On your own change, Submit posts only open comments: ones sent to fix, resolved or dismissed stay in BB.
+- Once it has reported them all, or says it's finished, the review comes back **Ready to re-review**, with the review agent's check of each fix. Each card says where its fix stands: **Done for me** and **Won't fix** settle it in BB alone; **Reopen** sends it with the next Send.
+- On your own change, Submit posts only open comments: ones sent to fix or marked **Done for me** or **Won't fix** stay in BB.
 - If it goes idle first, as it does while subagents work, the review says "1 of 6 reported", with **Check now**.
 - **Push** in Finish review has the main thread commit what you reviewed, checks that commit against what you reviewed, warning first when they differ, then has the thread push exactly that commit, never forced.
 - **Push and open PR** in Finish review pushes, then has the review agent draft the PR. However the PR opens, the same review becomes the PR's within seconds, its id from before still naming it, and merges with the PR's own review if it has one.
