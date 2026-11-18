@@ -125,6 +125,7 @@ test("the plugin registers the same RPC methods, tools, CLI subcommands, listene
       "sendToSourceThread",
       "setAutomaticUpdates",
       "setChapterFine",
+      "setDoneForMe",
       "setFileViewed",
       "setFilesViewed",
       "setLetPush",

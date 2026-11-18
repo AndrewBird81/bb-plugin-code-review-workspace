@@ -1,7 +1,7 @@
 // Draft comments as agents and `bb review comment` change them. Everything
 // here edits this bb's local draft; only the reviewer submits it to GitHub.
 import type { PreviousState, ReviewMeta } from "./store";
-import { isLocal, isSummary, linesOf, postedBody, rangeOf, sameLocation, severityOf, type CommentLocation, type DraftComment, type Severity } from "./draft";
+import { githubThreadOf, isLocal, isSummary, linesOf, postedBody, rangeOf, sameLocation, severityOf, type CommentLocation, type DraftComment, type Severity } from "./draft";
 import { diffPositions, rangeProblem } from "./review-positions";
 import { asked } from "./asks";
 import type { AsyncStore } from "./store-queue";
@@ -26,7 +26,7 @@ export type DraftResult = { ok: true; text: string } | { ok: false; error: strin
 
 const normalize = (text: string) => text.replace(/\s+/g, " ").trim();
 const located = (input: LocationInput): CommentLocation => ({ file: input.file, line: input.line, side: input.side ?? "RIGHT" });
-const where = (at: CommentLocation & RangeInput) => isSummary(at) ? "the review summary" : `${at.file}:${linesOf(at)}${at.side === "LEFT" ? " (LEFT side)" : at.side === "LOCAL" ? " (not on GitHub yet)" : ""}`;
+const where = (at: CommentLocation & RangeInput) => isSummary(at) ? "the review summary" : githubThreadOf(at) ? `the GitHub thread ${githubThreadOf(at)}` : `${at.file}:${linesOf(at)}${at.side === "LEFT" ? " (LEFT side)" : at.side === "LOCAL" ? " (not on GitHub yet)" : ""}`;
 
 /** The review whose assistant conversation this thread is. */
 export async function assistantReview(store: AsyncStore, threadId: string): Promise<string | null> {

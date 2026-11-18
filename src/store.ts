@@ -170,6 +170,11 @@ export interface ReviewLifecycle {
   headFork?: string | null;
   /** On your own PR, others' review summaries and comments on the PR, as the sync last read them; null on others' PRs. */
   prConversation?: PrConversationItem[] | null;
+  /**
+   * What you marked Done for me, by the Comments list's id: hidden in BB, never changed on GitHub. `latest`, when the
+   * newest message then was written: a newer one opens it again.
+   */
+  doneForMe?: Record<string, { at: number; latest: number | null }>;
   /** Fixers' branches whose folders bb removed: git keeps them in the repo at `path` on `machine`, and the review says how to delete each. */
   keptBranches?: Array<{ branch: string; machine: string | null; path?: string | null; at: number }>;
   /** A relayed approve, merge or close, waiting in Needs review for the reviewer's own click. Null for none. */
@@ -1099,6 +1104,11 @@ export function storeOn(sql: Sql): Store {
         });
         await sql.run(`UPDATE discussion_entries SET target_key=? WHERE target_key=? AND file=? AND line=? AND side=?`, [into, ...at(from, SUMMARY_AT)]);
         if ((await stopWaitingAt(from, SUMMARY_AT)).changes) await sql.run(`INSERT INTO discussion_waits (target_key,file,line,side) VALUES (?,?,?,?) ON CONFLICT DO NOTHING`, at(into, SUMMARY_AT));
+        // Discussions about GitHub threads (src/draft.ts githubThreadAt) go with the PR's threads, which are this review's too.
+        for (const thread of await sql.all<CommentLocation>(`SELECT DISTINCT file, line, side FROM discussion_entries WHERE target_key=? AND line=0 AND file LIKE 'github:%'`, [from])) {
+          await sql.run(`UPDATE discussion_entries SET target_key=? WHERE target_key=? AND file=? AND line=? AND side=?`, [into, ...at(from, thread)]);
+          if ((await stopWaitingAt(from, thread)).changes) await sql.run(`INSERT INTO discussion_waits (target_key,file,line,side) VALUES (?,?,?,?) ON CONFLICT DO NOTHING`, at(into, thread));
+        }
         const id = source.kind !== "pr" && source.feature ? localIdOf({ ...source, feature: source.feature }) : reviewIdentity(source).id;
         const notes = [(await this.getReviewerNotes(from)).body, ...toNotes.length ? [[`Not on GitHub yet, from \`${id}\`:`, ...toNotes.map((c) => summaryLine(c))].join("\n")] : []];
         if (notes.some((body) => body.trim())) {
@@ -1166,6 +1176,7 @@ export function storeOn(sql: Sql): Store {
           ...Object.fromEntries(SYNC_OWNED.filter((field) => target[field] == null && source[field] != null).map((field) => [field, source[field]])),
           sends, threadSends, mainThread, implementers,
           readyToApprove: target.readyToApprove ?? source.readyToApprove ?? null,
+          doneForMe: { ...source.doneForMe, ...target.doneForMe },
           activity: [...target.activity ?? [], ...source.activity ?? []].sort((a, b) => a.at - b.at),
           reviewBodies: [...target.reviewBodies ?? [], ...source.reviewBodies ?? []].sort((a, b) => a.at - b.at),
           name: target.name ?? source.name ?? null, pinnedAt: pinned.length ? Math.min(...pinned) : null, sectionId: target.sectionId ?? source.sectionId ?? null,

@@ -3,7 +3,7 @@ import { AUTHOR_NEVER_SEES_GUIDE, LINE_COMMENTS_FIRST } from "./posting-rules";
 import type { PluginAgentToolResult } from "@get-bb/plugin-sdk";
 import { z } from "zod";
 import { addComment, assistantReview, deleteComment, editComment, mergedAway, replyInDiscussion, REVIEWERS, type DraftResult } from "./draft-comments";
-import { SEVERITIES, SUMMARY_AT } from "./draft";
+import { githubThreadAt, SEVERITIES, SUMMARY_AT } from "./draft";
 import { describeDraft, writeSummary } from "./draft-summary";
 import { describeRemovals, removalWarning } from "./learning";
 import { noteDeepDiveComment, reportDeepDive } from "./deep-dive";
@@ -109,16 +109,18 @@ export function register(deps: ServeDeps) {
   });
   bb.agents.registerTool({
     name: "reply_in_discussion",
-    description: "Reply in the reviewer's discussion at a line of the diff, shown under the line's draft comment, or in its place when there's none; or, with summary: true, in the discussion on the review summary. Only the reviewer sees it; nothing reaches GitHub. The reviewer starts discussions, so there must be one there.",
-    instructions: "Messages from a discussion in the diff say which line they're about. When a reply is warranted, answer with reply_in_discussion on that line, where the reviewer reads it, and keep your chat reply to one short line. When they ask for a change to the draft comment there, make it with add_draft_comment, edit_draft_comment, or delete_draft_comment instead of describing it.",
+    description: "Reply in the reviewer's discussion at a line of the diff, shown under the line's draft comment, or in its place when there's none; with summary: true, in the discussion on the review summary; or with thread, in the discussion about a GitHub thread, shown under it. Only the reviewer sees it; nothing reaches GitHub. The reviewer starts discussions, so there must be one there.",
+    instructions: "Messages from a discussion in the diff say which line or GitHub thread they're about. When a reply is warranted, answer with reply_in_discussion there, where the reviewer reads it, and keep your chat reply to one short line. When they ask for a change to the draft comment there, make it with add_draft_comment, edit_draft_comment, or delete_draft_comment instead of describing it.",
     parameters: z.object({
       summary: z.boolean().optional().describe("true to reply in the review summary's discussion, without file and line."),
+      thread: z.string().min(1).max(200).optional().describe("The GitHub thread's id the message named, to reply in the reviewer's discussion about it, without file and line."),
       file: location.file.optional(), line: location.line.optional(), side: location.side,
       body: z.string().trim().min(1).max(65_000).describe("The reply, in Markdown."),
     }),
-    execute: async ({ summary, file, line, side, body }, { threadId }) => await assistantDraft(threadId, true, async (tx, targetKey) =>
+    execute: async ({ summary, thread, file, line, side, body }, { threadId }) => await assistantDraft(threadId, true, async (tx, targetKey) =>
       summary ? await replyInDiscussion(tx, targetKey, { ...SUMMARY_AT, body })
-      : file === undefined || line === undefined ? { ok: false, error: "Give the discussion's file and line, or summary: true for the review summary's discussion." }
+      : thread ? await replyInDiscussion(tx, targetKey, { ...githubThreadAt(thread), body })
+      : file === undefined || line === undefined ? { ok: false, error: "Give the discussion's file and line, thread for a GitHub thread's, or summary: true for the review summary's discussion." }
       : await replyInDiscussion(tx, targetKey, { file, line, side, body })),
   });
   bb.agents.registerTool({
