@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test, vi } from "vitest";
-import { cleanup, fireEvent, within } from "@testing-library/react";
+import { cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import { defaultPreferences } from "../src/preferences";
 import { interdiff } from "../src/interdiff";
@@ -41,7 +41,7 @@ const band = (slot: Slot) => within(slot.getByRole("navigation", { name: "Breadc
 const rereview = { signals: { lastReviewSha: "old" }, submittedVerdict: "COMMENT" };
 
 
-test("the band names the chapter without a back button, review id, review name, or diff controls", async () => {
+test("the band links to All reviews and the Overview, then names the chapter without the review name or diff controls", async () => {
   const slot = await renderWorkspace();
   const breadcrumb = slot.getByRole("navigation", { name: "Breadcrumb" });
   const barElement = breadcrumb.closest<HTMLElement>("[class*='@container/band']")!;
@@ -49,9 +49,11 @@ test("the band names the chapter without a back button, review id, review name, 
   expect(barElement.closest("[data-review-root]")).toBeTruthy();
   const crumbs = within(breadcrumb);
   expect(crumbs.getByText("Chapter 1 of 1: Parsing, 0 of 2 files viewed")).toBeTruthy();
-  expect(crumbs.queryByText("pr-42")).toBeNull();
-  expect(crumbs.queryByText("Parse rows")).toBeNull();
-  expect(band(slot).queryByRole("button", { name: "All reviews" })).toBeNull();
+  expect(crumbs.getByRole("button", { name: "pr-42" }).getAttribute("title")).toBe("Overview");
+  expect(crumbs.getAllByText("/")).toHaveLength(2);
+  expect(crumbs.getByText("Parse rows").className).toBe("sr-only");
+  const back = crumbs.getByRole("button", { name: "All reviews" });
+  expect(within(back).getByText("All reviews").className).toContain("hidden min-w-0 truncate @min-[880px]/band:inline");
   expect(band(slot).queryByRole("button", { name: "Find in review" })).toBeNull();
   expect(band(slot).queryByRole("button", { name: "Diff options" })).toBeNull();
   expect(band(slot).queryByRole("button", { name: "Fold comments in code" })).toBeNull();
@@ -79,7 +81,8 @@ test("⋯ groups navigation and display before guide actions, then settings; Fin
   expect(fold.getAttribute("aria-keyshortcuts")).toBe("i");
   const menu = within(find.parentElement!);
   const names = menu.getAllByRole("button").map(b => b.getAttribute("aria-label") ?? b.textContent);
-  expect(names.slice(0, 5)).toEqual(["All reviews", "Find in review/", "Fold comments in codei", "Diff options", "Rebuild guide"]);
+  expect(menu.queryByRole("button", { name: "All reviews" })).toBeNull();
+  expect(names.slice(0, 4)).toEqual(["Find in review/", "Fold comments in codei", "Diff options", "Rebuild guide"]);
   expect(menu.getByRole("button", { name: "Rename…" })).toBeTruthy();
   expect(menu.getByRole("button", { name: "Snooze" })).toBeTruthy();
   expect(menu.getByRole("button", { name: "Move to section" })).toBeTruthy();
@@ -110,13 +113,20 @@ test("Diff options is the existing sub-page, with compare, display and file cont
   expect(slot.getByRole("button", { name: "Collapse all" })).toBeTruthy();
   expect(slot.getByRole("button", { name: "Expand all" })).toBeTruthy();
   fireEvent.click(slot.getByRole("button", { name: "Back to review actions" }));
-  expect(slot.getByRole("button", { name: "All reviews" })).toBeTruthy();
+  expect(slot.getByRole("button", { name: "Find in review" })).toBeTruthy();
 });
 
-test("Overview keeps the same commands and says Overview without repeating the review identity", async () => {
+test("All reviews in the breadcrumb goes to the list", async () => {
   const slot = await renderWorkspace();
-  fireEvent.keyDown(document.body, { key: "p" });
+  fireEvent.click(band(slot).getByRole("button", { name: "All reviews" }));
+  await waitFor(() => expect(slot.inspection.navigateCalls).toContainEqual({ method: "toPluginPanel", path: "review" }));
+});
+
+test("the id chip opens the Overview from a chapter and becomes plain text there", async () => {
+  const slot = await renderWorkspace();
+  fireEvent.click(band(slot).getByRole("button", { name: "pr-42" }));
   expect(band(slot).getByText("Overview")).toBeTruthy();
   expect(band(slot).getByRole("button", { name: "Agent" })).toBeTruthy();
-  expect(band(slot).queryByText("pr-42")).toBeNull();
+  expect(band(slot).getByText("pr-42", { selector: ".sr-only" }).closest("button")).toBeNull();
+  expect(band(slot).queryByRole("button", { name: "pr-42" })).toBeNull();
 });

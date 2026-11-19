@@ -64,7 +64,7 @@ export default definePluginApp((app) => {
     path: "review",
     component: ReviewPanel,
     headerContent: TitleBarControls,
-    // BB names the review at every width; full screen adds its id to the review bar.
+    // BB names the review at every width; its bar keeps the navigation.
     experimental_usePageTitle: usePageTitle,
   });
   // A review's page: Review agent, and Main thread with one, in BB's own side panel (components/PanelTabs.tsx).

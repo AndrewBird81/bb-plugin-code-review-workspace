@@ -118,14 +118,17 @@ test("a review without a guide yet, found on GitHub or building, has its title t
   }
 });
 
-test("the band leaves the review id and name to BB's title, even without page-title support", async () => {
+test("the band links its id to the Overview with its hover title and screen-reader description, leaving the name to BB", async () => {
   pane(1600);
   patchReviewState("pr-1", { activeId: "c1" });
   for (const untitled of [false, true]) {
     const slot = await render("pr-1", { "pr-1": { ...pr, name: "Login race" } }, undefined, untitled);
     await slot.findAllByTestId("filediff");
     const crumbs = within(slot.getByRole("navigation", { name: "Breadcrumb" }));
-    expect(crumbs.queryByText("api#4512")).toBeNull();
+    const id = crumbs.getByRole("button", { name: "api#4512" });
+    expect(id.getAttribute("title")).toBe("Overview");
+    expect(id.querySelector("[data-review-id]")!.getAttribute("title")).toBe("flosports/api#4512 · Login race");
+    expect(document.getElementById(id.getAttribute("aria-describedby")!)!.textContent).toBe("Pull request 4512 in flosports/api: Login race, by dana");
     expect(crumbs.queryByText("Login race")).toBeNull();
     expect(crumbs.getByText("Chapter 1 of 1: Parsing, 0 of 1 files viewed")).toBeTruthy();
     expect(slot.getByRole("main", { name: "Review: Pull request 4512 in flosports/api: Login race, by dana" })).toBeTruthy();

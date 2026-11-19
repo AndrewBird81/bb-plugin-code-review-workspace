@@ -110,6 +110,14 @@ test("the review bar has the same order at every non-phone size; labels use its 
       const label = commands.getByText(text);
       expect(label.className).toContain("hidden min-w-0 truncate @min-[880px]/band:inline");
     }
+    const crumbs = within(page.getByRole("navigation", { name: "Breadcrumb" }));
+    for (const name of ["All reviews", "pr-42"]) {
+      const button = crumbs.getByRole("button", { name });
+      expect(button.className).toContain(height! < 500 ? "pointer-coarse:h-9" : "pointer-coarse:h-11");
+      expect(button.className).toContain(height! < 500 ? "pointer-coarse:after:-inset-1" : "pointer-coarse:min-w-11");
+    }
+    const left = page.getByRole("navigation", { name: "Breadcrumb" }).parentElement!;
+    expect(left.style.maxWidth).toBe("calc(var(--gr-fold-end, 100000px) - 48px)");
     expect(header!.container.innerHTML).toBe("");
     page.lifecycle.unmount(); header!.lifecycle.unmount();
     restores.splice(0).forEach((restore) => restore());
@@ -462,12 +470,13 @@ test("an archived review's actions don't offer to rebuild its guide, which the s
   expect(bar!.queryByRole("button", { name: /guide/ })).toBeNull();
 });
 
-test("full screen keeps commands in the same bar and adds only the review id before the chapter", async () => {
+test("full screen keeps the same breadcrumb links and commands", async () => {
   fakeSize(1400, 900);
   fakeFullscreen();
   const { page, header, band } = await renderReview();
   const crumbs = () => within(page.getByRole("navigation", { name: "Breadcrumb" }));
-  expect(crumbs().queryByText("pr-42")).toBeNull();
+  expect(crumbs().getByRole("button", { name: "pr-42" })).toBeTruthy();
+  expect(crumbs().getByRole("button", { name: "All reviews" })).toBeTruthy();
   fireEvent.click(reviewAction(page, "Full screen"));
   expect(document.fullscreenElement).toBeTruthy();
   expect(crumbs().getByText("pr-42", { selector: ".sr-only" })).toBeTruthy();
@@ -475,7 +484,7 @@ test("full screen keeps commands in the same bar and adds only the review id bef
   expect(band().getByRole("button", { name: "Agent" })).toBeTruthy();
   fireEvent.click(reviewAction(page, "Exit full screen"));
   expect(document.fullscreenElement).toBeNull();
-  expect(crumbs().queryByText("pr-42")).toBeNull();
+  expect(crumbs().getByRole("button", { name: "pr-42" })).toBeTruthy();
 });
 test("⇧F goes full screen and back, and leaving the review leaves full screen: All reviews, Review settings, or any other way", async () => {
   fakeSize(1400, 900);
@@ -490,7 +499,7 @@ test("⇧F goes full screen and back, and leaving the review leaves full screen:
   fireEvent.keyDown(document.body, { key: "F", shiftKey: true });
   expect(document.fullscreenElement).toBeNull();
   fireEvent.keyDown(document.body, { key: "F", shiftKey: true });
-  fireEvent.click(reviewAction(page, "All reviews"));
+  fireEvent.click(band().getByRole("button", { name: "All reviews" }));
   await waitFor(() => expect(page.inspection.navigateCalls).toContainEqual({ method: "toPluginPanel", path: "review" }));
   expect(document.fullscreenElement).toBeNull();
   page.lifecycle.unmount();

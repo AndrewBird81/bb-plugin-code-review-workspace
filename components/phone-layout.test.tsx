@@ -76,6 +76,16 @@ test("on a phone there's no band: the dock holds the review's commands, and the 
   slot.lifecycle.unmount();
 });
 
+test("the phone dock's ⋯ keeps All reviews and goes to the list", async () => {
+  fakeSize(390, 844);
+  const slot = await renderWorkspace();
+  const dock = within(slot.getByRole("group", { name: "Review commands" }));
+  fireEvent.click(dock.getByRole("button", { name: "Review actions" }));
+  fireEvent.click(await slot.findByRole("button", { name: "All reviews" }));
+  await waitFor(() => expect(slot.inspection.navigateCalls).toContainEqual({ method: "toPluginPanel", path: "review" }));
+  slot.lifecycle.unmount();
+});
+
 test("on a phone the chapters sheet's header holds Chapters | All files, and the files viewed share the progress's row", async () => {
   fakeSize(390, 844);
   const slot = await renderWorkspace();
@@ -257,7 +267,10 @@ test("a phone held sideways keeps the same commands in a 40px bar with compact t
     expect(button.className.split(" ")).toContain("pointer-coarse:h-9");
     expect(button.className.split(" ")).toContain("pointer-coarse:after:-inset-1");
   }
-  expect(within(band(slot)).queryByRole("button", { name: "All reviews" })).toBeNull();
+  const crumbs = within(slot.getByRole("navigation", { name: "Breadcrumb" }));
+  for (const name of ["All reviews", "pr-42"]) {
+    expect(crumbs.getByRole("button", { name }).className).toContain("pointer-coarse:after:-inset-1");
+  }
   expect(within(band(slot)).queryByRole("button", { name: "Diff options" })).toBeNull();
   // A short screen uses a drawer, whose contents realize after it opens.
   openReviewMenu(slot);
@@ -265,15 +278,15 @@ test("a phone held sideways keeps the same commands in a 40px bar with compact t
   expect(await slot.findByRole("switch", { name: "Wrap long lines" })).toBeTruthy();
   slot.lifecycle.unmount();
 });
-test("a wide screen's band names only the chapter, then the same review commands", async () => {
+test("a wide screen's band links to All reviews and the Overview, then names the chapter before the commands", async () => {
   fakeSize(1600, 900);
   const slot = await renderWorkspace();
   const crumbs = within(slot.getByRole("navigation", { name: "Breadcrumb" }));
-  expect(crumbs.queryByText("pr-42")).toBeNull();
+  expect(crumbs.getByRole("button", { name: "pr-42" })).toBeTruthy();
   expect(crumbs.getByText("Chapter 1 of 1: Parsing, 0 of 1 files viewed")).toBeTruthy();
   const controls = within(band(slot)).getAllByRole("button").map(b => b.getAttribute("aria-label"));
-  // The docked chapters list has the toggle in its own head, so the bar starts with the review commands.
-  expect(controls).toEqual(["Comments", "Agent", "Finish review: Comment, 0 comments", "Review actions"]);
+  // The docked chapters list has the toggle in its own head, so the bar starts with the breadcrumb links.
+  expect(controls).toEqual(["All reviews", "pr-42", "Comments", "Agent", "Finish review: Comment, 0 comments", "Review actions"]);
   expect(slot.getByRole("navigation", { name: "Chapters" })).toBeTruthy();
   expect(slot.getByRole("button", { name: "Hide chapter overview" })).toBeTruthy();
   expect(slot.getByRole("complementary", { name: "Comments and Finish review" })).toBeTruthy();

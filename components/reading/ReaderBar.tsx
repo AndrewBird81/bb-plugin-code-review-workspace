@@ -1,25 +1,28 @@
-import { useMemo, useState } from "react";
+import { useId, useMemo, useState } from "react";
 import { reviewIdentity } from "../../lib/review-identity";
 import { useFold } from "../../lib/use-fold";
 import { cn } from "../../lib/utils";
-import { NOT_PUSHED_PAGE, useWorkspace } from "../../lib/workspace-context";
+import { NOT_PUSHED_PAGE, OVERVIEW, useWorkspace } from "../../lib/workspace-context";
 import { ReviewIdChip } from "../ReviewIdChip";
 import { ChapterStep } from "../shell/ChapterStep";
 import { TopBand } from "../shell/TopBand";
 import { ReviewControls } from "../TitleBarControls";
 import { TOUCH_COMPACT, TOUCH_CONTROL } from "../touch";
+import { Button } from "../ui/button";
 import { Icon } from "../ui/icon";
 import { InlineCode } from "../ui/inline-code";
 
 /** One review bar: where you are, then Comments, Agent, Main thread, Finish and everything else in ⋯. */
 export function ReaderBar({ threads }: { threads: boolean }) {
   const api = useWorkspace();
-  const { review, guide, sections, activeId, layout, files, fullscreen } = api;
+  const { review, guide, sections, activeId, layout, files, go } = api;
+  const described = useId();
   const [bar, setBar] = useState<HTMLDivElement | null>(null);
   useFold(bar, layout.mode === "tablet");
   const identity = useMemo(() => reviewIdentity(review, guide.title), [review, guide.title]);
   if (layout.mode === "phone") return null;
   const short = layout.mode === "short";
+  const touch = short ? TOUCH_COMPACT : TOUCH_CONTROL;
   const index = sections.findIndex((section) => section.id === activeId);
   const chapter = sections[index];
   const notPushed = activeId === NOT_PUSHED_PAGE;
@@ -31,7 +34,17 @@ export function ReaderBar({ threads }: { threads: boolean }) {
       <div className="flex min-w-0 flex-1 items-center gap-1" style={{ maxWidth: "calc(var(--gr-fold-end, 100000px) - 48px)" }}>
         {layout.nav !== "docked" && <TopBand hidden={layout.nav === "overlay"} />}
         <nav aria-label="Breadcrumb" className="flex min-w-0 items-center gap-1.5 text-sm">
-          {fullscreen.on && <span className={cn("flex min-w-0 shrink-[3] items-center", short ? TOUCH_COMPACT : TOUCH_CONTROL)}><ReviewIdChip identity={identity} /></span>}
+          <Button variant="ghost" size="sm" aria-label="All reviews" className={cn("h-8 shrink-0 gap-1 px-1.5 text-muted-foreground", touch)} onClick={() => void api.leave()}>
+            <Icon name="ChevronLeft" aria-hidden /><span className="hidden min-w-0 truncate @min-[880px]/band:inline">All reviews</span>
+          </Button>
+          <span aria-hidden className="shrink-0 text-subtle-foreground">/</span>
+          {chapter || notPushed
+            ? <button type="button" title="Overview" aria-label={identity.id} aria-describedby={described} className={cn("flex min-w-0 shrink-[3] items-center rounded-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring", touch)} onClick={() => go(OVERVIEW)}>
+              <ReviewIdChip identity={identity} />
+              <span id={described} className="sr-only">{identity.label}</span>
+            </button>
+            : <span className="flex min-w-0 shrink-[3] items-center"><ReviewIdChip identity={identity} /></span>}
+          <span aria-hidden className="shrink-0 text-subtle-foreground">/</span>
           {!chapter ? <span className="flex min-w-0 items-center gap-1.5 font-medium">
             <Icon name={notPushed ? "FileDiff" : "AlignLeft"} className="size-4 shrink-0 text-primary" aria-hidden />
             <span className="truncate">{notPushed ? "Not pushed yet" : "Overview"}</span>

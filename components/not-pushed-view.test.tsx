@@ -84,6 +84,17 @@ test("Not pushed yet is a page after the chapters: how many files on which machi
   page.lifecycle.unmount();
 });
 
+test("the breadcrumb id opens the Overview from Not pushed yet", async () => {
+  const { page } = await renderReview({}, "not-pushed");
+  const crumbs = within(page.getByRole("navigation", { name: "Breadcrumb" }));
+  expect(crumbs.getByText("Not pushed yet")).toBeTruthy();
+  fireEvent.click(crumbs.getByRole("button", { name: "web#12" }));
+  expect(await page.findByRole("heading", { name: "Retry uploads" })).toBeTruthy();
+  expect(crumbs.getByText("Overview")).toBeTruthy();
+  expect(crumbs.queryByRole("button", { name: "web#12" })).toBeNull();
+  page.lifecycle.unmount();
+});
+
 test("a new line on Not pushed yet takes a LOCAL comment, which shows there", async () => {
   const { page, rpc } = await renderReview({}, "not-pushed");
   const view = await notPushed(page);

@@ -109,7 +109,7 @@ export function ReviewMenu({ api, threads = false, className }: { api: Workspace
     { label: "Review settings…", icon: "Settings", onSelect: () => void api.leave(`settings/${api.targetKey}`) },
   ];
   const leading: ReviewMenuItem[] = [
-    { label: "All reviews", icon: "ChevronLeft", onSelect: () => void api.leave() },
+    ...api.layout.mode === "phone" ? [{ label: "All reviews", icon: "ChevronLeft", onSelect: () => void api.leave() } satisfies ReviewMenuItem] : [],
     { label: "Find in review", icon: "Search", keys: api.shortcuts ? "/" : undefined, onSelect: api.nav.find },
     ...api.mainThread ? [{ label: "Go to main thread ↗", icon: "ArrowUpRight", onSelect: () => navigate.toThread(api.mainThread!.threadId) } satisfies ReviewMenuItem] : [],
     { label: api.display.commentsFolded ? "Unfold comments in code" : "Fold comments in code", icon: api.display.commentsFolded ? "ChevronsDown" : "ChevronsUp", keys: api.shortcuts ? "i" : undefined, onSelect: () => api.display.setCommentsFolded(!api.display.commentsFolded) },
