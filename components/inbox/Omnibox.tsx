@@ -10,11 +10,13 @@ import { TOUCH_CONTROL } from "../touch";
 import { Button } from "../ui/button";
 import { Icon } from "../ui/icon";
 import { Input } from "../ui/input";
+import type { AgentChoice } from "../../src/agent";
+import { AgentPicker } from "../AgentPicker";
 
 /**
  * Find a review, or paste a PR link: words filter the list as you type (`onQuery`); a link to a PR, or owner/repo#n,
- * offers to open it when it's listed and to review it when it isn't, which Enter takes. Focused and empty, it says
- * how to review a local branch.
+ * offers to open it when it's listed and to review it when it isn't, which Enter takes, on the review agent picked under
+ * it for that review alone. Focused and empty, it says how to review a local branch.
  */
 export function Omnibox({ query, onQuery, reviews, onOpen, placeholder, onCancel, onFocusChange, inputRef, trailing, className }: {
   query: string;
@@ -35,6 +37,8 @@ export function Omnibox({ query, onQuery, reviews, onOpen, placeholder, onCancel
   const rpc = useRpc<typeof rpcContract>();
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** The review agent picked for the PR to review; null keeps Settings'. */
+  const [agent, setAgent] = useState<AgentChoice | null>(null);
   const [focused, setFocused] = useState(false);
   const shortcuts = useKnob("singleKeyShortcuts");
   const localDiffChanges = useKnob("localDiffChanges");
@@ -53,7 +57,7 @@ export function Omnibox({ query, onQuery, reviews, onOpen, placeholder, onCancel
     setStarting(true);
     setError(null);
     try {
-      const result = await rpc.call("startReview", { input: link.url });
+      const result = await rpc.call("startReview", { input: link.url, ...(agent ? { agent } : {}) });
       if (result.ok && result.targetKey) {
         onQuery("");
         onOpen(result.targetKey);
@@ -103,6 +107,8 @@ export function Omnibox({ query, onQuery, reviews, onOpen, placeholder, onCancel
           <span className="min-w-0 truncate text-xs font-normal text-muted-foreground">{listed ? listedWhy?.text ?? "" : "builds a guide"}</span>
           <kbd aria-hidden className="ml-auto hidden font-sans text-xs text-subtle-foreground pointer-fine:inline">↵</kbd>
         </Button>
+        {/* A PR's own picker: another PR starts again at the default. */}
+        {!listed && <AgentPicker role="review" key={link.url} disabled={starting} onChange={setAgent} />}
       </div>
         : focused && !query && <p id={hintId} className="absolute inset-x-0 top-full z-20 mt-1 rounded-lg border border-border bg-popover px-3 py-2 text-xs text-muted-foreground shadow-md">
           For a local branch, run <code className="font-mono text-[11px] text-foreground">bb review</code> in a BB thread.

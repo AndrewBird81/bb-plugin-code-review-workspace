@@ -129,11 +129,7 @@ export async function getConversation(bb: BbPluginApi, store: AsyncStore, target
   threadId: string | null; legacy: AgentMessage[]; defaults: AgentChoice | null;
   machine: { name: string; connected: boolean } | null;
 }> {
-  /** The agent a new conversation would start on: Settings', or the project's, by its id. */
-  const chosen = async (tx: AsyncStore) => {
-    const custom = (await tx.getPreferences()).preferences.assistantAgent;
-    return { custom, projectId: custom ? undefined : (await tx.getReview(targetKey))?.projectId };
-  };
+  const chosen = (tx: AsyncStore) => reviewAgentOf(tx, targetKey);
   const { legacy, threadId, ...unthreaded } = await store.exclusive(async (tx) => {
     const legacy = await tx.listAgentMessages(targetKey);
     const threadId = await tx.getAssistantThread(targetKey);
@@ -160,6 +156,16 @@ export async function getConversation(bb: BbPluginApi, store: AsyncStore, target
   if (custom) return { threadId: null, legacy, defaults: choice(custom), machine: await machineStatus(bb, custom.hostId) };
   const project = projectId ? await bb.sdk.projects.defaultExecutionOptions({ projectId }).catch(() => null) : null;
   return { threadId: null, legacy, defaults: project && choice(project), machine: null };
+}
+
+/**
+ * The agent a new conversation on the review would start on: the one chosen as the review was started, else Settings',
+ * else (custom null) the project's defaults, by the review's project id.
+ */
+async function reviewAgentOf(tx: AsyncStore, targetKey: string): Promise<{ custom: AgentChoice | null; projectId: string | undefined }> {
+  const review = await tx.getReview(targetKey);
+  const custom = review?.reviewAgent ?? (await tx.getPreferences()).preferences.assistantAgent;
+  return { custom, projectId: custom ? undefined : review?.projectId };
 }
 
 function choice(agent: AgentChoice): AgentChoice {
@@ -404,11 +410,11 @@ const SELF_REVIEW = "This is the reviewer's own PR, so this is a self-review. Gi
 
 /**
  * The reasoning level to send at for `wanted` effort: `wanted` when the review agent's level is lower on its provider's
- * ladder, which offers `wanted`; otherwise none, so it's unchanged. The review agent is Settings', else the project's
- * default; a conversation on another provider (`providerId`) is at a level unknown here, and stays unchanged.
+ * ladder, which offers `wanted`; otherwise none, so it's unchanged. The review agent is the review's own, else Settings',
+ * else the project's default; a conversation on another provider (`providerId`) is at a level unknown here, and stays unchanged.
  */
 async function raisedLevel(bb: BbPluginApi, store: AsyncStore, targetKey: string, wanted: string, providerId?: string): Promise<string | undefined> {
-  const { custom, projectId } = await store.exclusive(async (tx) => ({ custom: (await tx.getPreferences()).preferences.assistantAgent, projectId: (await tx.getReview(targetKey))?.projectId }));
+  const { custom, projectId } = await store.exclusive((tx) => reviewAgentOf(tx, targetKey));
   const agent = custom ?? (projectId ? await bb.sdk.projects.defaultExecutionOptions({ projectId }).catch(() => null) : null);
   if (!agent || (providerId && agent.providerId !== providerId)) return undefined;
   const providers = await bb.sdk.providers.list().catch(() => []);

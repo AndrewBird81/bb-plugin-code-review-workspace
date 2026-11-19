@@ -4,6 +4,7 @@ import { cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import { defaultPreferences } from "../src/preferences";
 import { snoozeLabel } from "../lib/turn";
+import { findPicker } from "./provider-picker.test-support";
 
 afterEach(() => { cleanup(); });
 
@@ -64,6 +65,161 @@ test("a tracked review's page bar goes back to All reviews and has the review's 
   expect(slot.inspection.navigateCalls).toEqual([{ method: "toPluginPanel", path: "review", options: { subPath: "settings/pr-42" } }]);
   fireEvent.click(bar.getByRole("button", { name: "All reviews" }));
   expect(slot.inspection.navigateCalls.at(-1)).toEqual({ method: "toPluginPanel", path: "review" });
+  slot.lifecycle.unmount();
+});
+
+const machines = { machines: [{ hostId: "server", name: "Server", connected: true, server: true }, { hostId: "laptop", name: "Laptop", connected: true, server: false }] };
+
+test("a tracked review's guide writer starts at Settings', and a pick, with its machine, goes to that build alone", async () => {
+  const guideAgent = { providerId: "claude-code", model: "opus", reasoningLevel: "high", permissionMode: "accept-edits" } as const;
+  const startTrackedReview = vi.fn((_input: unknown) => ({ ok: false, error: "Not now." }));
+  const savePreferences = vi.fn();
+  const slot = await reviewPage({ status: "tracked" }, {
+    getPreferences: () => ({ preferences: { ...defaultPreferences, guideAgent }, revision: 3 }),
+    listMachines: () => machines, startTrackedReview, savePreferences,
+  });
+  const section = within(await slot.findByRole("region", { name: "Tracked pull request" }));
+  const group = await section.findByRole("group", { name: "Guide writer" });
+  const picker = await findPicker(within(group));
+  expect((within(picker).getByRole("textbox", { name: "Provider ID" }) as HTMLInputElement).value).toBe("claude-code");
+  expect((within(picker).getByRole("textbox", { name: "Model" }) as HTMLInputElement).value).toBe("opus");
+  expect(picker.dataset.routingKind).toBe("primary");
+  // Left as it is, the guide is built on Settings' writer as before: no pick is sent.
+  fireEvent.click(section.getByRole("button", { name: "Build the guide" }));
+  await waitFor(() => expect(startTrackedReview).toHaveBeenCalledTimes(1));
+  expect(startTrackedReview.mock.calls[0]![0]).toEqual({ targetKey: "pr-42" });
+  // Another model, on the laptop: the picker lists the laptop's providers, and the guide is built there.
+  fireEvent.change(within(picker).getByRole("textbox", { name: "Model" }), { target: { value: "sonnet" } });
+  fireEvent.click(within(picker).getByRole("button", { name: "Apply execution selection" }));
+  fireEvent.change(within(group).getByRole("combobox", { name: "Machine" }), { target: { value: "laptop" } });
+  await waitFor(() => expect(section.getByTestId("bb-provider-model-picker").dataset.routingId).toBe("laptop"));
+  await waitFor(() => expect(section.getByRole("button", { name: "Build the guide" }).hasAttribute("disabled")).toBe(false));
+  fireEvent.click(section.getByRole("button", { name: "Build the guide" }));
+  await waitFor(() => expect(startTrackedReview).toHaveBeenCalledTimes(2));
+  expect(startTrackedReview.mock.calls[1]![0]).toEqual({ targetKey: "pr-42", agent: { hostId: "laptop", providerId: "claude-code", model: "sonnet", reasoningLevel: "high" } });
+  // Settings stay as they are.
+  expect(savePreferences).not.toHaveBeenCalled();
+  slot.lifecycle.unmount();
+});
+
+test("with no guide writer in Settings, a tracked review's picker starts at its project's defaults, and one machine shows no machine choice", async () => {
+  const defaults = { providerId: "codex", model: "gpt-6-astra", reasoningLevel: "low", permissionMode: "auto", serviceTier: "default" };
+  const getAgentDefaults = vi.fn((_input: unknown) => ({ defaults }));
+  const startTrackedReview = vi.fn((_input: unknown) => ({ ok: true }));
+  const slot = await reviewPage({ status: "tracked" }, {
+    getAgentDefaults, startTrackedReview,
+    listMachines: () => ({ machines: [{ hostId: "server", name: "Server", connected: true, server: true }] }),
+  });
+  const section = within(await slot.findByRole("region", { name: "Tracked pull request" }));
+  const group = await section.findByRole("group", { name: "Guide writer" });
+  const picker = await findPicker(within(group));
+  expect((within(picker).getByRole("textbox", { name: "Model" }) as HTMLInputElement).value).toBe("gpt-6-astra");
+  // The defaults of the project this review's agents run in.
+  expect(getAgentDefaults).toHaveBeenCalledWith({ targetKey: "pr-42" });
+  expect(within(group).queryByRole("combobox", { name: "Machine" })).toBeNull();
+  fireEvent.change(within(picker).getByRole("textbox", { name: "Reasoning level" }), { target: { value: "high" } });
+  fireEvent.click(within(picker).getByRole("button", { name: "Apply execution selection" }));
+  fireEvent.click(section.getByRole("button", { name: "Build the guide" }));
+  await waitFor(() => expect(startTrackedReview).toHaveBeenCalledWith({ targetKey: "pr-42", agent: { providerId: "codex", model: "gpt-6-astra", reasoningLevel: "high", serviceTier: "default" } }));
+  slot.lifecycle.unmount();
+});
+
+test("a guide that failed tries again on the guide writer picked there, for that build alone", async () => {
+  const guideAgent = { providerId: "claude-code", model: "opus", reasoningLevel: "high", permissionMode: "accept-edits" } as const;
+  const rereview = vi.fn((_input: unknown) => ({ ok: false, error: "Not now." }));
+  const slot = await reviewPage({ status: "error", guideError: { at: 1, text: "The guide writer failed." } }, {
+    getPreferences: () => ({ preferences: { ...defaultPreferences, guideAgent }, revision: 3 }),
+    listMachines: () => machines, rereview,
+  });
+  const failed = within(await slot.findByRole("alert"));
+  const group = await failed.findByRole("group", { name: "Guide writer" });
+  const picker = await findPicker(within(group));
+  expect((within(picker).getByRole("textbox", { name: "Model" }) as HTMLInputElement).value).toBe("opus");
+  fireEvent.change(within(picker).getByRole("textbox", { name: "Model" }), { target: { value: "sonnet" } });
+  fireEvent.click(within(picker).getByRole("button", { name: "Apply execution selection" }));
+  fireEvent.change(within(group).getByRole("combobox", { name: "Machine" }), { target: { value: "laptop" } });
+  await waitFor(() => expect(failed.getByTestId("bb-provider-model-picker").dataset.routingId).toBe("laptop"));
+  fireEvent.click(failed.getByRole("button", { name: "Try again" }));
+  await waitFor(() => expect(rereview).toHaveBeenCalledWith({ targetKey: "pr-42", agent: { hostId: "laptop", providerId: "claude-code", model: "sonnet", reasoningLevel: "high" } }));
+  slot.lifecycle.unmount();
+});
+
+test("a guide writer on a machine that's gone shows the machine choice, even with one machine left, to build on the server this time", async () => {
+  const guideAgent = { hostId: "host_gone", providerId: "codex", model: "gpt-6", reasoningLevel: "low", permissionMode: "auto" } as const;
+  const startTrackedReview = vi.fn((_input: unknown) => ({ ok: true }));
+  const savePreferences = vi.fn();
+  const slot = await reviewPage({ status: "tracked" }, {
+    getPreferences: () => ({ preferences: { ...defaultPreferences, guideAgent }, revision: 3 }),
+    listMachines: () => ({ machines: [{ hostId: "server", name: "Server", connected: true, server: true }] }), startTrackedReview, savePreferences,
+  });
+  const section = within(await slot.findByRole("region", { name: "Tracked pull request" }));
+  const group = await section.findByRole("group", { name: "Guide writer" });
+  await findPicker(within(group));
+  const machine = await within(group).findByRole("combobox", { name: "Machine" }) as HTMLSelectElement;
+  expect(machine.value).toBe("host_gone");
+  expect(machine.selectedOptions[0]!.textContent).toBe("Removed machine");
+  expect(within(group).getByTestId("bb-provider-model-picker").dataset.routingId).toBe("host_gone");
+  fireEvent.change(machine, { target: { value: "" } });
+  await waitFor(() => expect(within(group).getByTestId("bb-provider-model-picker").dataset.routingKind).toBe("primary"));
+  fireEvent.click(section.getByRole("button", { name: "Build the guide" }));
+  await waitFor(() => expect(startTrackedReview).toHaveBeenCalledWith({ targetKey: "pr-42", agent: { providerId: "codex", model: "gpt-6", reasoningLevel: "low" } }));
+  expect(savePreferences).not.toHaveBeenCalled();
+  slot.lifecycle.unmount();
+});
+
+test("a guide writer setting changed while the page is open shows at once and is what builds, and a pick made meanwhile stays", async () => {
+  let guideAgent: Record<string, unknown> = { providerId: "claude-code", model: "opus", reasoningLevel: "high", permissionMode: "accept-edits" };
+  const startTrackedReview = vi.fn((_input: unknown) => ({ ok: false, error: "Not now." }));
+  const slot = await reviewPage({ status: "tracked" }, {
+    getPreferences: () => ({ preferences: { ...defaultPreferences, guideAgent }, revision: 3 }),
+    listMachines: () => ({ machines: [{ hostId: "server", name: "Server", connected: true, server: true }] }), startTrackedReview,
+  });
+  const section = within(await slot.findByRole("region", { name: "Tracked pull request" }));
+  const picker = await findPicker(within(await section.findByRole("group", { name: "Guide writer" })));
+  const model = () => (within(picker).getByRole("textbox", { name: "Model" }) as HTMLInputElement).value;
+  expect(model()).toBe("opus");
+  // Settings change in another window: the picker follows, and building sends no pick, so the new setting builds.
+  guideAgent = { ...guideAgent, model: "sonnet" };
+  await slot.emitRealtime("preferences", {});
+  await waitFor(() => expect(model()).toBe("sonnet"));
+  fireEvent.click(section.getByRole("button", { name: "Build the guide" }));
+  await waitFor(() => expect(startTrackedReview).toHaveBeenCalledTimes(1));
+  expect(startTrackedReview.mock.calls[0]![0]).toEqual({ targetKey: "pr-42" });
+  // A pick you made stays yours through another change.
+  fireEvent.change(within(picker).getByRole("textbox", { name: "Model" }), { target: { value: "haiku" } });
+  fireEvent.click(within(picker).getByRole("button", { name: "Apply execution selection" }));
+  guideAgent = { ...guideAgent, model: "opus" };
+  await slot.emitRealtime("preferences", {});
+  await waitFor(() => expect(slot.inspection.rpcCalls.filter((call) => call.method === "getPreferences").length).toBeGreaterThanOrEqual(3));
+  await waitFor(() => expect(section.getByRole("button", { name: "Build the guide" }).hasAttribute("disabled")).toBe(false));
+  expect(model()).toBe("haiku");
+  fireEvent.click(section.getByRole("button", { name: "Build the guide" }));
+  await waitFor(() => expect(startTrackedReview).toHaveBeenCalledTimes(2));
+  expect(startTrackedReview.mock.calls[1]![0]).toEqual({ targetKey: "pr-42", agent: { providerId: "claude-code", model: "haiku", reasoningLevel: "high" } });
+  slot.lifecycle.unmount();
+});
+
+test("a pick made before the guide writer setting changes to Project defaults is what builds while those defaults are read", async () => {
+  let guideAgent: Record<string, unknown> | null = { providerId: "claude-code", model: "opus", reasoningLevel: "high", permissionMode: "accept-edits" };
+  let answer!: (result: unknown) => void;
+  const getAgentDefaults = vi.fn((_input: unknown) => new Promise((resolve) => { answer = resolve; }));
+  const startTrackedReview = vi.fn((_input: unknown) => ({ ok: false, error: "Not now." }));
+  const slot = await reviewPage({ status: "tracked" }, {
+    getPreferences: () => ({ preferences: { ...defaultPreferences, guideAgent }, revision: 3 }),
+    listMachines: () => ({ machines: [{ hostId: "server", name: "Server", connected: true, server: true }] }), getAgentDefaults, startTrackedReview,
+  });
+  const section = within(await slot.findByRole("region", { name: "Tracked pull request" }));
+  const picker = await findPicker(within(await section.findByRole("group", { name: "Guide writer" })));
+  fireEvent.change(within(picker).getByRole("textbox", { name: "Model" }), { target: { value: "haiku" } });
+  fireEvent.click(within(picker).getByRole("button", { name: "Apply execution selection" }));
+  guideAgent = null;
+  await slot.emitRealtime("preferences", {});
+  await waitFor(() => expect(getAgentDefaults).toHaveBeenCalled());
+  expect((within(picker).getByRole("textbox", { name: "Model" }) as HTMLInputElement).value).toBe("haiku");
+  fireEvent.click(section.getByRole("button", { name: "Build the guide" }));
+  await waitFor(() => expect(startTrackedReview).toHaveBeenCalledTimes(1));
+  expect(startTrackedReview.mock.calls[0]![0]).toEqual({ targetKey: "pr-42", agent: { providerId: "claude-code", model: "haiku", reasoningLevel: "high" } });
+  answer({ defaults: { providerId: "codex", model: "gpt-6", reasoningLevel: "low", permissionMode: "auto", serviceTier: "default" } });
   slot.lifecycle.unmount();
 });
 

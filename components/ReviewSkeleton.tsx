@@ -1,4 +1,4 @@
-import { memo, useId } from "react";
+import { memo, useId, useState } from "react";
 import { UrlLink, useBbNavigate } from "@get-bb/plugin-sdk/app";
 import { GUIDE_STOPPED, type ReviewItem } from "../lib/review-state";
 import { Skeleton } from "./ui/skeleton";
@@ -10,6 +10,8 @@ import { ReviewTitle } from "./ReviewIdChip";
 import { ReviewActions } from "./ReviewActions";
 import { useThreadListReviews } from "./NeedsReviewSidebar";
 import { TOUCH_CONTROL } from "./touch";
+import { AgentPicker } from "./AgentPicker";
+import type { AgentChoice } from "../src/agent";
 
 /** The workspace's shape, drawn in placeholders: chapters beside the code where there's room, then the files. */
 function WorkspaceShape() {
@@ -104,13 +106,14 @@ function BuildingGuide({ review, onBack, onStop, stopping }: { review: ReviewIte
 /**
  * A review page that failed: the page bar (with the review's menu, when there's a review), what failed, why a guide
  * failed when it's known, and the way on: Try again, or Back to your reviews when `primary` is "back", and the PR on GitHub.
- * A guide you stopped says "Guide stopped", with Build the guide; one waiting for its writer's machine says so.
+ * A guide you stopped says "Guide stopped", with Build the guide; one waiting for its writer's machine says so. A
+ * review's guide that failed or stopped picks the guide writer to try again on, for that build alone: `onRetry` gets it.
  */
 export const ReviewError = memo(function ReviewError({ review, title = "Couldn’t build the guide", message = "The guide writer stopped before it finished. Check your coding agent in BB’s Settings, then try again.", onRetry, onBack, busy = false, primary = "retry" }: {
   review?: ReviewItem;
   title?: string;
   message?: string;
-  onRetry?: () => void;
+  onRetry?: (writer: AgentChoice | null) => void;
   onBack: () => void;
   busy?: boolean;
   primary?: "retry" | "back";
@@ -124,6 +127,7 @@ export const ReviewError = memo(function ReviewError({ review, title = "Couldn�
   // The writer's own words or the guide's last rejection: plain text, cut to a few lines.
   const reason = review?.status === "error" && !stopped && !waiting ? review.guideError?.text : undefined;
   const reasonId = useId();
+  const [writer, setWriter] = useState<AgentChoice | null>(null);
   return (
     <div className="flex h-full min-h-0 flex-col bg-background">
       <PageBar onBack={onBack} title={review && <ReviewTitle review={review} />}>
@@ -143,9 +147,10 @@ export const ReviewError = memo(function ReviewError({ review, title = "Couldn�
             <p className="mt-1 line-clamp-6 whitespace-pre-line break-words text-xs leading-5 text-muted-foreground">{reason}</p>
           </section>
         )}
+        {review?.status === "error" && onRetry && <AgentPicker role="guide" targetKey={review.targetKey} disabled={busy} onChange={setWriter} className="justify-center" />}
         <div className="flex flex-wrap justify-center gap-2">
           {primary === "back" && <Button className={TOUCH_CONTROL} onClick={onBack}>Back to your reviews</Button>}
-          {onRetry && <Button disabled={busy} variant={primary === "back" ? "outline" : "default"} className={TOUCH_CONTROL} onClick={onRetry}>{stopped ? busy ? "Building…" : "Build the guide" : busy ? "Trying again…" : "Try again"}</Button>}
+          {onRetry && <Button disabled={busy} variant={primary === "back" ? "outline" : "default"} className={TOUCH_CONTROL} onClick={() => onRetry(writer)}>{stopped ? busy ? "Building…" : "Build the guide" : busy ? "Trying again…" : "Try again"}</Button>}
           {review?.url && <Button asChild variant="outline" className={TOUCH_CONTROL}><UrlLink href={review.url}><Icon name="Github" aria-hidden />Open on GitHub</UrlLink></Button>}
         </div>
       </div>
