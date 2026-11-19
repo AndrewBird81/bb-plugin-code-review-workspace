@@ -12,13 +12,17 @@ import { Textarea } from "../ui/textarea";
 import type { CommentActions } from "./store";
 import { notSubmitted } from "./look";
 
+function PublicDestination() {
+  return <p className="flex items-center gap-1.5 border-t border-border px-3 py-1.5 text-xs text-muted-foreground"><Icon name="Github" className="size-3.5 shrink-0" aria-hidden />Public · posts to GitHub now, as you</p>;
+}
+
 // Text typed in a reply box and not saved yet, by review and thread: a card that goes and comes back, such as a row
 // that moves to another group, or the list's copy of a card in the code, picks it up.
 const unsaved = new Map<string, string>();
 
 /**
  * A thread's reply, inside its card as a dashed box: the reply drafted on the server (yours or the agent's), or one
- * you're writing. Send reply posts it now; what you write is kept as the thread's draft when you leave the box.
+ * you're writing. Post to GitHub posts it now; what you write is kept as the thread's draft when you leave the box.
  */
 export function ReplyBox({ targetKey, item, where, actions, busy, writing, onClose, replyButton }: {
   targetKey: string;
@@ -145,18 +149,20 @@ export function ReplyBox({ targetKey, item, where, actions, busy, writing, onClo
         <Icon name={agent ? "Sparkles" : "CircleDashed"} className={cn("size-3.5 shrink-0", agent ? "text-(--ansi-13)" : "text-primary")} aria-hidden />{label}
       </p>
       {editing
-        ? <Textarea ref={box} aria-label={`Reply on ${where}`} value={text} disabled={busy} placeholder="Reply on GitHub…" className="min-h-16 bg-background text-sm"
+        ? <div className="overflow-hidden rounded-md border border-input bg-background focus-within:ring-2 focus-within:ring-ring/50"><Textarea ref={box} aria-label={`Reply on ${where}`} value={text} disabled={busy} placeholder="Reply on GitHub…" className="min-h-16 border-0 bg-background text-sm shadow-none focus-visible:ring-0"
             onChange={(event) => change(event.target.value)} onBlur={save}
             onKeyDown={(event) => composerKeys(event, text.trim() && !busy ? () => void send() : null, cancel)} />
+          <PublicDestination />
+        </div>
         : <CommentBody body={text} link={agent} />}
+      {!editing && <PublicDestination />}
       <div className="flex flex-wrap items-center gap-1">
         {/* While it posts, Send keeps the focus it was pressed with. */}
         <Button size="sm" variant={fill} data-reply-action="send" className={cn(action, "aria-disabled:pointer-events-none aria-disabled:bg-muted/60 aria-disabled:text-subtle-foreground aria-disabled:shadow-none")} disabled={!busy && !text.trim()} aria-disabled={busy || undefined} onClick={() => { if (!busy) void send(); }}>
-          {busy ? <Icon name="Loading" className="size-3.5 animate-spin motion-reduce:animate-none" aria-hidden /> : <Icon name="Github" className="size-3.5" aria-hidden />}Send reply
+          {busy ? <Icon name="Loading" className="size-3.5 animate-spin motion-reduce:animate-none" aria-hidden /> : <Icon name="Github" className="size-3.5" aria-hidden />}Post to GitHub
         </Button>
         {!editing && <Button variant="ghost" size="sm" className={action} disabled={busy} onClick={() => { focusBox.current = true; setEditing(true); }}>Edit</Button>}
         <Button variant="ghost" size="sm" data-reply-action="discard" className={cn(action, "hover:text-destructive-text")} disabled={busy} onClick={() => void discard()}>Discard</Button>
-        <span className="ml-auto text-[11px] text-subtle-foreground">Posts now, not with your review</span>
       </div>
     </div>
   );

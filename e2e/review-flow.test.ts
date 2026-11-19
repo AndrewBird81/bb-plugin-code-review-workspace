@@ -67,7 +67,7 @@ test.skipIf(!process.env.BB_E2E_URL)("fullscreen verdict → submitted → reloa
       await route.fulfill({ json: { ok: true, result } });
     } catch (error) { await route.fulfill({ status: 500, json: { ok: false, error: { message: String(error) } } }); }
   });
-  // The review's commands: in BB's title bar, at the band's end in full screen, and in a phone's dock.
+  // The same commands in the review bar and phone dock.
   const commands = page.getByRole("group", { name: "Review commands" });
   try {
     await page.goto(`${base}/plugins/code-review-workspace/review/settings/${key}`);
@@ -146,8 +146,7 @@ test.skipIf(!process.env.BB_E2E_URL)("fullscreen verdict → submitted → reloa
     // A phone: Finish is inside the Comments sheet, above the dock.
     await page.setViewportSize({ width: 390, height: 844 });
     await page.reload();
-    await commands.getByRole("button", { name: "Comments, 1 to send", exact: true }).click();
-    await page.getByRole("dialog", { name: "Comments", exact: true }).getByRole("button", { name: "Finish review", exact: true }).click();
+    await commands.getByRole("button", { name: /^Finish review:/ }).click();
     await verdicts.waitFor();
     await verdicts.getByRole("button", { name: "Approve", exact: true }).scrollIntoViewIfNeeded();
     expect(await verdicts.evaluate((element) => element.getBoundingClientRect().right <= innerWidth)).toBe(true);
@@ -165,7 +164,8 @@ test.skipIf(!process.env.BB_E2E_URL)("fullscreen verdict → submitted → reloa
     await page.setViewportSize({ width: 1440, height: 1000 });
     await commands.getByRole("button", { name: /^Finish review:/ }).click();
     await verdicts.waitFor();
-    await commands.getByRole("button", { name: "Full screen", exact: true }).click();
+    await commands.getByRole("button", { name: "Review actions", exact: true }).click();
+    await page.getByRole("button", { name: "Full screen", exact: true }).click();
     await page.waitForFunction(() => !!document.fullscreenElement);
     expect(await verdicts.evaluate((element) => document.fullscreenElement?.contains(element))).toBe(true);
     await verdicts.getByRole("button", { name: "Request changes", exact: true }).click();
@@ -185,7 +185,7 @@ test.skipIf(!process.env.BB_E2E_URL)("fullscreen verdict → submitted → reloa
     expect(submission?.[1]?.stdin).toContain("Please test whitespace-only input too.");
     expect(submission?.[1]?.stdin).toContain("The validation looks good with this test follow-up.");
     // In full screen, the commands sit at the band's end; Ask agent leaves full screen for BB's side panel.
-    const askAgent = commands.getByRole("button", { name: "Ask agent", exact: true });
+    const askAgent = commands.getByRole("button", { name: "Agent", exact: true });
     await askAgent.click();
     await page.waitForFunction(() => !document.fullscreenElement);
     const assistant = page.getByRole("region", { name: "Review agent", exact: true });
@@ -198,7 +198,7 @@ test.skipIf(!process.env.BB_E2E_URL)("fullscreen verdict → submitted → reloa
     await assistant.waitFor({ state: "hidden" });
     await page.keyboard.press("Tab");
     await askAgent.focus();
-    await page.getByRole("tooltip", { name: "Ask agent (a)", exact: true }).waitFor();
+    await page.getByRole("tooltip", { name: "Agent (a)", exact: true }).waitFor();
     await askAgent.press("Enter");
     // BB keeps the tab while its panel is closed: the message is still there.
     expect(await page.getByRole("textbox", { name: "Ask the agent", exact: true }).inputValue()).toBe("Explain the validation guard");
@@ -228,6 +228,7 @@ test.skipIf(!process.env.BB_E2E_URL)("fullscreen verdict → submitted → reloa
     await page.getByText("Private notes", { exact: true }).click();
     expect(await page.getByRole("textbox", { name: "Private notes", exact: true }).inputValue()).toBe("Private: verify the staged rollout, then the cache.");
     await page.getByRole("button", { name: "Close panel", exact: true }).click();
+    await commands.getByRole("button", { name: "Review actions", exact: true }).click();
     await page.getByRole("button", { name: "All reviews", exact: true }).click();
     await page.getByText("Nothing needs you right now", { exact: true }).waitFor();
     await page.getByRole("button", { name: /^Reviewed/ }).click();
@@ -264,12 +265,13 @@ test.skipIf(!process.env.BB_E2E_URL)("fullscreen verdict → submitted → reloa
     await page.setViewportSize({ width: 390, height: 844 });
     await page.reload();
     await hideBbPanel(page);
-    await commands.getByRole("button", { name: "Ask agent", exact: true }).click();
+    await commands.getByRole("button", { name: "Agent", exact: true }).click();
     await assistant.getByText("This thread is no longer available.").waitFor();
     expect(await assistant.evaluate((element) => element.getBoundingClientRect().right <= innerWidth)).toBe(true);
     await page.screenshot({ animations: "disabled", path: `${dir}/assistant-mobile.png` });
     await hideBbPanel(page);
-    await commands.getByRole("button", { name: "All reviews", exact: true }).click();
+    await commands.getByRole("button", { name: "Review actions", exact: true }).click();
+    await page.getByRole("button", { name: "All reviews", exact: true }).click();
     await page.reload();
     await archiveHeader.waitFor();
     if (await archiveHeader.getAttribute("aria-expanded") === "false") await archiveHeader.click();
@@ -345,10 +347,10 @@ test.skipIf(!process.env.BB_E2E_URL)("Send 3 → reports → Resolve 2 / Reopen 
     }
     await page.reload();
     await card(1).getByText("Done · Note on c1").waitFor();
-    await card(1).getByRole("button", { name: "Resolve", exact: true }).click();
-    await card(1).getByText("Resolved", { exact: true }).waitFor();
-    await card(2).getByRole("button", { name: "Resolve", exact: true }).click();
-    await card(2).getByText("Resolved", { exact: true }).waitFor();
+    await card(1).getByRole("button", { name: "Done for me", exact: true }).click();
+    await card(1).getByText("Done for me", { exact: true }).waitFor();
+    await card(2).getByRole("button", { name: "Done for me", exact: true }).click();
+    await card(2).getByText("Done for me", { exact: true }).waitFor();
     await card(3).getByRole("button", { name: "Reopen", exact: true }).click();
     await card(3).getByText("Open", { exact: true }).waitFor();
     await page.screenshot({ animations: "disabled", path: "docs/verification/2026-09-09/fix-cards-desktop.png" });

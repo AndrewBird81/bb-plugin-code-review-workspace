@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { openDiffOptions } from "./review-bar.test-support";
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
@@ -57,7 +58,7 @@ async function renderWorkspace(review: Record<string, unknown> = {}) {
   return slot;
 }
 type Slot = Awaited<ReturnType<typeof renderWorkspace>>;
-const openOptions = (slot: Slot) => fireEvent.click(within(slot.getByRole("main")).getByRole("button", { name: "Diff options" }));
+const openOptions = (slot: Slot) => openDiffOptions(slot);
 const names = (slot: Slot) => slot.getAllByRole("switch").map((option) => option.textContent);
 
 test("Diff options holds how the diff draws, then the chapter's files, then the keyboard shortcuts where there's a fine pointer", async () => {

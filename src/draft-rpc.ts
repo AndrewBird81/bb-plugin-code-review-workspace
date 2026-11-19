@@ -2,7 +2,7 @@
 // marked Viewed. Also bb review comment and bb review summary.
 import { seeComments, undoable, undoChange } from "./draft-comments";
 import { z } from "zod";
-import { isLocal, isSummary, rangeOf, sameLocation, severityOf, type CommentLocation, type Draft, type DraftComment } from "./draft";
+import { githubThreadOf, isLocal, isSummary, rangeOf, sameLocation, severityOf, type CommentLocation, type Draft, type DraftComment } from "./draft";
 import { summaryLine, withSummaryLine } from "../lib/move-to-summary";
 import { runSummaryCommand } from "./summary-command";
 import { askAgent } from "./discussions";
@@ -80,7 +80,8 @@ export function register(deps: ServeDeps) {
         await store.exclusive(async (tx) => {
           if (!alone) {
             const left = (await tx.getDraft(targetKey)).comments;
-            const stays = (at: CommentLocation) => !isSummary(at) && left.some((c) => sameLocation(c, at));
+            // A discussion about a GitHub thread stays with the thread, which stays on GitHub.
+            const stays = (at: CommentLocation) => !isSummary(at) && (!!githubThreadOf(at) || left.some((c) => sameLocation(c, at)));
             await recordOutcomes(tx, targetKey, { ...submitted, comments: submitted.comments.filter((c) => !stays(c)) });
             for (const discussion of await tx.listDiscussions(targetKey)) if (!stays(discussion)) await tx.deleteDiscussion(targetKey, discussion);
             const asks = (await tx.getReview(targetKey))?.commentAsks ?? [];
@@ -232,6 +233,17 @@ export function register(deps: ServeDeps) {
         bb.realtime.publish(`draft:${targetKey}`, {});
         return await draftState(tx, targetKey);
       });
+    },
+    async setDoneForMe({ targetKey, id, done, latest }) {
+      const ok = await store.exclusive(async (tx) => {
+        const review = await tx.getReview(targetKey);
+        if (!review) return false;
+        const { [id]: _was, ...rest } = review.doneForMe ?? {};
+        await tx.setLifecycle(targetKey, { doneForMe: done ? { ...rest, [id]: { at: Date.now(), latest } } : rest });
+        return true;
+      });
+      if (ok) changed(targetKey);
+      return { ok };
     },
     async setRemovalReason({ targetKey, file, line, side, reason, note }) {
       return store.exclusive(async (tx) => {

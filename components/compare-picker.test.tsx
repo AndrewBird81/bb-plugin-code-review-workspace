@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { openDiffOptions, findCompare, queryCompare, getCompare } from "./review-bar.test-support";
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
@@ -61,12 +62,12 @@ type Slot = Awaited<ReturnType<typeof renderWorkspace>>["slot"];
 
 /** The band's compare select's menu. */
 async function bandMenu(slot: Slot, label: RegExp | string = /^Show changes: /) {
-  fireEvent.click(await slot.findByRole("button", { name: label }));
+  fireEvent.click(await findCompare(slot, label));
   return within(await slot.findByRole("menu", { name: "Show changes" }));
 }
 /** Diff options' page of commits to compare from, where the band has no compare select. */
 async function commitsInOptions(slot: Slot) {
-  fireEvent.click(slot.getByRole("button", { name: "Diff options" }));
+  openDiffOptions(slot);
   fireEvent.click(await slot.findByRole("button", { name: "Compare with a commit…" }));
   return within(await slot.findByRole("menu", { name: "Show changes" }));
 }
@@ -82,7 +83,7 @@ test("the compare select's label says what the diff shows; its menu lists your r
   expect(choices(menu).map((item) => item.getAttribute("aria-checked"))).toEqual(["false", "true", "false"]);
   expect(rpc.getPrCommits).toHaveBeenCalledWith({ targetKey: "pr-42" });
   fireEvent.click(menu.getByRole("menuitemradio", { name: /^Invalidate on write/ }));
-  await slot.findByRole("button", { name: "Show changes: Since c2bbbbb, 1 commit ago" });
+  await findCompare(slot, "Show changes: Since c2bbbbb, 1 commit ago");
   expect(rpc.getSinceReview).toHaveBeenCalledWith({ targetKey: "pr-42", from: "c2bbbbb" });
   // Finish review still counts the agent's reads against what changed since your review, read apart.
   expect(rpc.getSinceReview).toHaveBeenLastCalledWith({ targetKey: "pr-42" });
@@ -94,11 +95,11 @@ test("the compare select's label says what the diff shows; its menu lists your r
   menu = await bandMenu(slot);
   expect(menu.getByRole("menuitemradio", { name: /^Invalidate on write/ }).getAttribute("aria-checked")).toBe("true");
   fireEvent.click(menu.getByRole("menuitemradio", { name: /^Since your review/ }));
-  await slot.findByRole("button", { name: "Show changes: Since your review" });
+  await findCompare(slot, "Show changes: Since your review");
   expect(rpc.getSinceReview).toHaveBeenLastCalledWith({ targetKey: "pr-42" });
   // And all of it.
   fireEvent.click((await bandMenu(slot)).getByRole("menuitemradio", { name: "All changes in this PR" }));
-  await slot.findByRole("button", { name: "Show changes: All changes" });
+  await findCompare(slot, "Show changes: All changes");
   expect(slot.container.querySelector('[data-file="src/b.ts"]')).toBeTruthy();
   slot.lifecycle.unmount();
 }, 15_000);
@@ -110,13 +111,13 @@ test("Since your review, picked while its comparison loads, narrows the diff onc
   });
   fireEvent.click((await bandMenu(slot)).getByRole("menuitemradio", { name: /^Since your review/ }));
   answer();
-  expect(await slot.findByRole("button", { name: "Show changes: Since your review" })).toBeTruthy();
+  expect(await findCompare(slot, "Show changes: Since your review")).toBeTruthy();
   slot.lifecycle.unmount();
 }, 15_000);
 
 test("a PR you haven't reviewed has no compare select until you compare it with one of its commits, from Diff options and the keyboard", async () => {
   const { slot, rpc } = await renderWorkspace({});
-  expect(slot.queryByRole("button", { name: /^Show changes/ })).toBeNull();
+  expect(queryCompare(slot, /^Show changes/)).toBeNull();
   const menu = await commitsInOptions(slot);
   await menu.findByText("Add cache");
   const [all, newer, older] = choices(menu);
@@ -129,7 +130,7 @@ test("a PR you haven't reviewed has no compare select until you compare it with 
   fireEvent.keyDown(newer, { key: "ArrowDown" });
   fireEvent.click(document.activeElement!);
   // The band shows what the diff shows now.
-  await slot.findByRole("button", { name: "Show changes: Since c1aaaaa, 2 commits ago" });
+  await findCompare(slot, "Show changes: Since c1aaaaa, 2 commits ago");
   expect(rpc.getSinceReview).toHaveBeenCalledWith({ targetKey: "pr-42", from: "c1aaaaa" });
   expect(slot.queryByRole("menu")).toBeNull();
   slot.lifecycle.unmount();
@@ -137,44 +138,44 @@ test("a PR you haven't reviewed has no compare select until you compare it with 
 
 test("a local review has no commits to pick", async () => {
   const { slot } = await renderWorkspace({ kind: "ref", gitRef: "main..HEAD" });
-  fireEvent.click(slot.getByRole("button", { name: "Diff options" }));
+  openDiffOptions(slot);
   await slot.findByRole("switch", { name: "Wrap long lines" });
   expect(slot.queryByRole("button", { name: "Compare with a commit…" })).toBeNull();
-  expect(slot.queryByRole("button", { name: /^Show changes/ })).toBeNull();
+  expect(queryCompare(slot, /^Show changes/)).toBeNull();
   slot.lifecycle.unmount();
 }, 15_000);
 
 test("after a new push and rebuild, the commit list and how many commits ago are read again", async () => {
   const { slot, rpc, push } = await renderWorkspace({ signals: { lastReviewSha: "c1aaaaa" }, submittedVerdict: "COMMENT" });
   fireEvent.click(await (await bandMenu(slot)).findByText("Invalidate on write"));
-  await slot.findByRole("button", { name: "Show changes: Since c2bbbbb, 1 commit ago" });
+  await findCompare(slot, "Show changes: Since c2bbbbb, 1 commit ago");
   // A new diff shows what changed since your review again, as Settings has it.
   await push();
-  await slot.findByRole("button", { name: "Show changes: Since your review" });
+  await findCompare(slot, "Show changes: Since your review");
   // Read again as the menu opens, with the new commit.
   const menu = await bandMenu(slot);
   expect(await menu.findByText("Rename key")).toBeTruthy();
-  expect(rpc.getPrCommits).toHaveBeenCalledTimes(2);
+  expect(rpc.getPrCommits).toHaveBeenCalledTimes(3);
   fireEvent.click(menu.getByText("Invalidate on write"));
-  expect(await slot.findByRole("button", { name: "Show changes: Since c2bbbbb, 2 commits ago" })).toBeTruthy();
-  expect(rpc.getPrCommits).toHaveBeenCalledTimes(2);
+  expect(await findCompare(slot, "Show changes: Since c2bbbbb, 2 commits ago")).toBeTruthy();
+  expect(rpc.getPrCommits).toHaveBeenCalledTimes(4);
   slot.lifecycle.unmount();
 }, 15_000);
 
 test("with your last review at the head there's nothing to compare it with, so it isn't offered, and with Settings on All changes nothing narrows later", async () => {
   const { slot, push } = await renderWorkspace({ signals: { lastReviewSha: "c3ccccc" }, submittedVerdict: "COMMENT" }, { getPreferences: () => ({ preferences: { ...defaultPreferences, rereviewShows: "all" }, revision: 0 }) });
-  expect(slot.queryByRole("button", { name: /^Show changes/ })).toBeNull();
+  expect(queryCompare(slot, /^Show changes/)).toBeNull();
   const menu = await commitsInOptions(slot);
   await menu.findByText("Add cache");
   expect(menu.queryByRole("menuitemradio", { name: /^Since your review/ })).toBeNull();
   fireEvent.click(menu.getByText("Invalidate on write"));
-  await slot.findByRole("button", { name: "Show changes: Since c2bbbbb, 1 commit ago" });
+  await findCompare(slot, "Show changes: Since c2bbbbb, 1 commit ago");
   // All changes lets the commit go, with nothing of yours to compare with instead.
   fireEvent.click((await bandMenu(slot)).getByRole("menuitemradio", { name: "All changes in this PR" }));
-  await waitFor(() => expect(slot.queryByRole("button", { name: /^Show changes/ })).toBeNull());
+  await waitFor(() => expect(queryCompare(slot, /^Show changes/)).toBeNull());
   // A later push gives your review something to compare with; the diff isn't narrowed to it unasked.
   await push();
-  expect(await slot.findByRole("button", { name: "Show changes: All changes" })).toBeTruthy();
+  expect(await findCompare(slot, "Show changes: All changes")).toBeTruthy();
   expect(slot.container.querySelector('[data-file="src/b.ts"]')).toBeTruthy();
   slot.lifecycle.unmount();
 }, 15_000);
@@ -182,13 +183,13 @@ test("with your last review at the head there's nothing to compare it with, so i
 test("on a re-review, All changes lets a picked commit go: the files' badges say what changed since your review again", async () => {
   const { slot, rpc } = await renderWorkspace({ signals: { lastReviewSha: "c1aaaaa" }, submittedVerdict: "COMMENT" });
   fireEvent.click(await (await bandMenu(slot)).findByText("Invalidate on write"));
-  await slot.findByRole("button", { name: "Show changes: Since c2bbbbb, 1 commit ago" });
+  await findCompare(slot, "Show changes: Since c2bbbbb, 1 commit ago");
   await waitFor(() => expect(slot.queryAllByTitle("Changed since c2bbbbb")).not.toEqual([]));
   fireEvent.click((await bandMenu(slot)).getByRole("menuitemradio", { name: "All changes in this PR" }));
   await waitFor(() => expect(slot.queryAllByTitle("Changed since your review")).toHaveLength(2));
   expect(rpc.getSinceReview).toHaveBeenLastCalledWith({ targetKey: "pr-42" });
   // Your review's comparison, arriving, doesn't narrow the diff.
-  expect(slot.getByRole("button", { name: "Show changes: All changes" })).toBeTruthy();
+  expect(getCompare(slot, "Show changes: All changes")).toBeTruthy();
   expect(slot.queryAllByTitle("Changed since c2bbbbb")).toEqual([]);
   slot.lifecycle.unmount();
 }, 15_000);
@@ -196,10 +197,10 @@ test("on a re-review, All changes lets a picked commit go: the files' badges say
 test("a new push lets a picked commit go, as All changes does, so the select and the badges agree", async () => {
   const { slot, rpc, push } = await renderWorkspace({ signals: { lastReviewSha: "c1aaaaa" }, submittedVerdict: "COMMENT" });
   fireEvent.click(await (await bandMenu(slot)).findByText("Invalidate on write"));
-  await slot.findByRole("button", { name: "Show changes: Since c2bbbbb, 1 commit ago" });
+  await findCompare(slot, "Show changes: Since c2bbbbb, 1 commit ago");
   await waitFor(() => expect(slot.queryAllByTitle("Changed since c2bbbbb")).not.toEqual([]));
   await push();
-  await slot.findByRole("button", { name: "Show changes: Since your review" });
+  await findCompare(slot, "Show changes: Since your review");
   // The badges count from your review again, not from the commit the select no longer names.
   await waitFor(() => expect(slot.queryAllByTitle("Changed since your review")).toHaveLength(2));
   expect(slot.queryAllByTitle("Changed since c2bbbbb")).toEqual([]);
@@ -211,13 +212,13 @@ test("opening a file the narrowing hides, or a line from Find, lets a picked com
   const { slot } = await renderWorkspace({ signals: { lastReviewSha: "c1aaaaa" }, submittedVerdict: "COMMENT" });
   const pick = async () => {
     fireEvent.click(await (await bandMenu(slot)).findByText("Invalidate on write"));
-    await slot.findByRole("button", { name: "Show changes: Since c2bbbbb, 1 commit ago" });
+    await findCompare(slot, "Show changes: Since c2bbbbb, 1 commit ago");
     // b.ts hasn't changed since c2bbbbb.
     await waitFor(() => expect(slot.container.querySelector('[data-file="src/b.ts"]')).toBeNull());
   };
   const letGo = async () => {
     await waitFor(() => expect(slot.queryAllByTitle("Changed since your review")).toHaveLength(2));
-    expect(slot.getByRole("button", { name: "Show changes: All changes" })).toBeTruthy();
+    expect(getCompare(slot, "Show changes: All changes")).toBeTruthy();
     expect(slot.queryAllByTitle("Changed since c2bbbbb")).toEqual([]);
     expect(slot.container.querySelector('[data-file="src/b.ts"]')).toBeTruthy();
   };
@@ -245,11 +246,11 @@ test("a comparison that fails says why in the compare menu, not only in the sele
 test("on a PR you haven't reviewed, a picked commit can be cleared", async () => {
   const { slot, rpc } = await renderWorkspace({});
   fireEvent.click(await (await commitsInOptions(slot)).findByText("Add cache"));
-  await slot.findByRole("button", { name: "Show changes: Since c1aaaaa, 2 commits ago" });
+  await findCompare(slot, "Show changes: Since c1aaaaa, 2 commits ago");
   await waitFor(() => expect(slot.queryAllByTitle("Changed since c1aaaaa")).not.toEqual([]));
   fireEvent.click((await bandMenu(slot)).getByRole("menuitemradio", { name: "All changes in this PR" }));
   await waitFor(() => expect(slot.queryAllByTitle("Changed since c1aaaaa")).toEqual([]));
-  expect(slot.queryByRole("button", { name: /^Show changes/ })).toBeNull();
+  expect(queryCompare(slot, /^Show changes/)).toBeNull();
   expect(rpc.getSinceReview).toHaveBeenCalledTimes(1);
   slot.lifecycle.unmount();
 }, 15_000);
@@ -262,7 +263,7 @@ test("a local review with a Send offers Since your last Send, which says which S
   expect(choices(menu).map((item) => item.textContent)).toEqual(["All changes", "Since your last SendSend 2 · 5m ago"]);
   expect(menu.queryByRole("group", { name: "Since a commit" })).toBeNull();
   fireEvent.click(menu.getByRole("menuitemradio", { name: /^Since your last Send/ }));
-  await slot.findByRole("button", { name: "Show changes: Since your last Send" });
+  await findCompare(slot, "Show changes: Since your last Send");
   expect(rpc.getSinceReview).toHaveBeenLastCalledWith({ targetKey: "pr-42", from: "send:2" });
   expect(rpc.getPrCommits).not.toHaveBeenCalled();
   await waitFor(() => expect(slot.container.querySelector('[data-file="src/b.ts"]')).toBeNull());
@@ -271,7 +272,7 @@ test("a local review with a Send offers Since your last Send, which says which S
   // A new Send is a new starting point: the choice goes, as a new push's does.
   review.sends = [...(review.sends as unknown[]), { n: 3, at: Date.now(), threadId: "thr_main", ids: ["c3"] }];
   await slot.emitRealtime("review:pr-42", {});
-  await slot.findByRole("button", { name: "Show changes: All changes" });
+  await findCompare(slot, "Show changes: All changes");
   expect(slot.container.querySelector('[data-file="src/b.ts"]')).toBeTruthy();
   slot.lifecycle.unmount();
 }, 15_000);
@@ -282,7 +283,7 @@ test("a Send whose diff isn't kept says so where you compare, and the diff shows
   });
   fireEvent.click((await bandMenu(slot, "Show changes: All changes")).getByRole("menuitemradio", { name: /^Since your last Send/ }));
   const problem = "Couldn’t compare with your last Send: The diff Send 2 went at isn’t kept anymore.";
-  await slot.findByRole("button", { name: `Show changes: All changes. ${problem}` });
+  await findCompare(slot, `Show changes: All changes. ${problem}`);
   expect(slot.container.querySelector('[data-file="src/b.ts"]')).toBeTruthy();
   expect((await bandMenu(slot)).getByRole("status").textContent).toBe(problem);
   slot.lifecycle.unmount();

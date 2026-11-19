@@ -179,8 +179,8 @@ test("the reviewer's summary and verdict: saving makes it theirs, and picking a 
 test("the assistant replies in the summary's discussion", async () => {
   const { store, tool, error, ask, signals } = await host();
   expect(error(await tool("reply_in_discussion", { summary: true, body: "Hi" }))).toBe("There's no discussion on the review summary. The reviewer starts discussions; answer other messages in the chat.");
-  expect(error(await tool("reply_in_discussion", { body: "Hi" }))).toBe("Give the discussion's file and line, or summary: true for the review summary's discussion.");
-  expect(error(await tool("reply_in_discussion", { file: "a.ts", body: "Hi" }))).toBe("Give the discussion's file and line, or summary: true for the review summary's discussion.");
+  expect(error(await tool("reply_in_discussion", { body: "Hi" }))).toBe("Give the discussion's file and line, thread for a GitHub thread's, or summary: true for the review summary's discussion.");
+  expect(error(await tool("reply_in_discussion", { file: "a.ts", body: "Hi" }))).toBe("Give the discussion's file and line, thread for a GitHub thread's, or summary: true for the review summary's discussion.");
   await ask(SUMMARY_AT, "Is Approve right?");
   expect(await tool("reply_in_discussion", { summary: true, body: " Yes: nothing blocks merging. " })).toBe("Replied in the discussion on the review summary. The reviewer reads it there.");
   expect(await store.listDiscussions("pr-1")).toEqual([{ ...SUMMARY_AT, waiting: false, entries: [

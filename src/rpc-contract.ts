@@ -85,6 +85,14 @@ const syncHealth = z.object({
   lastReadAt: z.number().nullable(),
   error: z.object({ kind: z.enum(["auth", "rate-limit", "partial", "teams", "gh-missing", "other"]), at: z.number(), count: z.number().optional(), retryAt: z.number().optional() }).nullable(),
 });
+// A GitHub thread, or a review summary or comment on the PR, as the page shows it (src/discussions.ts GithubThreadContext).
+const githubThread = z.object({
+  id: z.string().min(1).max(200),
+  where: z.string().max(1_000),
+  at: z.object({ file: z.string().max(4_096), line: z.number().int().min(1).max(2_147_483_647), side: z.enum(["LEFT", "RIGHT"]) }).optional(),
+  resolved: z.boolean().optional(),
+  messages: z.array(z.object({ who: z.string().max(300), body: z.string().max(65_536) })).max(100),
+}).strict();
 const discussion = z.object({
   ...location,
   // An edit's text before it, which Show changes compares (src/draft.ts DiscussionEntry before).
@@ -287,8 +295,9 @@ export const rpcContract = defineRpcContract({
   },
   // A message from a line's discussion, or the summary's (src/draft.ts SUMMARY_AT), to the review assistant, which answers there.
   // inserted: the plugin wrote any of body, by filling the box or composing it, so it confirms no post.
+  // thread: asked about a GitHub thread, at src/draft.ts githubThreadAt(id), the thread as the page shows it.
   askAgent: {
-    input: z.object({ targetKey: z.string(), ...location, startLine: startLine.optional(), body: z.string().trim().min(1).max(20_000), inserted: z.boolean() }).strict(),
+    input: z.object({ targetKey: z.string(), ...location, startLine: startLine.optional(), body: z.string().trim().min(1).max(20_000), inserted: z.boolean(), thread: githubThread.optional() }).strict(),
     output: draftOutput,
   },
   /** Ask the review agent for a closer pass over a medium- or high-risk chapter, at high effort; its comments arrive in the draft. */
@@ -299,6 +308,14 @@ export const rpcContract = defineRpcContract({
   dismissDiscussion: { input: z.object({ targetKey: z.string(), ...location }).strict(), output: draftOutput },
   /** Undo the agent's latest change in the discussion at a line, or the summary's. */
   undoAgentChange: { input: z.object({ targetKey: z.string(), ...location }).strict(), output: draftOutput },
+  /**
+   * Done for me on a GitHub thread or a private discussion, by the Comments list's id, or (done false) open again. Only in
+   * BB: nothing changes on GitHub. `latest`: when its newest message was written, so a newer one opens it again.
+   */
+  setDoneForMe: {
+    input: z.object({ targetKey: z.string(), id: z.string().min(1).max(4_200), done: z.boolean(), latest: epochMs.nullable() }).strict(),
+    output: z.object({ ok: z.boolean() }),
+  },
   /** Why the reviewer removed the agent's comment at a line, on its latest removal there; not ok when there's none, or they aren't asked. */
   setRemovalReason: {
     input: z.object({ targetKey: z.string(), ...location, reason: z.enum(REMOVAL_REASONS), note: z.string().trim().max(REMOVAL_NOTE_LIMIT).optional() }).strict(),

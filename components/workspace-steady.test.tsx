@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { findCompare, queryCompare } from "./review-bar.test-support";
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
@@ -114,11 +115,11 @@ test("a workspace that takes another's place, as BB's layout switch remounts it,
 test("Since your review follows the review you just submitted here, before GitHub reports it", async () => {
   let review: Record<string, unknown> = { submittedVerdict: "REQUEST_CHANGES", submittedAt: now - 3 * DAY, submittedHeadSha: "old", signals: { lastReviewAt: now - 3 * DAY, lastReviewSha: "old" }, turn: turn() };
   const { slot, rpc } = await renderWorkspace(() => review);
-  expect(await slot.findByRole("button", { name: "Show changes: Since your review" })).toBeTruthy();
+  expect(await findCompare(slot, "Show changes: Since your review")).toBeTruthy();
   // You submit on the new head; GitHub still reports the old review.
   review = { ...review, submittedAt: now, submittedHeadSha: "new" };
   await slot.emitRealtime("review:pr-42", {});
-  await waitFor(() => expect(slot.queryByRole("button", { name: /^Show changes/ })).toBeNull());
+  await waitFor(() => expect(queryCompare(slot, /^Show changes/)).toBeNull());
   expect(rpc.getSinceReview).toHaveBeenCalledTimes(1);
   slot.lifecycle.unmount();
 });
@@ -128,7 +129,7 @@ test("a failed comparison with your last review says so", async () => {
     getSinceReview: () => ({ baseline: null, files: [], error: "gh: not found" }),
   });
   // The compare select says so, and why, and narrows nothing.
-  const select = await slot.findByRole("button", { name: "Show changes: All changes. Couldn’t compare with your last review: gh: not found" });
+  const select = await findCompare(slot, "Show changes: All changes. Couldn’t compare with your last review: gh: not found");
   fireEvent.click(select);
   fireEvent.click(await slot.findByRole("menuitemradio", { name: /^Since your review/ }));
   await new Promise((resolve) => setTimeout(resolve, 20));

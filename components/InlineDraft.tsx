@@ -1,8 +1,12 @@
 import { createContext, memo, useContext, useRef, useState, type KeyboardEvent, type ReactNode, type Ref, type RefObject } from "react";
 import { Markdown } from "@get-bb/plugin-sdk/app";
 import { diffWords } from "diff";
-import { isLocal, linesOf, postable, sameLocation, SEVERITIES, SEVERITY_LABEL, type CommentLocation, type Discussion, type DiscussionEntry, type DraftComment, type Severity } from "../src/draft";
-import { draftItemId, draftState, draftStatus, privateItemId, sentCheck, STATE_LABEL, type CommentChecks } from "../lib/comments";
+import { githubThreadOf, isLocal, linesOf, postable, sameLocation, SEVERITIES, SEVERITY_LABEL, type CommentLocation, type Discussion, type DiscussionEntry, type DraftComment, type Severity } from "../src/draft";
+import type { GithubThreadContext } from "../src/discussions";
+import type { ReviewLifecycle } from "../src/store";
+import { DoneForMe, DoneLine } from "./comments/DoneForMe";
+import { Clamped } from "./comments/CommentCard";
+import { draftItemId, draftState, isDoneForMe, draftStatus, privateItemId, sentCheck, STATE_LABEL, type CommentChecks } from "../lib/comments";
 import { composing } from "../lib/composing";
 import { linkImages } from "../lib/link-images";
 import { setCommentOpen, useCommentOpen } from "../lib/comments-fold";
@@ -49,10 +53,10 @@ export interface InlineDraft {
   /** Open the comment box at a line, or lines from `startLine`, on the line's comment if it has one; a new comment starts with `start`. */
   open(at: CommentLocation & { startLine?: number }, start?: CommentStart): void;
   /** Open a box at a line for a message to the review assistant. */
-  ask(at: CommentLocation): void;
+  ask(at: CommentLocation, thread?: GithubThreadContext): void;
+  canAskThread?: boolean;
+  doneForMe?: ReviewLifecycle["doneForMe"];
   remove(comment: DraftComment): void;
-  /** Drop the discussion at a line that has no comment. */
-  dismiss(at: CommentLocation): void;
   /** Undo the agent's latest change in the discussion at a line. */
   undo(at: CommentLocation): void;
   /** Mark a comment as a problem in code the PR didn't change, or as from this PR. */
@@ -110,7 +114,7 @@ export const locationKey = (at: CommentLocation) => `${at.file}:${at.line}:${at.
 
 // The diff renders these inside its code view, so set the text style instead of inheriting the code's; at a measure of
 // 72 characters, as a thread's card.
-const card = "mx-2 my-2 max-w-[min(72ch,calc(100%-1rem))] overflow-hidden rounded-lg bg-card [contain:inline-size] font-sans text-sm leading-[1.55] whitespace-normal text-foreground shadow-md";
+const card = "min-w-0 [overflow-wrap:anywhere] [&_pre]:max-w-full [&_pre]:overflow-x-auto [&_pre]:whitespace-pre [&_pre_code]:whitespace-pre mx-2 my-2 max-w-[min(72ch,calc(100%-1rem))] overflow-hidden rounded-lg bg-card [contain:inline-size] font-sans text-sm leading-[1.55] whitespace-normal text-foreground shadow-md";
 /** A card's title row, and the small actions in it. */
 export const bar = "flex min-h-9 flex-wrap items-center gap-x-2 gap-y-1 px-3 py-1.5 text-xs text-muted-foreground";
 export const action = cn("h-7 px-2 text-xs aria-disabled:pointer-events-none aria-disabled:opacity-50", TOUCH_CONTROL);
@@ -144,6 +148,10 @@ export const InlineLocation = memo(function InlineLocation({ at }: { at: Comment
   const edge = comment ? draftEdge(comment, draft.stale) : box === "ask" ? "agent" : "yours";
   const where = comment ? `${comment.file}:${linesOf(comment)}` : `${at.file}:${discussionLines(discussion ?? { ...at, entries: [], waiting: false })}`;
   const key = draft.targetKey;
+  const message = discussion?.entries.filter((entry) => entry.kind === "message").at(-1);
+  if (!comment && discussion && key && isDoneForMe(draft.doneForMe?.[id], message?.createdAt ?? null)) return <div data-draft-at={locationKey(at)}>
+    <DoneLine targetKey={key} id={id} latest={message?.createdAt ?? null} who={discussion.entries[0]?.author === "agent" ? "Agent" : "You"} body={discussion.entries[0]?.body ?? ""} className={card} />
+  </div>;
   if (folded && key && !box && !opened) {
     const fold = () => setCommentOpen(key, id, true);
     if (comment) {
@@ -162,7 +170,7 @@ export const InlineLocation = memo(function InlineLocation({ at }: { at: Comment
   const refold = folded && key && opened && !box ? () => setCommentOpen(key, id, false) : null;
   return (
     <div data-draft-at={locationKey(at)} className={cn(card, comment || box ? notSubmitted(edge) : privately)}>
-      {box === "edit" ? <ComposerBox mode="edit" /> : comment ? <CommentView comment={comment} draft={draft} discussed={!!discussion} onFold={refold} /> : discussion && <DiscussionBar discussion={discussion} draft={draft} boxOpen={!!box} onFold={refold} />}
+      {box === "edit" ? <ComposerBox mode="edit" /> : comment ? <CommentView comment={comment} draft={draft} discussed={!!discussion || box === "ask"} onFold={refold} /> : discussion && <DiscussionBar discussion={discussion} draft={draft} boxOpen={!!box} onFold={refold} />}
       {discussion && <DiscussionView discussion={discussion} titled={!!comment || box === "edit"} chat={draft.chat} busy={draft.busy} writing={draft.writing} onUndo={draft.editable && !box && !(draft.editingAt && sameLocation(draft.editingAt, at)) ? () => draft.undo(discussion) : undefined}
         onReply={draft.editable && !box ? () => draft.ask(comment ?? discussion) : undefined} />}
       {box && box !== "edit" && <ComposerBox mode={box} divided={!!(comment || discussion)} />}
@@ -279,7 +287,7 @@ const SUGGESTION = /^(`{3,})suggestion[ \t]*\n([\s\S]*?)^ {0,3}\1`*[ \t]*$/m;
 export function CommentBody({ body, link = false }: { body: string; link?: boolean }) {
   // GitHub's editor writes CRLF. The parts run text, opening fence, suggestion, text, and so on.
   const parts = body.replace(/\r\n?/g, "\n").split(new RegExp(SUGGESTION, "gm"));
-  return <div className="space-y-2">{parts.map((part, index) => index % 3 === 1 ? null : index % 3 === 2
+  return <div className="min-w-0 max-w-full space-y-2 overflow-hidden [overflow-wrap:anywhere] [&_pre]:max-w-full [&_pre]:overflow-x-auto [&_pre]:whitespace-pre [&_pre_code]:whitespace-pre">{parts.map((part, index) => index % 3 === 1 ? null : index % 3 === 2
     ? <figure key={index} aria-label="Suggested change" className="overflow-hidden rounded-md border border-border">
         <figcaption className="border-b border-border bg-muted/25 px-2 py-1 text-xs text-muted-foreground">Suggested change</figcaption>
         <pre className="overflow-x-auto bg-success/10 px-2 py-1.5 font-mono text-xs leading-relaxed"><code>{part.replace(/\n$/, "")}</code></pre>
@@ -306,9 +314,9 @@ function DiscussionBar({ discussion, draft, boxOpen, onFold }: { discussion: Dis
       <Icon name={removed ? "Trash2" : "Lock"} className={cn("size-3.5 shrink-0", removed ? "text-(--ansi-13)" : "text-subtle-foreground")} aria-hidden />
       <span className="font-medium text-foreground">{removed ? "Removed by agent" : STATE_LABEL.private}</span>
       {discussion.startLine !== undefined && <span className="tabular-nums">Lines {discussionLines(discussion)}</span>}
-      {((draft.editable && !boxOpen) || onFold) && (
+      {((draft.targetKey && !boxOpen) || onFold) && (
         <span className="-mr-1.5 ml-auto flex">
-          {draft.editable && !boxOpen && <Button variant="ghost" size="sm" className={action} disabled={draft.busy} onClick={() => draft.dismiss(discussion)}>Dismiss</Button>}
+          {draft.targetKey && !boxOpen && <DoneForMe targetKey={draft.targetKey} id={privateItemId(discussion)} latest={discussion.entries.filter((entry) => entry.kind === "message").at(-1)?.createdAt ?? null} />}
           {onFold && <FoldButton onFold={onFold} />}
         </span>
       )}
@@ -354,12 +362,12 @@ export function DiscussionView({ discussion, titled, chat, busy = false, writing
   const unanswered = !discussion.waiting && last?.kind === "message" && last.author === "reviewer";
   const latestChange = discussion.entries.map((entry) => entry.kind !== "message").lastIndexOf(true);
   return (
-    <section aria-label={summary ? "Discussion with agent on the review summary" : `Discussion with agent on ${discussion.file}:${discussionLines(discussion)}`} className={cn("space-y-3 bg-muted/30 px-3 py-2.5", titled && "border-t border-border")}>
+    <section aria-label={summary ? "Discussion with agent on the review summary" : githubThreadOf(discussion) ? "Discussion with agent about this GitHub comment" : `Discussion with agent on ${discussion.file}:${discussionLines(discussion)}`} className={cn("space-y-3 bg-muted/30 px-3 py-2.5", titled && "border-t border-border")}>
       {titled && <p className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground"><Icon name="Lock" className="size-3 shrink-0 text-subtle-foreground" aria-hidden />{STATE_LABEL.private}</p>}
       {discussion.entries.map((entry, index) => entry.kind === "message"
-        ? <div key={index} className="space-y-1">
-            <Speaker agent={entry.author === "agent"}>{entry.author === "agent" ? "Agent" : "You"}</Speaker>
-            <div className="pl-6"><Markdown content={entry.author === "agent" ? linkImages(entry.body) : withLineBreaks(entry.body)} className="text-sm leading-relaxed" /></div>
+        ? <div key={index} className={cn("min-w-0 space-y-1", entry.author === "agent" && "border-l-2 border-(--ansi-13)/60 pl-2.5")}>
+            <Speaker agent={entry.author === "agent"}>{entry.author === "agent" ? "Agent" : "You"}<Icon name="Lock" className="size-3" aria-label="Private" /></Speaker>
+            <div className="min-w-0 pl-6">{entry.author === "agent" ? <Clamped body={entry.body} link /> : <CommentBody body={entry.body} />}</div>
           </div>
         : <ChangeEntry key={index} entry={entry} summary={summary} undo={index === latestChange && discussion.undoable && onUndo ? onUndo : undefined} busy={busy} />)}
       {discussion.waiting
@@ -379,7 +387,7 @@ export function DiscussionView({ discussion, titled, chat, busy = false, writing
  */
 export function AgentReply({ at, disabled, onClick }: { at: CommentLocation; disabled: boolean; onClick(): void }) {
   return <Button variant="ghost" size="sm" data-agent-reply={locationKey(at)} className={cn(action, TONE_TEXT.agent, "hover:text-(--ansi-13)")} disabled={disabled} onClick={onClick}>
-    <Icon name="CornerDownRight" className="size-3.5" aria-hidden />Reply
+    <Icon name="Sparkles" className="size-3.5" aria-hidden />Ask agent
   </Button>;
 }
 
@@ -426,19 +434,23 @@ export function ComposerFields({ mode, subject = "comment", divided = false, bus
   const fill = useFill();
   const held = busy || empty || mode !== "ask" && !!composer.rebuilding;
   const sees = summary ? "It sees the summary and the draft comments." : composer.askSees;
+  const field = <Textarea
+    ref={composer.textareaRef}
+    aria-label={mode === "ask" ? "Message to agent" : summary ? "Review summary" : "Draft comment"}
+    disabled={busy}
+    value={composer.body}
+    onChange={(event) => composer.change(event.target.value)}
+    // Esc leaves your text; an unchanged box closes.
+    onKeyDown={(event) => composerKeys(event, held ? null : primary, () => { if (busy) return; if (composer.edited) composer.textareaRef.current?.blur(); else composer.cancel(); })}
+    placeholder={mode === "ask" ? summary ? "Ask about the summary, or say what to change" : "Ask about this comment…" : summary ? "What should the author know overall?" : "What should the author know?"}
+    className={cn("bg-background text-sm", summary && mode !== "ask" ? "min-h-28" : "min-h-20", mode === "ask" && "border-0 shadow-none focus-visible:ring-0")}
+  />;
   return (
     <div data-keyboard-box className={cn("space-y-2 p-2.5", divided && "border-t border-border")}>
-      <Textarea
-        ref={composer.textareaRef}
-        aria-label={mode === "ask" ? "Message to agent" : summary ? "Review summary" : "Draft comment"}
-        disabled={busy}
-        value={composer.body}
-        onChange={(event) => composer.change(event.target.value)}
-        // Esc leaves text you wrote in the box, as a reply's box does; a box with nothing of yours just closes.
-        onKeyDown={(event) => composerKeys(event, held ? null : primary, () => { if (busy) return; if (composer.edited) composer.textareaRef.current?.blur(); else composer.cancel(); })}
-        placeholder={mode === "ask" ? summary ? "Ask about the summary, or say what to change" : "Ask about this, or say what to change" : summary ? "What should the author know overall?" : "What should the author know?"}
-        className={cn("bg-background text-sm", summary && mode !== "ask" ? "min-h-28" : "min-h-20")}
-      />
+      {mode === "ask" ? <div className="overflow-hidden rounded-md border border-input bg-background focus-within:ring-2 focus-within:ring-ring/50">
+        {field}
+        <p className="flex items-center gap-1.5 border-t border-border px-3 py-1.5 text-xs text-muted-foreground"><Icon name="Lock" className="size-3.5 shrink-0" aria-hidden />Private · only you and the agent</p>
+      </div> : field}
       {mode === "new" && composer.replacing && <p role="status" className="text-xs text-warning-text">This line already has a comment. Saving yours replaces it.</p>}
       {mode === "edit" && !summary && composer.changedWhileEditing && <div role="status" className="space-y-1.5 text-xs text-warning-text">
         <p>{composer.changedWhileEditing.now ? "This line’s comment changed while you were editing. Saving yours replaces it:" : "This line’s comment was moved or removed while you were editing. Saving yours puts it back."}</p>
@@ -446,15 +458,15 @@ export function ComposerFields({ mode, subject = "comment", divided = false, bus
       </div>}
       {mode !== "ask" && <ComposerNotes error={composer.error} rebuilding={composer.rebuilding} keepOnCurrentDiff={composer.keepOnCurrentDiff} />}
       <div ref={controlsRef} data-composer-controls className="flex flex-wrap items-center justify-end gap-2">
-        {mode === "ask" && <span className="mr-auto flex items-center gap-1.5 text-xs text-muted-foreground"><Icon name="Sparkles" className="size-3.5 shrink-0 text-(--ansi-13)" aria-hidden /><span>Goes to the agent, not GitHub.{sees && ` ${sees}`}</span></span>}
+        {mode === "ask" && <span className="mr-auto flex items-center gap-1.5 text-xs text-muted-foreground"><Icon name="Sparkles" className="size-3.5 shrink-0 text-(--ansi-13)" aria-hidden /><span>{sees}</span></span>}
         {mode !== "ask" && (composer.changeSeverity || composer.suggest) && <span className="mr-auto flex flex-wrap gap-2">
           {composer.changeSeverity && <SeveritySelect value={composer.severity} onChange={composer.changeSeverity} disabled={busy} />}
           {composer.suggest && <Button variant="outline" size="sm" className={TOUCH_CONTROL} disabled={busy} onClick={composer.suggest}><Icon name="Edit" className="size-3.5" aria-hidden />Suggest change</Button>}
         </span>}
         <Button variant="ghost" size="sm" className={TOUCH_CONTROL} disabled={busy} onClick={composer.cancel}>Cancel</Button>
         {mode === "new" && <Button variant="outline" size="sm" className={TOUCH_CONTROL} disabled={busy || empty} onClick={composer.askAgent}><Icon name="Sparkles" className="size-3.5 text-(--ansi-13)" aria-hidden />Ask agent</Button>}
-        <Button size="sm" variant={fill} className={TOUCH_CONTROL} disabled={held} onClick={primary}>
-          {mode === "ask" ? "Send to agent" : summary ? "Save summary" : mode === "edit" ? composer.changedWhileEditing?.now ? "Replace comment" : "Save comment" : composer.replacing ? "Replace comment" : "Add to draft"}
+        <Button size="sm" variant={fill} className={cn(TOUCH_CONTROL, mode === "ask" && "bg-(--ansi-13) text-background hover:bg-(--ansi-13)/90")} disabled={held} onClick={primary}>
+          {mode === "ask" ? "Ask agent" : summary ? "Save summary" : mode === "edit" ? composer.changedWhileEditing?.now ? "Replace comment" : "Save comment" : composer.replacing ? "Replace comment" : "Add to draft"}
         </Button>
       </div>
     </div>

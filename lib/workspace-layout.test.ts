@@ -74,7 +74,7 @@ describe("the user's phones", () => {
   });
 
   test("the unfolded Duo held sideways (951) docks the chapters, and Comments at 391 beside 560px of code", () => {
-    expect(at("duo-inner-landscape", navOnly)).toMatchObject({ mode: "tablet", nav: "docked", narrowReader: true, widePane: false });
+    expect(at("duo-inner-landscape", navOnly)).toMatchObject({ mode: "tablet", nav: "docked", narrowReader: true });
     expect(readerWidth(951, navOnly, at("duo-inner-landscape", navOnly))).toBe(663);
     expect(at("duo-inner-landscape", panelOnly)).toMatchObject({ mode: "tablet", panel: "docked" });
     expect(readerWidth(951, panelOnly, at("duo-inner-landscape", panelOnly))).toBe(560);
@@ -260,18 +260,13 @@ test("the navigator yields to the docked panel even where it couldn't dock alone
   expect(workspaceLayout(1120, 852, { ...wide, panelOpen: false })).toMatchObject({ nav: "docked" });
 });
 
-test("the code is narrow under 720px, and the pane wide from 1000px, each 16px sticky", () => {
+test("the code is narrow under 720px, with 16px hysteresis", () => {
   expect(workspaceLayout(1120, 852, both).narrowReader).toBe(false);
   expect(workspaceLayout(1000, 852, panelOnly).narrowReader).toBe(true);
   const narrow = workspaceLayout(712, 1328, closed);
   expect(narrow.narrowReader).toBe(true);
   expect(workspaceLayout(730, 1328, closed, narrow).narrowReader).toBe(true);
   expect(workspaceLayout(736, 1328, closed, narrow).narrowReader).toBe(false);
-  expect(workspaceLayout(999, 852, closed).widePane).toBe(false);
-  const wide = workspaceLayout(1000, 852, closed);
-  expect(wide.widePane).toBe(true);
-  expect(workspaceLayout(990, 852, closed, wide).widePane).toBe(true);
-  expect(workspaceLayout(983, 852, closed, wide).widePane).toBe(false);
 });
 
 describe("useWorkspaceLayout", () => {

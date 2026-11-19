@@ -76,7 +76,7 @@ test("a reveal of a line with a tall comment under it keeps the line below the f
   const at = { file: "src/a.ts", line: 2, side: "RIGHT" as const };
   const draft: InlineDraft = {
     comments: [{ ...at, body: "Should this be `<`?" }], stale: [], discussions: [], editable: false, busy: false, writing: false,
-    composer: null, editingAt: null, open() {}, ask() {}, remove() {}, dismiss() {}, undo() {}, chat: null,
+    composer: null, editingAt: null, open() {}, ask() {}, remove() {}, undo() {}, chat: null,
   };
   render(
     <InlineDraftContext.Provider value={draft}>
@@ -96,7 +96,7 @@ test("a reveal a key asked for takes the focus to the comment's card, or else to
   const at = { file: "src/a.ts", line: 2, side: "RIGHT" as const };
   const draft: InlineDraft = {
     comments: [{ ...at, body: "Should this be `<`?" }], stale: [], discussions: [], editable: false, busy: false, writing: false,
-    composer: null, editingAt: null, open() {}, ask() {}, remove() {}, dismiss() {}, undo() {}, chat: null,
+    composer: null, editingAt: null, open() {}, ask() {}, remove() {}, undo() {}, chat: null,
   };
   const show = (reveal: { at: typeof at; nonce: number; focus?: boolean }) => (
     <InlineDraftContext.Provider value={draft}>

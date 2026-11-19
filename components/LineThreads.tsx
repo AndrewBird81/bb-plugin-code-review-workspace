@@ -247,7 +247,7 @@ function ThreadInCode({ targetKey, item, className }: { targetKey: string; item:
   const opened = useCommentOpen(targetKey, item.id);
   const ref = useFlash(targetKey, item.id);
   const replies = item.messages.length - 1;
-  if ((folded || item.state === "resolved") && !opened) {
+  if (!item.doneForMe && (folded || item.state === "resolved") && !opened) {
     return <div ref={ref} data-comment-id={item.id}>
       <CommentPill frame={frameOf(item)} icon={<Icon name="Github" className="size-3.5 shrink-0" aria-hidden />} who={item.who} words={itemWords(item)} text={item.messages[0]?.body ?? ""}
         badge={item.replyDraft && <ReplyDraftBadge reply={item.replyDraft} />} briefBadge={item.replyDraft && <ReplyDraftBadge reply={item.replyDraft} brief />}

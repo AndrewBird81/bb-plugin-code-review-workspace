@@ -117,7 +117,7 @@ test("the file header counts hunk lines that look like file headers", () => {
 const comment = { file: "src/a.ts", line: 2, side: "RIGHT" as const, author: "agent" as const, body: "Is the empty case tested?" };
 
 function renderWithDraft(draft: Partial<InlineDraft>, props: Partial<Parameters<typeof DiffViewer>[0]> = {}, composer?: InlineComposer) {
-  const value: InlineDraft = { comments: [], stale: [], discussions: [], editable: true, busy: false, writing: false, composer: null, open: vi.fn(), ask: vi.fn(), remove: vi.fn(), dismiss: vi.fn(), undo: vi.fn(), chat: null, editingAt: null, ...draft };
+  const value: InlineDraft = { comments: [], stale: [], discussions: [], editable: true, busy: false, writing: false, composer: null, open: vi.fn(), ask: vi.fn(), remove: vi.fn(), undo: vi.fn(), chat: null, editingAt: null, ...draft };
   render(
     <InlineDraftContext.Provider value={value}>
       <InlineComposerContext.Provider value={composer ?? null}>
@@ -179,7 +179,7 @@ test("a file's ▤ counts its drafts and its GitHub threads that aren't resolved
   const threads = { targetKey: "pr-42", threads: [thread("T1", 1), thread("T2", 2, true), { ...thread("T3", 9), isOutdated: true }] };
   render(
     <DiffThreadsContext.Provider value={threads}>
-      <InlineDraftContext.Provider value={{ comments: [comment, { ...comment, line: 1, author: undefined, body: "Name it." }], stale: [], discussions: [], editable: true, busy: false, writing: false, composer: null, open: vi.fn(), ask: vi.fn(), remove: vi.fn(), dismiss: vi.fn(), undo: vi.fn(), chat: null, editingAt: null }}>
+      <InlineDraftContext.Provider value={{ comments: [comment, { ...comment, line: 1, author: undefined, body: "Name it." }], stale: [], discussions: [], editable: true, busy: false, writing: false, composer: null, open: vi.fn(), ask: vi.fn(), remove: vi.fn(), undo: vi.fn(), chat: null, editingAt: null }}>
         <DiffViewer patch={patch} files={["src/a.ts"]} views={new Map()} onToggleViewed={() => {}} />
       </InlineDraftContext.Provider>
     </DiffThreadsContext.Provider>,
@@ -282,29 +282,29 @@ test("a discussion goes on from Reply at its foot, as a GitHub thread does, in A
   expect(within(card).queryByRole("button", { name: "Ask agent" })).toBeNull();
   const thread = screen.getByRole("region", { name: "Discussion with agent on src/a.ts:2" });
   // The last thing in it, after the agent's answer.
-  const reply = within(thread).getByRole("button", { name: "Reply" });
+  const reply = within(thread).getByRole("button", { name: "Ask agent" });
   expect(thread.lastElementChild!.contains(reply)).toBe(true);
   fireEvent.click(reply);
   expect(draft.ask).toHaveBeenCalledWith(comment);
   cleanup();
   // Another box holding text holds it; one open here takes its place.
   renderWithDraft({ comments: [comment], discussions: [discussion], writing: true });
-  expect((within(screen.getByRole("region", { name: "Discussion with agent on src/a.ts:2" })).getByRole("button", { name: "Reply" }) as HTMLButtonElement).disabled).toBe(true);
+  expect((within(screen.getByRole("region", { name: "Discussion with agent on src/a.ts:2" })).getByRole("button", { name: "Ask agent" }) as HTMLButtonElement).disabled).toBe(true);
   cleanup();
   renderWithDraft({ comments: [comment], discussions: [discussion], composer: { ...at, editing: false, asking: true } }, {}, { body: "", change: vi.fn(), save: vi.fn(), askAgent: vi.fn(), cancel: vi.fn(), textareaRef: { current: null } });
   expect(screen.getByRole("textbox", { name: "Message to agent" })).toBeTruthy();
-  expect(screen.queryByRole("button", { name: "Reply" })).toBeNull();
+  expect(screen.getAllByRole("button", { name: "Ask agent" })).toHaveLength(1);
   cleanup();
   // A question with no comment: Dismiss heads it, and Reply ends it.
   const asked = renderWithDraft({ discussions: [discussion] });
-  const bare = screen.getByText("Private · with the agent").closest<HTMLElement>("[data-draft-at]")!;
-  expect(within(bare).getAllByRole("button").map((button) => button.textContent)).toEqual(["Dismiss", "Reply"]);
-  fireEvent.click(within(bare).getByRole("button", { name: "Reply" }));
+  const bare = screen.getByText("Private · only you and the agent").closest<HTMLElement>("[data-draft-at]")!;
+  expect(within(bare).getAllByRole("button").map((button) => button.textContent)).toEqual(["Ask agent"]);
+  fireEvent.click(within(bare).getByRole("button", { name: "Ask agent" }));
   expect(asked.ask).toHaveBeenCalledWith(discussion);
   cleanup();
   // A draft that can't change has none.
   renderWithDraft({ comments: [comment], discussions: [discussion], editable: false });
-  expect(screen.queryByRole("button", { name: "Reply" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Ask agent" })).toBeNull();
 });
 
 test("a viewed file, folded, dims its path alone, not its row's other text", () => {

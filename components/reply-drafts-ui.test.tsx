@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-// Replies to GitHub threads: they post now (Send reply), and what you write waits on the server as the thread's reply
+// Replies to GitHub threads: they post now (Post to GitHub), and what you write waits on the server as the thread's reply
 // draft, yours or the agent's, inside its card. Replies a 0.5 tab kept in sessionStorage move there once.
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, waitFor, within } from "@testing-library/react";
@@ -67,13 +67,13 @@ async function renderWorkspace(rpc: Record<string, unknown> = {}, drafts: unknow
 type Slot = Awaited<ReturnType<typeof renderWorkspace>>["slot"];
 const card = (slot: Slot, line: number) => slot.findByRole("article", { name: `GitHub thread on src/a.ts:${line}` });
 
-test("the agent's drafted reply waits in its thread, not sent, and Send reply posts it now through your feedback", async () => {
+test("the agent's drafted reply waits in its thread, not sent, and Post to GitHub posts it now through your feedback", async () => {
   const { slot, rpc } = await renderWorkspace();
   const yours = await card(slot, 2);
-  const draft = within(yours).getByRole("group", { name: "Agent reply draft · not sent on src/a.ts:2" });
+  const draft = within(yours).getByRole("group", { name: "Reply draft · not posted yet on src/a.ts:2" });
   expect(within(draft).getByText("Thanks, will check.")).toBeTruthy();
-  expect(within(draft).getByText("Posts now, not with your review")).toBeTruthy();
-  fireEvent.click(within(draft).getByRole("button", { name: "Send reply" }));
+  expect(within(draft).getByText("Public · posts to GitHub now, as you")).toBeTruthy();
+  fireEvent.click(within(draft).getByRole("button", { name: "Post to GitHub" }));
   await waitFor(() => expect(rpc.replyToFeedback).toHaveBeenCalledWith({ targetKey: "pr-42", threadId: "t1", body: "Thanks, will check.", account: "me" }));
   await waitFor(() => expect(within(yours).queryByRole("group", { name: /reply draft/ })).toBeNull());
   slot.lifecycle.unmount();
@@ -82,15 +82,15 @@ test("the agent's drafted reply waits in its thread, not sent, and Send reply po
 test("what you write in a reply waits on the server as the thread's draft when you leave the box", async () => {
   const { slot, rpc } = await renderWorkspace();
   const bobs = await card(slot, 3);
-  fireEvent.click(within(bobs).getByRole("button", { name: "Reply" }));
+  fireEvent.click(within(bobs).getByRole("button", { name: "Reply on GitHub" }));
   const box = within(bobs).getByRole("textbox", { name: "Reply on src/a.ts:3" });
   await waitFor(() => expect(document.activeElement).toBe(box));
   fireEvent.change(box, { target: { value: "Yes, three." } });
   fireEvent.blur(box);
   await waitFor(() => expect(rpc.saveReplyDraft).toHaveBeenCalledWith({ targetKey: "pr-42", threadId: "t2", body: "Yes, three." }));
-  expect(within(bobs).getByRole("group", { name: "Reply draft · not sent on src/a.ts:3" })).toBeTruthy();
+  expect(within(bobs).getByRole("group", { name: "Reply draft · not posted yet on src/a.ts:3" })).toBeTruthy();
   // Someone else's thread: the reply answers its first comment, and clears the draft it was.
-  fireEvent.click(within(bobs).getByRole("button", { name: "Send reply" }));
+  fireEvent.click(within(bobs).getByRole("button", { name: "Post to GitHub" }));
   await waitFor(() => expect(rpc.replyToThread).toHaveBeenCalledWith({ targetKey: "pr-42", inReplyTo: 113, body: "Yes, three.", threadId: "t2", account: "me" }));
   slot.lifecycle.unmount();
 });
@@ -102,10 +102,10 @@ test("editing the agent's draft makes it yours; Discard drops it and gives the f
   const box = within(yours).getByRole("textbox", { name: "Reply on src/a.ts:2" }) as HTMLTextAreaElement;
   expect(box.value).toBe("Thanks, will check.");
   fireEvent.change(box, { target: { value: "Thanks, checking now." } });
-  expect(within(yours).getByRole("group", { name: "Reply draft · not sent on src/a.ts:2" })).toBeTruthy();
+  expect(within(yours).getByRole("group", { name: "Reply draft · not posted yet on src/a.ts:2" })).toBeTruthy();
   fireEvent.click(within(yours).getByRole("button", { name: "Discard" }));
   await waitFor(() => expect(rpc.discardReplyDraft).toHaveBeenCalledWith({ targetKey: "pr-42", threadId: "t1" }));
-  await waitFor(() => expect(document.activeElement).toBe(within(yours).getByRole("button", { name: "Reply" })));
+  await waitFor(() => expect(document.activeElement).toBe(within(yours).getByRole("button", { name: "Reply on GitHub" })));
   expect(within(yours).queryByRole("textbox")).toBeNull();
   slot.lifecycle.unmount();
 });
@@ -113,12 +113,12 @@ test("editing the agent's draft makes it yours; Discard drops it and gives the f
 test("a reply that doesn't go keeps its text, as the thread's draft", async () => {
   const { slot, rpc } = await renderWorkspace({ replyToThread: vi.fn(() => ({ ok: false, error: "GitHub said no" })) });
   const bobs = await card(slot, 3);
-  fireEvent.click(within(bobs).getByRole("button", { name: "Reply" }));
+  fireEvent.click(within(bobs).getByRole("button", { name: "Reply on GitHub" }));
   fireEvent.change(within(bobs).getByRole("textbox"), { target: { value: "Not yet." } });
   // Clicking Send blurs the box toward this card's Send, which skips the blur's save.
-  fireEvent.blur(within(bobs).getByRole("textbox"), { relatedTarget: within(bobs).getByRole("button", { name: "Send reply" }) });
+  fireEvent.blur(within(bobs).getByRole("textbox"), { relatedTarget: within(bobs).getByRole("button", { name: "Post to GitHub" }) });
   expect(rpc.saveReplyDraft).not.toHaveBeenCalled();
-  fireEvent.click(within(bobs).getByRole("button", { name: "Send reply" }));
+  fireEvent.click(within(bobs).getByRole("button", { name: "Post to GitHub" }));
   await waitFor(() => expect(toast.error).toHaveBeenCalledWith("GitHub said no"));
   expect((within(bobs).getByRole("textbox") as HTMLTextAreaElement).value).toBe("Not yet.");
   await waitFor(() => expect(rpc.saveReplyDraft).toHaveBeenCalledWith({ targetKey: "pr-42", threadId: "t2", body: "Not yet." }));
@@ -128,9 +128,9 @@ test("a reply that doesn't go keeps its text, as the thread's draft", async () =
 test("a reply GitHub already has says it wasn't sent again, and keeps its text to change", async () => {
   const { slot, rpc } = await renderWorkspace({ replyToThread: vi.fn(() => ({ ok: true, alreadyPosted: true })) });
   const bobs = await card(slot, 3);
-  fireEvent.click(within(bobs).getByRole("button", { name: "Reply" }));
+  fireEvent.click(within(bobs).getByRole("button", { name: "Reply on GitHub" }));
   fireEvent.change(within(bobs).getByRole("textbox"), { target: { value: "Done." } });
-  fireEvent.click(within(bobs).getByRole("button", { name: "Send reply" }));
+  fireEvent.click(within(bobs).getByRole("button", { name: "Post to GitHub" }));
   await waitFor(() => expect(toast.info).toHaveBeenCalledWith("GitHub already has this reply, so it wasn’t sent again. Change it to send another."));
   expect(toast.error).not.toHaveBeenCalled();
   expect(rpc.replyToThread).toHaveBeenCalledTimes(1);
@@ -145,7 +145,7 @@ test("a reply being written outlives its card: the list's copy closes, and the t
   const list = within(slot.getByRole("region", { name: "Comments" }));
   fireEvent.click(await list.findByRole("button", { name: "Expand GitHub thread on src/a.ts:3" }));
   const expanded = list.getByRole("article", { name: "GitHub thread on src/a.ts:3" });
-  fireEvent.click(within(expanded).getByRole("button", { name: "Reply" }));
+  fireEvent.click(within(expanded).getByRole("button", { name: "Reply on GitHub" }));
   fireEvent.change(within(expanded).getByRole("textbox"), { target: { value: "Half a thought" } });
   fireEvent.click(list.getByRole("button", { name: "Collapse GitHub thread on src/a.ts:3" }));
   await waitFor(() => expect(rpc.saveReplyDraft).toHaveBeenCalledWith({ targetKey: "pr-42", threadId: "t2", body: "Half a thought" }));
@@ -158,9 +158,9 @@ test("clicking another card's Send still saves this card's reply", async () => {
   const { slot, rpc } = await renderWorkspace();
   const yours = await card(slot, 2);
   const bobs = await card(slot, 3);
-  fireEvent.click(within(bobs).getByRole("button", { name: "Reply" }));
+  fireEvent.click(within(bobs).getByRole("button", { name: "Reply on GitHub" }));
   fireEvent.change(within(bobs).getByRole("textbox"), { target: { value: "Why three?" } });
-  fireEvent.blur(within(bobs).getByRole("textbox"), { relatedTarget: within(yours).getByRole("button", { name: "Send reply" }) });
+  fireEvent.blur(within(bobs).getByRole("textbox"), { relatedTarget: within(yours).getByRole("button", { name: "Post to GitHub" }) });
   expect(rpc.saveReplyDraft).toHaveBeenCalledWith({ targetKey: "pr-42", threadId: "t2", body: "Why three?" });
   slot.lifecycle.unmount();
 });
@@ -176,7 +176,7 @@ test("replies sent on two threads at once each stay busy until their own post en
   }, [{ threadId: "t1", body: "Thanks, will check.", author: "agent", updatedAt: now }, { threadId: "t2", body: "Yes, three.", author: "reviewer", updatedAt: now }]);
   const yours = await card(slot, 2);
   const bobs = await card(slot, 3);
-  const send = (thread: HTMLElement) => within(thread).getByRole("button", { name: "Send reply" });
+  const send = (thread: HTMLElement) => within(thread).getByRole("button", { name: "Post to GitHub" });
   fireEvent.click(send(yours));
   await waitFor(() => expect(posts.t1).toBeTypeOf("function"));
   const bobsSend = send(bobs);
@@ -197,13 +197,13 @@ test("replies sent on two threads at once each stay busy until their own post en
   slot.lifecycle.unmount();
 }, 15_000);
 
-test("Send reply hands the focus back to Reply", async () => {
+test("Post to GitHub hands the focus back to Reply on GitHub", async () => {
   const { slot } = await renderWorkspace();
   const bobs = await card(slot, 3);
-  fireEvent.click(within(bobs).getByRole("button", { name: "Reply" }));
+  fireEvent.click(within(bobs).getByRole("button", { name: "Reply on GitHub" }));
   fireEvent.change(within(bobs).getByRole("textbox"), { target: { value: "Thanks." } });
-  fireEvent.click(within(bobs).getByRole("button", { name: "Send reply" }));
-  await waitFor(() => expect(document.activeElement).toBe(within(bobs).getByRole("button", { name: "Reply" })));
+  fireEvent.click(within(bobs).getByRole("button", { name: "Post to GitHub" }));
+  await waitFor(() => expect(document.activeElement).toBe(within(bobs).getByRole("button", { name: "Reply on GitHub" })));
   slot.lifecycle.unmount();
 });
 
@@ -216,9 +216,9 @@ test("a reply a 0.5 tab was writing in Threads moves to the server once, over th
   await waitFor(() => expect(rpc.saveReplyDraft).toHaveBeenCalledTimes(2));
   expect(rpc.saveReplyDraft).toHaveBeenCalledWith({ targetKey: "pr-42", threadId: "t1", body: "Mine, over the agent's" });
   const yours = await card(slot, 2);
-  expect(within(yours).getByRole("group", { name: "Reply draft · not sent on src/a.ts:2" })).toBeTruthy();
+  expect(within(yours).getByRole("group", { name: "Reply draft · not posted yet on src/a.ts:2" })).toBeTruthy();
   expect(within(yours).getByText("Mine, over the agent's")).toBeTruthy();
-  expect(within(await card(slot, 3)).getByRole("group", { name: "Reply draft · not sent on src/a.ts:3" })).toBeTruthy();
+  expect(within(await card(slot, 3)).getByRole("group", { name: "Reply draft · not posted yet on src/a.ts:3" })).toBeTruthy();
   await waitFor(() => expect(sessionStorage.getItem("gr:thread-reply:pr-42:t1")).toBeNull());
   expect(sessionStorage.getItem("gr:thread-reply:pr-42:t2")).toBe("Half a thought from before");
   expect(sessionStorage.getItem("gr:thread-reply:pr-7:t9")).toBe("Another review's");
@@ -238,9 +238,9 @@ test("a reply a 0.5 tab was writing in Threads moves to the server once, over th
   slot.lifecycle.unmount();
 });
 
-test("with Finish review showing, Send reply is outlined, so Submit is the one filled button", async () => {
+test("with Finish review showing, Post to GitHub is outlined, so Submit is the one filled button", async () => {
   const { slot } = await renderWorkspace();
-  const send = () => within(slot.getByRole("group", { name: "Agent reply draft · not sent on src/a.ts:2" })).getByRole("button", { name: "Send reply" });
+  const send = () => within(slot.getByRole("group", { name: "Reply draft · not posted yet on src/a.ts:2" })).getByRole("button", { name: "Post to GitHub" });
   await card(slot, 2);
   expect(send().className).toContain("bg-primary");
   fireEvent.click(await slot.findByRole("button", { name: /^Finish review:/ }, { timeout: 5000 }));

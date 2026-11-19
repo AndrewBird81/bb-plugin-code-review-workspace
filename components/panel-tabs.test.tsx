@@ -21,7 +21,7 @@ const rpc = (over: Record<string, unknown> = {}) => ({
 async function publish(targetKey: string, over: Record<string, unknown> = {}) {
   const { publishWorkspace } = await import("../lib/workspace-store");
   const { testWorkspace } = await import("./draft-tray.test-support");
-  withdraws.push(publishWorkspace(testWorkspace(targetKey, { reviewId: `api:${targetKey}`, review: { targetKey, kind: "ref" }, ...over })));
+  withdraws.push(publishWorkspace(testWorkspace(targetKey, { review: { targetKey, kind: "ref" }, ...over })));
 }
 
 test("a review's page has Review agent and Main thread in BB's side panel, flush, the agent by its own sparkle", async () => {
@@ -86,10 +86,11 @@ test("switching reviews switches the tabs: each shows the review the page shows,
   const { renderPanelTab } = await import("./panel-tabs.test-support");
   const calls = rpc();
   const tab = renderPanelTab(app, "agent", "local-a", { rpc: calls });
-  const heading = () => within(tab.getByRole("region", { name: "Review agent" })).getByRole("heading", { level: 2 }).textContent;
-  await waitFor(() => expect(heading()).toBe("Review agent·api:local-a"));
+  const asked = () => calls.getConversation.mock.calls.map(([input]: [{ targetKey: string }]) => input.targetKey);
+  await waitFor(() => expect(asked()).toEqual(["local-a"]));
+  // Its heading is the tab's name alone: BB's title bar names the review.
+  expect(within(tab.getByRole("region", { name: "Review agent" })).getByRole("heading", { level: 2 }).textContent).toBe("Review agent");
   const { ReviewAgentTab } = await import("./PanelTabs");
   act(() => tab.lifecycle.rerender(<ReviewAgentTab subPath="local-b" />));
-  await waitFor(() => expect(heading()).toBe("Review agent·api:local-b"));
-  expect(calls.getConversation.mock.calls.map(([input]: [{ targetKey: string }]) => input.targetKey)).toEqual(["local-a", "local-b"]);
+  await waitFor(() => expect(asked()).toEqual(["local-a", "local-b"]));
 });

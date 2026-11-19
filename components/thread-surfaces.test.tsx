@@ -242,7 +242,7 @@ test("the Review tab names the review, lists its comments with where each stands
   expect(rows.map((row) => within(row).getAllByRole("button").length)).toEqual([1, 1, 1]);
   expect(within(comments).getByRole("button", { name: /Open · src\/a\.ts:1/ })).toBeTruthy();
   expect(within(comments).getByRole("button", { name: /Done · Logged it · src\/a\.ts:4/ })).toBeTruthy();
-  expect(within(comments).getByRole("button", { name: /Resolved · src\/b\.ts:2/ })).toBeTruthy();
+  expect(within(comments).getByRole("button", { name: /Done for me · src\/b\.ts:2/ })).toBeTruthy();
   const chat = within(slot.getByRole("region", { name: "Review agent" })).getByTestId("bb-thread-chat");
   expect([chat.dataset.threadId, chat.dataset.variant, chat.dataset.layout]).toEqual(["agent-1", "compact", "contained"]);
   // A comment's row, and Review ↗, open the review.

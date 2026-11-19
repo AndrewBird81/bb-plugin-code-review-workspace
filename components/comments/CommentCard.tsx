@@ -1,26 +1,23 @@
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { Markdown, useBbNavigate, useRpc } from "@get-bb/plugin-sdk/app";
 import { toast } from "sonner";
 import type { rpcContract } from "../../src/rpc-contract";
-import { linesOf, sameLocation, type CommentLocation } from "../../src/draft";
-import { withLineBreaks } from "../../src/line-breaks";
-import { topLevelLabel, type AskItem, type CommentItem, type DraftItem, type PrivateItem, type ThreadItem, type ThreadMessage } from "../../lib/comments";
+import { githubThreadAt, linesOf, sameLocation, type CommentLocation } from "../../src/draft";
+import { githubContext, latestMessageAt, topLevelLabel, type AskItem, type CommentItem, type DraftItem, type PrivateItem, type ThreadItem, type ThreadMessage } from "../../lib/comments";
 import { answerReply, useReplyAsked } from "../../lib/comment-stops";
 import { setCommentOpen } from "../../lib/comments-fold";
 import { linkImages } from "../../lib/link-images";
-import { useFullscreenPortalContainer } from "../../lib/portal-scope";
 import { useKnob } from "../../lib/settings";
 import { cn } from "../../lib/utils";
 import { useWorkspaceFor } from "../../lib/workspace-store";
 import { useDraft } from "../DraftProvider";
-import { AgentEvidence, AgentReply, CommentBody, ComposerFields, DiscussionView, NewFromAgentBadge, NotOnGithubBadge, SeverityBadge, type InlineComposer } from "../InlineDraft";
+import { InlineComposerContext, InlineDraftContext, AgentEvidence, AgentReply, CommentBody, ComposerFields, DiscussionView, NewFromAgentBadge, NotOnGithubBadge, SeverityBadge, type InlineComposer } from "../InlineDraft";
 import { useSeenInView } from "../../lib/use-seen-in-view";
 import { age } from "../time-ago";
 import { TOUCH_CONTROL } from "../touch";
 import { Avatar } from "../ui/avatar";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
-import { Hint } from "../ui/hint";
 import { Icon } from "../ui/icon";
 import { InlineCode } from "../ui/inline-code";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover";
@@ -33,11 +30,13 @@ import { SendNow, useSendable } from "../SendNow";
 import { useStatusFacts } from "../../lib/review-links";
 import { postable } from "../../src/draft";
 import { FixButtons, FixReport, FixUndo, marksPreExisting } from "./FixTracking";
+import { DoneForMe, DoneLine } from "./DoneForMe";
 
 /**
  * In the code: inside pierre's code view, so it sets its own text style rather than inheriting the code's, at a
  * measure of 72 characters, hanging from its line.
  */
+const CARD_CONTENT = "min-w-0 [overflow-wrap:anywhere] [&_pre]:max-w-full [&_pre]:overflow-x-auto [&_pre]:whitespace-pre [&_pre_code]:whitespace-pre";
 const INLINE_CARD = "mx-2 my-2 max-w-[min(72ch,calc(100%-1rem))] overflow-hidden rounded-lg bg-card [contain:inline-size] font-sans text-sm leading-[1.55] whitespace-normal text-foreground shadow-md";
 /** A card's head, and the small actions in it. */
 export const HEAD = "flex min-h-9 flex-wrap items-center gap-x-2 gap-y-1 px-3 py-1.5 text-xs text-muted-foreground";
@@ -57,6 +56,8 @@ export function whereOf(item: CommentItem): string {
  * code shows through InlineLocation.
  */
 export function CommentCard({ targetKey, item, variant }: { targetKey: string; item: CommentItem; variant: "inline" | "row" }) {
+  if (item.doneForMe && (item.kind === "thread" || item.kind === "private")) return <DoneLine targetKey={targetKey} id={item.id} latest={latestMessageAt(item)}
+    github={item.kind === "thread" ? item.state === "resolved" ? "Resolved" : "Open" : undefined} who={item.who} body={item.kind === "thread" ? item.messages[0]?.body ?? "" : item.discussion.entries[0]?.body ?? ""} className={variant === "inline" ? "mx-2 my-2" : undefined} />;
   if (item.kind === "thread") return <ThreadCard targetKey={targetKey} item={item} variant={variant} />;
   if (item.kind === "ask") return <AskCard targetKey={targetKey} item={item} variant={variant} />;
   if (item.kind === "draft") return <DraftCard targetKey={targetKey} item={item} />;
@@ -72,7 +73,7 @@ export function Clamped({ body, link = false }: { body: string; link?: boolean }
   return <div>
     <div className={cn(!all && long && "max-h-[6.5rem] overflow-hidden [mask-image:linear-gradient(to_bottom,black_4.5rem,transparent)]")}><CommentBody body={body} link={link} /></div>
     {long && <button type="button" aria-expanded={all} onClick={() => setAll(!all)} className={cn("mt-0.5 inline-flex items-center gap-0.5 rounded-sm text-xs text-muted-foreground hover:text-foreground", TOUCH_CONTROL)}>
-      {all ? "Less" : "More"}<Icon name={all ? "ChevronUp" : "ChevronDown"} className="size-3" aria-hidden />
+      {all ? "Show less" : "Show all"}<Icon name={all ? "ChevronUp" : "ChevronDown"} className="size-3" aria-hidden />
     </button>}
   </div>;
 }
@@ -136,7 +137,7 @@ function Replies({ replies }: { replies: ThreadMessage[] }) {
     <ul className="space-y-2.5">
       {(all ? replies : replies.slice(-2)).map((reply, index) => <li key={`${reply.createdAt}:${index}`} className="space-y-1">
         <Speaker message={reply} />
-        <div className="pl-[22px]"><Markdown content={withLineBreaks(linkImages(reply.body))} className="text-sm leading-relaxed" /></div>
+        <div className="min-w-0 pl-[22px]"><CommentBody body={reply.body} link /></div>
       </li>)}
     </ul>
   </div>;
@@ -185,8 +186,6 @@ function ThreadCard({ targetKey, item, variant }: { targetKey: string; item: Thr
   const [writing, setWriting] = useState(false);
   const [menu, setMenu] = useState(false);
   const replyButton = useRef<HTMLButtonElement>(null);
-  const container = useFullscreenPortalContainer();
-  const postsNow = useId();
   const where = whereOf(item);
   const [first, ...replies] = item.messages;
   const followUp = item.at && api ? () => api.followUp(item.at!.file, item.at!.line, item.at!.side, item.url) : null;
@@ -200,37 +199,32 @@ function ThreadCard({ targetKey, item, variant }: { targetKey: string; item: Thr
     setWriting(true);
   }, [inline, asked, item.id, targetKey]);
   // Hidden, one line says what's under it.
-  const shutLine = [item.state === "resolved" && item.resolvedBy ? `Resolved by @${item.resolvedBy}` : null, replies.length ? `${replies.length} repl${replies.length === 1 ? "y" : "ies"}` : null].filter(Boolean).join(" · ");
+  const shutLine = [item.state === "resolved" && item.resolvedBy ? `Resolved on GitHub · by @${item.resolvedBy}` : null, replies.length ? `${replies.length} repl${replies.length === 1 ? "y" : "ies"}` : null].filter(Boolean).join(" · ");
   return (
-    <article tabIndex={-1} aria-label={item.topLevel ? `GitHub ${item.topLevel.kind === "review" ? "review summary" : "comment"} on the PR` : `GitHub thread on ${where}`} className={cn(inline ? INLINE_CARD : "overflow-hidden rounded-lg bg-card pt-2.5 text-sm", "outline-none focus-visible:ring-2 focus-visible:ring-ring/50", frameOf(item))}>
-      {inline && <div className={cn(HEAD, !open && "pb-1")}>
-        <span className="flex shrink-0 items-center gap-1.5"><Icon name="Github" className="size-3.5 shrink-0" aria-hidden />On GitHub<span aria-hidden className="text-subtle-foreground">·</span></span>
-        {first ? <Speaker message={first} /> : <span className="font-medium text-foreground">{item.who}</span>}
+    <article tabIndex={-1} aria-label={item.topLevel ? `GitHub ${item.topLevel.kind === "review" ? "review summary" : "comment"} on the PR` : `GitHub thread on ${where}`} className={cn(inline ? INLINE_CARD : "min-w-0 rounded-lg bg-card pt-2.5 text-sm", "outline-none focus-visible:ring-2 focus-visible:ring-ring/50", frameOf(item), CARD_CONTENT)}>
+      <section aria-label="On GitHub · public">
+      <div className={cn(HEAD, !open && "pb-1")}>
+        <span className="flex shrink-0 items-center gap-1.5"><Icon name="Github" className="size-3.5 shrink-0" aria-hidden />On GitHub · public</span>
+        {!first && <span className="font-medium text-foreground">{item.who}</span>}
         {item.tag && <Badge tone={TAG_TONE[item.tag] ?? "neutral"} size="sm">{item.tag}</Badge>}
         <ThreadState item={item} />
         {item.check && <CheckBadge check={item.check} />}
-        <Button variant="ghost" size="sm" aria-expanded={open} className={cn(ACTION, "ml-auto")} onClick={() => (pill && open ? setCommentOpen(targetKey, item.id, false) : setShut(open))}>{open ? "Hide" : "Show"}</Button>
-      </div>}
-      {open ? <div className="space-y-2.5 px-3 pb-2.5">
-        {!inline && first && <Speaker message={first}>{item.topLevel && <Badge size="sm">{topLevelLabel(item.topLevel)}</Badge>}</Speaker>}
+        {inline && <Button variant="ghost" size="sm" aria-expanded={open} className={cn(ACTION, "ml-auto")} onClick={() => (pill && open ? setCommentOpen(targetKey, item.id, false) : setShut(open))}>{open ? "Hide" : "Show"}</Button>}
+      </div>
+      {open ? <div className="min-w-0 space-y-2.5 px-3 pb-2.5">
+        {first && <Speaker message={first}>{item.topLevel && <Badge size="sm">{topLevelLabel(item.topLevel)}</Badge>}</Speaker>}
         {first && <Clamped body={first.body} link />}
         <Replies replies={replies} />
         <Evidence item={item} onFix={item.check?.fix && api ? () => api.showLocation(item.check!.fix!.file, item.check!.fix!.line, "RIGHT") : undefined} />
         <Deferral targetKey={targetKey} item={item} />
-        {item.sendStatus && <SendStatus status={item.sendStatus} />}
-        {sendNote}
         {actions && replyShows && <ReplyBox targetKey={targetKey} item={item} where={where} actions={actions} busy={busy} writing={writing} onClose={() => setWriting(false)} replyButton={replyButton} />}
         {actions && <div className="-mb-1 -ml-2 flex flex-wrap items-center gap-0.5">
-          {!replyShows && !item.topLevel && <Button ref={replyButton} variant="ghost" size="sm" className={ACTION} disabled={busy || item.replyTo === null} onClick={() => setWriting(true)}><Icon name="CornerDownRight" className="size-3.5" aria-hidden />Reply</Button>}
-          {sendable && <SendNow targetKey={targetKey} comment={{ threadId: item.id }} to={api?.mainThread ?? null} what={githubWhat(item)} className={ACTION} onNote={setSendNote} />}
-          {/* Unlike the draft, Resolve doesn't wait for Submit. */}
-          {!item.topLevel && <Hint label="Posts to GitHub now" container={container}>
-            {/* Resolved here, the card stays open where it is, with the focus, rather than fold to a pill. */}
-            <Button variant="ghost" size="sm" className={ACTION} disabled={busy} aria-describedby={postsNow} onClick={() => { if (inline) setCommentOpen(targetKey, item.id, true); void actions.setResolved(item.id, item.state !== "resolved"); }}>
-              <Icon name={item.state === "resolved" ? "RotateCcw" : "CircleCheck"} className="size-3.5" aria-hidden />{item.state === "resolved" ? "Unresolve" : "Resolve"}
-            </Button>
-          </Hint>}
-          <span id={postsNow} hidden>Posts to GitHub now</span>
+          {!replyShows && !item.topLevel && <Button ref={replyButton} variant="ghost" size="sm" className={ACTION} disabled={busy || item.replyTo === null} onClick={() => setWriting(true)}><Icon name="Github" className="size-3.5" aria-hidden />Reply on GitHub</Button>}
+          {/* Unlike the draft, it doesn't wait for Submit: its name says where it goes, with no tooltip to find. Resolved
+              here, the card stays open where it is, with the focus, rather than fold to a pill. */}
+          {!item.topLevel && <Button variant="ghost" size="sm" className={ACTION} disabled={busy} onClick={() => { if (inline) setCommentOpen(targetKey, item.id, true); void actions.setResolved(item.id, item.state !== "resolved"); }}>
+            <Icon name="Github" className="size-3.5" aria-hidden />{item.state === "resolved" ? "Unresolve on GitHub" : "Resolve on GitHub"}
+          </Button>}
           {(followUp || item.url) && <Popover open={menu} onOpenChange={setMenu}>
             <PopoverTrigger asChild>
               <Button variant="ghost" size="sm" aria-label={`More on the thread on ${where}`} className={cn(ACTION, "w-7 px-0")}><Icon name="MoreHorizontal" className="size-3.5" aria-hidden /></Button>
@@ -250,15 +244,54 @@ function ThreadCard({ targetKey, item, variant }: { targetKey: string; item: Thr
         {/* Its code without the chip's ground, which the cut would leave as a sliver before the ellipsis. */}
         {first && <>{first.who}: <span className="text-foreground/90 [&_code]:bg-transparent [&_code]:px-0"><InlineCode text={plainLine(first.body)} /></span></>}
       </p>}
+      </section>
+      {open && <ThreadPrivate targetKey={targetKey} item={item} variant={variant} note={item.sendStatus || sendNote ? <>{item.sendStatus && <SendStatus status={item.sendStatus} />}{sendNote}</> : null}>
+        {sendable && <SendNow targetKey={targetKey} comment={{ threadId: item.id }} to={api?.mainThread ?? null} what={githubWhat(item)} className={ACTION} onNote={setSendNote} />}
+      </ThreadPrivate>}
     </article>
   );
+}
+
+function ThreadPrivate({ targetKey, item, variant, children, note }: { targetKey: string; item: ThreadItem; variant: "inline" | "row"; children: ReactNode; note: ReactNode }) {
+  const draft = useContext(InlineDraftContext);
+  const composer = useContext(InlineComposerContext);
+  if (variant === "row") return <PanelThreadPrivate targetKey={targetKey} item={item} note={note}>{children}</PanelThreadPrivate>;
+  const at = githubThreadAt(item.id);
+  return <PrivateZone targetKey={targetKey} item={item} note={note} composer={draft?.composer?.asking && sameLocation(draft.composer, at) ? composer : null}
+    busy={draft?.busy ?? false} writing={draft?.writing ?? false} canAsk={!!draft?.canAskThread}
+    onAsk={() => draft?.ask(at, githubContext(item))}>{children}</PrivateZone>;
+}
+
+function PanelThreadPrivate({ targetKey, item, children, note }: { targetKey: string; item: ThreadItem; children: ReactNode; note: ReactNode }) {
+  const draft = useDraft();
+  const composer = usePanelComposer();
+  const at = githubThreadAt(item.id);
+  return <PrivateZone targetKey={targetKey} item={item} note={note} composer={boxAt(draft, at) === "ask" ? composer : null}
+    busy={draft.busy} writing={draft.writing} canAsk={draft.canAskThread} sticky
+    onAsk={() => draft.openComposer({ ...at, thread: githubContext(item) }, false, true)}>{children}</PrivateZone>;
+}
+
+function PrivateZone({ targetKey, item, composer, busy, writing, canAsk, onAsk, sticky = false, children, note }: {
+  targetKey: string; item: ThreadItem; composer: InlineComposer | null; busy: boolean; writing: boolean; canAsk: boolean; onAsk(): void; sticky?: boolean; children: ReactNode; note: ReactNode;
+}) {
+  return <section aria-label="Private · only you and the agent" className="mx-2 mb-2 min-w-0 rounded-lg border border-border bg-muted/30">
+    {item.discussion && <p className={cn("flex items-center gap-1.5 rounded-t-lg bg-card px-2.5 py-2 text-xs font-medium text-muted-foreground", sticky && "sticky top-0 z-10")}><Icon name="Lock" className="size-3.5 shrink-0" aria-hidden />Private · only you and the agent</p>}
+    {item.discussion && <DiscussionView discussion={item.discussion} titled={false} chat={null} busy={busy} />}
+    {note && <div className="space-y-2 px-2.5">{note}</div>}
+    {composer && <ComposerFields mode="ask" busy={busy} composer={composer} />}
+    <div className="flex flex-wrap items-center gap-0.5 px-1 pb-1">
+      {!composer && <AgentReply at={githubThreadAt(item.id)} disabled={!canAsk || busy || writing} onClick={onAsk} />}
+      {children}
+      <DoneForMe targetKey={targetKey} id={item.id} latest={latestMessageAt(item)} />
+    </div>
+  </section>;
 }
 
 /** An ask from your earlier review summary, and the agent's check of it. */
 function AskCard({ targetKey, item, variant }: { targetKey: string; item: AskItem; variant: "inline" | "row" }) {
   const api = useWorkspaceFor(targetKey);
   return (
-    <article aria-label={item.title} className={cn(variant === "inline" ? INLINE_CARD : "overflow-hidden rounded-lg bg-card pt-2.5 text-sm", frameOf(item))}>
+    <article aria-label={item.title} className={cn(variant === "inline" ? INLINE_CARD : "overflow-hidden rounded-lg bg-card pt-2.5 text-sm", frameOf(item), CARD_CONTENT)}>
       {variant === "inline" && <div className={HEAD}>
         <Icon name="FileText" className="size-3.5 shrink-0" aria-hidden />
         <span className="font-medium text-foreground">{item.label}</span>
@@ -313,7 +346,7 @@ function DraftCard({ targetKey, item }: { targetKey: string; item: DraftItem }) 
   const cardRef = useRef<HTMLElement>(null);
   useSeenInView(cardRef, !!item.unseen, () => draft.markSeen(comment));
   return (
-    <article ref={cardRef} data-comment-at={`${comment.file}:${comment.line}:${comment.side}`} tabIndex={-1} aria-label={`Draft comment on ${where}`} className={cn("overflow-hidden rounded-lg bg-card text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/50", frameOf(item))}>
+    <article ref={cardRef} data-comment-at={`${comment.file}:${comment.line}:${comment.side}`} tabIndex={-1} aria-label={`Draft comment on ${where}`} className={cn("overflow-hidden rounded-lg bg-card text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/50", frameOf(item), CARD_CONTENT)}>
       {box === "edit" ? <>
         {draft.showBoxInDiff && <p className="flex justify-end px-1.5 pt-1.5"><ShowBoxInDiff /></p>}
         {comment.startLine !== undefined && <p className="px-2.5 pt-2.5 text-xs text-muted-foreground tabular-nums">Lines {linesOf(comment)}</p>}
@@ -336,7 +369,7 @@ function DraftCard({ targetKey, item }: { targetKey: string; item: DraftItem }) 
           <FixButtons targetKey={targetKey} comment={comment} checks={draft.checks} busy={draft.busy} posts={facts.posts && postable(comment, facts.own)} className={ACTION} onFix={draft.setFix} />
           <Button variant="ghost" size="sm" aria-label={`Edit comment on ${where}`} className={ACTION} {...whileBusy(draft.busy, draft.writing)} onClick={() => { if (!draft.busy && !draft.writing) draft.openComposer(comment, false); }}><Icon name="Edit" className="size-3.5" aria-hidden />Edit</Button>
           {/* Once it has a discussion, Reply at its foot goes on with it. */}
-          {!item.discussion && <Button variant="ghost" size="sm" aria-label={`Ask agent about the comment on ${where}`} className={cn(ACTION, "text-(--ansi-13) hover:text-(--ansi-13)")} {...whileBusy(draft.busy, draft.writing)} onClick={() => { if (!draft.busy && !draft.writing) draft.openComposer(comment, false, true); }}><Icon name="Sparkles" className="size-3.5" aria-hidden />Ask agent</Button>}
+          {!item.discussion && !box && <Button variant="ghost" size="sm" aria-label={`Ask agent about the comment on ${where}`} className={cn(ACTION, "text-(--ansi-13) hover:text-(--ansi-13)")} {...whileBusy(draft.busy, draft.writing)} onClick={() => { if (!draft.busy && !draft.writing) draft.openComposer(comment, false, true); }}><Icon name="Sparkles" className="size-3.5" aria-hidden />Ask agent</Button>}
           {sendable && <SendNow targetKey={targetKey} comment={comment} to={sendable} className={ACTION} onNote={setSendNote} />}
           {preExisting && item.state !== "older-diff" && marksPreExisting(comment) && <Button variant="ghost" size="sm" className={ACTION} {...whileBusy(draft.busy)} onClick={() => { if (!draft.busy) void draft.markPreExisting(comment, comment.introduced !== false); }}>
             <Icon name="History" className="size-3.5" aria-hidden />{comment.introduced === false ? "Mark as from this PR" : "Mark as pre-existing"}
@@ -360,11 +393,11 @@ function PrivateCard({ item }: { item: PrivateItem }) {
   const { discussion } = item;
   const box = boxAt(draft, discussion);
   return (
-    <article aria-label={`Private discussion on ${whereOf(item)}`} className={cn("overflow-hidden rounded-lg text-sm", frameOf(item))}>
+    <article aria-label={`Private discussion on ${whereOf(item)}`} className={cn("overflow-hidden rounded-lg text-sm", frameOf(item), CARD_CONTENT)}>
       <DiscussionView discussion={discussion} titled={false} chat={draft.chat} busy={draft.busy} onUndo={draft.editable && !box ? () => void draft.undo(discussion) : undefined} />
-      {box === "ask" ? <ComposerFields mode="ask" divided busy={draft.busy} composer={composer} /> : draft.editable && <div className="flex flex-wrap gap-0.5 px-1 pb-1.5">
-        <AgentReply at={discussion} disabled={draft.busy || draft.writing} onClick={() => draft.openComposer(discussion, false, true)} />
-        <Button variant="ghost" size="sm" className={ACTION} disabled={draft.busy} onClick={() => draft.inlineDraft.dismiss(discussion)}>Dismiss</Button>
+      {box === "ask" ? <ComposerFields mode="ask" divided busy={draft.busy} composer={composer} /> : <div className="flex flex-wrap gap-0.5 px-1 pb-1.5">
+        {draft.editable && <AgentReply at={discussion} disabled={draft.busy || draft.writing} onClick={() => draft.openComposer(discussion, false, true)} />}
+        <DoneForMe targetKey={draft.targetKey} id={item.id} latest={latestMessageAt(item)} />
       </div>}
     </article>
   );

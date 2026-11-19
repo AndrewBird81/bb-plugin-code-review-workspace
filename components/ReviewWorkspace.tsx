@@ -222,8 +222,6 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   const [sinceFailed, setSinceFailed] = useState<{ key: string; error: string } | null>(null);
   // On a re-review, the files changed since your review, whatever the diff compares with; null when that couldn't be read.
   const [changedRead, setChangedRead] = useState<{ key: string; files: string[] | null } | null>(null);
-  // Whether the band has room for the compare select: where it hasn't, the diff says what it shows, and switches it.
-  const [compareShown, setCompareShown] = useState(true);
   // What you chose to compare with, as you left the review: a commit picked, or your last review, narrowed or not.
   const [chosen, setChosen] = useState(() => persisted.compare ?? null);
   const [owners, setOwners] = useState<Map<string, FileOwners>>(new Map());
@@ -343,7 +341,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     if (was !== "docked" || layout.nav === "docked" || layout.nav === "overlay") return;
     const host = document.getElementById(navigatorId(targetKey));
     // The band's toggle, or a phone's chapters tab.
-    const toggle = rootRef.current?.querySelector<HTMLElement>(`main [aria-controls="${navigatorId(targetKey)}"], [aria-label="Review commands"] > [aria-controls="${navigatorId(targetKey)}"]`);
+    const toggle = rootRef.current?.querySelector<HTMLElement>(`[class*="@container/band"] [aria-controls="${navigatorId(targetKey)}"], [aria-label="Review commands"] > [aria-controls="${navigatorId(targetKey)}"]`);
     if (host?.contains(document.activeElement)) returnFocus(toggle, host);
   }, [layout.nav, targetKey]);
 
@@ -1570,7 +1568,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     reveal: showComment, showLocation, followUp, askAgent, openFinish: showDraftSummary,
     fullscreen: { available: canFullscreen, on: fullscreen, toggle: toggleFullscreen }, leave,
     snooze, newCommits, rebuild, reload: load, pinnable: preferences?.preferences.threadListReviews === true, showShortcuts,
-    shortcuts: shortcutsOn, mainThread, patch, injection, reviewId: identity?.id, reviewName: identity?.name,
+    shortcuts: shortcutsOn, mainThread, patch, injection,
   } : null, [targetKey, review, guide, sections, activeId, selectChapter, layout, toggleNav, findInReview, navView, changeNavView, shownPanel, openPanel, togglePanel, closePanel, views, toggleViewed, markChapterViewed, nextUnviewed, foldAllFiles, baselineSha, compareFrom, pickCompare, flip, since, sinceOnly, sinceError, sinceWhat, diffLayout, toggleLayout, newFiles, changeNewFiles, markdownFiles, changeMarkdownFiles, unifiedOnly, wrapLines, changeWrap, hideWhitespace, changeHideWhitespace, showThreads, setShowThreads, commentsFolded, changeCommentsFolded, showComment, showLocation, followUp, askAgent, showDraftSummary, canFullscreen, fullscreen, toggleFullscreen, leave, snooze, newCommits, rebuild, load, preferences, showShortcuts, shortcutsOn, mainThread, patch, injection, identity?.id, identity?.name]);
 
   // A comment asked for from another page, as its row on a thread's Review tab asks, whether the review opens now or
@@ -1665,14 +1663,16 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
       className={cn("@container/review relative flex h-full min-h-0 min-w-0 flex-col bg-background pt-[var(--gr-safe-top,0px)] pr-[var(--gr-safe-right,0px)] pl-[var(--gr-safe-left,0px)]", sheet ? "pb-[var(--gr-kb,0px)]" : "pb-[max(var(--gr-safe-bottom,0px),var(--gr-kb,0px))]", covering && "fixed inset-0 m-0 h-auto w-auto overflow-hidden border-0 text-foreground")}
       style={{ backgroundColor: "rgb(from var(--background) r g b / 1)" }}
     >
+      <div className="contents [[data-keyboard=short]_&]:hidden">
+        <ReaderBar threads={isPr && diffThreads.threads.length > 0} />
+      </div>
       <div className="relative flex min-h-0 flex-1">
-        <NavigatorHost targetKey={targetKey} placement={layout.nav} sheet={sheet} sheetTitle={<ChapterViewSwitch view={navView} onChange={changeNavView} />} sheetActions={<><DiffOptions threads={isPr && diffThreads.threads.length > 0} /><ReviewMenu api={api} className={cn("size-8 px-0", TOUCH_CONTROL)} /></>} width={navWidth} maxWidth={Math.min(NAV_WIDTH.max, paneWidth - READER_MIN - (layout.panel === "docked" ? panelDockWidth(paneWidth, panelWidth) : 0))} onWidth={setNavWidth} onWidthDone={saveNavWidth} onClose={() => setNavOverlay(false)}>
+        <NavigatorHost targetKey={targetKey} placement={layout.nav} sheet={sheet} sheetTitle={<ChapterViewSwitch view={navView} onChange={changeNavView} />} sheetActions={<><DiffOptions threads={isPr && diffThreads.threads.length > 0} /><ReviewMenu api={api} threads={isPr && diffThreads.threads.length > 0} className={cn("size-8 px-0", TOUCH_CONTROL)} /></>} width={navWidth} maxWidth={Math.min(NAV_WIDTH.max, paneWidth - READER_MIN - (layout.panel === "docked" ? panelDockWidth(paneWidth, panelWidth) : 0))} onWidth={setNavWidth} onWidthDone={saveNavWidth} onClose={() => setNavOverlay(false)}>
           <NavigatorAtFile targetKey={targetKey} leading={<TopBand />} patch={patch} changedSince={changedSince} lines={lines} generated={generated} chosen={chosenFiles} threads={diffThreads.threads} owners={shownOwners} onSelect={selectChapter} onSelectFile={onSelectFile} onOpenLine={showLocation} onOpenFile={openFoundFile} initialFind={carry?.find} onFind={keepFind} />
         </NavigatorHost>
         <main aria-label={identity ? `Review: ${identity.label}` : "Review"} inert={sheetOpen} className="flex min-w-0 flex-1 flex-col">
-          {/* With the keyboard up leaving a phone held sideways' room or less, the band and notices give way to the code. */}
+          {/* On a short keyboard viewport, notices give way to the code, as the bar above does. */}
           <div className="contents [[data-keyboard=short]_&]:hidden">
-            <ReaderBar threads={isPr && diffThreads.threads.length > 0} onCompareShown={setCompareShown} />
             <FocusStrip targetKey={targetKey} run={review?.focusRun} head={review?.focusHead ?? review?.headSha} latestHead={review?.latestHeadSha} updateAction={prFolder ? updateButton : updateGuide} findings={review?.focusFindings} generalWorking={review?.agentStatus?.indicator === "runtime"} />
             <ReviewNotices notices={notices} />
           </div>
@@ -1708,7 +1708,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
                 sinceWhat={sinceWhat}
                 owners={shownOwners}
                 foldAll={foldAll}
-                onSinceOnly={rereview || sheet || !compareShown ? flip : undefined}
+                onSinceOnly={flip}
                 switchSlot={switchSlot}
                 prUrl={isPr ? review?.url ?? undefined : undefined}
                 newFiles={newFiles}
@@ -1732,7 +1732,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
         {/* Over the code, a side dims the rest; a tap there closes it. */}
         {(layout.nav === "overlay" || layout.panel === "overlay") && <div aria-hidden className="absolute inset-0 z-30 bg-black/40 animate-in fade-in duration-200 motion-reduce:animate-none" onClick={() => { setNavOverlay(false); if (layout.panel === "overlay") closePanel(); }} />}
       </div>
-      {sheet && <PhoneDock hidden={!!lineSel} />}
+      {sheet && <PhoneDock hidden={!!lineSel} threads={isPr && diffThreads.threads.length > 0} />}
       <DraftLines into={draftLines} />
       <DraftReload reconnects={reconnects} />
 

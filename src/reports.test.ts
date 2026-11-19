@@ -187,7 +187,7 @@ test("bb review ready, from the main thread's subagent, makes it Ready with what
   const store = await startPlugin(h.bb);
   await sentSix(h, store);
   await cli(h, "coder", "report", "c1", "done");
-  expect(await cli(h, undefined, "ready")).toMatchObject({ exitCode: 1, stderr: "No review's comments are waiting on this thread. Pass the review: bb review ready <review>." });
+  expect(await cli(h, undefined, "ready")).toMatchObject({ exitCode: 1, stderr: "This shell has no bb thread (BB_THREAD_ID isn't set), so bb can't tell which review waits on it. Pass the review: bb review ready <review>." });
   expect(await cli(h, "sub", "ready")).toEqual({ exitCode: 0, stdout: "Sent repo:feature back to the reviewer to re-review: 1 of 6 reported.", stderr: "" });
   await vi.waitFor(() => expect(agentMessages(h)).toHaveLength(1));
   expect(await turnOf(h)).toMatchObject({ group: "needs", reason: "fixes-ready", label: "Ready to re-review" });

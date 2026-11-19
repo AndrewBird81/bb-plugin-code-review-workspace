@@ -1,5 +1,4 @@
-// The open reviews' workspaces, by targetKey, for UI outside a workspace's React tree: BB renders the title bar's
-// controls (navPanel headerContent) apart from the page, with only the subPath to say which review is open.
+// The open reviews' workspaces, by targetKey, for UI outside the workspace's React tree, such as BB's panel tabs.
 import { useEffect, useSyncExternalStore } from "react";
 import type { WorkspaceApi } from "./workspace-context";
 import type { ReviewIdentity } from "./review-identity";
@@ -33,35 +32,9 @@ export function workspaceFor(targetKey: string): WorkspaceApi | null {
   return workspaces.get(targetKey) ?? null;
 }
 
-/** Whether the review's page is a narrow pane beside BB's side panel (lib/workspace-layout.ts), read alone. */
-export function useNarrowPane(targetKey: string | null): boolean {
-  return useSyncExternalStore(subscribe, () => (targetKey === null ? false : workspaces.get(targetKey)?.layout.narrowPane ?? false));
-}
-
 /** The review's workspace while one shows it with its guide loaded; null otherwise, so no other review's controls show. */
 export function useWorkspaceFor(targetKey: string | null): WorkspaceApi | null {
   return useSyncExternalStore(subscribe, () => (targetKey === null ? null : workspaces.get(targetKey) ?? null));
-}
-
-// How many of BB's title bars show each review's controls. A host without headerContent mounts none, so the
-// workspace shows them in its own band instead.
-const titleBars = new Map<string, number>();
-
-/** BB's title bar is there for the review's controls; the returned function says it went. */
-export function mountTitleBar(targetKey: string): () => void {
-  titleBars.set(targetKey, (titleBars.get(targetKey) ?? 0) + 1);
-  notify();
-  return () => {
-    const left = (titleBars.get(targetKey) ?? 1) - 1;
-    if (left > 0) titleBars.set(targetKey, left);
-    else titleBars.delete(targetKey);
-    notify();
-  };
-}
-
-/** Whether a title bar of BB's is there for the review's controls. */
-export function useTitleBarMounted(targetKey: string): boolean {
-  return useSyncExternalStore(subscribe, () => titleBars.has(targetKey));
 }
 
 // How many files each review's Not pushed yet has, as its page or its folder's check last read them, for the navigator.
@@ -78,7 +51,7 @@ export function useNotPushedFiles(targetKey: string): number | null {
   return useSyncExternalStore(subscribe, () => notPushedFiles.get(targetKey) ?? null);
 }
 
-// How many of each review's comments need you, for the title bar's Comments badge; the comments list reports it.
+// How many of each review's comments need you, for the review bar's Comments badge; the comments list reports it.
 const needsYou = new Map<string, number>();
 
 export function setNeedsYou(targetKey: string, count: number) {
@@ -136,26 +109,6 @@ export function useReviewTitle(targetKey: string | null): ReviewTitle | null {
   return useSyncExternalStore(subscribe, () => (targetKey === null ? null : titles.get(targetKey)?.at(-1)?.title ?? null));
 }
 
-// How many of BB's title bars show each review's title (app.tsx), as a host with page titles does; the band then
-// leaves the review's name to it.
-const pageTitles = new Map<string, number>();
-
-/** BB's title bar shows the review's title; the returned function says it stopped. */
-export function showPageTitle(targetKey: string): () => void {
-  pageTitles.set(targetKey, (pageTitles.get(targetKey) ?? 0) + 1);
-  notify();
-  return () => {
-    const left = (pageTitles.get(targetKey) ?? 1) - 1;
-    if (left > 0) pageTitles.set(targetKey, left);
-    else pageTitles.delete(targetKey);
-    notify();
-  };
-}
-
-/** Whether a title bar of BB's shows the review's title. */
-export function usePageTitleShown(targetKey: string): boolean {
-  return useSyncExternalStore(subscribe, () => pageTitles.has(targetKey));
-}
 
 /** What a Code Review Workspace subPath shows, as ReviewPanel routes it: the list, Review settings, or a review. */
 export type PanelPage = { kind: "list" } | { kind: "settings"; returnTo: string } | { kind: "review"; targetKey: string };
@@ -166,8 +119,8 @@ export function panelPage(subPath: string): PanelPage {
   return first ? { kind: "review", targetKey: first } : { kind: "list" };
 }
 
-// Whether each review's tabs in BB's side panel show: they report it (experimental_useTabVisible), so the title bar
-// can say Ask agent is pressed while the Review agent tab shows.
+// Whether each review's tabs in BB's side panel show: they report it (experimental_useTabVisible), so the review bar
+// can say Agent is pressed while the Review agent tab shows.
 // BB doesn't tell the panes of one window apart (each surface's panel controller is a new object for each slot), so a
 // review in two panes says its tab shows in either.
 const shownTabs = new Map<string, number>();

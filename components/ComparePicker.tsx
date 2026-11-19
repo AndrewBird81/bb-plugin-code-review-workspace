@@ -156,10 +156,10 @@ export function CompareMenu({ commits, error, onPicked }: { commits: PrCommit[] 
 }
 
 /**
- * The band's compare select. Its label is what the diff shows, tinted while it narrows the diff, and its menu changes
+ * The compare select inside Diff options. Its label is what the diff shows, tinted while it narrows the diff, and its menu changes
  * it. `brief` shortens the label for a narrow band.
  */
-export function ComparePicker({ brief = false }: { brief?: boolean }) {
+export function ComparePicker({ brief = false, onPicked }: { brief?: boolean; onPicked?: () => void }) {
   const { review, compare, layout } = useWorkspace();
   const container = useFullscreenPortalContainer();
   const [open, setOpen] = useState(false);
@@ -194,7 +194,7 @@ export function ComparePicker({ brief = false }: { brief?: boolean }) {
           event.preventDefault();
           (event.target as HTMLElement).querySelector<HTMLElement>("[aria-checked=true]")?.focus();
         }}>
-        <CompareMenu commits={commits} error={error} onPicked={() => setOpen(false)} />
+        <CompareMenu commits={commits} error={error} onPicked={() => { setOpen(false); onPicked?.(); }} />
       </PopoverContent>
     </Popover>
   );

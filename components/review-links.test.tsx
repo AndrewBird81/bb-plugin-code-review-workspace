@@ -63,7 +63,7 @@ test("on a local review each card has one status: Open, Queued for or Sent to it
   // Still in the thread's queue, it's queued; then resolved by your click.
   const queued = await renderSent({ status: { ...LOCAL, sends: [{ ...sends[0]!, queued: "q1" }] } }, [drafted[0], { file: "src/a.ts", line: 3, side: "RIGHT", body: "Not sent.", id: "c2", state: "resolved" }]);
   expect(await statusOf(queued, "Draft comment on src/a.ts:1")).toBe("Queued for the main thread · Send 2 · 2m");
-  expect(await statusOf(queued, "Draft comment on src/a.ts:3")).toBe("Resolved");
+  expect(await statusOf(queued, "Draft comment on src/a.ts:3")).toBe("Done for me");
   queued.lifecycle.unmount();
 });
 

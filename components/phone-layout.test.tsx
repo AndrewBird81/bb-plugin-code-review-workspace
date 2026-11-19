@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { findReviewAction, openReviewMenu } from "./review-bar.test-support";
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
@@ -63,7 +64,7 @@ test("on a phone there's no band: the dock holds the review's commands, and the 
   const slot = await renderWorkspace();
   expect(slot.queryByRole("navigation", { name: "Breadcrumb" })).toBeNull();
   const dock = within(slot.getByRole("group", { name: "Review commands" }));
-  for (const name of ["All reviews", "pr-42, Chapters: Chapter 1 of 1, Parsing, 0 of 1 files viewed", "Comments", "Ask agent"]) expect(dock.getByRole("button", { name })).toBeTruthy();
+  for (const name of ["pr-42, Chapters: Chapter 1 of 1, Parsing, 0 of 1 files viewed", "Comments", "Agent", "Review actions"]) expect(dock.getByRole("button", { name })).toBeTruthy();
   fireEvent.click(dock.getByRole("button", { name: /^pr-42, Chapters:/ }));
   const sheet = within(slot.getByRole("dialog", { name: "Chapters" }));
   fireEvent.click(sheet.getByRole("button", { name: "Review actions" }));
@@ -72,6 +73,16 @@ test("on a phone there's no band: the dock holds the review's commands, and the 
   expect(slot.queryByRole("button", { name: /^Keyboard shortcuts/ })).toBeNull();
   fireEvent.click(slot.getByRole("button", { name: "Review settings…" }));
   await waitFor(() => expect(slot.inspection.navigateCalls).toContainEqual({ method: "toPluginPanel", path: "review", options: { subPath: "settings/pr-42" } }));
+  slot.lifecycle.unmount();
+});
+
+test("the phone dock's ⋯ keeps All reviews and goes to the list", async () => {
+  fakeSize(390, 844);
+  const slot = await renderWorkspace();
+  const dock = within(slot.getByRole("group", { name: "Review commands" }));
+  fireEvent.click(dock.getByRole("button", { name: "Review actions" }));
+  fireEvent.click(await slot.findByRole("button", { name: "All reviews" }));
+  await waitFor(() => expect(slot.inspection.navigateCalls).toContainEqual({ method: "toPluginPanel", path: "review" }));
   slot.lifecycle.unmount();
 });
 
@@ -247,41 +258,40 @@ test("on a phone the chapters, Comments and the agent share one sheet above the 
   slot.lifecycle.unmount();
 });
 
-test("a phone held sideways keeps its band to 40px: All reviews and the chapter, and the diff's options behind one button", async () => {
-  fakeSize(844, 390);
+test("a phone held sideways keeps the same commands in a 40px bar with compact touch targets", async () => {
+  fakeSize(594, 338);
   const slot = await renderWorkspace();
   expect(band(slot).className.split(" ")).toContain("h-10");
+  const commands = within(within(band(slot)).getByRole("group", { name: "Review commands" }));
+  for (const button of commands.getAllByRole("button")) {
+    expect(button.className.split(" ")).toContain("pointer-coarse:h-9");
+    expect(button.className.split(" ")).toContain("pointer-coarse:after:-inset-1");
+  }
   const crumbs = within(slot.getByRole("navigation", { name: "Breadcrumb" }));
-  // With 720px of room, ‹ says where it goes.
-  expect(crumbs.getByRole("button", { name: "All reviews" }).textContent).toBe("All reviews");
-  expect(crumbs.getByText("Chapter 1 of 1: Parsing, 0 of 1 files viewed")).toBeTruthy();
-  // Of the diff's settings only Fold comments, folded here to start with, has its own button.
-  const options = within(slot.getByRole("main")).getByRole("button", { name: "Diff options" });
-  expect(within(options.parentElement!).getAllByRole("button").map((button) => button.getAttribute("aria-label"))).toEqual(["Unfold comments in code", "Diff options"]);
-  fireEvent.click(options);
+  for (const name of ["All reviews", "pr-42"]) {
+    expect(crumbs.getByRole("button", { name }).className).toContain("pointer-coarse:after:-inset-1");
+  }
+  expect(within(band(slot)).queryByRole("button", { name: "Diff options" })).toBeNull();
+  // A short screen uses a drawer, whose contents realize after it opens.
+  openReviewMenu(slot);
+  fireEvent.click(await slot.findByRole("button", { name: "Diff options" }));
   expect(await slot.findByRole("switch", { name: "Wrap long lines" })).toBeTruthy();
   slot.lifecycle.unmount();
 });
-
-test("on a wide screen the band shows the review's id beside the chapter, then Fold comments and Diff options", async () => {
-  // The code keeps 912px between the chapters and the panel.
+test("a wide screen's band links to All reviews and the Overview, then names the chapter before the commands", async () => {
   fakeSize(1600, 900);
   const slot = await renderWorkspace();
   const crumbs = within(slot.getByRole("navigation", { name: "Breadcrumb" }));
-  expect(crumbs.getByRole("button", { name: "All reviews" }).textContent).toBe("All reviews");
   expect(crumbs.getByRole("button", { name: "pr-42" })).toBeTruthy();
   expect(crumbs.getByText("Chapter 1 of 1: Parsing, 0 of 1 files viewed")).toBeTruthy();
-  // The diff's settings are behind Diff options; the chapter's end and the chapters mark it viewed.
-  const controls = within(band(slot)).getAllByRole("button").map((button) => button.getAttribute("aria-label"));
-  expect(controls.slice(-2)).toEqual(["Fold comments in code", "Diff options"]);
-  expect(within(band(slot)).queryByRole("button", { name: "Mark chapter viewed" })).toBeNull();
-  // Not short: the chapters, the chapter's overview, and the saved open panel show.
+  const controls = within(band(slot)).getAllByRole("button").map(b => b.getAttribute("aria-label"));
+  // The docked chapters list has the toggle in its own head, so the bar starts with the breadcrumb links.
+  expect(controls).toEqual(["All reviews", "pr-42", "Comments", "Agent", "Finish review: Comment, 0 comments", "Review actions"]);
   expect(slot.getByRole("navigation", { name: "Chapters" })).toBeTruthy();
   expect(slot.getByRole("button", { name: "Hide chapter overview" })).toBeTruthy();
   expect(slot.getByRole("complementary", { name: "Comments and Finish review" })).toBeTruthy();
   slot.lifecycle.unmount();
 });
-
 test("a phone held sideways opens on code: the chapter overview, the chapters and the saved panel hidden until shown", async () => {
   fakeSize(844, 390);
   const slot = await renderWorkspace();
@@ -310,12 +320,13 @@ test("the chapters toggle sits beside Find in review, and takes the same spot in
   expect(host.contains(chapters)).toBe(true);
   const toggle = within(host).getByRole("button", { name: "Hide chapters" });
   expect(toggle.closest("div")!.nextElementSibling).toBe(within(host).getByRole("search"));
-  expect(within(band(slot)).queryByRole("button", { name: /chapters$/ })).toBeNull();
+  // One toggle: the bar doesn't repeat the docked list's.
+  expect(within(band(slot)).queryByRole("button", { name: "Hide chapters" })).toBeNull();
   fireEvent.click(toggle);
   expect(slot.queryByRole("navigation", { name: "Chapters" })).toBeNull();
   const first = band(slot).querySelector("button")!;
   expect(first.getAttribute("aria-label")).toBe("Show chapters");
-  expect(within(band(slot)).getByRole("button", { name: "Find in review" })).toBeTruthy();
+  expect(within(band(slot)).queryByRole("button", { name: "Find in review" })).toBeNull();
   fireEvent.click(first);
   expect(slot.getByRole("navigation", { name: "Chapters" })).toBeTruthy();
   slot.lifecycle.unmount();
@@ -345,7 +356,7 @@ test("where the browser can't go full screen, as on an iPhone, Full screen cover
   const slot = await renderWorkspace();
   expect(document.fullscreenEnabled).toBeFalsy();
   const root = slot.getByRole("main").closest("[class*='@container/review']")!;
-  fireEvent.click(await slot.findByRole("button", { name: "Full screen" }));
+  fireEvent.click(await findReviewAction(slot, "Full screen"));
   expect(show.mock.contexts).toEqual([root]);
   expect(root.getAttribute("popover")).toBe("manual");
   // Clear of the notch, by all of its inset at the window's edge (lib/use-safe-area.ts); the dock, inside it, keeps
@@ -358,7 +369,7 @@ test("where the browser can't go full screen, as on an iPhone, Full screen cover
   fireEvent.click(within(slot.getByRole("dialog", { name: "Chapters" })).getByRole("button", { name: "Review actions" }));
   expect(root.contains(await slot.findByRole("button", { name: "Review settings…" }))).toBe(true);
   fireEvent.keyDown(document.activeElement!, { key: "Escape" });
-  fireEvent.click(slot.getByRole("button", { name: "Exit full screen" }));
+  fireEvent.click(await findReviewAction(slot, "Exit full screen"));
   expect(hide.mock.contexts).toEqual([root]);
   expect(root.hasAttribute("popover")).toBe(false);
   expect(root.className.split(" ")).not.toContain("fixed");
@@ -376,7 +387,7 @@ test("where the browser can't go full screen, as on an iPhone, Full screen cover
 test("where the browser can neither go full screen nor cover the window, there's no Full screen button", async () => {
   fakeSize(390, 844);
   const slot = await renderWorkspace();
-  expect(within(slot.getByRole("group", { name: "Review commands" })).getByRole("button", { name: "Ask agent" })).toBeTruthy();
+  expect(within(slot.getByRole("group", { name: "Review commands" })).getByRole("button", { name: "Agent" })).toBeTruthy();
   expect(slot.queryByRole("button", { name: "Full screen" })).toBeNull();
   slot.lifecycle.unmount();
 });
@@ -389,7 +400,7 @@ test("where the browser can go full screen, Full screen asks it to, for the work
   restores.push(() => { delete (document as { fullscreenEnabled?: boolean }).fullscreenEnabled; delete (HTMLElement.prototype as { requestFullscreen?: unknown }).requestFullscreen; });
   const slot = await renderWorkspace();
   const root = band(slot).closest("[class*='@container/review']")!;
-  fireEvent.click(await slot.findByRole("button", { name: "Full screen" }));
+  fireEvent.click(await findReviewAction(slot, "Full screen"));
   expect(request.mock.contexts).toEqual([root]);
   expect(root.className.split(" ")).not.toContain("fixed");
   slot.lifecycle.unmount();

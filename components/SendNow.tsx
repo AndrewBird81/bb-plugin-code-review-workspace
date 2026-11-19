@@ -172,7 +172,7 @@ export function SendNow({ targetKey, comment, to, what, className, onNote }: { t
   if (warned) return null;
   return <Hint label={label} container={container}>
     <Button variant="ghost" size="sm" aria-label={label} className={className} aria-disabled={busy || undefined} onClick={() => void send()}>
-      <Icon name={busy ? "Loading" : "Send"} className={cn("size-3.5", busy && "animate-spin motion-reduce:animate-none")} aria-hidden />{what ? "Send" : "Send now"}
+      <Icon name={busy ? "Loading" : "Send"} className={cn("size-3.5", busy && "animate-spin motion-reduce:animate-none")} aria-hidden />Send to fix
     </Button>
   </Hint>;
 }

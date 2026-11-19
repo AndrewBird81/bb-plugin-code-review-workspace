@@ -11,7 +11,6 @@ import { usesFixer } from "../lib/fixer";
 import { cn } from "../lib/utils";
 import { useWorkspace } from "../lib/workspace-context";
 import { ThreadName } from "./FixHandoff";
-import { TabTitle } from "./TabTitle";
 import { switchHint } from "../lib/commands";
 import { TOUCH_CONTROL } from "./touch";
 import { Button } from "./ui/button";
@@ -120,14 +119,14 @@ function ThreadLine({ thread, onChanged }: { thread: MainThreadLink; onChanged: 
  * the thread's chat, which can't widen its permissions. An archived thread shows its conversation without a box to write
  * in. `active`: the tab shows, so it reads the main thread and BB's thread list.
  */
-export function MainThreadPanel({ active, reviewId, reviewName }: { active: boolean; reviewId?: string; reviewName?: string }) {
+export function MainThreadPanel({ active }: { active: boolean }) {
   const { targetKey, review } = useWorkspace();
   const { thread, reload } = useMainThread(targetKey, review, active);
   const notice = (text: string) => <p role="status" className="m-3 rounded-lg border border-border bg-muted/25 p-3 text-sm text-muted-foreground">{text}</p>;
   return <section aria-label="Main thread" className="flex h-full min-h-0 flex-1 flex-col">
     <div className="flex h-11 shrink-0 items-center gap-2 border-b border-border pl-3 pr-1.5">
       <Icon name="Code" className="size-4 shrink-0 text-primary" aria-hidden />
-      <TabTitle title="Main thread" reviewId={reviewId} reviewName={reviewName} />
+      <h2 className="min-w-0 flex-1 truncate text-sm font-medium">Main thread</h2>
     </div>
     {/* BB's thread list is read only while the tab shows. */}
     {thread && active && <ThreadLine thread={thread} onChanged={reload} />}

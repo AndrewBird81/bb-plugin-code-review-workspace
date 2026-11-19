@@ -121,9 +121,9 @@ test("Ask agent on the summary talks in its discussion, and Undo puts the agent'
   });
   const slot = await renderTray("ask", { getDraft: () => ({ draft }), askAgent, undoAgentChange });
   fireEvent.click(summary(slot).getByRole("button", { name: "Ask agent about the review summary" }));
-  expect(summary(slot).getByText("Goes to the agent, not GitHub. It sees the summary and the draft comments.")).toBeTruthy();
+  expect(summary(slot).getByText("It sees the summary and the draft comments.")).toBeTruthy();
   fireEvent.change(summary(slot).getByRole("textbox", { name: "Message to agent" }), { target: { value: "Shorter, please." } });
-  fireEvent.click(summary(slot).getByRole("button", { name: "Send to agent" }));
+  fireEvent.click(summary(slot).getByRole("button", { name: "Ask agent" }));
   await waitFor(() => expect(askAgent).toHaveBeenCalledWith({ targetKey: "ask", file: "", line: 0, side: "RIGHT", body: "Shorter, please.", inserted: false }));
   await summary(slot).findByText("Agent edited the summary.");
   expect(summary(slot).getByText("Short.")).toBeTruthy();
@@ -169,18 +169,18 @@ test("the summary's discussion goes on from Reply at its foot, in Ask agent's pl
   const slot = await renderTray("reply", { getDraft: () => ({ draft, stale: [], discussions }), askAgent });
   const thread = within(await summary(slot).findByRole("region", { name: "Discussion with agent on the review summary" }));
   expect(summary(slot).queryByRole("button", { name: "Ask agent about the review summary" })).toBeNull();
-  fireEvent.click(thread.getByRole("button", { name: "Reply" }));
+  fireEvent.click(thread.getByRole("button", { name: "Ask agent" }));
   const box = summary(slot).getByRole("textbox", { name: "Message to agent" });
-  expect(thread.queryByRole("button", { name: "Reply" })).toBeNull();
+  expect(thread.queryByRole("button", { name: "Ask agent" })).toBeNull();
   // Left empty, the box closes and Reply has the focus.
   fireEvent.keyDown(box, { key: "Escape" });
-  await waitFor(() => expect(document.activeElement).toBe(thread.getByRole("button", { name: "Reply" })));
-  fireEvent.click(thread.getByRole("button", { name: "Reply" }));
+  await waitFor(() => expect(document.activeElement).toBe(thread.getByRole("button", { name: "Ask agent" })));
+  fireEvent.click(thread.getByRole("button", { name: "Ask agent" }));
   fireEvent.change(summary(slot).getByRole("textbox", { name: "Message to agent" }), { target: { value: "Name them." } });
-  fireEvent.click(summary(slot).getByRole("button", { name: "Send to agent" }));
+  fireEvent.click(summary(slot).getByRole("button", { name: "Ask agent" }));
   await waitFor(() => expect(askAgent).toHaveBeenCalledWith({ targetKey: "reply", ...SUMMARY_AT, body: "Name them.", inserted: false }));
   await thread.findByText("Waiting for agent…");
-  await waitFor(() => expect(document.activeElement).toBe(thread.getByRole("button", { name: "Reply" })));
+  await waitFor(() => expect(document.activeElement).toBe(thread.getByRole("button", { name: "Ask agent" })));
   slot.lifecycle.unmount();
 });
 

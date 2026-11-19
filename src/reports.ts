@@ -204,7 +204,8 @@ export function register(deps: ServeDeps) {
       const mine = await callerAndAbove(ctx.threadId);
       const waiting = all.filter((r) => waitsOn(r, mine));
       if (waiting.length !== 1) {
-        if (!waiting.length) return { exitCode: 1, stderr: "No review's comments are waiting on this thread. Pass the review: bb review ready <review>." };
+        if (!waiting.length) return { exitCode: 1, stderr: ctx.threadId ? "No review's comments are waiting on this thread. Pass the review: bb review ready <review>."
+          : "This shell has no bb thread (BB_THREAD_ID isn't set), so bb can't tell which review waits on it. Pass the review: bb review ready <review>." };
         const ids = await idsOf(waiting);
         return { exitCode: 2, stderr: `Comments from ${waiting.length} reviews wait on this thread: ${waiting.map((r) => ids.get(r.targetKey)).join(", ")}. Pass one: bb review ready <review>.` };
       }

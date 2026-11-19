@@ -381,7 +381,7 @@ async function callerFolder(deps: Deps, threadId: string): Promise<{ caller: Thr
 export async function runFeatureCommand(deps: Deps, command: FeatureCommand, ctx: Ctx, ownReview?: string) {
   const { bb, store } = deps;
   if (ownReview !== undefined) return { exitCode: 2, stderr: "A review’s own agent can’t start a review of a folder." };
-  if (!ctx.threadId) return { exitCode: 2, stderr: "Run `bb review` with no arguments in a bb thread: it reviews the changes in that thread’s folder. Outside a thread, pass a PR or a git ref." };
+  if (!ctx.threadId) return { exitCode: 2, stderr: "This shell has no bb thread (BB_THREAD_ID isn’t set), so `bb review` with no arguments can’t tell whose folder to review. Run it in a bb thread’s shell, or pass a PR or a git ref." };
   const found = await callerFolder(deps, ctx.threadId);
   if ("stderr" in found) return { exitCode: found.exitCode, stderr: found.stderr };
   const { folder, main, covers } = found;

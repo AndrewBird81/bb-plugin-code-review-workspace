@@ -6,7 +6,7 @@ import { defaultPreferences } from "../src/preferences";
 import { defaultKnobs } from "../lib/knobs";
 import { patchReviewState } from "../lib/panel-state";
 import { setNeedsYou } from "../lib/workspace-store";
-import { TITLE_BAR_WAIT_MS } from "../lib/title-bar";
+import { reviewAction } from "./review-bar.test-support";
 import { panelTabCalls, renderPanelTab } from "./panel-tabs.test-support";
 import { toast } from "sonner";
 
@@ -76,72 +76,60 @@ async function renderReview({ review, rpc, titleBar = true, panel, sidebarThread
   patchReviewState("pr-42", { activeId: "c1" });
   const app = await loadPluginApp(() => import("../app"));
   const registration = app.navPanels[0]!;
-  const bar = titleBar ? renderSlot({ component: registration.headerContent! }, { subPath: "pr-42" }, { rpc: handlers(review, rpc) as any, ...sidebarThreads ? { sidebarThreads } : {} }) : null;
-  const page = renderSlot(registration, { subPath: "pr-42" }, { rpc: handlers(review, rpc) as any, ...panel ? { experimental_panel: panel } : {} });
+  const header = titleBar ? renderSlot({ component: registration.headerContent! }, { subPath: "pr-42" }, { rpc: handlers(review, rpc) as any, ...sidebarThreads ? { sidebarThreads } : {} }) : null;
+  const page = renderSlot(registration, { subPath: "pr-42" }, { rpc: handlers(review, rpc) as any, ...panel ? { experimental_panel: panel } : {}, ...sidebarThreads ? { sidebarThreads } : {} });
   await page.findByTestId("filediff");
   const band = () => within(page.getByRole("navigation", { name: "Breadcrumb" }).closest<HTMLElement>("[class*='@container/band']")!);
-  return { page, bar, band };
+  return { page, bar: page, header, band };
 }
 
-test("BB's title bar shows an open review's commands, and none on Settings (the list's are in list-title-bar.test)", async () => {
+test("BB's title bar renders no review controls, and none on Settings; All reviews keeps its own", async () => {
   const app = await loadPluginApp(() => import("../app"));
   const { TitleBarControls } = await import("./TitleBarControls");
   expect(app.navPanels[0]!.headerContent).toBe(TitleBarControls);
-  // A plain function: the SDK takes no memo object as a slot's component.
+
   expect(typeof TitleBarControls).toBe("function");
-  for (const subPath of ["settings", "settings/pr-42"]) {
+  for (const subPath of ["settings", "settings/pr-42", "pr-42"]) {
     const slot = renderSlot({ component: TitleBarControls }, { subPath }, { rpc: handlers() as any });
     expect(slot.container.innerHTML).toBe("");
     slot.lifecycle.unmount();
   }
   fakeSize(1400, 900);
-  const { bar } = await renderReview();
-  const commands = within(await bar!.findByRole("group", { name: "Review commands" }));
-  for (const name of ["Comments", "Ask agent", "Review actions"]) expect(commands.getByRole("button", { name })).toBeTruthy();
-  // jsdom can't go full screen, nor cover the window.
-  expect(commands.queryByRole("button", { name: "Full screen" })).toBeNull();
-  expect(await commands.findByRole("button", { name: "Finish review: Request changes, 2 comments" })).toBeTruthy();
+  const { header, band } = await renderReview();
+  expect(header!.container.innerHTML).toBe("");
+  expect(band().getByRole("group", { name: "Review commands" })).toBeTruthy();
 });
-
-test("the title bar's commands fit the pane: labeled from 1000px, shorter below, icons on a phone held sideways, and none on a phone", async () => {
-  const text = async (bar: Awaited<ReturnType<typeof renderReview>>["bar"]) => {
-    const commands = within(await bar!.findByRole("group", { name: "Review commands" }));
+test("the review bar has the same order at every non-phone size; labels use its CSS container", async () => {
+  for (const [width, height] of [[1400, 900], [820, 900], [594, 338], [560, 952], [669, 821], [951, 541]]) {
+    fakeSize(width!, height!, [1440, 1000]);
+    const { page, header, band } = await renderReview({ review: { mainThread: { threadId: "coder", origin: "adopted", since: 1 } } });
+    const commands = within(band().getByRole("group", { name: "Review commands" }));
     await commands.findByRole("button", { name: /^Finish review:/ });
-    return ["Comments", "Ask agent", /^Finish review:/].map((name) => commands.getByRole("button", { name }).textContent);
-  };
-  fakeSize(1400, 900);
-  let { bar, page } = await renderReview();
-  expect(await text(bar)).toEqual(["Comments", "Ask agent", "Finish review· Request changes· 2"]);
-  page.lifecycle.unmount(); bar!.lifecycle.unmount(); restores.splice(0).forEach((restore) => restore());
-  fakeSize(800, 1200);
-  ({ bar, page } = await renderReview());
-  // Mid-width, Ask agent, with its key and BB's tab, goes to its icon first (Main thread ↗ keeps its label: below).
-  expect(await text(bar)).toEqual(["", "", "Finish· 2"]);
-  page.lifecycle.unmount(); bar!.lifecycle.unmount(); restores.splice(0).forEach((restore) => restore());
-  // Finish review too is its icon and count, where "Finish · 2" left BB's crumbs no room.
-  fakeSize(844, 390);
-  ({ bar, page } = await renderReview());
-  expect(await text(bar)).toEqual(["", "", "2"]);
-  page.lifecycle.unmount(); bar!.lifecycle.unmount(); restores.splice(0).forEach((restore) => restore());
-  fakeSize(560, 952, [1440, 1000]);
-  ({ bar, page } = await renderReview());
-  expect(await text(bar)).toEqual(["", "", "2"]);
-  expect(within(bar!.getByRole("group", { name: "Review commands" })).getByRole("button", { name: /^Finish review:/ }).querySelector("svg")?.getAttribute("data-icon")).toBe("Github");
-  page.lifecycle.unmount(); bar!.lifecycle.unmount(); restores.splice(0).forEach((restore) => restore());
-  // A phone's are its own, in the workspace's dock.
-  fakeSize(390, 844);
-  ({ bar, page } = await renderReview());
-  await page.findByRole("group", { name: "Review commands" });
-  expect(bar!.container.innerHTML).toBe("");
+    expect(commands.getAllByRole("button").map((b) => b.getAttribute("aria-label"))).toEqual(["Comments", "Agent", "Main thread", "Finish review: Request changes, 2 comments", "Review actions"]);
+    for (const text of ["Comments", "Agent", "Main thread", "review"]) {
+      const label = commands.getByText(text);
+      expect(label.className).toContain("hidden min-w-0 truncate @min-[880px]/band:inline");
+    }
+    const crumbs = within(page.getByRole("navigation", { name: "Breadcrumb" }));
+    for (const name of ["All reviews", "pr-42"]) {
+      const button = crumbs.getByRole("button", { name });
+      expect(button.className).toContain(height! < 500 ? "pointer-coarse:h-9" : "pointer-coarse:h-11");
+      expect(button.className).toContain(height! < 500 ? "pointer-coarse:after:-inset-1" : "pointer-coarse:min-w-11");
+    }
+    const left = page.getByRole("navigation", { name: "Breadcrumb" }).parentElement!;
+    expect(left.style.maxWidth).toBe("calc(var(--gr-fold-end, 100000px) - 48px)");
+    expect(header!.container.innerHTML).toBe("");
+    page.lifecycle.unmount(); header!.lifecycle.unmount();
+    restores.splice(0).forEach((restore) => restore());
+  }
 });
-
-test("beside BB's side panel on a desktop, a 560px review keeps its commands in BB's title bar; Ask agent is pressed while its tab shows, and closes it", async () => {
+test("beside BB's side panel on a desktop, a 560px review keeps its commands in the band; Ask agent is pressed while its tab shows, and closes it", async () => {
   fakeSize(560, 952, [1440, 1000]);
   const { bar, page } = await renderReview();
   const commands = within(await bar!.findByRole("group", { name: "Review commands" }));
-  const ask = commands.getByRole("button", { name: "Ask agent" });
+  const ask = commands.getByRole("button", { name: "Agent" });
   // Icons, leaving BB's crumbs their room.
-  expect(ask.textContent).toBe("");
+  expect(ask.textContent).toBe("Agent");
   // Not a phone's dock.
   expect(page.queryByRole("button", { name: /^pr-42, Chapters:/ })).toBeNull();
   expect(ask.getAttribute("aria-pressed")).toBe("false");
@@ -151,7 +139,7 @@ test("beside BB's side panel on a desktop, a 560px review keeps its commands in 
   const tab = renderPanelTab(app, "agent", "pr-42", { rpc: handlers() as any });
   await waitFor(() => expect(ask.getAttribute("aria-pressed")).toBe("true"));
   fireEvent.click(ask);
-  expect(panelTabCalls(bar!)).toEqual(["close"]);
+  expect(panelTabCalls(page)).toEqual(["openTab:agent", "close"]);
   tab.lifecycle.unmount();
   await waitFor(() => expect(ask.getAttribute("aria-pressed")).toBe("false"));
 });
@@ -161,7 +149,7 @@ test("Ask agent on a file opens the agent's first message empty, naming no file"
   const { bar } = await renderReview({ panel: { openTab: () => true } });
   const { currentFileOf } = await import("../lib/workspace-store");
   await waitFor(() => expect(currentFileOf("pr-42")).toBe("src/a.ts"));
-  fireEvent.click(await bar!.findByRole("button", { name: "Ask agent" }));
+  fireEvent.click(await bar!.findByRole("button", { name: "Agent" }));
   const app = await loadPluginApp(() => import("../app"));
   const tab = renderPanelTab(app, "agent", "pr-42", { rpc: handlers() as any });
   const agent = within(await tab.findByRole("region", { name: "Review agent" }));
@@ -179,10 +167,10 @@ test("Ask agent in full screen leaves it, as BB's side panel is outside it, thou
   const { bar, page, band } = await renderReview({ panel: { openTab: () => true } });
   const app = await loadPluginApp(() => import("../app"));
   const tab = renderPanelTab(app, "agent", "pr-42", { rpc: handlers() as any });
-  await waitFor(() => expect(bar!.getByRole("button", { name: "Ask agent" }).getAttribute("aria-pressed")).toBe("true"));
-  fireEvent.click(await bar!.findByRole("button", { name: "Full screen" }));
+  await waitFor(() => expect(bar!.getByRole("button", { name: "Agent" }).getAttribute("aria-pressed")).toBe("true"));
+  fireEvent.click(reviewAction(page, "Full screen"));
   await waitFor(() => expect(document.fullscreenElement).toBeTruthy());
-  const ask = await band().findByRole("button", { name: "Ask agent" });
+  const ask = await band().findByRole("button", { name: "Agent" });
   expect(ask.getAttribute("aria-pressed")).toBe("false");
   fireEvent.click(ask);
   await waitFor(() => expect(document.fullscreenElement).toBeNull());
@@ -194,49 +182,37 @@ test("Ask agent in full screen leaves it, as BB's side panel is outside it, thou
 test("where BB's panel declines the tab, Ask agent says it isn't available here", async () => {
   fakeSize(1400, 900);
   const { bar } = await renderReview();
-  fireEvent.click(await bar!.findByRole("button", { name: "Ask agent" }));
+  fireEvent.click(await bar!.findByRole("button", { name: "Agent" }));
   expect(toast.error).toHaveBeenCalledWith("The review agent isn’t available here.");
 });
 
-test("Main thread ↗ always shows its ↗, keeps its label mid-width, and says its key; Show beside review says what it does, and Hide once it shows", async () => {
+test("Main thread is one side-panel toggle; navigation lives in ⋯", async () => {
+  fakeSize(820, 900);
   const withMain = { sourceThreadId: "coder", mainThread: { threadId: "coder", environmentId: null, origin: "adopted", since: 1 } };
-  const go = async (bar: Awaited<ReturnType<typeof renderReview>>["bar"]) => (await bar!.findByRole("button", { name: "Go to main thread" }));
-  fakeSize(1400, 900);
-  let { bar, page } = await renderReview({ review: withMain });
-  expect((await go(bar)).textContent).toBe("Main thread");
-  expect((await go(bar)).querySelector("[data-icon=ArrowUpRight]")).toBeTruthy();
-  page.lifecycle.unmount(); bar!.lifecycle.unmount(); restores.splice(0).forEach((restore) => restore());
-  fakeSize(800, 1200);
-  ({ bar, page } = await renderReview({ review: withMain }));
-  expect((await go(bar)).textContent).toBe("Main thread");
-  page.lifecycle.unmount(); bar!.lifecycle.unmount(); restores.splice(0).forEach((restore) => restore());
-  fakeSize(560, 952, [1440, 1000]);
-  ({ bar, page } = await renderReview({ review: withMain }));
-  const icons = await go(bar);
-  expect(icons.textContent).toBe("");
-  expect(icons.querySelector("[data-icon=ArrowUpRight]")).toBeTruthy();
-  const beside = bar!.getByRole("button", { name: "Show main thread beside review" });
-  expect(beside.querySelector("[data-icon=Columns2]")).toBeTruthy();
-  fireEvent.focus(beside);
-  beside.focus();
-  await bar!.findByRole("tooltip", { name: "Show main thread beside review" });
+  const { page, band } = await renderReview({ review: withMain });
+  const beside = band().getByRole("button", { name: "Main thread" });
+  expect(beside.getAttribute("aria-pressed")).toBe("false");
+  expect(beside.querySelector("[data-icon=ArrowUpRight]")).toBeNull();
+  fireEvent.click(beside);
+  expect(panelTabCalls(page)).toEqual(["openTab:main"]);
+  const app = await loadPluginApp(() => import("../app"));
+  const tab = renderPanelTab(app, "main", "pr-42", { rpc: handlers(withMain) as any });
+  await waitFor(() => expect(beside.getAttribute("aria-pressed")).toBe("true"));
+  fireEvent.click(beside);
+  expect(panelTabCalls(page)).toEqual(["openTab:main", "close"]);
+  tab.lifecycle.unmount();
+  fireEvent.click(reviewAction(page, "Go to main thread ↗"));
+  expect(page.inspection.navigateCalls).toContainEqual({ method: "toThread", threadId: "coder" });
 });
-
-test("where BB's title bar takes the commands the band doesn't show them; where it doesn't, the band does, after a moment", async () => {
+test("commands live in the band immediately, whether or not BB mounts headerContent", async () => {
   fakeSize(1400, 900);
-  // Time runs as it does, but the title bar's wait passes at once.
-  vi.useFakeTimers({ shouldAdvanceTime: true });
-  const withBar = await renderReview();
-  await withBar.bar!.findByRole("group", { name: "Review commands" });
-  act(() => { vi.advanceTimersByTime(TITLE_BAR_WAIT_MS); });
-  expect(withBar.band().queryByRole("group", { name: "Review commands" })).toBeNull();
-  withBar.page.lifecycle.unmount(); withBar.bar!.lifecycle.unmount();
-  const without = await renderReview({ titleBar: false });
-  expect(without.band().queryByRole("group", { name: "Review commands" })).toBeNull();
-  act(() => { vi.advanceTimersByTime(TITLE_BAR_WAIT_MS); });
-  expect(without.band().getByRole("group", { name: "Review commands" })).toBeTruthy();
+  for (const titleBar of [true, false]) {
+    const { page, header, band } = await renderReview({ titleBar });
+    expect(band().getByRole("group", { name: "Review commands" })).toBeTruthy();
+    expect(header?.container.innerHTML ?? "").toBe("");
+    page.lifecycle.unmount(); header?.lifecycle.unmount();
+  }
 });
-
 test("Submit shows only what can be submitted: a closed PR has none", async () => {
   fakeSize(1400, 900);
   const { bar } = await renderReview({ review: { prState: "MERGED", archivedAt: 1 } });
@@ -245,38 +221,21 @@ test("Submit shows only what can be submitted: a closed PR has none", async () =
   expect(commands.queryByRole("button", { name: /^Finish review/ })).toBeNull();
 });
 
-test("a local review's Finish review counts the open comments Send would send, with no verdict, as it submits nothing", async () => {
+test("Finish is filled until its panel shows, then outlined; a local review counts Send's open comments", async () => {
   fakeSize(1400, 900);
-  const local = { kind: "ref", gitRef: "main...x", url: null };
-  const comments = [{ file: "src/a.ts", line: 1, side: "RIGHT", body: "Here." }, { file: "src/a.ts", line: 2, side: "LOCAL", body: "Not pushed." }, { file: "src/a.ts", line: 3, side: "RIGHT", body: "Sent.", state: "sent" }];
-  let { bar, page } = await renderReview({ review: local, rpc: { getDraft: () => ({ draft: { targetKey: "pr-42", verdict: "COMMENT", body: "", comments }, stale: [] }) } });
-  let commands = within(await bar!.findByRole("group", { name: "Review commands" }));
-  const finish = await commands.findByRole("button", { name: "Finish review: 2 comments to send" });
+  const { page, band } = await renderReview({ review: { kind: "ref", gitRef: "main...x", url: null } });
+  const finish = await band().findByRole("button", { name: "Finish review: 2 comments to send" });
   expect(finish.textContent).toBe("Finish review· 2");
+  expect(finish.querySelector("svg")).toBeNull();
+  expect(finish.className.split(" ")).toContain("bg-primary");
   expect(finish.getAttribute("aria-keyshortcuts")).toBe("s");
-  // Nothing goes to GitHub: Send's icon.
-  expect(finish.querySelector("svg")?.getAttribute("data-icon")).toBe("Send");
   fireEvent.click(finish);
+  expect(finish.className.split(" ")).not.toContain("bg-primary");
+  expect(finish.className.split(" ")).toContain("border");
+  fireEvent.click(band().getByRole("button", { name: "Comments" }));
+  expect(finish.className.split(" ")).toContain("bg-primary");
   expect(page.getByRole("complementary", { name: "Comments and Finish review" })).toBeTruthy();
-  page.lifecycle.unmount(); bar!.lifecycle.unmount();
-  // None open: no count.
-  ({ bar, page } = await renderReview({ review: local, rpc: { getDraft: () => ({ draft: { targetKey: "pr-42", verdict: "COMMENT", body: "", comments: [] }, stale: [] }) } }));
-  commands = within(await bar!.findByRole("group", { name: "Review commands" }));
-  expect((await commands.findByRole("button", { name: "Finish review" })).textContent).toBe("Finish review");
-  page.lifecycle.unmount(); bar!.lifecycle.unmount(); restores.splice(0).forEach((restore) => restore());
-  // Beside BB's side panel, its icon and count, its name unchanged; with none open, its icon.
-  fakeSize(560, 952, [1440, 1000]);
-  ({ bar, page } = await renderReview({ review: local, rpc: { getDraft: () => ({ draft: { targetKey: "pr-42", verdict: "COMMENT", body: "", comments }, stale: [] }) } }));
-  commands = within(await bar!.findByRole("group", { name: "Review commands" }));
-  const icons = await commands.findByRole("button", { name: "Finish review: 2 comments to send" });
-  expect(icons.textContent).toBe("2");
-  expect(icons.querySelector("svg")?.getAttribute("data-icon")).toBe("Send");
-  page.lifecycle.unmount(); bar!.lifecycle.unmount();
-  ({ bar, page } = await renderReview({ review: local, rpc: { getDraft: () => ({ draft: { targetKey: "pr-42", verdict: "COMMENT", body: "", comments: [] }, stale: [] }) } }));
-  commands = within(await bar!.findByRole("group", { name: "Review commands" }));
-  expect((await commands.findByRole("button", { name: "Finish review" })).textContent).toBe("");
 });
-
 test("a local review's Finish review leaves the draft status alone: nothing to submit, as the phone dock reads it", async () => {
   fakeSize(1400, 900);
   const { useDraftStatus } = await import("../lib/draft-status");
@@ -471,14 +430,14 @@ test("with single-key shortcuts off, the commands' tooltips name no key, and Rev
   await waitFor(() => expect(page.inspection.rpcCalls.filter((call) => call.method === "getPreferences")).toHaveLength(2));
   await new Promise((resolve) => setTimeout(resolve, 20));
   const tips: string[] = [];
-  for (const name of ["Comments", "Ask agent", /^Finish review:/, "Full screen"]) {
+  for (const name of ["Comments", "Agent", /^Finish review:/]) {
     const button = commands.getByRole("button", { name });
     button.focus();
     tips.push((await bar!.findByRole("tooltip")).textContent!);
     button.blur();
     await waitFor(() => expect(bar!.queryByRole("tooltip")).toBeNull());
   }
-  expect(tips).toEqual(["Comments", "Ask agent", "Finish review", "Full screen"]);
+  expect(tips).toEqual(["Comments", "Agent", "Finish review"]);
   fireEvent.click(commands.getByRole("button", { name: "Review actions" }));
   await bar!.findByRole("button", { name: "Review settings…" });
   expect(bar!.queryByRole("button", { name: "Keyboard shortcuts" })).toBeNull();
@@ -493,8 +452,9 @@ test("the commands and the band's chapters toggle name their keys for screen rea
     const commands = within(await bar!.findByRole("group", { name: "Review commands" }));
     await commands.findByRole("button", { name: /^Finish review:/ });
     await new Promise((resolve) => setTimeout(resolve, 20));
-    const keys = ["Comments", "Ask agent", /^Finish review:/, "Full screen"].map((name) => commands.getByRole("button", { name }).getAttribute("aria-keyshortcuts"));
-    keys.push(page.getByRole("button", { name: "Hide chapters" }).getAttribute("aria-keyshortcuts"));
+    const keys = ["Comments", "Agent", /^Finish review:/].map((name) => commands.getByRole("button", { name }).getAttribute("aria-keyshortcuts"));
+    keys.push(reviewAction(page, "Full screen").getAttribute("aria-keyshortcuts"));
+    keys.push(page.getAllByRole("button", { name: "Hide chapters" })[0]!.getAttribute("aria-keyshortcuts"));
     page.lifecycle.unmount(); bar!.lifecycle.unmount();
     return keys;
   };
@@ -510,34 +470,22 @@ test("an archived review's actions don't offer to rebuild its guide, which the s
   expect(bar!.queryByRole("button", { name: /guide/ })).toBeNull();
 });
 
-test("Full screen goes from the title bar to the band's end and back; from the keyboard the focus goes along", async () => {
+test("full screen keeps the same breadcrumb links and commands", async () => {
   fakeSize(1400, 900);
   fakeFullscreen();
-  const { bar, page, band } = await renderReview();
-  const enter = await bar!.findByRole("button", { name: "Full screen" });
-  // detail 0: a click from the keyboard.
-  fireEvent.click(enter, { detail: 0 });
-  expect(document.fullscreenElement).toBe(band().getByRole("button", { name: "Exit full screen" }).closest("[class*='@container/review']"));
-  expect(bar!.container.innerHTML).toBe("");
-  // The commands end the band, after how the diff draws; one under 720px shows Submit as its icon and count.
-  const buttons = band().getAllByRole("button").map((button) => button.getAttribute("aria-label"));
-  expect(buttons.slice(buttons.indexOf("Diff options") - 1, buttons.indexOf("Diff options") + 2)).toEqual(["Fold comments in code", "Diff options", "Comments"]);
-  expect(band().getByText("Finish").className).toContain("@max-[720px]/band:hidden");
-  const exit = await band().findByRole("button", { name: "Exit full screen" });
-  await waitFor(() => expect(document.activeElement).toBe(exit));
-  fireEvent.click(exit, { detail: 0 });
+  const { page, header, band } = await renderReview();
+  const crumbs = () => within(page.getByRole("navigation", { name: "Breadcrumb" }));
+  expect(crumbs().getByRole("button", { name: "pr-42" })).toBeTruthy();
+  expect(crumbs().getByRole("button", { name: "All reviews" })).toBeTruthy();
+  fireEvent.click(reviewAction(page, "Full screen"));
+  expect(document.fullscreenElement).toBeTruthy();
+  expect(crumbs().getByText("pr-42", { selector: ".sr-only" })).toBeTruthy();
+  expect(header!.container.innerHTML).toBe("");
+  expect(band().getByRole("button", { name: "Agent" })).toBeTruthy();
+  fireEvent.click(reviewAction(page, "Exit full screen"));
   expect(document.fullscreenElement).toBeNull();
-  const again = await bar!.findByRole("button", { name: "Full screen" });
-  await waitFor(() => expect(document.activeElement).toBe(again));
-  // A pointer's click leaves the focus, so no tooltip opens where it lands.
-  (document.activeElement as HTMLElement).blur();
-  fireEvent.click(again, { detail: 1 });
-  await band().findByRole("button", { name: "Exit full screen" });
-  await new Promise((resolve) => setTimeout(resolve, 50));
-  expect(document.activeElement).toBe(document.body);
-  page.lifecycle.unmount();
+  expect(crumbs().getByRole("button", { name: "pr-42" })).toBeTruthy();
 });
-
 test("⇧F goes full screen and back, and leaving the review leaves full screen: All reviews, Review settings, or any other way", async () => {
   fakeSize(1400, 900);
   fakeFullscreen();
@@ -551,7 +499,7 @@ test("⇧F goes full screen and back, and leaving the review leaves full screen:
   fireEvent.keyDown(document.body, { key: "F", shiftKey: true });
   expect(document.fullscreenElement).toBeNull();
   fireEvent.keyDown(document.body, { key: "F", shiftKey: true });
-  fireEvent.click(within(page.getByRole("navigation", { name: "Breadcrumb" })).getByRole("button", { name: "All reviews" }));
+  fireEvent.click(band().getByRole("button", { name: "All reviews" }));
   await waitFor(() => expect(page.inspection.navigateCalls).toContainEqual({ method: "toPluginPanel", path: "review" }));
   expect(document.fullscreenElement).toBeNull();
   page.lifecycle.unmount();

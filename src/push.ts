@@ -381,6 +381,8 @@ export async function startPush(deps: Deps, targetKey: string, { force = false, 
 export async function reportCommit(deps: Deps, sha: string, mine: ReadonlySet<string>): Promise<{ exitCode: number; stdout?: string; stderr?: string }> {
   const { store, gh } = deps;
   const waiting = (await store.listReviews()).filter((review) => review.push?.state === "committing" && mine.has(review.push.threadId));
+  // No thread: the shell lost BB_THREAD_ID, so no Push can be matched to it.
+  if (!mine.size) return { exitCode: 1, stderr: "This shell has no bb thread (BB_THREAD_ID isn't set), so bb can't tell which Push waits on its commit. Run it in the thread the review's Push asked to commit." };
   if (!waiting.length) return { exitCode: 1, stderr: "No Push is waiting on a commit from this thread. Report a comment with its id: bb review report <id> done|declined." };
   if (waiting.length > 1) return { exitCode: 2, stderr: `Push waits on a commit from this thread for ${waiting.length} reviews: ${waiting.map((review) => reviewIdentity(review).id).join(", ")}. Push them one at a time.` };
   const review = waiting[0]!;

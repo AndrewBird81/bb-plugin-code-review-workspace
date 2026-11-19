@@ -117,7 +117,7 @@ export function FixUndo({ targetKey, comment, onFix, label = false }: { targetKe
   if (!shown) return null;
   const undo = <button ref={button} type="button" data-fix-undo className={cn("relative rounded-sm font-medium text-primary hover:underline", RING, TOUCH_TARGET)} onClick={() => { settle(key, false); void onFix(comment, "undo"); }}>Undo</button>;
   return label
-    ? <p className="flex items-center gap-1.5 text-xs text-muted-foreground"><span className="font-medium text-foreground">{comment.state === "resolved" ? "Resolved" : "Dismissed"}</span> · {undo}</p>
+    ? <p className="flex items-center gap-1.5 text-xs text-muted-foreground"><span className="font-medium text-foreground">{comment.state === "resolved" ? "Done for me" : "Won't fix"}</span> · {undo}</p>
     : <span className="shrink-0 text-xs text-muted-foreground"> · {undo}</span>;
 }
 
@@ -160,7 +160,7 @@ export function FixButtons({ targetKey, comment, checks, busy, posts, className,
   return <>
     <Hint label={`Fixed. ${leaves}`}>
       <Button variant="ghost" size="sm" className={cn(className, RING)} aria-describedby={resolveHint} {...busyProps} onClick={(event) => fix("resolved", event)}>
-        <Icon name="CircleCheck" className="size-3.5" aria-hidden />Resolve
+        <Icon name="CircleCheck" className="size-3.5" aria-hidden />Done for me
       </Button>
     </Hint>
     <span id={resolveHint} hidden>Fixed. {leaves}</span>
@@ -169,7 +169,7 @@ export function FixButtons({ targetKey, comment, checks, busy, posts, className,
     {comment.claim?.outcome !== "done" && <>
       <Hint label={`Won’t be fixed. ${leaves}`}>
         <Button variant="ghost" size="sm" className={cn(className, RING)} aria-describedby={dismissHint} {...busyProps} onClick={(event) => fix("dismissed", event)}>
-          <Icon name="Archive" className="size-3.5" aria-hidden />Dismiss
+          <Icon name="Archive" className="size-3.5" aria-hidden />Won't fix
         </Button>
       </Hint>
       <span id={dismissHint} hidden>Won’t be fixed. {leaves}</span>

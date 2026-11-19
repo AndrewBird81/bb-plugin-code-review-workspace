@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { findCompare, queryCompare, openDiffOptions } from "./review-bar.test-support";
 // Feedback on your own PR on its page: a teammate's Request changes with only a summary is an item in Comments, who
 // wrote it said, with Send, which with no thread working on the PR offers a fresh thread or a fork of the one that wrote
 // it; Send for all that wait; Not pushed yet, from the compare menu, its page; and Branch kept.
@@ -84,7 +85,7 @@ test("a teammate's Request changes with only a summary waits in Needs you, once,
   expect(card.getByText("@dana")).toBeTruthy();
   expect(card.getByText("Requested changes")).toBeTruthy();
   // A summary has no reply box or Resolve of its own: the review agent drafts the reply.
-  expect(card.queryByRole("button", { name: "Reply" })).toBeNull();
+  expect(card.queryByRole("button", { name: "Reply on GitHub" })).toBeNull();
   expect(card.queryByRole("button", { name: /Resolve/ })).toBeNull();
   fireEvent.click(card.getByRole("button", { name: "Send @dana’s review to a fresh thread" }));
   // A choice, not a warning: where it goes, each place said in a line, the fresh thread first and focused.
@@ -125,7 +126,7 @@ test("Not pushed yet, from the compare menu, opens its page after the chapters, 
   const getNotPushed = vi.fn(async () => ({ state: "available", patch: "diff --git a/src/a.ts b/src/a.ts\n--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1 +1,2 @@\n aa\n+retry()\n", base: SHA, onReviewHead: true, branch: "bb/fixes-thr_x", machine: "MaxBook", threadId: "fresh", hidden: [{ path: ".env", reason: "secret" }], notice: null, views: [] }));
   const fixer = { ...ownPr, mainThread: { threadId: "fresh", environmentId: "env_fix", origin: "fresh", since: 1, branch: "bb/fixes-thr_x" } };
   const { app, page, rpc } = await renderReview(fixer, { getNotPushed, getSourceThread: () => ({ thread: { threadId: "fresh", title: "Fixes for web#12", state: "open", machine: "MaxBook" } }) });
-  fireEvent.click(await page.findByRole("button", { name: /^Show changes: / }));
+  fireEvent.click(await findCompare(page, /^Show changes: /));
   const menu = within(await page.findByRole("menu", { name: "Show changes" }));
   const item = await menu.findByRole("menuitem", { name: /^Not pushed yet/ });
   // A fixer's folder, not the review's own, whose machine the review knows.
@@ -152,7 +153,7 @@ test("with Send to thread off, Not pushed yet still opens from the compare menu,
   const fixer = { ...ownPr, mainThread: { threadId: "fresh", environmentId: "env_fix", origin: "fresh", since: 1, branch: "bb/fixes-thr_x" } };
   const off = { getPreferences: () => ({ preferences: { ...defaultPreferences, knobs: { ...defaultPreferences.knobs, sendToThread: false } }, revision: 0 }) };
   const { app, page } = await renderReview(fixer, { getNotPushed, ...off });
-  fireEvent.click(await page.findByRole("button", { name: /^Show changes: / }));
+  fireEvent.click(await findCompare(page, /^Show changes: /));
   fireEvent.click(await within(await page.findByRole("menu", { name: "Show changes" })).findByRole("menuitem", { name: /^Not pushed yet/ }));
   expect(within(await page.findByRole("region", { name: "Not pushed yet" })).getByText("Nothing waiting.")).toBeTruthy();
   expect(panelTabCalls(page)).toEqual([]);
@@ -165,8 +166,8 @@ test("with Send to thread off, Not pushed yet still opens from the compare menu,
 test("a PR without a folder working on it has no Not pushed yet", async () => {
   const { page } = await renderReview(ownPr);
   // Nothing to compare with: the menu is in Diff options.
-  expect(page.queryByRole("button", { name: /^Show changes: / })).toBeNull();
-  fireEvent.click(await page.findByRole("button", { name: "Diff options" }));
+  expect(queryCompare(page, /^Show changes: /)).toBeNull();
+  openDiffOptions(page)
   fireEvent.click(await page.findByRole("button", { name: "Compare with a commit…" }));
   const menu = within(await page.findByRole("menu", { name: "Show changes" }));
   expect(menu.queryByRole("menuitem", { name: /^Not pushed yet/ })).toBeNull();

@@ -2,9 +2,8 @@
 //
 // Registers the "Code Review Workspace" navPanel (a sidebar entry + its own route).
 // The panel routes by subPath: "" renders the review list, anything else
-// renders the chapter/diff workspace for that target; an open review's commands
-// go in the panel's title bar. An app overlay adds Needs review and pinned
-// reviews to BB's thread list, which has no slot for them. A thread's page gets
+// renders the chapter/diff workspace for that target, with its commands in one review bar.
+// An app overlay adds Needs review and pinned reviews to BB's thread list, which has no slot for them. A thread's page gets
 // Review changes above its message box, and a Review tab while it's linked to one.
 import { definePluginApp, type ExperimentalThreadContextSegmentProps, type ExperimentalThreadTabProps } from "@get-bb/plugin-sdk/app";
 import { ReviewPanel } from "./components/ReviewPanel";
@@ -16,9 +15,7 @@ import { POST_PREVIEW_RENDERER } from "./src/post-preview";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { ReviewChangesSegment, ReviewTab, useReviewChangesVisible, useReviewTabVisible } from "./components/ThreadSurfaces";
 import { SWITCH_KEY, paletteCommandsAvailable, postPaletteCommand, readClipboard, switchTarget } from "./lib/commands";
-import { useEffect } from "react";
-import { panelPage, showPageTitle, useNarrowPane, useReviewTitle } from "./lib/workspace-store";
-import { useMediaQuery } from "./components/ui/hooks/use-media-query";
+import { panelPage, useReviewTitle } from "./lib/workspace-store";
 import { MainThreadTab, REVIEW_TABS, ReviewAgentTab, useAgentTabVisible, useMainTabVisible } from "./components/PanelTabs";
 import { tabsRefused } from "./lib/app-panel";
 
@@ -47,23 +44,15 @@ function ThreadReview(props: ExperimentalThreadTabProps) {
 
 /**
  * BB's title bar, after the panel's name, and the window's title: the open review's id and name, "api#4512 · Fix login
- * race", which its page publishes; the panel's name alone on All reviews and Settings. Each pane asks for its own. The
- * id and the name are crumbs, where the window is at least 720px wide: BB cuts only the last one short. Narrower, the
- * whole line as one title, cut at its end: BB's crumbs run into each other in a tight bar (seen at 390 and 480px), and
- * it shares the bar between the panel's name and a title by their lengths, so the id alone would be cut to "api#4…".
- * So does a review narrower than a phone's beside BB's side panel.
+ * race", which its page publishes; the panel's name alone on All reviews and Settings. Each pane asks for its own. One
+ * title, cut at its end, at every width: as two crumbs, BB drew the id and the name over each other in a tight bar.
  */
 function usePageTitle({ subPath }: { subPath: string }) {
   const page = panelPage(subPath);
   const targetKey = page.kind === "review" ? page.targetKey : null;
   const title = useReviewTitle(targetKey);
-  // A narrow pane beside BB's side panel is as tight as a narrow window.
-  const narrowPane = useNarrowPane(targetKey);
-  const narrow = useMediaQuery("(max-width: 719px)") || narrowPane;
-  // Told while it shows the title, so the band leaves the review's name to it.
-  useEffect(() => title && targetKey ? showPageTitle(targetKey) : undefined, [title, targetKey]);
   if (!title) return null;
-  return narrow || title.line === title.id ? { title: title.line, windowTitle: title.line } : { breadcrumbs: [{ label: title.id }, { label: title.name }], windowTitle: title.line };
+  return { title: title.line, windowTitle: title.line };
 }
 
 export default definePluginApp((app) => {
@@ -75,7 +64,7 @@ export default definePluginApp((app) => {
     path: "review",
     component: ReviewPanel,
     headerContent: TitleBarControls,
-    // BB hosts from before page titles ignore it, and the band's id chip still says which review it is.
+    // BB names the review at every width; its bar keeps the navigation.
     experimental_usePageTitle: usePageTitle,
   });
   // A review's page: Review agent, and Main thread with one, in BB's own side panel (components/PanelTabs.tsx).

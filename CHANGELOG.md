@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-Choose the review agent as you start a review, and the guide writer as you build a guide. Still **BB 0.48+** (plugin SDK **0.6.79+**) with Node 24+. It adds no migration: the review agent you pick is kept with the review's other lifecycle fields, so rolling back to 1.13.0 keeps everything, and 1.13.0 starts that review's next conversation on the **Review agent** setting.
+Choose the review agent as you start a review, and the guide writer as you build a guide. Still **BB 0.48+** (plugin SDK **0.6.79+**) with Node 24+. It adds no migration: the review agent you pick is kept with the review's other lifecycle fields, so rolling back to 1.14.0 keeps everything, and 1.14.0 starts that review's next conversation on the **Review agent** setting.
 
 - A PR link pasted into **All reviews** shows **Review agent** under **Review**: BB's own provider and model picker, starting at the **Review agent** setting, else the agent, model, and effort BB remembers for your personal project, as the review would get. Where BB has more than one machine, it has a machine choice too, and the picker lists that machine's providers.
 - Pick another, and the review's agent starts on exactly that provider, model, effort, service tier, and machine: its automatic review, and any conversation it starts later, as after **New conversation**. Settings stay as they are, and other reviews keep them. Settings' permission mode comes along when you keep its provider; on another, the provider's own default. Left as it is, nothing is sent, and the review falls back as before.
@@ -10,6 +10,15 @@ Choose the review agent as you start a review, and the guide writer as you build
 - Both pickers follow Settings changed while they're open, unless you picked another; a review merged into one with no conversation of its own brings the review agent picked for its conversation, which then replaces the other's pick.
 - A PR found on GitHub with no guide yet shows **Guide writer** above **Build the guide** on its page, and so does a first guide that stopped or failed, above **Build the guide** or **Try again**. It starts at the **Guide writer agent** setting, else the agent, model, and effort BB remembers for the project the review runs in, with the same machine choice. Pick another, and that build's writer starts on exactly that provider, model, effort, service tier, and machine; Settings stay as they are, and the pick isn't kept, so the next build, as **Update guide**, is the setting's. Settings' permission mode comes along when you keep its provider; on another, the lowest its provider runs in on the picked machine, as on Project defaults. A pick on a machine that's offline or removed stops the build before the PR is read.
 - A pasted PR's guide writer is the **Guide writer agent** setting's, as before. `bb review`, **Review changes** above a thread's message box, starting a stack's PR from its review, **Build the guide** in a review's menu, and **Update guide** or **Rebuild guide** take no pick: they start on the setting. A guide a reload interrupted restarts on the setting's writer too.
+
+## 1.14.0 — 2026-11-17
+
+Reviews in BB's own thread sections, and a focus merge that no longer drops its findings. Still **BB 0.48+** (plugin SDK **0.6.79+**) with Node 24+; installs at `^1.0.0` update to 1.14.0. 1.14.0 adds no migration: a review's section is kept with its other lifecycle fields, so rolling back to 1.13.0 keeps everything, and reviews you moved go back to where they go by themselves.
+
+- **Thread sections:** with Show reviews in the thread list on, Needs review is a real BB section, which BB drags, collapses, renames and hides like any other. Every review menu, the review page's included, has **Move to section**; moving a pinned review unpins it, as BB does a thread. If you delete the Needs review section, its reviews go to a group of their own, and Settings offers **Add the section back**.
+- **Archive on hover:** a sidebar review's hover shows Archive, as BB's threads do, in place of Pin, with Undo.
+- **Focus merge:** when the merge of the focuses' findings was queued behind the General review, the idle that ended the General review ended the run as interrupted a second before the merge message reached the agent, so every finding was marked not checked and the agent found none to check. It now waits for BB to say the message was sent or cancelled; after a restart or a failed turn it still fails closed.
+- **No bb thread:** `bb review` with no arguments, `bb review ready` and `bb review report --commit` say the shell has no bb thread (`BB_THREAD_ID` isn't set) when it hasn't, instead of that nothing waits on this thread.
 
 ## 1.13.0 — 2026-11-14
 

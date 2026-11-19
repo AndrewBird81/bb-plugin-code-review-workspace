@@ -5,7 +5,8 @@
 import type { ReviewLifecycle, SendEntry } from "../src/store";
 import type { PrConversationItem } from "../src/github/types";
 import type { Claim } from "../src/draft";
-import { isLocal, isPreExisting, isSummary, linesOf, postable, sameLocation, SEVERITIES, severityCounts, type CommentLocation, type Discussion, type Draft, type DraftComment, type Severity, type Verdict } from "../src/draft";
+import type { GithubThreadContext } from "../src/discussions";
+import { githubThreadAt, githubThreadOf, isLocal, isPreExisting, isSummary, linesOf, postable, sameLocation, SEVERITIES, severityCounts, type CommentLocation, type Discussion, type Draft, type DraftComment, type Severity, type Verdict } from "../src/draft";
 import { threadLabel } from "../src/github/threads";
 import { chapterAt } from "../src/hunks";
 import { splitPatchByFile } from "../src/patch";
@@ -29,8 +30,8 @@ export type CommentState =
 
 export const STATE_LABEL: Record<CommentState, string> = {
   draft: "Draft · not submitted", "agent-draft": "Agent draft · not submitted", "older-diff": "Older diff · not submitted",
-  private: "Private · with the agent",
-  waiting: "Waiting on author", replied: "Author replied", question: "Question for you", resolved: "Resolved", open: "Open", "needs-reply": "Needs your reply",
+  private: "Private · only you and the agent",
+  waiting: "Waiting on author", replied: "Author replied", question: "Question for you", resolved: "Resolved on GitHub", open: "Open", "needs-reply": "Needs your reply",
   "summary-ask": "From your review summary",
 };
 /** An open draft comment's state on a line only in the folder: it goes with the next Send, never with Submit. */
@@ -41,7 +42,7 @@ export const THREAD_FLAG_LABEL = { outdated: "Outdated", fileComment: "File comm
 export const CHECK_LABEL: Record<AssessmentVerdict, string> = {
   addressed: "Addressed", partial: "Partly addressed", not_addressed: "Not addressed", disputed: "Author disagrees", unclear: "Unclear", deferred: "Deferred",
 };
-export const REPLY_DRAFT_LABEL: Record<Author, string> = { reviewer: "Reply draft · not sent", agent: "Agent reply draft · not sent" };
+export const REPLY_DRAFT_LABEL: Record<Author, string> = { reviewer: "Reply draft · not posted yet", agent: "Reply draft · not posted yet" };
 export const SUMMARY_LABEL: Record<Author, string> = { reviewer: "Summary · not submitted", agent: "Agent summary · not submitted" };
 
 /** Why an item needs you, most urgent first. */
@@ -52,9 +53,9 @@ export type NeedReason = typeof NEEDS[number];
 const UNADDRESSED = new Set<AssessmentVerdict>(["not_addressed", "partial", "disputed"]);
 
 // fixes: on a PR, the draft comments a Send took from your own change, and those you resolved or dismissed: they don't post.
-export type GroupId = "needs-you" | "not-submitted" | "fixes" | "on-github" | "private";
+export type GroupId = "needs-you" | "not-submitted" | "fixes" | "on-github" | "private" | "done-for-me";
 export const GROUP_TITLE: Record<GroupId, string> = {
-  "needs-you": "Needs you", "not-submitted": "Not submitted · only in BB", fixes: "Sent to fix · won’t post", "on-github": "On GitHub", private: "Private · with the agent",
+  "needs-you": "Needs you", "not-submitted": "Not submitted · only in BB", fixes: "Sent to fix · won’t post", "on-github": "On GitHub", private: "Private · only you and the agent", "done-for-me": "Done for me",
 };
 
 /**
@@ -81,7 +82,7 @@ export type CommentChecks = Readonly<Record<string, { verdict: AssessmentVerdict
 export type CommentFilter = "all" | "needs-you" | "not-submitted" | "on-github" | FixState;
 export const FILTER_LABEL: Record<CommentFilter, string> = {
   all: "All", "needs-you": "Needs you", "not-submitted": "Not submitted", "on-github": "On GitHub",
-  open: "Open", sent: "Sent", done: "Done", declined: "Declined", resolved: "Resolved", dismissed: "Dismissed",
+  open: "Open", sent: "Sent", done: "Done", declined: "Declined", resolved: "Done for me", dismissed: "Won't fix",
 };
 export const isFixFilter = (filter: CommentFilter): filter is FixState => (FIX_STATES as readonly string[]).includes(filter);
 
@@ -120,6 +121,8 @@ export interface CommentCheck {
 }
 
 interface ItemBase {
+  /** Hidden in BB until a newer message arrives. */
+  doneForMe?: boolean;
   /** "draft:" or "private:" and its file, line and side; a thread's node id, which Resolve and its drafted reply use; or "summary:<n>". */
   id: string;
   /** Its header's words: STATE_LABEL of its state, and for one waiting for your reply, whose comment waits. */
@@ -163,6 +166,7 @@ export interface PrivateItem extends ItemBase {
 }
 
 export interface ThreadItem extends ItemBase {
+  discussion: Discussion | null;
   kind: "thread";
   state: "waiting" | "replied" | "question" | "resolved" | "open" | "needs-reply";
   /** You started it. */
@@ -233,6 +237,7 @@ export interface CommentSources {
   status?: StatusFacts;
   /** getDraft's checks of sent comments, by id. */
   checks?: CommentChecks;
+  doneForMe?: ReviewLifecycle["doneForMe"];
 }
 
 const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
@@ -289,8 +294,8 @@ export function draftStatus(comment: DraftComment, state: DraftItem["state"], fa
   const draft = facts.posts && (!facts.own || !comment.state || comment.state === "open");
   const plain = draft ? (isLocal(comment) && LOCAL_LABEL[state]) || STATE_LABEL[state] : state === "older-diff" ? "Older diff" : comment.author === "agent" ? "Agent · Open" : "Open";
   const base = comment.author === "agent" && comment.focus && state !== "older-diff" ? plain.replace(" · ", ` · ${comment.focus} · `) : plain;
-  if (comment.state === "resolved") return { label: "Resolved", mark: "resolved" };
-  if (comment.state === "dismissed") return { label: "Dismissed", mark: "dismissed" };
+  if (comment.state === "resolved") return { label: "Done for me", mark: "resolved" };
+  if (comment.state === "dismissed") return { label: "Won't fix", mark: "dismissed" };
   // The thread's report on what it was sent; an edit opens it again, for the next Send.
   if (comment.claim && comment.state === "sent") return reportStatus(comment.claim);
   const send = comment.state === "sent" && comment.sendN !== undefined ? facts.sends?.find((entry) => entry.n === comment.sendN) : undefined;
@@ -395,7 +400,7 @@ export function buildItems(sources: CommentSources): CommentItem[] {
     });
   }
   for (const discussion of discussions) {
-    if (isSummary(discussion) || comments.some((comment) => sameLocation(comment, discussion))) continue;
+    if (isSummary(discussion) || githubThreadOf(discussion) || comments.some((comment) => sameLocation(comment, discussion))) continue;
     const { file, line, side, startLine } = discussion;
     const message = discussion.entries.filter((entry) => entry.kind === "message").at(-1);
     add({
@@ -452,6 +457,7 @@ export function buildItems(sources: CommentSources): CommentItem[] {
     const last = messages.at(-1);
     add({
       // Waiting for your reply, it names whose comment waits: "Needs your reply to @sam".
+      discussion: discussions.find((d) => sameLocation(d, githubThreadAt(id))) ?? null,
       kind: "thread", id, state, label: state === "needs-reply" ? `${STATE_LABEL[state]} to ${latestPerson!.who}` : STATE_LABEL[state], ...needing(needs, "on-github"),
       waitingOn: state === "needs-reply" ? latestPerson!.who : null,
       at: path ? { file: path, line, side, lines: fileComment || shown === null ? null : line !== null && startLine !== null && startLine !== line ? `${startLine}–${line}` : `${shown}` } : null,
@@ -468,6 +474,7 @@ export function buildItems(sources: CommentSources): CommentItem[] {
     const who = `@${said.author}`;
     const topLevel = { kind: said.kind, state: said.state ?? null };
     add({
+      discussion: discussions.find((d) => sameLocation(d, githubThreadAt(said.id))) ?? null,
       kind: "thread", id: said.id, state: said.waiting ? "needs-reply" : "open", label: said.waiting ? `${STATE_LABEL["needs-reply"]} to ${who}` : topLevelLabel(topLevel),
       ...needing(said.waiting ? "needs-reply" : null, "on-github"), waitingOn: said.waiting ? who : null,
       at: null, chapterId: null, who, latest: { who, body: said.body, at: said.at }, nonBlocking: false,
@@ -491,8 +498,30 @@ export function buildItems(sources: CommentSources): CommentItem[] {
   // Files no chapter shows come last, by name.
   return placed
     .sort((a, b) => a.place - b.place || (a.item.at?.file ?? "").localeCompare(b.item.at?.file ?? "") || a.line - b.line || sideOf(a.item) - sideOf(b.item))
-    .map(({ item }) => item);
+    .map(({ item }) => (item.kind === "thread" || item.kind === "private") && isDoneForMe(sources.doneForMe?.[item.id], latestMessageAt(item))
+      ? { ...item, doneForMe: true, group: "done-for-me", needs: null } : item);
 }
+
+/** The public words and their line accompany a private ask. */
+export function githubContext(item: ThreadItem): GithubThreadContext {
+  return {
+    id: item.id, where: item.at ? `${item.at.file}${item.at.lines ? `:${item.at.lines}` : ""}${item.at.line !== null && item.at.side === "LEFT" ? " (old line)" : ""}` : "the PR", resolved: item.state === "resolved",
+    ...(item.at?.line && item.at.side !== "LOCAL" ? { at: { file: item.at.file, line: item.at.line, side: item.at.side } } : {}),
+    messages: item.messages.map((message) => ({ who: message.author ? `@${message.author}` : message.who, body: message.body })),
+  };
+}
+
+/** The newest dated message across both zones; change records are not messages. */
+export function latestMessageAt(item: ThreadItem | PrivateItem): number | null {
+  const times = [
+    ...item.kind === "thread" ? item.messages.map((message) => message.createdAt) : [],
+    ...item.discussion?.entries.filter((entry) => entry.kind === "message").map((entry) => entry.createdAt) ?? [],
+  ].filter((at): at is number => at !== null);
+  return times.length ? Math.max(...times) : null;
+}
+
+/** A newer message reopens a BB-only mark. Unknown dates don't invent a newer message. */
+export const isDoneForMe = (mark: { latest: number | null } | undefined, latest: number | null): boolean => !!mark && (latest === null || latest <= (mark.latest ?? 0));
 
 /** What needs you, most urgent first, then blocking before non-blocking, then in reading order. */
 export function needsYou(items: readonly CommentItem[]): CommentItem[] {
@@ -553,9 +582,10 @@ export function groups(items: readonly CommentItem[], preExisting = false, ownPr
     group("fixes", fixes, fixCounts(fixes) || null),
     {
       ...group("on-github", ordered.filter((item) => !folds(item)), ownPr ? null : yoursTally(items)), count: github.length,
-      folded: folded.length ? { label: [resolved ? `${resolved} resolved` : "", outdated ? `${outdated} outdated` : "", bots ? `${bots} from bots` : ""].filter(Boolean).join(" · "), items: folded } : null,
+      folded: folded.length ? { label: [resolved ? `${resolved} resolved on GitHub` : "", outdated ? `${outdated} outdated` : "", bots ? `${bots} from bots` : ""].filter(Boolean).join(" · "), items: folded } : null,
     },
     group("private", home("private"), null),
+    group("done-for-me", home("done-for-me"), null),
   ];
 }
 
@@ -608,7 +638,7 @@ export interface ToSend {
   severities: string;
   byAuthor: { you: number; agent: number };
   olderDiff: number;
-  /** Drafted replies on the threads shown; Send reply posts each. */
+  /** Drafted replies on the threads shown; Post to GitHub posts each. */
   replyDrafts: number;
   /** Who wrote the summary that goes with the verdict; null without one. */
   summary: Author | null;
@@ -641,6 +671,6 @@ export function shownItems(items: readonly CommentItem[], filter: CommentFilter 
   if (filter === "not-submitted") return items.filter(waiting);
   if (isFixFilter(filter)) return items.filter((item) => itemFix(item) === filter);
   return groups(items)
-    .filter(({ id }) => filter === "all" || id === filter)
+    .filter(({ id }) => id !== "done-for-me" && (filter === "all" || id === filter))
     .flatMap((group) => [...group.items, ...(showFolded ? group.folded?.items ?? [] : [])]);
 }

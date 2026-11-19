@@ -122,6 +122,14 @@ export function sameLocation(a: CommentLocation, b: CommentLocation): boolean {
 export const SUMMARY_AT: CommentLocation = { file: "", line: 0, side: "RIGHT" };
 export const isSummary = (at: CommentLocation) => sameLocation(at, SUMMARY_AT);
 
+/**
+ * Where your private discussion with the agent about a GitHub thread, or a review summary or comment on the PR, is
+ * kept, by GitHub's id: line 0 is no line of a diff, so it never meets a comment's, and older versions show none.
+ */
+export const githubThreadAt = (id: string): CommentLocation => ({ file: `github:${id}`, line: 0, side: "RIGHT" });
+/** The GitHub thread a discussion is about; null for one at a line or on the summary. */
+export const githubThreadOf = (at: CommentLocation): string | null => at.line === 0 && at.file.startsWith("github:") ? at.file.slice("github:".length) : null;
+
 type Range = Pick<DraftComment, "line" | "side" | "startLine"> & { startSide?: DraftComment["side"] };
 
 /** A comment's range as it's kept: a start only for more than one line, and a start side only when it isn't `side`. */

@@ -58,8 +58,8 @@ test("a Done card says the main thread reported it, in which commit, and what th
   expect(c1.getByText("abc1234")).toBeTruthy();
   expect(c1.getByText("Addressed")).toBeTruthy();
   expect(c1.getByLabelText("The review agent’s check").parentElement!.textContent).toContain("Renamed in");
-  expect(c1.getAllByRole("button").map((button) => button.textContent).slice(0, 3)).toEqual(["Resolve", "Reopen", "Edit"]);
-  expect(c1.queryByRole("button", { name: "Dismiss" })).toBeNull();
+  expect(c1.getAllByRole("button").map((button) => button.textContent).slice(0, 3)).toEqual(["Done for me", "Reopen", "Edit"]);
+  expect(c1.queryByRole("button", { name: "Won't fix" })).toBeNull();
   expect(c1.queryByRole("button", { name: "Mark as pre-existing" })).toBeNull();
   slot.lifecycle.unmount();
 });
@@ -69,13 +69,13 @@ test("sent and not reported, a comment is still out: Resolve and Dismiss; once t
   const notFixed = { ...unreported, line: 3, id: "c4" };
   const { slot, card } = await renderCards([unreported, notFixed]);
   const out = within(await card("Draft comment on src/a.ts:1"));
-  expect(out.getByRole("button", { name: "Resolve" })).toBeTruthy();
-  expect(out.getByRole("button", { name: "Dismiss" })).toBeTruthy();
+  expect(out.getByRole("button", { name: "Done for me" })).toBeTruthy();
+  expect(out.getByRole("button", { name: "Won't fix" })).toBeTruthy();
   expect(out.queryByRole("button", { name: "Reopen" })).toBeNull();
   expect(out.queryByRole("button", { name: "Mark as pre-existing" })).toBeNull();
   const c4 = within(await card("Draft comment on src/a.ts:3"));
   expect(c4.getByText("Not addressed")).toBeTruthy();
-  expect(c4.getAllByRole("button").map((button) => button.textContent).slice(0, 3)).toEqual(["Resolve", "Reopen", "Dismiss"]);
+  expect(c4.getAllByRole("button").map((button) => button.textContent).slice(0, 3)).toEqual(["Done for me", "Reopen", "Won't fix"]);
   slot.lifecycle.unmount();
 });
 
@@ -85,27 +85,27 @@ test("a report from a thread not in your list says so and opens it; one from a s
   expect(c2.getByText(/^Reported by/).textContent).toBe("Reported by a thread not in your list ↗");
   fireEvent.click(c2.getByRole("button", { name: "a thread not in your list" }));
   expect(slot.inspection.navigateCalls).toContainEqual(expect.objectContaining({ method: "toThread" }));
-  expect(c2.getByRole("button", { name: "Dismiss" })).toBeTruthy();
+  expect(c2.getByRole("button", { name: "Won't fix" })).toBeTruthy();
   // Resolved, the card keeps what was reported, which its status line no longer says.
   const c3 = within(await card("Draft comment on src/a.ts:2"));
   expect(c3.getByText("Done").closest(".text-muted-foreground")).toBeTruthy();
   expect(c3.getByText("Reported from the command line")).toBeTruthy();
   expect(c3.getByRole("button", { name: "Reopen" })).toBeTruthy();
-  expect(c3.queryByRole("button", { name: "Resolve" })).toBeNull();
+  expect(c3.queryByRole("button", { name: "Done for me" })).toBeNull();
   slot.lifecycle.unmount();
 });
 
 test("Resolve is your click: the status line offers Undo, which takes the focus and puts it back as sent, with its report; it doesn't open it", async () => {
   const { slot, card, resolveComment, reopenComment } = await renderCards([done]);
   const c1 = within(await card("Draft comment on src/a.ts:1"));
-  fireEvent.click(c1.getByRole("button", { name: "Resolve" }));
+  fireEvent.click(c1.getByRole("button", { name: "Done for me" }));
   await waitFor(() => expect(resolveComment).toHaveBeenCalledWith({ targetKey: "k", file: "src/a.ts", line: 1, side: "RIGHT", state: "resolved" }));
   const undo = await c1.findByRole("button", { name: "Undo" });
   await waitFor(() => expect(document.activeElement).toBe(undo));
-  expect(undo.parentElement!.parentElement!.textContent).toBe("Resolved · Undo");
+  expect(undo.parentElement!.parentElement!.textContent).toBe("Done for me · Undo");
   fireEvent.click(undo);
   await waitFor(() => expect(reopenComment).toHaveBeenCalledWith({ targetKey: "k", file: "src/a.ts", line: 1, side: "RIGHT", undo: true }));
-  await c1.findByRole("button", { name: "Resolve" });
+  await c1.findByRole("button", { name: "Done for me" });
   expect(c1.getByText("Reported by the main thread")).toBeTruthy();
   expect(c1.queryByRole("button", { name: "Undo" })).toBeNull();
   slot.lifecycle.unmount();
@@ -115,7 +115,7 @@ test("Undo goes once the focus leaves the card, and Reopen stays for later: it o
   const { slot, card, reopenComment } = await renderCards([done]);
   const article = await card("Draft comment on src/a.ts:1");
   const c1 = within(article);
-  fireEvent.click(c1.getByRole("button", { name: "Resolve" }));
+  fireEvent.click(c1.getByRole("button", { name: "Done for me" }));
   const undo = await c1.findByRole("button", { name: "Undo" });
   fireEvent.focusOut(article, { relatedTarget: document.body });
   await waitFor(() => expect(c1.queryByRole("button", { name: "Undo" })).toBeNull());
