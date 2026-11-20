@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- **Big PRs' guides:** the guide writer read a big diff in pages of up to 80 KB, more than Claude Code keeps in a tool result, so Claude Code saved each page to a file for the writer to read back, and a shell command to read one waited, in the hidden writer, for an approval no one saw, until the guide timed out. Pages are now at most 40 KB; a file longer than a page goes on, cut at a line, on the next page, which names it.
+- **Hidden guide writer:** an approval it asks for is declined, and it goes on with Code Review Workspace's tools; a question or anything else it asks fails the guide at once, saying what it asked, instead of after its timeout.
+
 ## 1.15.0 — 2026-11-20
 
 Reviews that catch the comments human reviewers ask to fix, and a Skip nitpicks setting for others' PRs and for your own. Still **BB 0.48+** (plugin SDK **0.6.79+**) with Node 24+; installs at `^1.0.0` update to 1.15.0. 1.15.0 adds no migration: Skip nitpicks is kept with the other settings, so rolling back to 1.14.0 keeps everything, and 1.14.0 drops the setting the next time it saves settings.
