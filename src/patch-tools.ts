@@ -31,7 +31,8 @@ export function register(deps: ServeDeps) {
       targetKey: z.string(),
       file: z.string().optional(),
       offset: z.number().int().min(0).optional(),
-      limit: z.number().int().min(1).max(200_000).optional(),
+      // At least one character of any size, so a page always moves on.
+      limit: z.number().int().min(4).max(200_000).optional(),
     }),
     async execute({ targetKey, file, offset, limit }, { threadId }) {
       const refused = await notOwnReview(threadId, targetKey);

@@ -433,6 +433,20 @@ test("read_review_patch pages stub lockfiles and generated files, reads them who
   }
 });
 
+test("read_review_patch refuses a limit too small for a character, and a page of the smallest moves on at a 4-byte one", async () => {
+  const { harness, store } = await host();
+  const emoji = "diff --git a/e.md b/e.md\n--- a/e.md\n+++ b/e.md\n@@ -0,0 +1 @@\n+😀😀\n";
+  await store.savePatch("pr-1", emoji);
+  for (const limit of [1, 3]) await expect(harness.behavior.callAgentTool("read_review_patch", { targetKey: "pr-1", limit })).rejects.toThrow("limit: Too small: expected number to be >=4");
+  const at = emoji.indexOf("😀");
+  for (const file of [undefined, "e.md"]) {
+    const page = toolText(await harness.behavior.callAgentTool("read_review_patch", { targetKey: "pr-1", file, offset: at, limit: 4 }));
+    // A page of the whole diff that starts inside a file names it first.
+    expect(page.startsWith(file ? "😀\n\n[" : "[e.md's diff, continued]\n😀\n\n[")).toBe(true);
+    expect(page).toMatch(new RegExp(`offset=${at + 2}\\]$`));
+  }
+});
+
 // A 134-file PR's 376 KB diff came in pages of 63–80 KB, over what Claude Code keeps in a tool result: it saved each to
 // a file and the hidden writer's shell command to read one waited for an approval no one saw.
 test("every page of a big diff fits Claude Code's tool result, and the pages put together are the diff, each file named", async () => {

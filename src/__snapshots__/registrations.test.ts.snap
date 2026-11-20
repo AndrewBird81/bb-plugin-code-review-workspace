@@ -12,7 +12,7 @@ exports[`the plugin registers the same RPC methods, tools, CLI subcommands, list
         },
         "limit": {
           "maximum": 200000,
-          "minimum": 1,
+          "minimum": 4,
           "type": "integer",
         },
         "offset": {

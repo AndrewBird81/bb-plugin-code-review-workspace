@@ -23,19 +23,23 @@ const preparedListeners = new WeakMap<BbPluginApi, (targetKey: string) => void>(
 export function onPrepared(bb: BbPluginApi, listener: (targetKey: string) => void) { preparedListeners.set(bb, listener); }
 
 const active = new WeakMap<BbPluginApi, Set<AbortController>>();
-const failures = new WeakMap<BbPluginApi, Map<string, AbortController>>();
+/** Each guide writer this instance spawned and is waiting on, by its thread: what fails its run, and the asks it already handled. */
+const failures = new WeakMap<BbPluginApi, Map<string, { failed: AbortController; handled: Set<string> }>>();
 /** thread.failed: a guide worker that failed ends its generation now, instead of at the wait's timeout, saying `error`, BB's why. */
-export function guideWorkerFailed(bb: BbPluginApi, threadId: string, error?: string | null) { failures.get(bb)?.get(threadId)?.abort(error || undefined); }
+export function guideWorkerFailed(bb: BbPluginApi, threadId: string, error?: string | null) { failures.get(bb)?.get(threadId)?.failed.abort(error || undefined); }
 
-type PendingInteraction = PluginThreadEventPayloads["interaction.pending"]["interaction"];
+type PendingInteraction = PluginThreadEventPayloads["interaction.pending"]["interaction"] | Awaited<ReturnType<BbPluginApi["sdk"]["threads"]["interactions"]["list"]>>[number];
 /**
  * interaction.pending: a guide writer is hidden, so no one sees what it asks. An approval it raises is declined, and the
  * writer goes on with the plugin's tools, which need none. Anything else, or an approval BB couldn't decline, ends its
- * generation now, saying what it asked, instead of at the wait's timeout.
+ * generation now, saying what it asked, instead of at the wait's timeout. Each ask is handled once, whether the event or
+ * the writer's pending asks read as it's first watched (watchAsks) find it first.
  */
 export async function guideWorkerAsked(bb: BbPluginApi, threadId: string, interaction: PendingInteraction): Promise<void> {
-  const failed = failures.get(bb)?.get(threadId);
-  if (!failed || failed.signal.aborted) return;
+  const watch = failures.get(bb)?.get(threadId);
+  if (!watch || watch.failed.signal.aborted || interaction.status !== "pending" || watch.handled.has(interaction.id)) return;
+  watch.handled.add(interaction.id);
+  const { failed } = watch;
   const { payload } = interaction;
   const asked = payload.kind === "approval" ? `for approval ${payload.subject.kind === "command" ? `to run \`${clip(payload.subject.command)}\`` : `of a ${payload.subject.kind.replaceAll("_", " ")}`}`
     : payload.kind === "user_question" ? "a question" : `for input (${payload.kind})`;
@@ -50,6 +54,25 @@ export async function guideWorkerAsked(bb: BbPluginApi, threadId: string, intera
     }
   }
   failed.abort(`it asked ${asked}, and a hidden writer's asks reach no one`);
+}
+/**
+ * Watch the guide writer `threadId` this run spawned, before anything else awaits, so `failed` ends the run: then handle
+ * the asks it raised before it was watched, as BB may start it, and it ask, before its spawn returns.
+ */
+function watchAsks(bb: BbPluginApi, threadId: string, failed: AbortController): void {
+  const watched = failures.get(bb) ?? new Map<string, { failed: AbortController; handled: Set<string> }>();
+  failures.set(bb, watched);
+  watched.set(threadId, { failed, handled: new Set() });
+  void (async () => {
+    let pending: PendingInteraction[];
+    try {
+      pending = await bb.sdk.threads.interactions.list({ threadId });
+    } catch (error) {
+      bb.log.warn(`Couldn't read what the guide writer ${threadId} asked before it was watched: ${String(error)}`);
+      return;
+    }
+    for (const interaction of pending) await guideWorkerAsked(bb, threadId, interaction);
+  })();
 }
 /** A command as a reviewer reads it in a guide's error: its first 200 characters, on one line. */
 const clip = (command: string) => { const line = command.replace(/\s+/g, " ").trim(); return line.length > 200 ? `${line.slice(0, 199)}…` : line; };
@@ -238,6 +261,8 @@ export async function beginGuide(
   }
 
   return async () => {
+    /** Ends the run when its writer's thread fails or asks what no one sees (guideWorkerFailed, guideWorkerAsked). */
+    const failed = new AbortController();
     try {
       if ("error" in begun) throw begun.error;
       const { preferences, earlier } = begun;
@@ -253,6 +278,10 @@ export async function beginGuide(
           visibility: "hidden",
           ...execution,
         });
+        // Watched, and archived and stopped at the end, from the moment its id is known: what it asks while it's recorded
+        // is handled too.
+        workerId = worker.id;
+        watchAsks(bb, worker.id, failed);
         // Recorded, and checked that the generation still holds it, in one turn.
         const holder = await store.exclusive(async (tx) => {
           await tx.setGenerationWorker(targetKey, id, worker.id);
@@ -262,14 +291,11 @@ export async function beginGuide(
         if (holder !== targetKey) void recordFormerWorker(bb, worker.id, targetKey, "writer");
         return worker;
       });
-      workerId = worker.id;
-      const failed = new AbortController();
-      const watched = failures.get(bb) ?? new Map<string, AbortController>();
-      failures.set(bb, watched);
-      watched.set(worker.id, failed);
       /** The writer's thread failed, and why, if BB said: what the reviewer reads, not the wait's abort. */
       const writerFailed = () => new Error(`the guide writer failed${typeof failed.signal.reason === "string" ? `: ${failed.signal.reason}` : ""}`);
       try {
+        // It asked what no one sees, or failed, before its wait began.
+        if (failed.signal.aborted) throw writerFailed();
         const deadline = Date.now() + waitCap((await store.patch(targetKey)).length);
         const signal = AbortSignal.any([controller.signal, failed.signal, accepted.signal]);
         let nudged = false;
@@ -298,17 +324,21 @@ export async function beginGuide(
         if (failed.signal.aborted && !accepted.signal.aborted) throw writerFailed();
         if (!accepted.signal.aborted && await store.getGuide(targetKey) === null) throw new Error("the guide writer stopped without an accepted guide");
       } finally {
-        watched.delete(worker.id);
+        failures.get(bb)?.delete(worker.id);
       }
     } catch (error) {
       // spawn/wait failed — fall through and finalize as error below. The log
       // carries the reason, such as a custom agent bb can no longer start, and the guide's last rejection.
       if (!controller.signal.aborted) {
         const reason = (error instanceof Error ? error.message : String(error)).replace(/\.$/, "");
-        failure = generation.rejection ? `Its last guide wasn't accepted:\n${generation.rejection}` : `${reason.charAt(0).toUpperCase()}${reason.slice(1)}.`;
+        const said = `${reason.charAt(0).toUpperCase()}${reason.slice(1)}.`;
+        const rejected = generation.rejection ? `Its last guide wasn't accepted:\n${generation.rejection}` : null;
+        // A writer that failed, or asked what no one sees, says so first; a run that ended otherwise, its last rejection.
+        failure = failed.signal.aborted ? [said, ...(rejected ? [rejected] : [])].join("\n") : rejected ?? said;
         bb.log.warn(`Guide generation for ${targetKey} failed: ${String(error)}${generation.rejection ? `. Its last guide wasn't accepted:\n${generation.rejection}` : ""}`);
       }
     } finally {
+      if (workerId) failures.get(bb)?.delete(workerId);
       if (workerId && threads) {
         try { await threads.archive({ threadId: workerId }); } catch { /* best effort */ }
         try { await threads.stop({ threadId: workerId }); } catch { /* best effort */ }

@@ -2,7 +2,7 @@ import { test, expect, vi } from "vitest";
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
 import plugin from "../server";
 import { generateGuide, stopGuideGenerations } from "./generate";
-import { toolFailed } from "./fake-host.test-support";
+import { spawnPrompt, toolFailed } from "./fake-host.test-support";
 import type { AsyncStore } from "./store-queue";
 import { testStore } from "./test-store.test-support";
 
@@ -124,36 +124,45 @@ test("a guide worker whose thread fails says the writer failed, and BB's why, no
   expect(harness.inspection.logEntries).toContainEqual({ level: "warn", message: expect.stringContaining("the guide writer failed: Failed to launch ACP agent") });
 });
 
-/** A guide writer waiting on its turn, whose asks interaction.pending raises: declined through `resolve`. */
-async function askingWriter(resolve: (args: unknown) => Promise<unknown>) {
+/**
+ * A guide writer waiting on its turn, whose asks interaction.pending raises: declined through `resolve`. `pending` is what
+ * BB lists as already asked; `onSpawn` runs as BB starts the writer, before its spawn returns.
+ */
+async function askingWriter(resolve: (args: unknown) => Promise<unknown>, options: { pending?: unknown[]; onSpawn?: (ask: Ask) => Promise<void> } = {}) {
   const { makeThreadResponse } = await import("@get-bb/plugin-sdk/testing");
   let waiting = false;
+  let generationId = "";
+  const ask: Ask = (threadId, payload, id = `ask-${threadId}`) => harness.behavior.emitThreadEvent("interaction.pending", {
+    thread: makeThreadResponse({ id: threadId }),
+    interaction: { id, threadId, status: "pending", createdAt: 1, payload } as any,
+  });
   const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: { threads: {
-    spawn: async () => ({ id: "worker" }), archive: async () => ({}), stop: async () => ({}),
+    spawn: async (args: unknown) => {
+      generationId = spawnPrompt(args).match(/generationId "([^"]+)"/)![1];
+      await options.onSpawn?.(ask);
+      return { id: "worker" };
+    },
+    archive: async () => ({}), stop: async () => ({}),
     wait: ({ signal }: { signal: AbortSignal }) => new Promise((_resolve, reject) => {
       waiting = true;
       signal.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
     }),
     queuedMessages: { list: async () => [] },
-    interactions: { resolve },
+    interactions: { resolve, list: async () => options.pending ?? [] },
   } } as any });
   await plugin(bb);
   const store = testStore(bb);
   await store.saveReview({ targetKey: "target", kind: "ref", status: "ready", createdAt: 1 });
   const run = generateGuide(bb, store, "target", "p1");
-  await vi.waitFor(() => expect(waiting).toBe(true));
-  const ask = (threadId: string, payload: unknown) => harness.behavior.emitThreadEvent("interaction.pending", {
-    thread: makeThreadResponse({ id: threadId }),
-    interaction: { id: `ask-${threadId}`, threadId, status: "pending", createdAt: 1, payload } as any,
-  });
-  return { bb, store, run, ask, harness };
+  return { bb, store, run, ask, harness, generationId: () => generationId, waiting: () => vi.waitFor(() => expect(waiting).toBe(true)) };
 }
-// A big PR's hidden writer ran a shell command in accept-edits; its approval waited, unseen, until the wait timed out.
+type Ask = (threadId: string, payload: unknown, id?: string) => Promise<unknown>;
 const command = { kind: "approval", availableDecisions: ["allow_once", "deny"], reason: "List files in last patch page", subject: { kind: "command", command: "F=/tmp/page.txt; grep -n '^diff --git' $F", cwd: null, itemId: "i1", actions: [], sessionGrant: null } };
 
 test("a guide writer's approval is declined at once, and its guide goes on", async () => {
   const resolve = vi.fn(async () => ({}));
-  const { bb, store, run, ask, harness } = await askingWriter(resolve);
+  const { bb, store, run, ask, harness, waiting } = await askingWriter(resolve);
+  await waiting();
   await ask("someone-else", command);
   expect(resolve).not.toHaveBeenCalled();
   await ask("worker", command);
@@ -168,14 +177,63 @@ test("a guide writer's approval is declined at once, and its guide goes on", asy
 test("a guide writer's ask no one can answer, or an approval BB couldn't decline, fails its guide at once, saying what it asked", async () => {
   const question = { kind: "user_question", questions: [{ id: "q", prompt: "Which chapter?", allowFreeText: true, multiSelect: false, required: true }] };
   const asked = await askingWriter(async () => ({}));
+  await asked.waiting();
   await asked.ask("worker", question);
   await asked.run;
   expect(await asked.store.getReview("target")).toMatchObject({ status: "error", guideError: { text: "The guide writer failed: it asked a question, and a hidden writer's asks reach no one." } });
 
   const refused = await askingWriter(async () => { throw new Error("interaction is no longer pending"); });
+  await refused.waiting();
   await refused.ask("worker", command);
   await refused.run;
   expect(await refused.store.getReview("target")).toMatchObject({ status: "error", guideError: { text: "The guide writer failed: it asked for approval to run `F=/tmp/page.txt; grep -n '^diff --git' $F`, and declining it failed (interaction is no longer pending); a hidden writer's asks reach no one." } });
+});
+
+const question = { kind: "user_question", questions: [{ id: "q", prompt: "Which chapter?", allowFreeText: true, multiSelect: false, required: true }] };
+const pendingAsk = (id: string, payload: unknown) => ({ id, threadId: "worker", status: "pending", createdAt: 1, payload });
+
+test("an approval the writer asked as BB started it, before its spawn returned, is declined once, though BB both lists it and tells of it", async () => {
+  const resolve = vi.fn(async () => ({}));
+  // BB told of it before the writer's id was known, and lists it once it is; it may tell of it again after.
+  const { bb, run, ask, waiting } = await askingWriter(resolve, { pending: [pendingAsk("early", command)], onSpawn: async (ask) => { await ask("worker", command, "early"); } });
+  await waiting();
+  await vi.waitFor(() => expect(resolve).toHaveBeenCalledWith({ threadId: "worker", interactionId: "early", resolution: { decision: "deny" } }));
+  await ask("worker", command, "early");
+  expect(resolve).toHaveBeenCalledTimes(1);
+  stopGuideGenerations(bb);
+  await run;
+});
+
+test("a question the writer asked as BB started it, or while its id was recorded, fails its guide at once", async () => {
+  const listed = await askingWriter(async () => ({}), { pending: [pendingAsk("early", question)] });
+  await listed.run;
+  expect(await listed.store.getReview("target")).toMatchObject({ status: "error", guideError: { text: "The guide writer failed: it asked a question, and a hidden writer's asks reach no one." } });
+
+  // Asked while the store records the writer as its generation's.
+  let recording = false;
+  const during = await askingWriter(async () => ({}), { onSpawn: async () => { recording = true; } });
+  const exclusive = during.store.exclusive.bind(during.store);
+  vi.spyOn(during.store, "exclusive").mockImplementation(async (fn: any) => {
+    if (recording) { recording = false; await during.ask("worker", question); }
+    return exclusive(fn);
+  });
+  await during.run;
+  expect(await during.store.getReview("target")).toMatchObject({ status: "error", guideError: { text: "The guide writer failed: it asked a question, and a hidden writer's asks reach no one." } });
+});
+
+test("a writer whose guide was rejected and then asks a question, or for an approval BB can't decline, says what it asked first, then the rejection", async () => {
+  const { guideRejected } = await import("./generate");
+  for (const [payload, said] of [
+    [question, "it asked a question, and a hidden writer's asks reach no one"],
+    [{ ...command, availableDecisions: ["allow_once"] }, "it asked for approval to run `F=/tmp/page.txt; grep -n '^diff --git' $F`, and a hidden writer's asks reach no one"],
+  ] as const) {
+    const writer = await askingWriter(async () => ({}));
+    await writer.waiting();
+    guideRejected(writer.bb, writer.generationId(), "Coverage errors: missing a.ts");
+    await writer.ask("worker", payload);
+    await writer.run;
+    expect((await writer.store.getReview("target"))?.guideError?.text).toBe(`The guide writer failed: ${said}.\nIts last guide wasn't accepted:\nCoverage errors: missing a.ts`);
+  }
 });
 
 test("a guide worker still working when the wait times out is waited for longer", async () => {
