@@ -8,7 +8,15 @@ import { digestText, lockfileDigest } from "../lib/lockfile-digest";
 /** Settings' marks on a file: a test the diff weakens (Flag weakened tests), and a lockfile's digest (Summarize lockfile changes). */
 export interface FileMarks { testWeakening?: boolean; lockfileDigest?: boolean }
 
-/** The most of list_review_files one call returns, cut at a row: well under read_review_patch's 80 KB pages. */
+/**
+ * The most UTF-8 bytes of diff one read_review_patch call returns. Claude Code saves an MCP tool's result to a file, for
+ * the agent to read back with its own tools, once it counts more than 25,000 tokens (MAX_MCP_OUTPUT_TOKENS), and it
+ * counts none at 50,000 characters or fewer. A diff runs about 2.7 characters a token, so 40 KB is some 15,000 tokens:
+ * under that limit with room for the page's note, for any provider.
+ */
+export const PATCH_PAGE_BYTES = 40_000;
+
+/** The most of list_review_files one call returns, cut at a row: within read_review_patch's pages. */
 export const FILES_PAGE_CHARS = 40_000;
 
 /**
@@ -83,12 +91,45 @@ export function offsetPastEnd(what: string, offset: number, length: number): str
   return offset > 0 && offset >= length ? `offset ${offset} is past the end of ${what} (${length} bytes).` : null;
 }
 
-/** A page of the diff from offset, cut back to the last file boundary that fits, so no file is split across pages unless it alone is longer than a page. */
+/**
+ * A page of the diff from offset, up to `limit` UTF-8 bytes, cut back to the last file boundary that fits, so no file is
+ * split across pages unless it alone is longer than a page; then to the last line that fits, so no line is.
+ */
 export function patchPage(patch: string, offset: number, limit: number): { text: string; end: number } {
-  let end = Math.min(patch.length, offset + limit);
+  let end = fitBytes(patch, offset, limit);
   if (end < patch.length) {
     const boundary = patch.lastIndexOf("\ndiff --git ", end - 1);
+    const line = patch.lastIndexOf("\n", end - 1);
     if (boundary > offset) end = boundary + 1;
+    else if (line >= offset) end = line + 1;
   }
   return { text: patch.slice(offset, end), end };
+}
+
+/** The end of the longest run of `text` from `offset` that is at most `limit` UTF-8 bytes, without splitting a character. */
+export function fitBytes(text: string, offset: number, limit: number): number {
+  let bytes = 0;
+  let end = offset;
+  while (end < text.length) {
+    const code = text.codePointAt(end)!;
+    const size = code < 0x80 ? 1 : code < 0x800 ? 2 : code < 0x10000 ? 3 : 4;
+    if (bytes + size > limit) break;
+    bytes += size;
+    end += code < 0x10000 ? 1 : 2;
+  }
+  return end;
+}
+
+/**
+ * The file a page from `offset` starts inside, when it doesn't start at the file's own header: a page that goes on with a
+ * long file's diff names it, since its header is on an earlier page.
+ */
+export function continuedFile(patch: string, offset: number): string | null {
+  if (patch.startsWith("diff --git ", offset)) return null;
+  const header = patch.lastIndexOf("\ndiff --git ", offset - 1);
+  // Before the first file, as in readFilesPatch's note, is no file's.
+  const start = header >= 0 ? header + 1 : patch.startsWith("diff --git ") ? 0 : -1;
+  if (start < 0) return null;
+  const next = patch.indexOf("\ndiff --git ", start);
+  return splitPatchByFile(patch.slice(start, next < 0 ? patch.length : next + 1))[0]?.path ?? null;
 }

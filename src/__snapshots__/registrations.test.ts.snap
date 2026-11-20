@@ -3,7 +3,7 @@
 exports[`the plugin registers the same RPC methods, tools, CLI subcommands, listeners, services and schedules 3`] = `
 [
   {
-    "description": "Return the diff text of your own review, by the targetKey you were given, in pages of about 80 KB that end on file boundaries. In pages, lockfiles and generated or vendored files show as one-line stubs. Pass file to read one file's whole diff.",
+    "description": "Return the diff text of your own review, by the targetKey you were given, in pages of about 40 KB that end on file boundaries. A file longer than a page goes on, cut at a line, on the next page, which names it. In pages, lockfiles and generated or vendored files show as one-line stubs. Pass file to read one file's whole diff, in pages of the same size. limit makes a page smaller, never larger.",
     "inputSchema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "properties": {

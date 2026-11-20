@@ -124,6 +124,60 @@ test("a guide worker whose thread fails says the writer failed, and BB's why, no
   expect(harness.inspection.logEntries).toContainEqual({ level: "warn", message: expect.stringContaining("the guide writer failed: Failed to launch ACP agent") });
 });
 
+/** A guide writer waiting on its turn, whose asks interaction.pending raises: declined through `resolve`. */
+async function askingWriter(resolve: (args: unknown) => Promise<unknown>) {
+  const { makeThreadResponse } = await import("@get-bb/plugin-sdk/testing");
+  let waiting = false;
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: { threads: {
+    spawn: async () => ({ id: "worker" }), archive: async () => ({}), stop: async () => ({}),
+    wait: ({ signal }: { signal: AbortSignal }) => new Promise((_resolve, reject) => {
+      waiting = true;
+      signal.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
+    }),
+    queuedMessages: { list: async () => [] },
+    interactions: { resolve },
+  } } as any });
+  await plugin(bb);
+  const store = testStore(bb);
+  await store.saveReview({ targetKey: "target", kind: "ref", status: "ready", createdAt: 1 });
+  const run = generateGuide(bb, store, "target", "p1");
+  await vi.waitFor(() => expect(waiting).toBe(true));
+  const ask = (threadId: string, payload: unknown) => harness.behavior.emitThreadEvent("interaction.pending", {
+    thread: makeThreadResponse({ id: threadId }),
+    interaction: { id: `ask-${threadId}`, threadId, status: "pending", createdAt: 1, payload } as any,
+  });
+  return { bb, store, run, ask, harness };
+}
+// A big PR's hidden writer ran a shell command in accept-edits; its approval waited, unseen, until the wait timed out.
+const command = { kind: "approval", availableDecisions: ["allow_once", "deny"], reason: "List files in last patch page", subject: { kind: "command", command: "F=/tmp/page.txt; grep -n '^diff --git' $F", cwd: null, itemId: "i1", actions: [], sessionGrant: null } };
+
+test("a guide writer's approval is declined at once, and its guide goes on", async () => {
+  const resolve = vi.fn(async () => ({}));
+  const { bb, store, run, ask, harness } = await askingWriter(resolve);
+  await ask("someone-else", command);
+  expect(resolve).not.toHaveBeenCalled();
+  await ask("worker", command);
+  expect(resolve).toHaveBeenCalledWith({ threadId: "worker", interactionId: "ask-worker", resolution: { decision: "deny" } });
+  expect((await store.getReview("target"))?.status).toBe("generating");
+  expect(harness.inspection.logEntries).toContainEqual({ level: "info", message: expect.stringContaining("Declined the guide writer worker's ask for approval to run `F=/tmp/page.txt; grep -n '^diff --git' $F`") });
+  // Still waiting on the writer: only a reload's stop ends it here.
+  stopGuideGenerations(bb);
+  await run;
+});
+
+test("a guide writer's ask no one can answer, or an approval BB couldn't decline, fails its guide at once, saying what it asked", async () => {
+  const question = { kind: "user_question", questions: [{ id: "q", prompt: "Which chapter?", allowFreeText: true, multiSelect: false, required: true }] };
+  const asked = await askingWriter(async () => ({}));
+  await asked.ask("worker", question);
+  await asked.run;
+  expect(await asked.store.getReview("target")).toMatchObject({ status: "error", guideError: { text: "The guide writer failed: it asked a question, and a hidden writer's asks reach no one." } });
+
+  const refused = await askingWriter(async () => { throw new Error("interaction is no longer pending"); });
+  await refused.ask("worker", command);
+  await refused.run;
+  expect(await refused.store.getReview("target")).toMatchObject({ status: "error", guideError: { text: "The guide writer failed: it asked for approval to run `F=/tmp/page.txt; grep -n '^diff --git' $F`, and declining it failed (interaction is no longer pending); a hidden writer's asks reach no one." } });
+});
+
 test("a guide worker still working when the wait times out is waited for longer", async () => {
   vi.useFakeTimers({ toFake: ["Date"] });
   const waits: number[] = [];

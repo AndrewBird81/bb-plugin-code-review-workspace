@@ -1,4 +1,4 @@
-import type { BbPluginApi } from "@get-bb/plugin-sdk";
+import type { BbPluginApi, PluginThreadEventPayloads } from "@get-bb/plugin-sdk";
 import { stopFocusRunIn } from "./focus-run";
 import { completionNotifications } from "./completion-notifications";
 import { defaultPreferences, guidePreferencesPrompt, reReviewCheckPrompt, spawnExecution, type ReviewPreferences } from "./preferences";
@@ -26,6 +26,33 @@ const active = new WeakMap<BbPluginApi, Set<AbortController>>();
 const failures = new WeakMap<BbPluginApi, Map<string, AbortController>>();
 /** thread.failed: a guide worker that failed ends its generation now, instead of at the wait's timeout, saying `error`, BB's why. */
 export function guideWorkerFailed(bb: BbPluginApi, threadId: string, error?: string | null) { failures.get(bb)?.get(threadId)?.abort(error || undefined); }
+
+type PendingInteraction = PluginThreadEventPayloads["interaction.pending"]["interaction"];
+/**
+ * interaction.pending: a guide writer is hidden, so no one sees what it asks. An approval it raises is declined, and the
+ * writer goes on with the plugin's tools, which need none. Anything else, or an approval BB couldn't decline, ends its
+ * generation now, saying what it asked, instead of at the wait's timeout.
+ */
+export async function guideWorkerAsked(bb: BbPluginApi, threadId: string, interaction: PendingInteraction): Promise<void> {
+  const failed = failures.get(bb)?.get(threadId);
+  if (!failed || failed.signal.aborted) return;
+  const { payload } = interaction;
+  const asked = payload.kind === "approval" ? `for approval ${payload.subject.kind === "command" ? `to run \`${clip(payload.subject.command)}\`` : `of a ${payload.subject.kind.replaceAll("_", " ")}`}`
+    : payload.kind === "user_question" ? "a question" : `for input (${payload.kind})`;
+  if (payload.kind === "approval" && payload.availableDecisions.includes("deny")) {
+    try {
+      await bb.sdk.threads.interactions.resolve({ threadId, interactionId: interaction.id, resolution: { decision: "deny" } });
+      bb.log.info(`Declined the guide writer ${threadId}'s ask ${asked}: no one sees a hidden writer's asks.`);
+      return;
+    } catch (error) {
+      failed.abort(`it asked ${asked}, and declining it failed (${error instanceof Error ? error.message : String(error)}); a hidden writer's asks reach no one`);
+      return;
+    }
+  }
+  failed.abort(`it asked ${asked}, and a hidden writer's asks reach no one`);
+}
+/** A command as a reviewer reads it in a guide's error: its first 200 characters, on one line. */
+const clip = (command: string) => { const line = command.replace(/\s+/g, " ").trim(); return line.length > 200 ? `${line.slice(0, 199)}…` : line; };
 /**
  * Each running generation, by its id: told when generate_review_guide accepts its guide, why it last refused one, and
  * whether the reviewer stopped it; and whether it asked for sinceReview, as a re-review does.
@@ -98,8 +125,9 @@ export async function guideWriterUnavailable(bb: BbPluginApi, store: AsyncStore)
 
 /**
  * The writer's permission mode on the project's defaults. Not the project's, as its tools need no shell or edits:
- * accept-edits where the project's provider runs in it, else auto, whose approvals bb reviews itself, so the hidden
- * writer waits on no one. Unset, so the project's own, when the provider runs in neither or can't be read.
+ * accept-edits where the project's provider runs in it, else auto, whose approvals bb reviews itself. A shell command
+ * accept-edits still asks approval for is declined (guideWorkerAsked), so the hidden writer waits on no one. Unset, so
+ * the project's own, when the provider runs in neither or can't be read.
  * Pass `known` when the defaults are already read.
  */
 export async function guideWriterMode(bb: BbPluginApi, projectId: string, known?: { providerId: string }): Promise<{ permissionMode?: "accept-edits" | "auto"; executionInputSources?: { permissionMode: "explicit" } }> {

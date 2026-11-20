@@ -1,7 +1,7 @@
 // The tools that read a review's diff and its changed files, for its own assistant and guide writer only.
 import { z } from "zod";
 import { changedFiles, splitPatchByFile } from "./patch";
-import { describeReviewFiles, offsetPastEnd, patchPage, stubSkippedFiles } from "./review-files";
+import { continuedFile, describeReviewFiles, offsetPastEnd, PATCH_PAGE_BYTES, patchPage, stubSkippedFiles } from "./review-files";
 import { readGeneratedFiles } from "./file-contents";
 import { recordAgentReads } from "./agent-reads";
 import { runGh, runGit } from "./gh";
@@ -10,6 +10,9 @@ import { focusThread } from "./focus-identity";
 import { mergedAway } from "./draft-comments";
 import { withPrNote } from "./agent";
 import { failed, type ServeDeps } from "./server-modules";
+
+/** A page's size in UTF-8 bytes: PATCH_PAGE_BYTES, or the smaller `limit` asked for, so a page always fits the agent's tool result. */
+const pageBytes = (limit?: number) => Math.min(limit ?? PATCH_PAGE_BYTES, PATCH_PAGE_BYTES);
 
 export function register(deps: ServeDeps) {
   const { bb, store } = deps;
@@ -23,7 +26,7 @@ export function register(deps: ServeDeps) {
   }
   bb.agents.registerTool({
     name: "read_review_patch",
-    description: "Return the diff text of your own review, by the targetKey you were given, in pages of about 80 KB that end on file boundaries. In pages, lockfiles and generated or vendored files show as one-line stubs. Pass file to read one file's whole diff.",
+    description: "Return the diff text of your own review, by the targetKey you were given, in pages of about 40 KB that end on file boundaries. A file longer than a page goes on, cut at a line, on the next page, which names it. In pages, lockfiles and generated or vendored files show as one-line stubs. Pass file to read one file's whole diff, in pages of the same size. limit makes a page smaller, never larger.",
     parameters: z.object({
       targetKey: z.string(),
       file: z.string().optional(),
@@ -45,9 +48,8 @@ export function register(deps: ServeDeps) {
           const past = offsetPastEnd(`${file}'s diff`, offset ?? 0, diff.text.length);
           if (past) return failed(past);
           await recordAgentReads(tx, threadId, targetKey, [diff.path]);
-          const text = diff.text.slice(offset ?? 0, (offset ?? 0) + (limit ?? 200_000));
-          const end = (offset ?? 0) + text.length;
-          return text + (end < diff.text.length ? `\n\n[${end}/${diff.text.length} bytes — call again with offset=${end}]` : "");
+          const { text, end } = patchPage(diff.text, offset ?? 0, pageBytes(limit));
+          return text + (end < diff.text.length ? `\n\n[${end}/${diff.text.length} bytes — call again with file and offset=${end}]` : "");
         }));
       }
       const { patch, review } = await store.exclusive(async (tx) => ({ patch: await tx.patch(targetKey), review: await tx.getReview(targetKey) }));
@@ -57,11 +59,13 @@ export function register(deps: ServeDeps) {
         const paged = stubSkippedFiles(patch, generated, { lockfileDigest: (await tx.getPreferences()).preferences.knobs.lockfileDigest });
         const past = offsetPastEnd("the diff", offset ?? 0, paged.length);
         if (past) return failed(past);
-        const { text, end } = patchPage(paged, offset ?? 0, limit ?? 80_000);
+        const { text, end } = patchPage(paged, offset ?? 0, pageBytes(limit));
+        // A page that starts inside a file names it, as its header is on an earlier page.
+        const continued = continuedFile(paged, offset ?? 0);
         // Each file the page includes, if only in part.
-        await recordAgentReads(tx, threadId, targetKey, splitPatchByFile(text).map((f) => f.path));
+        await recordAgentReads(tx, threadId, targetKey, [...(continued ? [continued] : []), ...splitPatchByFile(text).map((f) => f.path)]);
         const more = end < paged.length ? `\n\n[${end}/${paged.length} bytes — call again with offset=${end}]` : "";
-        return text + more;
+        return (continued ? `[${continued}'s diff, continued]\n` : "") + text + more;
       }));
     },
   });
