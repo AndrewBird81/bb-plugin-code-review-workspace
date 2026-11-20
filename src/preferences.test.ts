@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
 import plugin from "../server";
-import { AUTOMATIC_REVIEW_BEFORE_EVIDENCE, AUTOMATIC_REVIEW_BEFORE_PRECISION, AUTOMATIC_REVIEW_BEFORE_SUMMARY, VERIFICATION_PROMPT_BEFORE_OPEN_THREADS, defaultPreferences, readPreferences } from "./preferences";
+import { AUTOMATIC_REVIEW_BEFORE_EVIDENCE, AUTOMATIC_REVIEW_BEFORE_NITS, AUTOMATIC_REVIEW_BEFORE_PRECISION, AUTOMATIC_REVIEW_BEFORE_SUMMARY, VERIFICATION_PROMPT_BEFORE_OPEN_THREADS, defaultPreferences, nitPolicy, nitpickRule, readPreferences } from "./preferences";
 import { buildGenerationPrompt } from "./generate";
 import { generateGuide } from "./generate";
 import { startConversation } from "./agent";
@@ -260,7 +260,42 @@ test("an automatic review saved with the default from before it asked for eviden
   const { bb } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
   const store = testStore(bb);
-  expect(defaultPreferences.automaticReview).toBe(AUTOMATIC_REVIEW_BEFORE_EVIDENCE.replace("add a ```suggestion block.", "add a ```suggestion block. Put how you confirmed it in evidence, with file:line: only what you read or ran."));
+  expect(AUTOMATIC_REVIEW_BEFORE_NITS).toBe(AUTOMATIC_REVIEW_BEFORE_EVIDENCE.replace("add a ```suggestion block.", "add a ```suggestion block. Put how you confirmed it in evidence, with file:line: only what you read or ran."));
   await store.savePreferences({ ...defaultPreferences, automaticReview: AUTOMATIC_REVIEW_BEFORE_EVIDENCE }, 0);
   expect((await store.getPreferences()).preferences.automaticReview).toBe(defaultPreferences.automaticReview);
+});
+
+test("an automatic review saved with the default from before Skip nitpicks reads as the current default; an edited one stays", async () => {
+  const { bb } = createFakePluginHost({ pluginId: "code-review-workspace" });
+  await plugin(bb);
+  const store = testStore(bb);
+  expect(defaultPreferences.automaticReview).not.toContain("a missed nit costs nothing");
+  expect(defaultPreferences.automaticReview).toContain("a ticket or issue id in a code comment");
+  await store.savePreferences({ ...defaultPreferences, automaticReview: AUTOMATIC_REVIEW_BEFORE_NITS }, 0);
+  expect((await store.getPreferences()).preferences.automaticReview).toBe(defaultPreferences.automaticReview);
+  const custom = `${AUTOMATIC_REVIEW_BEFORE_NITS}\nFocus on security.`;
+  await store.savePreferences({ ...defaultPreferences, automaticReview: custom }, 1);
+  expect((await store.getPreferences()).preferences.automaticReview).toBe(custom);
+});
+
+test("Skip nitpicks defaults to others' PRs only, and a missing or invalid saved value reads as that", () => {
+  expect(defaultPreferences.skipNitpicks).toEqual({ others: true, own: false });
+  expect(readPreferences({}).skipNitpicks).toEqual({ others: true, own: false });
+  expect(readPreferences({ skipNitpicks: { others: "yes" } } as never).skipNitpicks).toEqual({ others: true, own: false });
+  expect(readPreferences({ skipNitpicks: { others: false, own: true } }).skipNitpicks).toEqual({ others: false, own: true });
+});
+
+test("the Nit policy goes by whose change it is: skipped on others' PRs, every one on your own", () => {
+  const others = { kind: "pr" as const, ownPr: false };
+  const own = { kind: "pr" as const, ownPr: true };
+  const local = { kind: "ref" as const };
+  expect(nitPolicy(defaultPreferences, others)).toBe("skip");
+  expect(nitPolicy(defaultPreferences, own)).toBe("all");
+  expect(nitPolicy(defaultPreferences, local)).toBe("all");
+  // Before the sync knows whose PR it is, it's someone else's.
+  expect(nitPolicy(defaultPreferences, { kind: "pr" })).toBe("skip");
+  expect(nitPolicy({ skipNitpicks: { others: false, own: true } }, others)).toBe("capped");
+  expect(nitPolicy({ skipNitpicks: { others: false, own: true } }, own)).toBe("skip");
+  expect(nitpickRule("all")).toMatch(/uncapped/);
+  expect(nitpickRule("skip")).toMatch(/^Skip nitpicks; a ticket id/);
 });

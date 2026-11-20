@@ -296,6 +296,21 @@ test.each(["same", "high"] as const)("Check findings at %s controls only the mer
   expect(send.reasoningLevel).toBe(mergeEffort === "high" ? "high" : undefined);
 });
 
+test.each([[false, "Dismiss Nits"], [true, "keep every confirmed Nit, with no cap"]] as const)("the merge's Nit rule goes by whose PR it is; own: %s", async (ownPr, rule) => {
+  const s = await setup();
+  await s.store.setLifecycle("r", { ownPr, authorAssociation: "MEMBER" });
+  recordFocusTools(s.bb, "assistant", true);
+  focusRuntimeSpawned(s.bb, "assistant");
+  await complete(s);
+  await vi.waitFor(() => expect(s.harness.inspection.sdk.callsTo("threads.send")).toHaveLength(1));
+  const sent = JSON.stringify(s.harness.inspection.sdk.callsTo("threads.send")[0][0]);
+  expect(sent).toContain(rule);
+  expect(sent).toContain("Keep the focus's severity unless code you read shows it's wrong");
+  expect(sent).not.toContain("not worth the author's time");
+  const spawn = s.harness.inspection.sdk.callsTo("threads.spawn")[0][0] as any;
+  expect(spawn.prompt.includes("they want nitpicks")).toBe(ownPr);
+});
+
 test("busy stale grants wait for idle, refresh, then send; no watchdog sees the unsent merge as removed", async () => {
   const s = await setup();
   await complete(s);

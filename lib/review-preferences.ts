@@ -79,6 +79,8 @@ export interface ReviewPreferences {
   runRepoChecks: boolean;
   /** Needs review and pinned reviews in BB's thread list, which Code Review Workspace adds to by hand. */
   threadListReviews: boolean;
+  /** Whether the review agent and focuses leave out nitpicks: on others' PRs, and on your own PRs and local changes. */
+  skipNitpicks: { others: boolean; own: boolean };
   /** Feature switches and tuning (lib/knobs.ts), saved apart from the rest. */
   knobs: Knobs;
   /** Focus configuration, saved apart from value; no execution until Phase 1. */
@@ -91,18 +93,18 @@ export const ASSISTANT_INSTRUCTIONS_LIMIT = 2000;
 export const defaultPreferences: ReviewPreferences = {
   guideDetail: "standard", guideInstructions: "", assistantInstructions: "",
   automaticReview: [
-    "Review this change for defects a careful senior engineer would block on or want fixed. Precision over recall: a missed nit costs nothing; a wrong comment costs the reviewer's trust.",
+    "Review this change for defects a careful senior engineer would block on or want fixed. Precision over recall: a wrong comment costs the reviewer's trust.",
     "1. Start with read_pr_context: what the PR says it does, linked tickets, the repo's review rules, CI, and what other reviewers already raised.",
     "2. Read the whole diff, high-risk chapters first. Before you comment, confirm the problem with read_file (callers, the base version). If you can't confirm it, don't comment; ask a question only when the answer decides whether there's a bug.",
-    "3. Skip style, naming, formatting, anything a linter or CI reports, lockfiles, generated files, and anything an existing GitHub thread already raises.",
-    "4. One issue per add_draft_comment, on the line the fix goes. Start with **Blocking:**, **Should fix:** or **Question:**. Say what fails (input → wrong result), then the fix; when the fix replaces specific lines, add a ```suggestion block. Put how you confirmed it in evidence, with file:line: only what you read or ran.",
-    "5. At most 10 comments; keep the most severe.",
+    "3. Skip formatting, anything a linter or CI reports, lockfiles, generated files, and anything an existing GitHub thread already raises. Comments and docs the diff adds aren't style: a ticket or issue id in a code comment, wording a reader can't follow the first time, or a comment that only restates the code is worth a comment.",
+    "4. One issue per add_draft_comment, on the line the fix goes. Start with **Blocking:**, **Should fix:**, **Question:** or **Nit:**. Say what fails (input → wrong result), then the fix; when the fix replaces specific lines, add a ```suggestion block. Put how you confirmed it in evidence, with file:line: only what you read or ran.",
+    "5. At most 10 comments besides Nits; keep the most severe. Your instructions say whether to leave Nits out.",
     "6. Then set_review_summary: 2–5 bullets, blockers first with file:line, and anything you couldn't check. Suggest APPROVE only if nothing blocks and you read every non-generated file, REQUEST_CHANGES only for a verified blocking issue, otherwise COMMENT.",
   ].join("\n"),
   diffLayout: "split", newFiles: "file", markdownFiles: "source", rereviewShows: "since", guideAgent: null, assistantAgent: null,
   wakeOnReplies: "questions", pushChecks: "off", trackGithubReviews: true, trackTeamRequests: false, autoStartRepos: [],
   verificationPrompt: "Check whether the author properly addressed each piece of my earlier feedback. Start with list_feedback and read_changes_since_review, and read files with read_file when you need context.\nRecord a verdict with one line of evidence for every item with assess_feedback.\nThen look for new problems the fix commits introduce, and add each as an inline draft comment.\nDraft a reply with draft_thread_reply only on open threads where one adds something: what's still missing, or a short thanks naming the fixing commit. Keep everything terse.",
-  unattendedAuthors: "members", runRepoChecks: false, threadListReviews: true,
+  unattendedAuthors: "members", runRepoChecks: false, threadListReviews: true, skipNitpicks: { others: true, own: false },
   knobs: defaultKnobs, focuses: defaultFocusSettings,
 };
 

@@ -764,3 +764,12 @@ test("Settings' checks are the first to go, a whole line at a time, before a cha
   expect(noGuide.length).toBeLessThanOrEqual(4000);
   expect(noGuide).toContain("p".repeat(2000));
 });
+
+test("the instructions carry Settings' Skip nitpicks by whose change it is, and the fallback preferences no longer skip them", () => {
+  const theirs = assistantInstructions("pr-1", null, defaultPreferences, undefined, { targetKey: "pr-1", kind: "pr", ownPr: false } as any);
+  expect(theirs).toContain("Skip nitpicks; a ticket id or unclear wording in a comment the diff adds is Should fix.");
+  const own = assistantInstructions("pr-1", null, defaultPreferences, undefined, { targetKey: "pr-1", kind: "pr", ownPr: true } as any);
+  expect(own).toContain("draft every confirmed nitpick as a Nit, uncapped");
+  expect(own).not.toContain("Skip nitpicks");
+  expect(own).not.toContain("skip nitpicks");
+});

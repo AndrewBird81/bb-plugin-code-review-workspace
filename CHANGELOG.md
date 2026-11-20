@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.15.0 — 2026-11-20
+
+Reviews that catch the comments human reviewers ask to fix, and a Skip nitpicks setting for others' PRs and for your own. Still **BB 0.48+** (plugin SDK **0.6.79+**) with Node 24+; installs at `^1.0.0` update to 1.15.0. 1.15.0 adds no migration: Skip nitpicks is kept with the other settings, so rolling back to 1.14.0 keeps everything, and 1.14.0 drops the setting the next time it saves settings.
+
+- **Docs focus:** checks every comment the diff adds for ticket, issue or phase ids, wording a reader can't follow the first time, comments that only restate the code, and lint suppressions with no reason given. These are now Should fix with a suggested rewrite, not Nits. If you edited the Docs focus's instructions, use **Reset to template** to get the new one.
+- **Focus merge:** keeps a focus's severity unless the code shows it's wrong, so a wrong docstring is no longer dismissed as a Nit, and no longer dismisses findings as "not worth the author's time".
+- **Skip nitpicks** (Settings → Review agent), with one switch for others' PRs (on by default) and one for your own PRs and local changes (off by default). With it off on your own change, the review agent and focuses draft every confirmed Nit, with no cap of 5 per focus. With it off on others' PRs, they keep at most 5 per focus.
+- **Automatic review:** the default prompt says comment wording and ticket ids aren't style, takes **Nit:** comments, and leaves Nits to Skip nitpicks. If you never edited the prompt, you get the new default.
+- **Assistant instructions:** when you've written none, the fallback no longer says "skip nitpicks"; Skip nitpicks decides that.
+
 ## 1.14.0 — 2026-11-17
 
 Reviews in BB's own thread sections, and a focus merge that no longer drops its findings. Still **BB 0.48+** (plugin SDK **0.6.79+**) with Node 24+; installs at `^1.0.0` update to 1.14.0. 1.14.0 adds no migration: a review's section is kept with its other lifecycle fields, so rolling back to 1.13.0 keeps everything, and reviews you moved go back to where they go by themselves.

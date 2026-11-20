@@ -126,9 +126,9 @@ export const rpcContract = defineRpcContract({
   getPreferences: { input: z.null(), output: z.object({ preferences: preferencesSchema, revision: z.number().int() }) },
   savePreferences: {
     // Pages open from before 0.5.1 send settings without threadListReviews, from before 0.6.0 without rereviewShows,
-    // and from before 1.5.0 without markdownFiles; the saved value stands. Pages from before knobs send none, and any page may send some: the saved
+    // from before 1.5.0 without markdownFiles, and from before 1.15.0 without skipNitpicks; the saved value stands. Pages from before knobs send none, and any page may send some: the saved
     // ones stand for the rest. Pages from before focuses leave its saved value intact.
-    input: z.object({ preferences: preferencesSchema.extend({ knobs: knobsSchema.partial().optional(), focuses: focusSettingsSchema.partial({ githubLabel: true, mergeEffort: true }).extend({ focuses: z.array(focusSchema.extend({ agent: focusSchema.shape.agent.removeDefault().optional() })).max(12) }) }).partial({ threadListReviews: true, rereviewShows: true, markdownFiles: true, focuses: true }), revision: z.number().int().min(0) }).strict(),
+    input: z.object({ preferences: preferencesSchema.extend({ knobs: knobsSchema.partial().optional(), focuses: focusSettingsSchema.partial({ githubLabel: true, mergeEffort: true }).extend({ focuses: z.array(focusSchema.extend({ agent: focusSchema.shape.agent.removeDefault().optional() })).max(12) }) }).partial({ threadListReviews: true, rereviewShows: true, markdownFiles: true, skipNitpicks: true, focuses: true }), revision: z.number().int().min(0) }).strict(),
     output: z.object({ preferences: preferencesSchema, revision: z.number().int() }),
   },
   // Seeds a custom agent selection with the panel project's remembered defaults, and a custom guide writer with the

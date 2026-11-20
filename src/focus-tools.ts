@@ -6,6 +6,7 @@ import { focusThread } from "./focus-identity";
 import { agentReadsHead } from "./agent-reads";
 import { focusReported, focusRejected } from "./focus-run";
 import { untrusted } from "./untrusted";
+import { nitPolicy } from "./preferences";
 import { failed, type ServeDeps } from "./server-modules";
 import type { AsyncStore } from "./store-queue";
 import type { FocusRun } from "./focus-model";
@@ -75,7 +76,8 @@ export function register({ bb, store, changed }: ServeDeps) {
       const rows = await tx.focusFindings(key, run.id);
       const finding = rows.find((row) => row.id === id && row.status === "found");
       if (!finding) return failed("No found finding with that id in this run.");
-      if (severity === "nit" && rows.filter((row) => row.focusId === finding.focusId && (row.status === "kept" || row.status === "folded") && row.severity === "nit").length >= 5) return failed("At most 5 Nits per focus may be kept.");
+      // Your own change, with Skip nitpicks off for it, keeps every Nit; otherwise at most 5 per focus.
+      if (severity === "nit" && nitPolicy((await tx.getPreferences()).preferences, await tx.getReview(key)) !== "all" && rows.filter((row) => row.focusId === finding.focusId && (row.status === "kept" || row.status === "folded") && row.severity === "nit").length >= 5) return failed("At most 5 Nits per focus may be kept.");
       const at = { file: into?.file ?? finding.file, line: into?.line ?? finding.line, side: into ? into.side ?? "RIGHT" : finding.side };
       const existing = (await tx.getDraft(key)).comments.find((comment) => sameLocation(comment, at));
       if (into && !existing) return failed("There is no draft at into's location.");
