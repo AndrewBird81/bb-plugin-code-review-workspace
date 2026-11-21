@@ -48,7 +48,9 @@ bb review [<pr-url | owner/repo#n | pr-number | git-ref> [--base <ref>]] [--cont
   `bb review list` until the review says guide ready.
 - Running it with a PR or ref makes this thread the review's source; with none, the main thread is. The reviewer can send
   their comments back here, each with an id, while **Send comments to the main thread** is on in Settings. Do what each
-  asks; each Send says how to report back, and whether you may push.
+  asks; each Send says how to report back, and whether you may push. If a PR Send names a different
+  folder in this project, work there or spawn a worker using its BB environment ID; don't check
+  out the branch in your own folder.
 
 ## Report on comments sent to you
 
