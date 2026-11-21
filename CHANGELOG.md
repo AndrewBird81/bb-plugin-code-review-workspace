@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.15.1 — 2026-11-21
+
+- **Send to main thread:** when a PR’s branch is already checked out in the review’s BB project, the message names the folder, machine, and environment instead of asking the thread to check out the branch. It keeps the existing wording when no checkout can be confirmed.
+- Still **BB 0.48+** (plugin SDK **0.6.79+**) with Node 24+. No data migration.
+
 ## 1.15.0 — 2026-11-20
 
 Reviews that catch the comments human reviewers ask to fix, and a Skip nitpicks setting for others' PRs and for your own. Still **BB 0.48+** (plugin SDK **0.6.79+**) with Node 24+; installs at `^1.0.0` update to 1.15.0. 1.15.0 adds no migration: Skip nitpicks is kept with the other settings, so rolling back to 1.14.0 keeps everything, and 1.14.0 drops the setting the next time it saves settings.
