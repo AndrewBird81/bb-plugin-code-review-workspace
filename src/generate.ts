@@ -55,23 +55,36 @@ export async function guideWorkerAsked(bb: BbPluginApi, threadId: string, intera
   }
   failed.abort(`it asked ${asked}, and a hidden writer's asks reach no one`);
 }
+/** How long watchAsks waits before each read of a writer's pending asks after the first fails: then it gives up. */
+const ASKS_RETRIES_MS = [250, 1_000];
 /**
  * Watch the guide writer `threadId` this run spawned, before anything else awaits, so `failed` ends the run: then handle
- * the asks it raised before it was watched, as BB may start it, and it ask, before its spawn returns.
+ * the asks it raised before it was watched, as BB may start it, and it ask, before its spawn returns. A read of them that
+ * fails is tried again a little later; one that never succeeds ends the run, since an ask it missed would wait unseen.
  */
 function watchAsks(bb: BbPluginApi, threadId: string, failed: AbortController): void {
   const watched = failures.get(bb) ?? new Map<string, { failed: AbortController; handled: Set<string> }>();
   failures.set(bb, watched);
   watched.set(threadId, { failed, handled: new Set() });
   void (async () => {
-    let pending: PendingInteraction[];
-    try {
-      pending = await bb.sdk.threads.interactions.list({ threadId });
-    } catch (error) {
-      bb.log.warn(`Couldn't read what the guide writer ${threadId} asked before it was watched: ${String(error)}`);
+    for (let attempt = 0; ; attempt++) {
+      let pending: PendingInteraction[];
+      try {
+        pending = await bb.sdk.threads.interactions.list({ threadId });
+      } catch (error) {
+        const why = error instanceof Error ? error.message : String(error);
+        if (attempt >= ASKS_RETRIES_MS.length) {
+          failed.abort(`what it asked as it started couldn't be read (${why}), so an ask could wait unseen`);
+          return;
+        }
+        bb.log.warn(`Couldn't read what the guide writer ${threadId} asked as it started (${why}); trying again.`);
+        await new Promise((resolve) => setTimeout(resolve, ASKS_RETRIES_MS[attempt]));
+        if (failed.signal.aborted || watched.get(threadId)?.failed !== failed) return;
+        continue;
+      }
+      for (const interaction of pending) await guideWorkerAsked(bb, threadId, interaction);
       return;
     }
-    for (const interaction of pending) await guideWorkerAsked(bb, threadId, interaction);
   })();
 }
 /** A command as a reviewer reads it in a guide's error: its first 200 characters, on one line. */

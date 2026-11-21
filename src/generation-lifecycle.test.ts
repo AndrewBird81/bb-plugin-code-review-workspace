@@ -126,12 +126,15 @@ test("a guide worker whose thread fails says the writer failed, and BB's why, no
 
 /**
  * A guide writer waiting on its turn, whose asks interaction.pending raises: declined through `resolve`. `pending` is what
- * BB lists as already asked; `onSpawn` runs as BB starts the writer, before its spawn returns.
+ * BB lists as already asked, or `list` reads it; `onSpawn` runs as BB starts the writer, before its spawn returns. `archived`
+ * and `stopped` are the writer threads archived and stopped.
  */
-async function askingWriter(resolve: (args: unknown) => Promise<unknown>, options: { pending?: unknown[]; onSpawn?: (ask: Ask) => Promise<void> } = {}) {
+async function askingWriter(resolve: (args: unknown) => Promise<unknown>, options: { pending?: unknown[]; list?: () => Promise<unknown[]>; onSpawn?: (ask: Ask) => Promise<void> } = {}) {
   const { makeThreadResponse } = await import("@get-bb/plugin-sdk/testing");
   let waiting = false;
   let generationId = "";
+  const archived: string[] = [];
+  const stopped: string[] = [];
   const ask: Ask = (threadId, payload, id = `ask-${threadId}`) => harness.behavior.emitThreadEvent("interaction.pending", {
     thread: makeThreadResponse({ id: threadId }),
     interaction: { id, threadId, status: "pending", createdAt: 1, payload } as any,
@@ -142,19 +145,20 @@ async function askingWriter(resolve: (args: unknown) => Promise<unknown>, option
       await options.onSpawn?.(ask);
       return { id: "worker" };
     },
-    archive: async () => ({}), stop: async () => ({}),
+    archive: async ({ threadId }: { threadId: string }) => { archived.push(threadId); return {}; },
+    stop: async ({ threadId }: { threadId: string }) => { stopped.push(threadId); return {}; },
     wait: ({ signal }: { signal: AbortSignal }) => new Promise((_resolve, reject) => {
       waiting = true;
       signal.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
     }),
     queuedMessages: { list: async () => [] },
-    interactions: { resolve, list: async () => options.pending ?? [] },
+    interactions: { resolve, list: options.list ?? (async () => options.pending ?? []) },
   } } as any });
   await plugin(bb);
   const store = testStore(bb);
   await store.saveReview({ targetKey: "target", kind: "ref", status: "ready", createdAt: 1 });
   const run = generateGuide(bb, store, "target", "p1");
-  return { bb, store, run, ask, harness, generationId: () => generationId, waiting: () => vi.waitFor(() => expect(waiting).toBe(true)) };
+  return { bb, store, run, ask, harness, archived, stopped, generationId: () => generationId, waiting: () => vi.waitFor(() => expect(waiting).toBe(true)) };
 }
 type Ask = (threadId: string, payload: unknown, id?: string) => Promise<unknown>;
 const command = { kind: "approval", availableDecisions: ["allow_once", "deny"], reason: "List files in last patch page", subject: { kind: "command", command: "F=/tmp/page.txt; grep -n '^diff --git' $F", cwd: null, itemId: "i1", actions: [], sessionGrant: null } };
@@ -202,6 +206,25 @@ test("an approval the writer asked as BB started it, before its spawn returned, 
   expect(resolve).toHaveBeenCalledTimes(1);
   stopGuideGenerations(bb);
   await run;
+});
+
+test("an approval asked as BB started the writer is declined though the first read of its asks fails, and a read that never succeeds fails the guide at once", async () => {
+  const resolve = vi.fn(async () => ({}));
+  let reads = 0;
+  const once = await askingWriter(resolve, {
+    onSpawn: async (ask) => { await ask("worker", command, "early"); },
+    list: async () => { if (reads++ === 0) throw new Error("HTTP 503"); return [pendingAsk("early", command)]; },
+  });
+  await once.waiting();
+  await vi.waitFor(() => expect(resolve).toHaveBeenCalledWith({ threadId: "worker", interactionId: "early", resolution: { decision: "deny" } }), { timeout: 2_000 });
+  expect((await once.store.getReview("target"))?.status).toBe("generating");
+  stopGuideGenerations(once.bb);
+  await once.run;
+
+  const never = await askingWriter(resolve, { onSpawn: async (ask) => { await ask("worker", command, "early"); }, list: async () => { throw new Error("HTTP 503"); } });
+  await never.run;
+  expect(await never.store.getReview("target")).toMatchObject({ status: "error", guideError: { text: "The guide writer failed: what it asked as it started couldn't be read (HTTP 503), so an ask could wait unseen." } });
+  expect({ archived: never.archived, stopped: never.stopped }).toEqual({ archived: ["worker"], stopped: ["worker"] });
 });
 
 test("a question the writer asked as BB started it, or while its id was recorded, fails its guide at once", async () => {
