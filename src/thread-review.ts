@@ -33,10 +33,15 @@ export function spawnsTitled(bb: BbPluginApi, title: string | null): Array<{ tit
  */
 export async function threadReview(bb: BbPluginApi, store: AsyncStore, thread: { id: string; title: string | null }): Promise<string | null> {
   return store.exclusive(async (tx) => {
-    const recorded = await assistantReview(tx, thread.id) ?? await tx.generationOf(thread.id);
+    const recorded = await assistantReview(tx, thread.id) ?? await tx.generationOf(thread.id) ?? await passReview(tx, thread.id);
     if (recorded) return recorded;
     return spawnsTitled(bb, thread.title)[0]?.targetKey ?? null;
   });
+}
+
+/** The review a review pass's merge thread (src/review-pass.ts) belongs to, by its recorded id; null for any other thread. */
+export async function passReview(store: Pick<AsyncStore, "listReviews">, threadId: string): Promise<string | null> {
+  return (await store.listReviews()).find((review) => review.passThreads?.includes(threadId))?.targetKey ?? null;
 }
 
 /** threadReview for a tool call, which has only the thread's id; its title is read only while a spawn is in flight. */

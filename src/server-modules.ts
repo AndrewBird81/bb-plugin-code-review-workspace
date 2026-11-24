@@ -87,7 +87,9 @@ export const SUBCOMMANDS: PluginCliCommandInfo[] = [
   { name: "approve", summary: "Line PRs' approvals up in Needs review for the reviewer's click; never posts", usage: "bb review approve <review…> [--body <text>]" },
   { name: "report", summary: "Say what you did with a comment the reviewer sent you, done or declined, or which commit Push pushes", usage: "bb review report <id> done|declined [--note <text>] [--commit <sha>] | --commit <sha>" },
   { name: "ready", summary: "Say you've finished with the comments the reviewer sent you, for them to re-review", usage: "bb review ready [<review>]" },
-  { name: "round", summary: "Start a local review pass or read its structured result", usage: "bb review round start <review> [--retry] | result <review> <round-id>" },
+  { name: "update", summary: "Start a review pass on a review's current diff: guide, focuses and a fresh merge; never posts", usage: "bb review update <review> [--notify]" },
+  { name: "result", summary: "Read a review pass's result: pending, complete, incomplete, failed or stale, with its findings", usage: "bb review result <review> [<pass-id>] [--json]" },
+  { name: "round", summary: "Deprecated: use update --notify and result", usage: "bb review round start <review> [--retry] | result <review> <round-id>" },
   { name: "storage", summary: "Show where the reviews are kept, and move them between SQLite and Postgres", usage: "bb review storage <status | verify | migrate | export-sqlite [--replace-data-db]>" },
 ];
 
@@ -102,7 +104,7 @@ export const ASSISTANT_TOOL_NAMES = ["read_review_patch", "list_review_files", "
  */
 export const ASSISTANT_WRITE_TOOL_NAMES = ["submit_review", "post_reply", "resolve_thread", "github_pr", "open_pr", "send_now", "push"];
 // Raise when the review assistant's tools, or their instructions, change.
-export const ASSISTANT_TOOLS = 21;
+export const ASSISTANT_TOOLS = 22;
 
 /** A tool's answer that it failed, with why. */
 export const failed = (text: string): PluginAgentToolResult => ({ content: [{ type: "text", text }], isError: true });

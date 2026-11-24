@@ -12,6 +12,8 @@ export interface FocusFinding extends CommentLocation {
 export interface FocusTokens { input: number; output: number }
 export interface FocusRun {
   id: string; head: string; startedAt: number; endedAt?: number;
+  /** Started by this review pass (src/review-pass.ts): its findings are left for the pass's merge thread, not merged into the draft. */
+  passId?: string;
   state: "finding" | "merging" | "done" | "stopped";
   mergeMessageId?: string; mergeDispatchedAt?: number; mergeCancelledAt?: number; nudged?: true; mergeAwaitingTools?: true;
   focuses: { focusId: string; label: string; state: "queued" | "running" | "done" | "failed" | "stopped";
