@@ -2,9 +2,9 @@
 // `bb git patch`): committed, uncommitted and untracked changes against the folder's real base, which is, in order:
 // 1. the base of the branch's PR, when it has one, as GitHub diffs it;
 // 2. else the base you chose for the review (`bb review --base`, Diff options' Base);
-// 3. else, of the last base read, bb's merge base for the folder (`mergeBaseBranch`, what a worktree was made from),
-//    the branch it was made from (`baseBranch`), its default branch, their remote copies and the remote's release
-//    branches, the one the branch left last: the fewest commits since it, as a worktree reset to origin/v1.7.0 has.
+// 3. else, of bb's merge base for the folder (`mergeBaseBranch`, what a worktree was made from), the branch it was made
+//    from (`baseBranch`), its default branch and their copies on origin, the one the branch left last: the fewest
+//    commits since it, so a local main not pulled lately doesn't show what's merged since as new.
 // Secret-looking untracked files, binaries and huge diffs stay out of the patch, so out of the store and away from
 // agents, until the reviewer includes them. Tracked (committed or staged) secret-looking files show, flagged.
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
@@ -90,12 +90,7 @@ const statusOutput = z.object({ outcome: z.string(), workspace: z.object({
   mergeBase: z.object({ behindCount: z.number().optional(), commits: z.array(z.object({ sha: z.string() })).optional() }).nullable().optional(),
 }).optional() });
 const branchesOutput = z.object({ selectedBranch: z.object({ name: z.string(), kind: z.string() }).nullable() });
-const remotesOutput = z.object({ remoteBranches: z.array(z.string()) });
 const aheadOutput = z.object({ outcome: z.string(), workspace: z.object({ mergeBase: z.object({ aheadCount: z.number(), behindCount: z.number().optional() }).nullable().optional() }).optional() });
-/** A remote branch named for a release, as origin/release/2 or origin/v1.7.0. */
-const RELEASE = /^(releases?[/-]|v\d)/i;
-/** Release branches weighed as bases, newest by name first: each costs a read of the folder. */
-const RELEASES_WEIGHED = 5;
 
 /** Whether the folder has commit `sha`: nothing in it is missing from the folder's head. False when bb can't say. */
 export async function folderHas(bb: BbPluginApi, environmentId: string, sha: string): Promise<boolean> {
@@ -151,37 +146,32 @@ export async function commitsSince(bb: BbPluginApi, environmentId: string, ref: 
   return mergeBase ? { ahead: mergeBase.aheadCount, behind: mergeBase.behindCount ?? 0 } : null;
 }
 
-/** A base a folder's diff may be against, with commitsSince's counts; null when bb can't say. */
-export type BaseCandidate = { ref: string; ahead: number | null; behind: number | null };
+/** A base a folder's diff may be against, with commitsSince's counts. */
+export type BaseCandidate = { ref: string; ahead: number; behind: number };
 
 /**
  * The bases a folder's diff may be against when it has no PR and no base you chose, the one the branch left last first:
- * `stored`, the last read's, then bb's for the folder, their remote copies and the remote's release branches, fewest
- * commits since first, then the fewest the base has since, the first named winning a tie; those bb can't read last. Never the folder's own branch
- * (`exclude`), nor its copy on the remote, which would show nothing.
+ * bb's for the folder and their copies on origin, fewest commits since first, then the fewest the base has since, the
+ * first named winning a tie. Those bb can't read, as a ref the folder hasn't, are left out. Never the folder's own
+ * branch (`exclude`), nor its copy on origin, which would show nothing.
  */
-export async function baseCandidates(bb: BbPluginApi, env: Pick<Environment, "id" | "mergeBaseBranch" | "baseBranch" | "defaultBranch">, options: { stored?: string; exclude?: Array<string | null | undefined> } = {}): Promise<BaseCandidate[]> {
-  const named = [options.stored, env.mergeBaseBranch, env.baseBranch, env.defaultBranch].filter((ref): ref is string => !!ref);
-  const remotes = (await callGit(bb, "branches", { environmentId: env.id, limit: 1000 }, remotesOutput).catch(() => null))?.remoteBranches ?? [];
-  const name = (remote: string) => remote.slice(remote.indexOf("/") + 1);
-  const releases = remotes.filter((remote) => RELEASE.test(name(remote)))
-    .sort((a, b) => name(b).localeCompare(name(a), undefined, { numeric: true })).slice(0, RELEASES_WEIGHED);
-  const own = new Set(options.exclude?.filter((ref): ref is string => !!ref));
-  const refs = [...new Set([...named, ...named.flatMap((ref) => remotes.filter((remote) => name(remote) === ref)), ...releases])]
-    .filter((ref) => !own.has(ref) && !(remotes.includes(ref) && own.has(name(ref))));
+export async function baseCandidates(bb: BbPluginApi, env: Pick<Environment, "id" | "mergeBaseBranch" | "baseBranch" | "defaultBranch">, options: { exclude?: Array<string | null | undefined> } = {}): Promise<BaseCandidate[]> {
+  const own = new Set(options.exclude?.filter((ref): ref is string => !!ref).flatMap((ref) => [ref, `origin/${ref}`]));
+  const named = [env.mergeBaseBranch, env.baseBranch, env.defaultBranch].filter((ref): ref is string => !!ref);
+  const refs = [...new Set(named.flatMap((ref) => ref.startsWith("origin/") ? [ref] : [ref, `origin/${ref}`]))].filter((ref) => !own.has(ref));
   const read = await Promise.all(refs.map(async (ref) => {
     const since = await commitsSince(bb, env.id, ref);
-    return { ref, ahead: since?.ahead ?? null, behind: since?.behind ?? null };
+    return since && { ref, ...since };
   }));
   // A stable sort: a tie keeps the order above.
-  return read.sort((a, b) => (a.ahead ?? Infinity) - (b.ahead ?? Infinity) || (a.behind ?? Infinity) - (b.behind ?? Infinity));
+  return read.filter((candidate): candidate is BaseCandidate => !!candidate).sort((a, b) => a.ahead - b.ahead || a.behind - b.behind);
 }
 
 /**
  * What a folder's diff is against, in the order above, or why that's unknown, and the branch's PR when it has one. A
  * folder with no GitHub repo has no PR. When bb can't say whether the branch has one, the base you chose, else the
- * last read's (`stored`), stays, so the diff doesn't jump to another base and back; so does `stored` when bb can't
- * read it now.
+ * last read's (`stored`), stays, so the diff doesn't jump to another base and back; so does `stored` when bb can read
+ * none of the bases.
  */
 export async function featureBase(bb: BbPluginApi, env: Environment, repo: string | null, options: { stored?: string; chosen?: string; exclude?: Array<string | null | undefined> } = {}): Promise<{ base: string; pr?: FolderPr } | { message: string }> {
   const { stored, chosen } = options;
@@ -194,10 +184,11 @@ export async function featureBase(bb: BbPluginApi, env: Environment, repo: strin
     }
   }
   if (chosen) return { base: chosen };
-  const candidates = await baseCandidates(bb, env, { stored, exclude: [env.branchName, ...options.exclude ?? []] });
-  // The last read's base, when bb can't read it now, stays: it can't tell whether another is closer.
-  const closest = candidates.find((candidate) => candidate.ref === stored && candidate.ahead === null) ?? candidates[0];
-  return closest ? { base: closest.ref } : { message: "Couldn’t find a base branch to compare this folder with. Choose one in Diff options’ Base, then try again." };
+  const [closest] = await baseCandidates(bb, env, { exclude: [env.branchName, ...options.exclude ?? []] });
+  // bb can't read any of them now: the last read's base stays, else bb's own, the first named.
+  if (closest) return { base: closest.ref };
+  const fallback = stored || env.mergeBaseBranch || env.baseBranch || env.defaultBranch;
+  return fallback ? { base: fallback } : { message: "Couldn’t find a base branch to compare this folder with. Choose one in Diff options’ Base, then try again." };
 }
 
 /** A binary file's diff as a PR's shows it: its headers and one line, without git's encoded contents. */

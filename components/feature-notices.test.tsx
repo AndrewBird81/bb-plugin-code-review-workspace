@@ -312,9 +312,9 @@ test("while the page shows a local review, its branch's PR is looked for every 3
 
 test("Diff options' Base shows a folder's base and picks another, as bb review --base does", async () => {
   const { openDiffOptions } = await import("./review-bar.test-support");
-  const featureBases = vi.fn(() => ({ candidates: [{ ref: "origin/v1.7.0", ahead: 2, behind: 0 }, { ref: "main", ahead: 40, behind: 0 }] }));
+  const featureBases = vi.fn(() => ({ candidates: [{ ref: "origin/main", ahead: 2, behind: 0 }, { ref: "main", ahead: 40, behind: 0 }] }));
   const setFeatureBase = vi.fn(() => ({ ok: true }));
-  const { slot } = await renderWorkspace({ checkFeature: () => nothing, featureBases, setFeatureBase }, { ...local, feature: { ...feature, baseRef: "origin/v1.7.0" } });
+  const { slot } = await renderWorkspace({ checkFeature: () => nothing, featureBases, setFeatureBase }, { ...local, feature: { ...feature, baseRef: "origin/main" } });
   openDiffOptions(slot);
   fireEvent.click(slot.getByRole("button", { name: /^Base/ }));
   const menu = await slot.findByRole("menu", { name: "Base" });

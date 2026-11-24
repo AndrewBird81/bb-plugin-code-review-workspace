@@ -573,7 +573,7 @@ export const rpcContract = defineRpcContract({
   /** The bases a folder's local review may be against, the one its branch left last first (src/env-diff.ts baseCandidates). */
   featureBases: {
     input: targetKey,
-    output: z.object({ candidates: z.array(z.object({ ref: z.string(), ahead: z.number().nullable(), behind: z.number().nullable() })) }),
+    output: z.object({ candidates: z.array(z.object({ ref: z.string(), ahead: z.number(), behind: z.number() })) }),
   },
   /** Keep `base` as the one a folder's local review is against, or null for the automatic one, and read the folder again. */
   setFeatureBase: {

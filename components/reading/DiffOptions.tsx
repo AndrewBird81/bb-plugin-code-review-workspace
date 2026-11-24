@@ -120,7 +120,7 @@ function BasePage({ onBack, onPicked }: { onBack: () => void; onPicked: () => vo
       else onPicked();
     }, () => toast.error("Couldn’t change the base.")).finally(() => setBusy(false));
   };
-  const since = (candidate: Candidate) => candidate.ahead === null ? "Not in this folder" : `${candidate.ahead} ${candidate.ahead === 1 ? "commit" : "commits"} since`;
+  const since = (candidate: Candidate) => candidate.ahead === null ? "Your choice" : `${candidate.ahead} ${candidate.ahead === 1 ? "commit" : "commits"} since`;
   const choice = "flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-state-hover focus-visible:bg-state-hover focus-visible:outline-none";
   return <>
     <Button variant="ghost" size="sm" aria-label="Back to Diff options" className={cn("h-8 w-full justify-start gap-1 px-1.5 text-xs text-muted-foreground", TOUCH_CONTROL)} onClick={onBack}>

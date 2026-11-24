@@ -250,22 +250,23 @@ test("refused: a review's own agent, a call from outside a thread, and a --base 
 });
 
 test("--base on a folder's review keeps the base you chose across reads, '' goes back to the automatic one, and an open PR's base wins", async () => {
-  const s = setup({ files: [{ path: "src/a.ts", body: BODY }], env: { mergeBaseBranch: "main" }, remotes: ["origin/main", "origin/v1.7.0"],
-    refs: { main: { ahead: 40 }, "origin/main": { ahead: 40 }, "origin/v1.7.0": { ahead: 2 }, develop: { ahead: 9 } } });
-  // A worktree made from main and reset to origin/v1.7.0: the automatic base is v1.7.0, not main.
+  const s = setup({ files: [{ path: "src/a.ts", body: BODY }], env: { mergeBaseBranch: "main" },
+    refs: { main: { ahead: 40 }, "origin/main": { ahead: 38 }, "origin/v1.7.0": { ahead: 2 }, develop: { ahead: 9 } } });
+  // A worktree made from main and reset to origin/v1.7.0: automatic, it's against origin/main, nearer than a stale main.
   await run(s, "main");
   await settled(s);
-  expect((await s.store.getReview(key))?.feature).toMatchObject({ baseRef: "origin/v1.7.0" });
+  expect((await s.store.getReview(key))?.feature).toMatchObject({ baseRef: "origin/main" });
   expect((await s.store.getReview(key))?.feature?.chosenBase).toBeUndefined();
-  const chose = await run(s, "main", ["--base", "develop"]);
+  // Its real base, chosen once, is kept.
+  const chose = await run(s, "main", ["--base", "origin/v1.7.0"]);
   expect(chose.exitCode).toBe(0);
-  expect(chose.stdout).toContain("Its diff is against develop, which you chose. `bb review --base ''` goes back to the automatic base.");
-  expect((await s.store.getReview(key))?.feature).toMatchObject({ baseRef: "develop", chosenBase: "develop" });
-  // Kept: the next read, and a check, stay on it.
+  expect(chose.stdout).toContain("Its diff is against origin/v1.7.0, which you chose. `bb review --base ''` goes back to the automatic base.");
+  expect((await s.store.getReview(key))?.feature).toMatchObject({ baseRef: "origin/v1.7.0", chosenBase: "origin/v1.7.0" });
+  // Kept: the next read stays on it.
   expect(await updateFeature(s.deps, key)).toEqual({ ok: true });
-  expect((await s.store.getReview(key))?.feature).toMatchObject({ baseRef: "develop", chosenBase: "develop" });
+  expect((await s.store.getReview(key))?.feature).toMatchObject({ baseRef: "origin/v1.7.0", chosenBase: "origin/v1.7.0" });
   const back = await run(s, "main", ["--base", ""]);
-  expect(back.stdout).toContain("Its diff is against the automatic base again: origin/v1.7.0.");
+  expect(back.stdout).toContain("Its diff is against the automatic base again: origin/main.");
   expect((await s.store.getReview(key))?.feature?.chosenBase).toBeUndefined();
   // Diff options' Base does the same, and refuses a ref the folder hasn't.
   expect(await setFeatureBase(s.deps, key, "develop")).toEqual({ ok: true });

@@ -1019,7 +1019,7 @@ export function register(deps: ServeDeps) {
       if (!feature || feature.folderGone) return { candidates: [] };
       const env = await bb.sdk.environments.get({ environmentId: feature.environmentId }).catch(() => null);
       if (!env) return { candidates: [] };
-      return { candidates: await baseCandidates(bb, env, { stored: feature.baseRef, exclude: [env.branchName, feature.branch, feature.workBranch] }) };
+      return { candidates: await baseCandidates(bb, env, { exclude: [env.branchName, feature.branch, feature.workBranch] }) };
     },
     async setFeatureBase({ targetKey, base }) {
       return setFeatureBase(deps, targetKey, base);

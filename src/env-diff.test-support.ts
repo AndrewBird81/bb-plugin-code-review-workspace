@@ -48,10 +48,9 @@ export interface Folder {
   answers?: Record<string, (input: any) => unknown>;
   /**
    * The refs the folder has, by name, with how many commits its head has since each (ahead) and each since the head
-   * left it (behind), and its remote branches; given, bb answers workspaceStatus and branches from them.
+   * left it (behind); given, bb answers workspaceStatus from them.
    */
   refs?: Record<string, { ahead: number; behind?: number }>;
-  remotes?: string[];
 }
 
 /**
@@ -91,7 +90,6 @@ export function folderHost(folder: Folder, sdk: Record<string, unknown> = {}) {
         const ref = folder.refs![input.mergeBaseBranch];
         return { outcome: "available", workspace: { mergeBase: ref ? { aheadCount: ref.ahead, behindCount: ref.behind ?? 0, commits: [] } : null } };
       },
-      branches: () => ({ branches: [], branchesTruncated: false, remoteBranches: folder.remotes ?? [], remoteBranchesTruncated: false, selectedBranch: null }),
     } : {},
     fileSide: ({ query }) => {
       const file = folder.files.find((f) => f.path === query.path);
