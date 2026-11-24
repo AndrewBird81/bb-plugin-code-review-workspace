@@ -144,6 +144,7 @@ test("the plugin registers the same RPC methods, tools, CLI subcommands, listene
       "startTrackedReview",
       "stopFocusRun",
       "stopGuide",
+      "stopPass",
       "submitReview",
       "suggestAssistantInstructions",
       "switchGhAccount",

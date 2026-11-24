@@ -248,38 +248,45 @@ test("a local review whose code changed says so, with Update review and no Rewri
 const pass = { id: "p1", head: "new", diffHash: "h", subscribers: [], startedAt: 1 };
 const withPass = (reviewPass: Record<string, unknown>, extra: Record<string, unknown> = {}) => () => ({ review: { targetKey: "pr-42", kind: "pr", status: "ready", createdAt: 1, title: "Parse rows", headSha: "new", reviewPass: { ...pass, ...reviewPass }, ...extra } });
 
-test("while a pass runs, one notice shows its stage in place of what's out of date, with Stop where the stage has one", async () => {
+test("while a pass runs, one notice shows its stage in place of what's out of date, with Stop in any stage, which stops the pass", async () => {
   const checkForUpdates = vi.fn(() => ({ hasNewCommits: true }));
-  const stopGuide = vi.fn(() => ({ ok: true, restored: true }));
-  const { slot } = await renderWorkspace({ checkForUpdates, stopGuide }, withPass({ state: "pending", stage: "guide" }, { status: "generating" }));
+  const stopPass = vi.fn(() => ({ ok: true }));
+  const { slot } = await renderWorkspace({ checkForUpdates, stopPass }, withPass({ state: "pending", stage: "guide" }, { status: "generating" }));
   const text = "Updating the review: updating the guide (2 of 4).";
   await slot.findByText(text);
   expect(slot.queryByText("New commits since this guide was written.")).toBeNull();
   expect(slot.queryByText(/Updating the guide for the new commits/)).toBeNull();
   expect(slot.queryByRole("button", { name: "Update review" })).toBeNull();
   fireEvent.click(within(notice(slot, text)).getByRole("button", { name: "Stop" }));
-  await waitFor(() => expect(stopGuide).toHaveBeenCalledWith({ targetKey: "pr-42" }));
+  await waitFor(() => expect(stopPass).toHaveBeenCalledWith({ targetKey: "pr-42" }));
   slot.lifecycle.unmount();
   cleanup();
 
-  const stopFocusRun = vi.fn(() => ({ ok: true }));
   const focusRun = { id: "f1", head: "new", startedAt: 1, state: "finding", passId: "p1", focuses: [{ focusId: "docs", label: "Docs", state: "running", queuedAt: 1 }] };
-  const focusing = await renderWorkspace({ stopFocusRun }, withPass({ state: "pending", stage: "focuses" }, { focusRun }));
+  const focusing = await renderWorkspace({}, withPass({ state: "pending", stage: "focuses" }, { focusRun }));
   const running = "Updating the review: running focuses (3 of 4).";
   await focusing.slot.findByText(running);
   // The pass's notice speaks for its focuses: no strip of their own.
   expect(focusing.slot.queryByText(/Reviewing with focuses/)).toBeNull();
-  fireEvent.click(within(notice(focusing.slot, running)).getByRole("button", { name: "Stop" }));
-  await waitFor(() => expect(stopFocusRun).toHaveBeenCalledWith({ targetKey: "pr-42" }));
   focusing.slot.lifecycle.unmount();
   cleanup();
 
-  // Merging has no Stop.
-  const merging = await renderWorkspace({}, withPass({ state: "pending", stage: "merging" }));
+  // Merging can be stopped too.
+  const merging = await renderWorkspace({ stopPass }, withPass({ state: "pending", stage: "merging" }));
   const said = "Updating the review: merging findings (4 of 4).";
   await merging.slot.findByText(said);
-  expect(within(notice(merging.slot, said)).queryByRole("button")).toBeNull();
+  fireEvent.click(within(notice(merging.slot, said)).getByRole("button", { name: "Stop" }));
+  await waitFor(() => expect(stopPass).toHaveBeenCalledTimes(2));
   merging.slot.lifecycle.unmount();
+  cleanup();
+
+  // A stopped pass reads Stopped, with Update review.
+  const startPass = vi.fn(() => ({ ok: true, passId: "p9" }));
+  const stopped = await renderWorkspace({ startPass }, withPass({ id: "p8", state: "stopped", stage: "done" }));
+  const row = notice(stopped.slot, await stopped.slot.findByText(/^Stopped\./).then((el) => el.textContent!));
+  fireEvent.click(within(row).getByRole("button", { name: "Update review" }));
+  await waitFor(() => expect(startPass).toHaveBeenCalledWith({ targetKey: "pr-42" }));
+  stopped.slot.lifecycle.unmount();
 });
 
 test("a finished pass says what came back, N findings, No findings, incomplete or why it failed, until Got it", async () => {

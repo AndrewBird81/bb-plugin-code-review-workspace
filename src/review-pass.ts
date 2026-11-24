@@ -14,6 +14,7 @@ import { refusedFromAgents } from "./relays";
 import { localDiffChanged, rerunReview, upToDate } from "./rereview";
 import { readPrSnapshot } from "./pr-snapshot";
 import { startFocusRun, stopFocusRun } from "./focus-run";
+import { stopGuide } from "./generate";
 import { agentReadsHead } from "./agent-reads";
 import { agentPlacement } from "./machines";
 import { nitPolicy, spawnExecution } from "./preferences";
@@ -36,7 +37,7 @@ export interface ReviewPass {
   /** The PR's head commit, or "diff:" and the diff's hash for a local review (src/agent-reads.ts). */
   head: string | null;
   diffHash: string;
-  state: "pending" | "complete" | "incomplete" | "failed";
+  state: "pending" | "complete" | "incomplete" | "failed" | "stopped";
   stage: PassStage;
   startedAt: number;
   endedAt?: number;
@@ -342,6 +343,29 @@ export function register(deps: Deps, { pollMs = 2_000 }: { pollMs?: number } = {
     if (ended) { changed(key); await notify(key, ended); }
   }
 
+  /** Stop the pending pass in whatever stage it's in: it's recorded stopped, not failed, and its stage's work stops. */
+  async function stopPass(key: string): Promise<{ ok: boolean; error?: string }> {
+    const stopped = await store.exclusive(async (tx) => {
+      const pass = (await tx.getReview(key))?.reviewPass;
+      if (pass?.state !== "pending") return null;
+      const done: ReviewPass = { ...pass, state: "stopped", stage: "done", endedAt: Date.now() };
+      await tx.setLifecycle(key, { reviewPass: done });
+      return { pass, done };
+    });
+    if (!stopped) return { ok: false, error: "No review pass is running." };
+    running.get(stopped.pass.id)?.abort();
+    const review = await store.getReview(key);
+    if (review?.status === "generating") await stopGuide(bb, store, key);
+    const run = review?.focusRun;
+    if (run?.passId === stopped.pass.id && (run.state === "finding" || run.state === "merging")) await stopFocusRun(bb, store, key, "stopped", true);
+    if (stopped.pass.mergeThreadId) {
+      try { await bb.sdk.threads.stop({ threadId: stopped.pass.mergeThreadId }); } catch (cause) { bb.log.warn(`Could not stop review pass ${stopped.pass.id}'s merge thread: ${message(cause)}`); }
+    }
+    changed(key);
+    await notify(key, stopped.done);
+    return { ok: true };
+  }
+
   async function notify(key: string, pass: ReviewPass) {
     for (const threadId of pass.subscribers) {
       if (await deps.fromOwnAgent(threadId) !== false) continue;
@@ -391,6 +415,7 @@ export function register(deps: Deps, { pollMs = 2_000 }: { pollMs?: number } = {
     if (!current) return { ...receipt, state: "stale" };
     if (pass.state === "pending") return { ...receipt, state: "pending", stage: pass.stage };
     if (pass.state === "failed") return { ...receipt, state: "failed", error: pass.error };
+    if (pass.state === "stopped") return { ...receipt, state: "stopped" };
     // The review may not have read its folder or PR since: never present the pass as current unchecked.
     if (review.feature && review.kind === "ref") {
       const live = await readForGuide(bb, review);
@@ -466,6 +491,7 @@ export function register(deps: Deps, { pollMs = 2_000 }: { pollMs?: number } = {
       const started = await startPass(targetKey);
       return "error" in started ? { ok: false, error: started.error } : { ok: true, passId: started.pass.id, ...started.reused ? { reused: true } : {} };
     },
+    stopPass: ({ targetKey }) => stopPass(targetKey),
   } satisfies Partial<RpcHandlers>;
 
   /** Passes a reload interrupted end failed, and their subscribers are told. */
