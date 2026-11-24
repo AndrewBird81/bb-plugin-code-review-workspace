@@ -1121,12 +1121,12 @@ exports[`the plugin registers the same RPC methods, tools, CLI subcommands, list
     "presentation": null,
   },
   {
-    "description": "Record the result of a requested local review round. Only use with the round ID in that request. Nothing is posted or edited in the draft.",
+    "description": "Record the result of the review pass you were started for, once. Nothing is posted or drafted.",
     "inputSchema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "properties": {
         "findings": {
-          "description": "Every actionable issue still present, new or previously reported. An empty array means none found, not that the review is complete.",
+          "description": "Every actionable issue still present. An empty array means none found, not that the pass is complete.",
           "items": {
             "properties": {
               "body": {
@@ -1137,6 +1137,11 @@ exports[`the plugin registers the same RPC methods, tools, CLI subcommands, list
               "file": {
                 "maxLength": 1024,
                 "minLength": 1,
+                "type": "string",
+              },
+              "focus": {
+                "description": "The focus's label, for source focus.",
+                "maxLength": 200,
                 "type": "string",
               },
               "line": {
@@ -1153,25 +1158,35 @@ exports[`the plugin registers the same RPC methods, tools, CLI subcommands, list
                 ],
                 "type": "string",
               },
+              "source": {
+                "description": "focus: a focus finding you confirmed; agent: your own; draft: an open draft comment still present.",
+                "enum": [
+                  "focus",
+                  "agent",
+                  "draft",
+                ],
+                "type": "string",
+              },
             },
             "required": [
               "severity",
               "body",
+              "source",
             ],
             "type": "object",
           },
-          "maxItems": 30,
+          "maxItems": 50,
           "type": "array",
         },
         "outcome": {
-          "description": "Incomplete if you couldn't review the whole diff or check a prior finding.",
+          "description": "Incomplete if you couldn't review the whole diff or check an earlier finding.",
           "enum": [
             "complete",
             "incomplete",
           ],
           "type": "string",
         },
-        "roundId": {
+        "passId": {
           "type": "string",
         },
         "summary": {
@@ -1182,15 +1197,15 @@ exports[`the plugin registers the same RPC methods, tools, CLI subcommands, list
         },
       },
       "required": [
+        "passId",
         "outcome",
         "summary",
         "findings",
-        "roundId",
       ],
       "type": "object",
     },
-    "instructions": "For a requested review round, use this instead of the draft comment and summary tools. Call it once after reviewing, not incrementally. An empty list is meaningful only with a complete pass.",
-    "name": "finish_review_round",
+    "instructions": "Call it once, with the pass id from your first message, after reviewing the whole diff. An empty list is meaningful only with a complete pass.",
+    "name": "finish_review_pass",
     "presentation": null,
   },
   {

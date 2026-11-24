@@ -137,6 +137,7 @@ test("the plugin registers the same RPC methods, tools, CLI subcommands, listene
       "snoozeReview",
       "startConversation",
       "startFixThread",
+      "startPass",
       "startReview",
       "startTrackedReview",
       "stopFocusRun",
@@ -177,7 +178,7 @@ test("the plugin registers the same RPC methods, tools, CLI subcommands, listene
       "open_pr",
       "generate_review_guide",
       "send_now",
-      "finish_review_round",
+      "finish_review_pass",
       "push",
       "submit_focus_findings",
       "list_focus_findings",
@@ -244,8 +245,18 @@ test("the plugin registers the same RPC methods, tools, CLI subcommands, listene
           "usage": "bb review ready [<review>]",
         },
         {
+          "name": "update",
+          "summary": "Start a review pass on a review's current diff: guide, focuses and a fresh merge; never posts",
+          "usage": "bb review update <review> [--notify]",
+        },
+        {
+          "name": "result",
+          "summary": "Read a review pass's result: pending, complete, incomplete, failed or stale, with its findings",
+          "usage": "bb review result <review> [<pass-id>] [--json]",
+        },
+        {
           "name": "round",
-          "summary": "Start a local review pass or read its structured result",
+          "summary": "Deprecated: use update --notify and result",
           "usage": "bb review round start <review> [--retry] | result <review> <round-id>",
         },
         {
