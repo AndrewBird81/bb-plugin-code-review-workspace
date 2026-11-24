@@ -26,7 +26,8 @@ export function FocusStrip({ targetKey, run, head, latestHead, updateAction, fin
   const needsUpdate = !!run && run.head === head && !!latestHead && latestHead !== head;
   const stop = active && run?.mergeDispatchedAt === undefined;
   let text: ReactNode = "";
-  if (enabled && run) {
+  // A review pass's focuses (src/review-pass.ts): the pass's own notice says where it is and what came back.
+  if (enabled && run && !run.passId) {
     const failed = run.focuses.filter((focus) => focus.error);
     const unchecked = findings.filter((finding) => finding.status === "not-checked").length;
     const older = !!head && head !== run.head || needsUpdate;
@@ -51,13 +52,13 @@ export function FocusStrip({ targetKey, run, head, latestHead, updateAction, fin
     }
   }
   const visible = !!text;
-  const phase = !enabled || !run ? null : active ? run.state : "ended";
+  const phase = !enabled || !run || run.passId ? null : active ? run.state : "ended";
   const announcement = phase === "finding" ? "Reviewing with focuses." : phase === "merging" ? "Checking focus findings." : phase === "ended" ? "The focus run ended." : "";
-  async function act(method: "stopFocusRun" | "rerunFocusRun") {
+  async function stopRun() {
     setBusy(true);
     try {
-      const result = await rpc.call(method, { targetKey });
-      if (!result.ok) toast.error("error" in result ? result.error : "The focuses couldn’t stop. Try again.");
+      const result = await rpc.call("stopFocusRun", { targetKey });
+      if (!result.ok) toast.error("The focuses couldn’t stop. Try again.");
     } catch (error) { toast.error(error instanceof Error ? error.message : "Something went wrong"); }
     finally { setBusy(false); }
   }
@@ -66,9 +67,9 @@ export function FocusStrip({ targetKey, run, head, latestHead, updateAction, fin
     {/* Keep the live region mounted before its text arrives; only phase changes are announced. */}
     <span role="status" aria-live="polite" aria-atomic="true" className="sr-only">{announcement}</span>
     {visible && <span className="min-w-0 flex-1 break-words">{text}</span>}
-    {visible && stop && <Button variant="outline" size="sm" className={TOUCH_CONTROL} disabled={busy} onClick={() => void act("stopFocusRun")}>{busy ? "Stopping…" : "Stop"}</Button>}
+    {visible && stop && <Button variant="outline" size="sm" className={TOUCH_CONTROL} disabled={busy} onClick={() => void stopRun()}>{busy ? "Stopping…" : "Stop"}</Button>}
     {visible && !active && <div className="flex shrink-0 flex-wrap gap-1">
-      {needsUpdate ? updateAction : <Button variant="outline" size="sm" className={TOUCH_CONTROL} disabled={busy} onClick={() => void act("rerunFocusRun")}>Run again</Button>}
+      {needsUpdate && updateAction}
       <Button variant="ghost" size="sm" className={TOUCH_CONTROL} onClick={() => {
         patchReviewState(targetKey, { dismissedFocusRun: run!.id });
         setDismissed({ targetKey, runId: run!.id });

@@ -10,11 +10,8 @@ import { useKnob } from "../../lib/settings";
 import { cn } from "../../lib/utils";
 import { TOUCH_CONTROL } from "../touch";
 import { Button } from "../ui/button";
-import { Hint } from "../ui/hint";
-import { Icon } from "../ui/icon";
-import { useFullscreenPortalContainer } from "../../lib/portal-scope";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover";
-import { REWRITE_GUIDE, type Notice } from "./ReviewNotices";
+import type { Notice } from "./ReviewNotices";
 import { usePrNotices, type PrReviewed } from "./PrNotices";
 import { useComments } from "../comments/store";
 import { setNotPushedFiles } from "../../lib/workspace-store";
@@ -67,7 +64,7 @@ function MoreThreads({ threads, onOpen }: { threads: FeatureCheck["alsoActive"];
  * A local review's notices about its folder (src/feature-review.ts checkFeature), the most pressing first: BB removed
  * it; it's on another branch, which pauses the review, with New review for it or Follow it instead, or a link to its
  * review; the review followed its renamed branch, and the id it had, with Got it; its machine is offline;
- * it changed, with Update; its guide is older than what Update last showed, with Rewrite guide; committed files that look like secrets, with Got it; its PR's (PrNotices.tsx),
+ * it changed; its guide is older than what Update last showed (both answered by the workspace's Update review); committed files that look like secrets, with Got it; its PR's (PrNotices.tsx),
  * which a PR's review has too; files it keeps out, each secret named on its own button; and the other threads editing
  * it. A PR's review whose folder is still there says what in it isn't on GitHub yet, with Review them (`onNotPushed`), but
  * on Not pushed yet's page, where `onNotPushed` is null. `onNeedsYou` opens Comments at Needs you.
@@ -77,7 +74,6 @@ export function useFeatureNotices(targetKey: string, review: (Reviewed & PrRevie
   const rpc = useRpc<typeof rpcContract>();
   const navigate = useBbNavigate();
   const localDiffChanges = useKnob("localDiffChanges");
-  const container = useFullscreenPortalContainer();
   const prNotices = usePrNotices(targetKey, review, onChanged, onNeedsYou);
   // Your open comments on lines only in the folder, as Comments lists them.
   const localComments = useComments(targetKey, "items").filter((item) => item.kind === "draft" && item.comment.side === "LOCAL" && (!item.comment.state || item.comment.state === "open")).length;
@@ -122,14 +118,11 @@ export function useFeatureNotices(targetKey: string, review: (Reviewed & PrRevie
     }
   };
   // On a warning's tint, the button's border takes the tint's colour, so it shows in the dark.
-  // `whole`: a label that must never be cut, as a file's name is; `hint`, the hover text; `description`, what it does
-  // beyond its label, which is its hint too and its description for screen readers.
-  // `agent`: it starts an agent, so it wears the agent's sparkle. `variant`: filled for the one recommended, ghost for a
-  // quiet other choice.
-  const button = (id: string, label: string, onClick: () => void, { aria, warning, whole, hint, description, agent, variant = "outline" }: { aria?: string; warning?: boolean; whole?: boolean; hint?: string; description?: string; agent?: boolean; variant?: "default" | "outline" | "ghost" } = {}) => {
+  // `whole`: a label that must never be cut, as a file's name is; `hint`, the hover text. `variant`: filled for the one
+  // recommended, ghost for a quiet other choice.
+  const button = (id: string, label: string, onClick: () => void, { aria, warning, whole, hint, variant = "outline" }: { aria?: string; warning?: boolean; whole?: boolean; hint?: string; variant?: "default" | "outline" | "ghost" } = {}) => {
     const Shown = variant === "default" ? Recommended : Button;
-    const shown = <Shown variant={variant} size="sm" className={cn(BUTTON, !whole && "max-w-64", warning && "border-warning/40")} disabled={!!busy} aria-label={aria} aria-description={description} onClick={onClick}>{agent && <Icon name="Sparkles" className="text-(--ansi-13)" aria-hidden />}<span title={hint} className={cn(!whole && "truncate")}>{busy === id ? `${label}…` : label}</span></Shown>;
-    return description ? <Hint label={description} container={container}>{shown}</Hint> : shown;
+    return <Shown variant={variant} size="sm" className={cn(BUTTON, !whole && "max-w-64", warning && "border-warning/40")} disabled={!!busy} aria-label={aria} onClick={onClick}><span title={hint} className={cn(!whole && "truncate")}>{busy === id ? `${label}…` : label}</span></Shown>;
   };
   const checkAgain = button("check", "Check again", () => { setBusy("check"); rpc.call("checkFeature", { targetKey }).then((next) => setRead({ targetKey, check: next }), () => {}).finally(() => setBusy(null)); });
 
@@ -187,16 +180,14 @@ export function useFeatureNotices(targetKey: string, review: (Reviewed & PrRevie
   }
   if (check.state === "changed" && localDiffChanges) {
     add({ id: "folder-changed", tone: "info", icon: "FileDiff", label: "Folder changed",
-      text: `${files(check.changedFiles ?? 1)} changed since your last update.`,
-      action: button("update", "Update", () => void act("update", () => rpc.call("updateFeature", { targetKey }), "Couldn’t update the review.")) });
+      text: `${files(check.changedFiles ?? 1)} changed since your last update.` });
   }
-  // While a guide is being written, its own notice says so.
-  // Not while a guide is being written, which has its own notice, nor once Rewrite guide can't run: the folder's gone,
-  // or the review's archived.
+  // Not while a guide is being written, which has its own notice, nor once the review can't update: the folder's gone,
+  // or the review's archived. The folder changing and the guide being behind are answered by the workspace's one Update
+  // review (PassNotices.tsx), on the first of them.
   if (feature.guideOlderThanDiff && review.status !== "generating" && check.state !== "gone" && !review.archivedAt && !review.userArchivedAt) {
     add({ id: "guide-behind", tone: "info", icon: "Route", label: "Guide out of date",
-      text: GUIDE_OLDER[feature.guideOlderThanDiff],
-      action: button("rewrite", "Rewrite guide", () => void act("rewrite", () => rpc.call("rewriteGuide", { targetKey }), "Couldn’t rewrite the guide."), { description: REWRITE_GUIDE, agent: true }) });
+      text: GUIDE_OLDER[feature.guideOlderThanDiff] });
   }
   if (check.flagged.length) {
     add({ id: "folder-flagged", tone: "warning", icon: "AlertTriangle",
