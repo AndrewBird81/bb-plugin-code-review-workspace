@@ -7,6 +7,7 @@ import { rpcContract } from "./src/rpc-contract";
 import { createStore, storeOn, type Store } from "./src/store";
 import { codeOwners } from "./src/codeowners";
 import { runReviewCommand } from "./src/review-command";
+import * as reviewRound from "./src/review-round";
 import { assistantInstructions, assistantMayAnswer, endAssistantWaits, threadMayAnswer, onAssistantWaitsEnded, refreshAssistants } from "./src/agent";
 import { personalProjectId } from "./src/machines";
 import { assistantReview } from "./src/draft-comments";
@@ -339,6 +340,7 @@ function servePlugin(bb: BbPluginApi, { configured, store, interrupted }: Awaite
   const opening = openPr.register(moduleDeps);
   const sends = loop.register(moduleDeps);
   const reports = reportsModule.register(moduleDeps);
+  const rounds = reviewRound.register(moduleDeps);
   const own = ownPr.register(moduleDeps);
   const threadPages = threadSurfaces.register(moduleDeps);
   const status = reviewStatus.register(moduleDeps);
@@ -365,7 +367,7 @@ function servePlugin(bb: BbPluginApi, { configured, store, interrupted }: Awaite
     experimental_description: "Code Review Workspace for other plugins: where each review stands, who it waits on, whether you've approved the code as it is now and since when; and starting a review of a thread's changes.",
   });
   listen(bb, [events.events, agents.events, feature.events, ledgerEvents(bb), sends.events, reports.events, own.events, pushing.events, watching.events, focusEvents(bb, store)]);
-  const subcommands: Subcommands = merge(reviews.commands, draft.commands, relays.commands, reports.commands);
+  const subcommands: Subcommands = merge(reviews.commands, draft.commands, relays.commands, reports.commands, rounds.commands);
 
   // Tools go only to THIS plugin's own spawned threads, by the role each is recorded with: a thread can retitle
   // itself, so its title chooses only while its spawn is in flight, before its id is recorded.
@@ -389,7 +391,7 @@ function servePlugin(bb: BbPluginApi, { configured, store, interrupted }: Awaite
       const focuses = configured.preferences().focuses.enabled || review?.focusRun?.state === "merging";
       recordFocusTools(bb, context.thread!.id, focuses);
       return {
-        tools: [...ASSISTANT_TOOL_NAMES, ...(configured.preferences().knobs.reviewAgentActs ? ASSISTANT_WRITE_TOOL_NAMES : []), ...(focuses ? focusTools.FOCUS_MERGE_TOOLS : [])], skills: [],
+        tools: [...ASSISTANT_TOOL_NAMES, ...(review?.kind === "ref" && review.feature ? [reviewRound.FINISH_ROUND_TOOL] : []), ...(configured.preferences().knobs.reviewAgentActs ? ASSISTANT_WRITE_TOOL_NAMES : []), ...(focuses ? focusTools.FOCUS_MERGE_TOOLS : [])], skills: [],
         ...(review ? { instructions: assistantInstructions(review.targetKey, configured.guide(review.targetKey), configured.preferences(), mayRunChecks(review, configured.preferences()) ? review.number : undefined, review) } : {}),
       };
     }

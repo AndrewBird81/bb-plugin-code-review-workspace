@@ -124,6 +124,8 @@ A local ref's checkout must exist on the BB server; for a folder on another mach
 
 ### Draft comments and the summary from other threads
 
+For an agent-driven loop before a PR exists, run `bb review round start <review>` once the local guide is ready. It refreshes the worktree diff and returns a round ID. The thread that requested the round gets a receipt when the reviewer records its findings. Read the batch with `bb review round result <review> <round-id>`; only `complete` with an empty `findings` array means the reviewer found no outstanding issues on the current reviewable diff. Start another round after fixes, or use `--retry` to rerun on the same diff. This is separate from draft comments and `bb review ready`.
+
 Other BB threads and scripts can work with a review's draft comments. These commands change only the local draft; nothing is posted to GitHub until you submit:
 
 ```sh

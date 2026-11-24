@@ -177,6 +177,7 @@ test("the plugin registers the same RPC methods, tools, CLI subcommands, listene
       "open_pr",
       "generate_review_guide",
       "send_now",
+      "finish_review_round",
       "push",
       "submit_focus_findings",
       "list_focus_findings",
@@ -241,6 +242,11 @@ test("the plugin registers the same RPC methods, tools, CLI subcommands, listene
           "name": "ready",
           "summary": "Say you've finished with the comments the reviewer sent you, for them to re-review",
           "usage": "bb review ready [<review>]",
+        },
+        {
+          "name": "round",
+          "summary": "Start a local review pass or read its structured result",
+          "usage": "bb review round start <review> [--retry] | result <review> <round-id>",
         },
         {
           "name": "storage",

@@ -23,6 +23,8 @@ import { assertSqliteLedger } from "./db/schema-guard";
 
 export interface ReviewLifecycle {
   focusRun?: import("./focus-model").FocusRun;
+  /** Latest explicit local review pass, independent of the reviewer's draft. */
+  reviewRound?: import("./review-round").ReviewRound;
   prState?: "OPEN" | "CLOSED" | "MERGED";
   /** The PR's state as gh read it when the review last started or rebuilt, until the sync reads the PR. Only the sync writes prState. */
   startedPrState?: "OPEN" | "CLOSED" | "MERGED" | null;

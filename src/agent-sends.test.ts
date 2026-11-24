@@ -37,6 +37,7 @@ const ALLOWED: Record<string, { count: number; why: string }> = {
   "src/loop.ts": { count: 2, why: "Send: to the review's main thread, never one of the plugin's agents, or a fresh one it spawns" },
   "src/own-pr.ts": { count: 2, why: "forks the thread that wrote your PR as its fixer, and sends the fork its first message" },
   "src/push.ts": { count: 1, why: "Push: tells the review's main thread, never one of the plugin's agents, to commit, or to push" },
+  "src/review-round.ts": { count: 1, why: "Sends a result receipt only to the requesting thread, never one of the plugin's agents" },
 };
 
 test("only asking.ts sends to, spawns or queues for a thread, but where the thread is never a review agent, each as often as listed", () => {

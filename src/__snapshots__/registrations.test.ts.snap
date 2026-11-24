@@ -1121,6 +1121,79 @@ exports[`the plugin registers the same RPC methods, tools, CLI subcommands, list
     "presentation": null,
   },
   {
+    "description": "Record the result of a requested local review round. Only use with the round ID in that request. Nothing is posted or edited in the draft.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "findings": {
+          "description": "Every actionable issue still present, new or previously reported. An empty array means none found, not that the review is complete.",
+          "items": {
+            "properties": {
+              "body": {
+                "maxLength": 2000,
+                "minLength": 1,
+                "type": "string",
+              },
+              "file": {
+                "maxLength": 1024,
+                "minLength": 1,
+                "type": "string",
+              },
+              "line": {
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991,
+                "type": "integer",
+              },
+              "severity": {
+                "enum": [
+                  "blocking",
+                  "should-fix",
+                  "question",
+                  "nit",
+                ],
+                "type": "string",
+              },
+            },
+            "required": [
+              "severity",
+              "body",
+            ],
+            "type": "object",
+          },
+          "maxItems": 30,
+          "type": "array",
+        },
+        "outcome": {
+          "description": "Incomplete if you couldn't review the whole diff or check a prior finding.",
+          "enum": [
+            "complete",
+            "incomplete",
+          ],
+          "type": "string",
+        },
+        "roundId": {
+          "type": "string",
+        },
+        "summary": {
+          "description": "What you checked, or what prevented completion.",
+          "maxLength": 2000,
+          "minLength": 1,
+          "type": "string",
+        },
+      },
+      "required": [
+        "outcome",
+        "summary",
+        "findings",
+        "roundId",
+      ],
+      "type": "object",
+    },
+    "instructions": "For a requested review round, use this instead of the draft comment and summary tools. Call it once after reviewing, not incrementally. An empty list is meaningful only with a complete pass.",
+    "name": "finish_review_round",
+    "presentation": null,
+  },
+  {
     "description": "Push this review's branch to GitHub when the reviewer says push: the main thread commits what they reviewed, the review checks the commit, then the main thread pushes exactly that commit. Never a force-push.",
     "inputSchema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",

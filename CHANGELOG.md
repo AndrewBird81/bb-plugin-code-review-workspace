@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.16.0 — 2026-11-23
+
+- **Local review rounds:** `bb review round start` refreshes the worktree diff and notifies the requesting thread when the review agent records its findings. `bb review round result` returns a structured batch tied to the reviewed diff. Previous findings are checked again after fixes; incomplete or stale results are not passes.
+- Local rounds leave draft comments, the human `bb review ready` flow, and GitHub unchanged. No data migration or change to minimum BB, SDK, or Node versions.
+
 ## 1.15.1 — 2026-11-21
 
 - **Send to main thread:** when a PR’s branch is already checked out in the review’s BB project, the message names the folder, machine, and environment instead of asking the thread to check out the branch. It keeps the existing wording when no checkout can be confirmed.
