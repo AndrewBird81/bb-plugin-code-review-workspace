@@ -478,8 +478,9 @@ function FocusCoverage({ items }: { items: readonly string[] }) {
   async function again() {
     setBusy(true);
     try {
-      const result = await rpc.call("rerunFocusRun", { targetKey });
-      if (!result.ok) toast.error(result.error ?? "The focuses couldn’t start.");
+      // A review pass reruns the focuses and merges what they find (src/review-pass.ts).
+      const result = await rpc.call("startPass", { targetKey });
+      if (!result.ok) toast.error(result.error ?? "Couldn’t update the review.");
     } catch (error) { toast.error(error instanceof Error ? error.message : "Something went wrong"); }
     finally { setBusy(false); }
   }
@@ -504,7 +505,7 @@ function FocusCoverage({ items }: { items: readonly string[] }) {
         {finding.evidence && <p className="whitespace-pre-wrap">{finding.evidence}</p>}
       </li>)}</ul>}
     </>}
-    {unchecked.length > 0 && <Unchecked items={unchecked} action={gaps.length > 0 ? <Button variant="outline" size="sm" className={TOUCH_CONTROL} disabled={busy || active} onClick={() => void again()}>Check again</Button> : undefined} />}
+    {unchecked.length > 0 && <Unchecked items={unchecked} action={gaps.length > 0 ? <Button variant="outline" size="sm" className={TOUCH_CONTROL} disabled={busy || active} onClick={() => void again()}>Update review</Button> : undefined} />}
   </div>;
 }
 

@@ -1003,6 +1003,7 @@ async function renderPush(push: Record<string, unknown> | null, rpc: Record<stri
     push: vi.fn((): any => ({ ok: true, delivery: "sent" })),
     dismissPush: vi.fn(() => { state.push = null; return { ok: true }; }),
     updateFeature: vi.fn(() => ({ ok: true })),
+    startPass: vi.fn(() => ({ ok: true, passId: "p1" })),
     ...rpc,
   };
   const { app, slot, rpc: handlers } = await renderWorkspace({ rpc: { ...calls, getReviewBundle: () => ({ review: { targetKey: "pr-42", status: "ready", createdAt: 1, title: "Parse rows", ...review, push: state.push }, guide: structuredClone(guide), patch, revision: "r1" }) } });
@@ -1098,13 +1099,15 @@ test("pushed says so; GitHub not at the commit, or a push no one asked for, is f
   const said = "feat/qa has new commits on GitHub (now f00dbab) that didn’t come from Push. A teammate, CI or a thread may have pushed them.";
   expect(within(unrequested.part()).getByRole("status").textContent).toBe(`${said}UpdateGot it`);
   expect(within(unrequested.part()).queryByRole("button", { name: "Push again" })).toBeNull();
-  // On the review too, as news rather than an alarm, with Update and Got it.
+  // On the review too, as news rather than an alarm, with Update review, which starts a review pass, and Got it.
   const notice = unrequested.slot.getByRole("status", { name: "New commits on GitHub" });
   expect(notice.textContent).toContain(said);
   expect(unrequested.slot.queryByRole("alert", { name: "New commits on GitHub" })).toBeNull();
-  expect(within(notice).getByRole("button", { name: "Update" })).toBeTruthy();
-  fireEvent.click(within(notice).getByRole("button", { name: "Got it" }));
+  expect(within(notice).queryByRole("button", { name: "Update" })).toBeNull();
+  fireEvent.click(within(notice).getByRole("button", { name: "Update review" }));
+  await waitFor(() => expect(unrequested.calls.startPass).toHaveBeenCalledWith({ targetKey: "pr-42" }));
   await waitFor(() => expect(unrequested.calls.dismissPush).toHaveBeenCalledWith({ targetKey: "pr-42" }));
+  expect(within(notice).getByRole("button", { name: "Got it" })).toBeTruthy();
   await waitFor(() => expect(unrequested.slot.queryByRole("status", { name: "New commits on GitHub" })).toBeNull());
   unrequested.slot.lifecycle.unmount();
 });
@@ -1430,7 +1433,7 @@ test("in Finish review, Move to summary's Move and Replace summary are outlined,
   slot.lifecycle.unmount();
 });
 
-test("Finish shows focus accounting, optional tokens, plain dropped/folded details and coverage with a fresh-run Check again", async () => {
+test("Finish shows focus accounting, optional tokens, plain dropped/folded details and coverage with Update review, which starts a review pass", async () => {
   const rerun = vi.fn(async () => ({ ok: true }));
   const finding = { targetKey: "pr-42", runId: "focus-run", focusId: "docs", label: "Docs", file: "src/a.ts", line: 2, side: "RIGHT", severity: "nit", body: "<img src=x> **not markdown**", evidence: "<svg onload=alert(1)>", note: "<b>not confirmed</b>" };
   const { slot } = await renderWorkspace({
@@ -1444,7 +1447,7 @@ test("Finish shows focus accounting, optional tokens, plain dropped/folded detai
         { ...finding, id: "4", status: "not-checked", reason: "over the limit" },
       ],
     },
-    rpc: { getPreferences: () => ({ preferences: { ...defaultPreferences, focuses: { ...defaultPreferences.focuses, enabled: true } }, revision: 0 }), rerunFocusRun: rerun, getDraft: () => ({ draft: draftOf({ suggestedVerdict: "APPROVE", unchecked: ["Didn't run tests"] }), stale: [] }) },
+    rpc: { getPreferences: () => ({ preferences: { ...defaultPreferences, focuses: { ...defaultPreferences.focuses, enabled: true } }, revision: 0 }), startPass: rerun, getDraft: () => ({ draft: draftOf({ suggestedVerdict: "APPROVE", unchecked: ["Didn't run tests"] }), stale: [] }) },
   });
   const view = await finish(slot);
   const focus = view.getByRole("button", { name: /Focuses: Docs · 4 findings · 1 kept, 1 folded, 1 dropped · 1 not checked · 41k tokens/ });
@@ -1461,7 +1464,7 @@ test("Finish shows focus accounting, optional tokens, plain dropped/folded detai
   expect(view.getByText("Didn't run tests")).toBeTruthy();
   expect(view.getByText("Docs: <script>generated reference</script>")).toBeTruthy();
   expect(view.getByText(/Docs: 1 finding not checked · over the limit/)).toBeTruthy();
-  fireEvent.click(view.getByRole("button", { name: "Check again" }));
+  fireEvent.click(view.getByRole("button", { name: "Update review" }));
   await waitFor(() => expect(rerun).toHaveBeenCalledWith({ targetKey: "pr-42" }));
   expect(slot.container.querySelector("img, script, svg[onload], b")).toBeNull();
 });
@@ -1472,10 +1475,10 @@ test("Finish lists failed focuses without a verdict suggestion or token report",
   expect(view.getByText(/Focuses: Docs · 0 findings/).textContent).not.toContain("tokens");
   fireEvent.click(view.getByRole("button", { name: "What it didn’t check" }));
   expect(view.getByText("Docs: didn't start")).toBeTruthy();
-  expect(view.getByRole("button", { name: "Check again" })).toBeTruthy();
+  expect(view.getByRole("button", { name: "Update review" })).toBeTruthy();
 });
 
-test("focuses off hides past coverage and Check again but keeps the general review's unchecked lines", async () => {
+test("focuses off hides past coverage and Update review but keeps the general review's unchecked lines", async () => {
   const { slot } = await renderWorkspace({
     review: { focusRun: { id: "f", head: "new", state: "done", startedAt: 1, focuses: [{ focusId: "docs", label: "Docs", state: "failed", queuedAt: 1, error: "didn't start" }] }, focusFindings: [] },
     rpc: { getDraft: () => ({ draft: draftOf({ suggestedVerdict: "APPROVE", unchecked: ["Didn't run tests"] }), stale: [] }) },
@@ -1485,7 +1488,7 @@ test("focuses off hides past coverage and Check again but keeps the general revi
   expect(slot.queryByRole("button", { name: "Run again" })).toBeNull();
   fireEvent.click(view.getByRole("button", { name: "What it didn’t check" }));
   expect(view.getByText("Didn't run tests")).toBeTruthy();
-  expect(view.queryByRole("button", { name: "Check again" })).toBeNull();
+  expect(view.queryByRole("button", { name: "Update review" })).toBeNull();
 });
 
 test.each(["focus", "merge"])("Finish marks a token subtotal missing %s usage as partial", async (missing) => {

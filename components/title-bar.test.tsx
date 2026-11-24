@@ -287,7 +287,7 @@ test("closing the panel a title-bar command opened gives the focus back to the c
   expect(page.queryByRole("navigation", { name: "Chapters" })).toBeNull();
 });
 
-test("Review actions offers Update guide for new commits, else Rebuild guide, then Open on GitHub, Keyboard shortcuts and Review settings", async () => {
+test("Review actions offers Rebuild guide, new commits or not, then Open on GitHub, Keyboard shortcuts and Review settings", async () => {
   fakeSize(1400, 900);
   const rereview = vi.fn(() => ({ ok: true }));
   let { bar, page } = await renderReview({ rpc: { rereview } });
@@ -301,12 +301,13 @@ test("Review actions offers Update guide for new commits, else Rebuild guide, th
   ({ bar, page } = await renderReview({ rpc: { rereview, checkForUpdates: () => ({ hasNewCommits: true }) } }));
   await page.findByText("New commits since this guide was written.");
   fireEvent.click(await bar!.findByRole("button", { name: "Review actions" }));
-  // The menu's, not the notice's.
-  fireEvent.click((await bar!.findAllByRole("button", { name: "Update guide" })).find((item) => !item.closest("[role=status]"))!);
+  // The notice's Update review updates the review; the menu's guide rebuild is from scratch, and named so.
+  expect(bar!.queryByRole("button", { name: "Update guide" })).toBeNull();
+  fireEvent.click(await bar!.findByRole("button", { name: "Rebuild guide" }));
   await waitFor(() => expect(rereview).toHaveBeenCalledWith({ targetKey: "pr-42" }));
 });
 
-test("a local review's Review actions offers Rewrite guide after Rename, with the agent's sparkle, as its notice's Update keeps the guide", async () => {
+test("a local review's Review actions offers Rewrite guide after Rename, with the agent's sparkle: the notices only offer Update review", async () => {
   fakeSize(1400, 900);
   const rereview = vi.fn(() => ({ ok: true }));
   const { bar } = await renderReview({ review: { kind: "ref", gitRef: "main...feature", cwd: "/repo" }, rpc: { rereview } });

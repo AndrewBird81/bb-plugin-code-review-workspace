@@ -14,10 +14,11 @@ async function setup() {
   let spawned = 0;
   const statuses = new Map<string, string>();
   const send = vi.fn(async (_request: { threadId: string; input: { text: string }[] }) => ({ delivery: "sent" }));
+  const stop = vi.fn(async (_request: { threadId: string }) => {});
   const spawn = vi.fn(async (_request: { prompt: string; visibility: string; permissionMode: string }) => { const id = `pass-${++spawned}`; statuses.set(id, "active"); return { id }; });
   const { bb, harness } = folderHost(folder, {
     threads: {
-      send, spawn,
+      send, spawn, stop,
       get: async ({ threadId }: { threadId: string }) => ({ id: threadId, status: statuses.get(threadId) ?? "idle", archivedAt: null, deletedAt: null }),
       // Never idle on its own: the test records the result, or makes it idle.
       // Resolves once the test makes the thread idle; rejects when the pass's signal aborts.
@@ -64,7 +65,7 @@ async function setup() {
   const finish = (passId: string, threadId: string, findings: unknown[] = [], outcome = "complete") => harness.behavior.callAgentTool(
     "finish_review_pass", { passId, summary: "Reviewed the changes.", findings, outcome }, { threadId },
   );
-  return { cli, update, read, merging, finish, folder, store, send, spawn, statuses, passes };
+  return { cli, update, read, merging, finish, folder, store, send, spawn, stop, statuses, passes };
 }
 
 test("a pass merges in a fresh hidden thread, records findings with ids, and tells only its subscribers", async () => {
@@ -144,6 +145,24 @@ test("incomplete, failed and replaced passes are never clean", async () => {
   await s.store.savePatch(key, "a different diff is in the review now");
   expect(await s.read()).toMatchObject({ state: "stale" });
   expect(toolFailed(await s.finish(retried.passId, thread2))).toBe(true);
+});
+
+test("Stop records the pass stopped, not failed, in any stage, stops its merge thread's result, and tells its subscribers", async () => {
+  const s = await setup();
+  const first = await s.update("--notify");
+  const thread = await s.merging();
+  expect(await s.passes.handlers.stopPass({ targetKey: key })).toEqual({ ok: true });
+  await s.passes.settled();
+  expect((await s.store.getReview(key))?.reviewPass).toMatchObject({ id: first.passId, state: "stopped", stage: "done" });
+  expect((await s.store.getReview(key))?.reviewPass?.error).toBeUndefined();
+  expect(await s.read(first.passId)).toEqual({ review: key, passId: first.passId, head: first.head, diffHash: first.diffHash, state: "stopped" });
+  expect(s.stop).toHaveBeenCalledWith({ threadId: thread });
+  // The merge thread can't record it afterwards.
+  expect(toolFailed(await s.finish(first.passId, thread, [finding]))).toBe(true);
+  expect(s.send.mock.calls.map(([request]) => request.threadId)).toEqual([owner]);
+  expect(s.send.mock.calls[0]![0].input[0]!.text).toContain("(stopped)");
+  // Nothing left to stop.
+  expect(await s.passes.handlers.stopPass({ targetKey: key })).toEqual({ ok: false, error: "No review pass is running." });
 });
 
 test("usage and refusals", async () => {
