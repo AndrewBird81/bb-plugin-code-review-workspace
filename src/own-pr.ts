@@ -239,7 +239,7 @@ export async function notPushed(bb: BbPluginApi, review: ReviewMeta): Promise<No
   const branch = own ? own.workBranch ?? own.branch : main!.branch ?? (inFolder ? review.feature!.workBranch ?? review.feature!.branch : env?.branchName ?? undefined);
   if (!branch) return { state: "unavailable", message: "Couldn’t read the folder of the thread working on this PR. Try again in a moment." };
   const machine = (await machineStatus(bb, env?.hostId ?? undefined))?.name ?? (inFolder ? review.feature!.machine : null);
-  const read = await readFeatureDiff(bb, { environmentId, machine: machine ?? "Its machine", repo: null, baseRef: sha, workBranch: branch });
+  const read = await readFeatureDiff(bb, { environmentId, machine: machine ?? "Its machine", repo: null, chosenBase: sha, workBranch: branch });
   if (read.outcome === "paused") return { state: "unavailable", message: read.message };
   if (read.outcome !== "available") return { state: read.outcome, message: read.message };
   return { state: "available", patch: read.patch, base: sha, onReviewHead: sha === review.headSha, branch, machine, threadId: main?.threadId ?? null, hidden: read.hidden, notice: read.notice, environmentId, revisions: read.revisions };

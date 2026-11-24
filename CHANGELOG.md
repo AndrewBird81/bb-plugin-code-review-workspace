@@ -4,6 +4,8 @@
 
 - **Review passes:** `bb review update <review> [--notify]` starts one pass on a PR's review or a folder's: the current diff, the guide when the diff moved, fresh focuses, and a fresh hidden merge thread seeded with earlier findings, the implementer's reports and the reviewer's replies. `bb review result <review> [<pass-id>] [--json]` returns its findings (focus, agent and open draft comments), or `stale` once the PR's head or the folder moved. `--notify` sends the calling thread a receipt when the pass ends. `bb review round` is a deprecated alias.
 - Rounds' pending result from 1.16.0 isn't carried over: start a new pass.
+- **Folder review base:** `bb review --base <ref>` with no PR or ref sets and keeps the base of the thread's folder review; `--base ''` goes back to automatic. Diff options' **Base** shows it and picks another. An open PR's base still wins.
+- **Automatic base:** of the folder's base in BB, the branch it was made from, the default branch and their copies on `origin`, a folder review is now against the one its branch left last, worked out again at each read. A local `main` not pulled lately no longer shows what's merged since as new, and a fresh thread's worktree no longer keeps its first base forever.
 
 ## 1.16.0 — 2026-11-23
 

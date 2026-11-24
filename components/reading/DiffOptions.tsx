@@ -1,4 +1,7 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useRpc } from "@get-bb/plugin-sdk/app";
+import { toast } from "sonner";
+import type { rpcContract } from "../../src/rpc-contract";
 import { useFullscreenPortalContainer } from "../../lib/portal-scope";
 import { hasNotPushed } from "../../lib/main-thread";
 import { cn } from "../../lib/utils";
@@ -9,6 +12,7 @@ import { Button } from "../ui/button";
 import { Hint } from "../ui/hint";
 import { useMediaQuery } from "../ui/hooks/use-media-query";
 import { Icon } from "../ui/icon";
+import { Input } from "../ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover";
 
 const row = cn("flex h-9 w-full items-center justify-between gap-3 rounded-md px-2 text-sm font-normal", TOUCH_CONTROL);
@@ -92,11 +96,69 @@ function ComparePage({ onBack, onPicked }: { onBack: () => void; onPicked: () =>
   </>;
 }
 
+type Candidate = { ref: string; ahead: number | null; behind: number | null };
+
+/**
+ * What a folder's local review is against: Automatic, the base its branch left last, or one you choose, from the bases
+ * it weighs or typed; as `bb review --base`. A branch with an open PR is against the PR's base instead.
+ */
+function BasePage({ onBack, onPicked }: { onBack: () => void; onPicked: () => void }) {
+  const { review, targetKey } = useWorkspace();
+  const rpc = useRpc<typeof rpcContract>();
+  const [candidates, setCandidates] = useState<Candidate[] | null>(null);
+  const [typed, setTyped] = useState("");
+  const [busy, setBusy] = useState(false);
+  const chosen = review.feature?.chosenBase;
+  useEffect(() => {
+    rpc.call("featureBases", { targetKey }).then((result) => setCandidates(result.candidates), () => setCandidates([]));
+  }, [rpc, targetKey]);
+  const pick = (base: string | null) => {
+    if (busy) return;
+    setBusy(true);
+    rpc.call("setFeatureBase", { targetKey, base }).then((result) => {
+      if (!result.ok) toast.error(result.error ?? "Couldn’t change the base.");
+      else onPicked();
+    }, () => toast.error("Couldn’t change the base.")).finally(() => setBusy(false));
+  };
+  const since = (candidate: Candidate) => candidate.ahead === null ? "Your choice" : `${candidate.ahead} ${candidate.ahead === 1 ? "commit" : "commits"} since`;
+  const choice = "flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-state-hover focus-visible:bg-state-hover focus-visible:outline-none";
+  return <>
+    <Button variant="ghost" size="sm" aria-label="Back to Diff options" className={cn("h-8 w-full justify-start gap-1 px-1.5 text-xs text-muted-foreground", TOUCH_CONTROL)} onClick={onBack}>
+      <Icon name="ChevronLeft" aria-hidden />Diff options
+    </Button>
+    <div role="menu" aria-label="Base" aria-busy={busy || undefined} className="flex flex-col">
+      <p aria-hidden className="px-2 pb-1 pt-1.5 text-xs font-medium text-muted-foreground">Base</p>
+      <button type="button" role="menuitemradio" aria-checked={!chosen} className={cn(choice, TOUCH_CONTROL)} onClick={() => pick(null)}>
+        <Icon name="Check" className={cn("mt-0.5 size-3.5 shrink-0 text-primary", chosen && "invisible")} aria-hidden />
+        <span className="min-w-0 flex-1">
+          <span className="block truncate">Automatic</span>
+          <span className="block truncate text-[11px] text-subtle-foreground">What the branch left last{!chosen && review.feature ? ` · ${review.feature.baseRef}` : ""}</span>
+        </span>
+      </button>
+      {!candidates && <p role="status" className="px-2 py-1.5 text-xs text-muted-foreground">Reading the folder’s branches…</p>}
+      {[...candidates ?? [], ...chosen && candidates && !candidates.some((candidate) => candidate.ref === chosen) ? [{ ref: chosen, ahead: null, behind: null }] : []].map((candidate) => (
+        <button key={candidate.ref} type="button" role="menuitemradio" aria-checked={chosen === candidate.ref} className={cn(choice, TOUCH_CONTROL)} onClick={() => pick(candidate.ref)}>
+          <Icon name="Check" className={cn("mt-0.5 size-3.5 shrink-0 text-primary", chosen !== candidate.ref && "invisible")} aria-hidden />
+          <span className="min-w-0 flex-1">
+            <span className="block truncate font-mono text-xs">{candidate.ref}</span>
+            <span className="block truncate text-[11px] text-subtle-foreground">{since(candidate)}</span>
+          </span>
+        </button>
+      ))}
+      <form className="flex gap-1.5 px-2 pb-1 pt-1.5" onSubmit={(event) => { event.preventDefault(); if (typed.trim()) pick(typed.trim()); }}>
+        <Input aria-label="Another base" placeholder="Another branch or commit" value={typed} onChange={(event) => setTyped(event.target.value)} className="h-8 font-mono text-xs" />
+        <Button type="submit" variant="outline" size="sm" disabled={!typed.trim() || busy} className={cn("h-8 text-xs", TOUCH_CONTROL)}>Use</Button>
+      </form>
+      <p className="px-2 pb-1.5 text-[11px] text-subtle-foreground">Once the branch has an open PR, the diff is against the PR’s base.</p>
+    </div>
+  </>;
+}
+
 /** Diff options, also used as a page of the review's ⋯ menu. */
 export function DiffOptionsPage({ threads, menu = false, onClose }: { threads: boolean; menu?: boolean; onClose: () => void }) {
   const { review, activeId, layout, compare, display, files, showShortcuts, shortcuts } = useWorkspace();
   const fine = useMediaQuery("(any-pointer: fine)");
-  const [page, setPage] = useState<"options" | "compare">("options");
+  const [page, setPage] = useState<"options" | "compare" | "base">("options");
   const content = useRef<HTMLDivElement>(null);
   const splitReason = useId();
   const turned = useRef(false);
@@ -111,9 +173,15 @@ export function DiffOptionsPage({ threads, menu = false, onClose }: { threads: b
   const since = sinceFrom(compare, review);
   const comparing = since !== undefined;
   const picking = isPr && !comparing;
+  // A folder's local review: what its diff is against, as `bb review --base` sets it.
+  const folderBase = review.kind === "ref" && review.feature && !review.feature.folderGone ? review.feature : null;
   return <div ref={content}>
-        {page === "compare" ? <ComparePage onBack={() => turn("options")} onPicked={close} /> : <>
+        {page === "compare" ? <ComparePage onBack={() => turn("options")} onPicked={close} />
+          : page === "base" ? <BasePage onBack={() => turn("options")} onPicked={close} /> : <>
           <p aria-hidden className="px-2 pb-1 pt-1.5 text-xs font-medium text-muted-foreground">Diff options</p>
+          {folderBase && <div className="border-b border-border pb-1">
+            <Link label="Base" end={<span className="flex min-w-0 items-center gap-1"><span className="truncate font-mono text-xs">{folderBase.baseRef}</span><span className="text-xs">{folderBase.chosenBase ? "· chosen" : "· automatic"}</span><Icon name="ChevronRight" className="size-4 shrink-0" aria-hidden /></span>} onSelect={() => turn("base")} />
+          </div>}
           {(comparing || hasNotPushed(review)) && menu ? <div className="border-b border-border p-1"><ComparePicker onPicked={close} /></div> : comparing && <div className="border-b border-border pb-1">
             <div className={cn(row, "hover:bg-transparent")}>
               Show changes

@@ -42,6 +42,9 @@ const usage = (list: boolean) => [
   "  machine. One review per folder and branch, addressed to the thread that started it; run again, it opens as it is.",
   "  A git ref named comment, summary, list, ask, round, approve or storage is given as refs/heads/<name>.",
   "  A review's id, as api:feat-x or web#12, or its key, opens that review as it is.",
+  "  --base     with a ref, reviews it as git diff <base>...<ref>. With no PR or ref, the base this folder's review keeps:",
+  "             saved with the review, and read again now; '' goes back to the automatic base, what the branch left last.",
+  "             A branch with an open PR is always against the PR's base.",
   "  --context  text for the assistant's automatic review, such as the ticket the change implements. It's kept with the review; '' removes it.",
   "  --name     your name for the review, shown in bb instead of the PR's title or the ref; '' puts that back. GitHub, and the agents, keep the PR's title.",
 ].join("\n");
@@ -95,8 +98,9 @@ export async function runReviewCommand(deps: Deps, argv: string[], ctx: Ctx, own
     const value = argv[i];
     if (value === "--help" || value === "-h") return { exitCode: 0, stdout: USAGE };
     if (value === "--base") {
-      if (base || !argv[i + 1] || argv[i + 1].startsWith("-")) return { exitCode: 2, stderr: "--base requires a git ref." };
-      base = argv[++i];
+      // '' is the folder's automatic base again.
+      if (base !== undefined || i + 1 >= argv.length || argv[i + 1].startsWith("-")) return { exitCode: 2, stderr: "--base requires a git ref, given once. With no PR or ref, pass '' to go back to the folder's automatic base." };
+      base = argv[++i].trim();
     } else if (value === "--context") {
       // Any text, including text that starts with "-", such as a bulleted list.
       if (context !== undefined || i + 1 >= argv.length) return { exitCode: 2, stderr: "--context requires text, given once. Pass '' to remove a review's context." };
@@ -113,14 +117,14 @@ export async function runReviewCommand(deps: Deps, argv: string[], ctx: Ctx, own
   }
   // No PR or ref: the folder this thread works in. A blank one is a mistake.
   if (input === undefined) {
-    if (base) return { exitCode: 2, stderr: "--base goes with a git ref. With no ref, bb review compares this thread's folder with its own base." };
     const changed = (key: string) => {
       deps.bb.realtime.publish(`review:${key}`, { ts: Date.now() });
       deps.bb.realtime.publish("reviews", { ts: Date.now() });
     };
-    return runFeatureCommand({ ...deps, changed }, { context, name, inThreads }, ctx, ownReview);
+    return runFeatureCommand({ ...deps, changed }, { context, name, inThreads, base }, ctx, ownReview);
   }
   if (!input) return { exitCode: 2, stderr: USAGE };
+  if (base === "") return { exitCode: 2, stderr: "--base requires a git ref. '' goes back to the automatic base only for this thread's folder, with no PR or ref." };
   // The context reaches its agents as from the thread that started the review: a review's own agent read the PR's text.
   if (ownReview !== undefined && context !== undefined) return { exitCode: 2, stderr: "A review's own agent can't set the review's context." };
   // Your name for it is yours: a review's own agent read the PR's text.

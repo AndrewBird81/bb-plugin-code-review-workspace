@@ -89,7 +89,32 @@ test("the base: the PR's, else bb's merge base for the folder, else what it was 
   expect(await base({ files })).toEqual(["main", "main"]);
   // A folder with no GitHub repo has no PR to ask about.
   expect(await base({ files, env: { mergeBaseBranch: "release/2" }, prLookup: "throws" }, { repo: null })).toEqual(["release/2", "release/2"]);
-  expect(await read({ files, env: { defaultBranch: null } })).toEqual({ outcome: "unavailable", message: "Couldn’t find a base branch to compare this folder with. Choose one in its Diff tab, then try again." });
+  expect(await read({ files, env: { defaultBranch: null } })).toEqual({ outcome: "unavailable", message: "Couldn’t find a base branch to compare this folder with. Choose one in Diff options’ Base, then try again." });
+});
+
+test("automatic base: of bb's bases and their copies on origin, the one the branch left last", async () => {
+  const base = async (folder: Folder, known: { baseRef?: string; chosenBase?: string } = {}) => available(await readFeatureDiff(folderHost(folder).bb, { ...feature, ...known })).base;
+  // A local main not pulled lately: origin/main has the commits merged since, so it's 3 commits back, not 40.
+  const stale: Folder = {
+    files: [{ path: "a.ts" }], env: { mergeBaseBranch: "main", baseBranch: "main" },
+    refs: { main: { ahead: 40 }, "origin/main": { ahead: 3 }, "origin/feat/qa": { ahead: 0 } },
+  };
+  expect(await base(stale)).toBe("origin/main");
+  // Read again each time, not pinned to the last read's base.
+  expect(await base(stale, { baseRef: "main" })).toBe("origin/main");
+  // A tie: the fewest commits the base has since, then bb's own first.
+  expect(await base({ ...stale, refs: { main: { ahead: 4, behind: 2 }, "origin/main": { ahead: 4 } } })).toBe("origin/main");
+  expect(await base({ ...stale, refs: { main: { ahead: 4 }, "origin/main": { ahead: 4 } } })).toBe("main");
+  // Never the branch's own copy on origin, and never a ref bb can't read.
+  expect(await base({ ...stale, env: { ...stale.env, baseBranch: "feat/qa" } })).toBe("origin/main");
+  // bb can read none of them: the last read's base stays rather than jump, else bb's own.
+  expect(await base({ ...stale, refs: {} }, { baseRef: "origin/v1.7.0" })).toBe("origin/v1.7.0");
+  expect(await base({ ...stale, refs: {} })).toBe("main");
+  // A worktree reset to origin/v1.7.0 has it as its base once you choose it; an open PR's base wins over that.
+  expect(await base(stale, { chosenBase: "origin/v1.7.0" })).toBe("origin/v1.7.0");
+  expect(await base({ ...stale, prBase: "staging" }, { chosenBase: "origin/v1.7.0" })).toBe("staging");
+  // bb can't say whether there's a PR: the base you chose stays.
+  expect(await base({ ...stale, prLookup: "unavailable" }, { chosenBase: "main", baseRef: "staging" })).toBe("main");
 });
 
 test("when bb can't say whether the branch has a PR, the last read's base stays, and with none the read waits", async () => {
