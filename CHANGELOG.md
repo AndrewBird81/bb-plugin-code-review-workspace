@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- **Review passes:** `bb review update <review> [--notify]` starts one pass on a PR's review or a folder's: the current diff, the guide when the diff moved, fresh focuses, and a fresh hidden merge thread seeded with earlier findings, the implementer's reports and the reviewer's replies. `bb review result <review> [<pass-id>] [--json]` returns its findings (focus, agent and open draft comments), or `stale` once the PR's head or the folder moved. `--notify` sends the calling thread a receipt when the pass ends. `bb review round` is a deprecated alias.
+- Rounds' pending result from 1.16.0 isn't carried over: start a new pass.
+
 ## 1.16.0 — 2026-11-23
 
 - **Local review rounds:** `bb review round start` refreshes the worktree diff and notifies the requesting thread when the review agent records its findings. `bb review round result` returns a structured batch tied to the reviewed diff. Previous findings are checked again after fixes; incomplete or stale results are not passes.
