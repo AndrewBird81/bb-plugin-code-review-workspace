@@ -3,7 +3,8 @@ import { afterEach, expect, test, vi } from "vitest";
 // Push reads the branch on GitHub when the main thread stops (src/push.ts): here GitHub can't be reached.
 vi.mock("./gh", async (orig) => ({ ...(await orig<any>()), runGh: vi.fn(async () => ({ stdout: "", stderr: "no GitHub here", code: 1 })) }));
 import { runReviewCommand } from "./review-command";
-import { becomePr, checkFeature, updateFeature } from "./feature-review";
+import { becomePr, checkFeature, setFeatureBase, updateFeature } from "./feature-review";
+import { readFeatureDiff } from "./env-diff";
 import { featureKey, prReviewKey, reviewNamed, targetKey } from "./targets";
 import { BASE_SHA, folderHost, type Folder } from "./env-diff.test-support";
 import { testSql, testStore } from "./test-store.test-support";
@@ -235,15 +236,53 @@ test("the walk up a thread's parents ends at one BB no longer has, and at a cycl
   expect(["a", "b"]).toContain((await cycle.store.getReview(key))?.mainThread?.threadId);
 });
 
-test("refused: a review's own agent, a call from outside a thread, and --base with no ref; a folder elsewhere warns", async () => {
+test("refused: a review's own agent, a call from outside a thread, and a --base the folder hasn't; a folder elsewhere warns", async () => {
   const s = setup();
   expect(await run(s, "main", [], undefined, "pr-1")).toEqual({ exitCode: 2, stderr: "A review’s own agent can’t start a review of a folder." });
   expect((await run(s, undefined)).exitCode).toBe(2);
-  expect((await run(s, "main", ["--base", "main"])).exitCode).toBe(2);
+  s.folder.refs = { main: { ahead: 1 } };
+  expect(await run(s, "main", ["--base", "nope"])).toEqual({ exitCode: 1, stderr: "Couldn’t find nope in the folder, or where its branch left it. Check the name (a remote branch is origin/nope), and that the folder’s machine is online." });
   expect(await s.store.listReviews()).toEqual([]);
+  delete s.folder.refs;
   const elsewhere = await run(s, "main", [], "/Users/me/src/api-wt-sub");
   expect(elsewhere.stdout).toContain("You ran this in /Users/me/src/api-wt-sub, outside this thread’s folder, so changes made only there aren’t in the review.");
   expect((await run(s, "main", [], "/Users/me/src/api/web")).stdout).not.toContain("outside this thread’s folder");
+});
+
+test("--base on a folder's review keeps the base you chose across reads, '' goes back to the automatic one, and an open PR's base wins", async () => {
+  const s = setup({ files: [{ path: "src/a.ts", body: BODY }], env: { mergeBaseBranch: "main" }, remotes: ["origin/main", "origin/v1.7.0"],
+    refs: { main: { ahead: 40 }, "origin/main": { ahead: 40 }, "origin/v1.7.0": { ahead: 2 }, develop: { ahead: 9 } } });
+  // A worktree made from main and reset to origin/v1.7.0: the automatic base is v1.7.0, not main.
+  await run(s, "main");
+  await settled(s);
+  expect((await s.store.getReview(key))?.feature).toMatchObject({ baseRef: "origin/v1.7.0" });
+  expect((await s.store.getReview(key))?.feature?.chosenBase).toBeUndefined();
+  const chose = await run(s, "main", ["--base", "develop"]);
+  expect(chose.exitCode).toBe(0);
+  expect(chose.stdout).toContain("Its diff is against develop, which you chose. `bb review --base ''` goes back to the automatic base.");
+  expect((await s.store.getReview(key))?.feature).toMatchObject({ baseRef: "develop", chosenBase: "develop" });
+  // Kept: the next read, and a check, stay on it.
+  expect(await updateFeature(s.deps, key)).toEqual({ ok: true });
+  expect((await s.store.getReview(key))?.feature).toMatchObject({ baseRef: "develop", chosenBase: "develop" });
+  const back = await run(s, "main", ["--base", ""]);
+  expect(back.stdout).toContain("Its diff is against the automatic base again: origin/v1.7.0.");
+  expect((await s.store.getReview(key))?.feature?.chosenBase).toBeUndefined();
+  // Diff options' Base does the same, and refuses a ref the folder hasn't.
+  expect(await setFeatureBase(s.deps, key, "develop")).toEqual({ ok: true });
+  expect((await s.store.getReview(key))?.feature).toMatchObject({ baseRef: "develop", chosenBase: "develop" });
+  expect((await setFeatureBase(s.deps, key, "nope")).ok).toBe(false);
+  expect((await s.store.getReview(key))?.feature?.chosenBase).toBe("develop");
+  // With an open PR, the PR's base wins over the one you chose.
+  Object.assign(s.folder, { prBase: "main", pr: { number: 9, url: "https://github.com/acme/api/pull/9", headRefName: "other" } });
+  const withPr = await readFeatureDiff(s.bb, (await s.store.getReview(key))!.feature!);
+  expect(withPr.outcome === "available" && withPr.base).toBe("main");
+});
+
+test("a new folder review started with --base keeps it", async () => {
+  const s = setup({ files: [{ path: "src/a.ts", body: BODY }], refs: { main: { ahead: 3 }, develop: { ahead: 5 } } });
+  const started = await run(s, "main", ["--base", "develop"]);
+  expect(started.stdout).toContain("Its diff is against develop, which you chose.");
+  expect((await s.store.getReview(key))?.feature).toMatchObject({ baseRef: "develop", chosenBase: "develop" });
 });
 
 test("a branch switch pauses the review, Update waits, and switching back resumes it", async () => {

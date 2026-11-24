@@ -1,9 +1,10 @@
 // A local review's diff, read from its folder on whichever machine it's on through bb's Git plugin (`bb git files`,
 // `bb git patch`): committed, uncommitted and untracked changes against the folder's real base, which is, in order:
 // 1. the base of the branch's PR, when it has one, as GitHub diffs it;
-// 2. else the folder's merge base in bb (`mergeBaseBranch`), which bb sets to what a worktree was made from;
-// 3. else the branch it was made from (`baseBranch`; nothing reports a branch's upstream);
-// 4. else its default branch.
+// 2. else the base you chose for the review (`bb review --base`, Diff options' Base);
+// 3. else, of the last base read, bb's merge base for the folder (`mergeBaseBranch`, what a worktree was made from),
+//    the branch it was made from (`baseBranch`), its default branch, their remote copies and the remote's release
+//    branches, the one the branch left last: the fewest commits since it, as a worktree reset to origin/v1.7.0 has.
 // Secret-looking untracked files, binaries and huge diffs stay out of the patch, so out of the store and away from
 // agents, until the reviewer includes them. Tracked (committed or staged) secret-looking files show, flagged.
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
@@ -89,6 +90,12 @@ const statusOutput = z.object({ outcome: z.string(), workspace: z.object({
   mergeBase: z.object({ behindCount: z.number().optional(), commits: z.array(z.object({ sha: z.string() })).optional() }).nullable().optional(),
 }).optional() });
 const branchesOutput = z.object({ selectedBranch: z.object({ name: z.string(), kind: z.string() }).nullable() });
+const remotesOutput = z.object({ remoteBranches: z.array(z.string()) });
+const aheadOutput = z.object({ outcome: z.string(), workspace: z.object({ mergeBase: z.object({ aheadCount: z.number(), behindCount: z.number().optional() }).nullable().optional() }).optional() });
+/** A remote branch named for a release, as origin/release/2 or origin/v1.7.0. */
+const RELEASE = /^(releases?[/-]|v\d)/i;
+/** Release branches weighed as bases, newest by name first: each costs a read of the folder. */
+const RELEASES_WEIGHED = 5;
 
 /** Whether the folder has commit `sha`: nothing in it is missing from the folder's head. False when bb can't say. */
 export async function folderHas(bb: BbPluginApi, environmentId: string, sha: string): Promise<boolean> {
@@ -126,22 +133,71 @@ export async function folderHasBranch(bb: BbPluginApi, environmentId: string, br
 export const isNotFound = (error: unknown) => (error as { status?: number } | null)?.status === 404 || String(error).includes("HTTP 404");
 const errorText = (error: unknown) => error instanceof Error ? error.message : String(error);
 
+/** The folder's branch's PR, as bb's GitHub PR status plugin says it: "absent" for none, null when it can't say. */
+export async function branchPr(bb: BbPluginApi, environmentId: string): Promise<FolderPr | "absent" | null> {
+  const prs = await bb.sdk.plugins.callRpc({ pluginId: "bb--github-pr-status", method: "pullRequests", input: { keys: [environmentId] }, outputSchema: pullRequestsOutput }).catch(() => null);
+  const pr = prs?.[environmentId];
+  if (pr?.outcome === "available" && pr.pullRequest?.baseRefName) return pr.pullRequest;
+  return pr?.outcome === "absent" ? "absent" : null;
+}
+
+/**
+ * How many commits the folder's head has since it left `ref` (ahead), and `ref` since the head left it (behind); null
+ * when bb can't say, as for a ref the folder hasn't.
+ */
+export async function commitsSince(bb: BbPluginApi, environmentId: string, ref: string): Promise<{ ahead: number; behind: number } | null> {
+  const status = await callGit(bb, "workspaceStatus", { environmentId, mergeBaseBranch: ref }, aheadOutput).catch(() => null);
+  const mergeBase = status?.outcome === "available" ? status.workspace?.mergeBase : null;
+  return mergeBase ? { ahead: mergeBase.aheadCount, behind: mergeBase.behindCount ?? 0 } : null;
+}
+
+/** A base a folder's diff may be against, with commitsSince's counts; null when bb can't say. */
+export type BaseCandidate = { ref: string; ahead: number | null; behind: number | null };
+
+/**
+ * The bases a folder's diff may be against when it has no PR and no base you chose, the one the branch left last first:
+ * `stored`, the last read's, then bb's for the folder, their remote copies and the remote's release branches, fewest
+ * commits since first, then the fewest the base has since, the first named winning a tie; those bb can't read last. Never the folder's own branch
+ * (`exclude`), nor its copy on the remote, which would show nothing.
+ */
+export async function baseCandidates(bb: BbPluginApi, env: Pick<Environment, "id" | "mergeBaseBranch" | "baseBranch" | "defaultBranch">, options: { stored?: string; exclude?: Array<string | null | undefined> } = {}): Promise<BaseCandidate[]> {
+  const named = [options.stored, env.mergeBaseBranch, env.baseBranch, env.defaultBranch].filter((ref): ref is string => !!ref);
+  const remotes = (await callGit(bb, "branches", { environmentId: env.id, limit: 1000 }, remotesOutput).catch(() => null))?.remoteBranches ?? [];
+  const name = (remote: string) => remote.slice(remote.indexOf("/") + 1);
+  const releases = remotes.filter((remote) => RELEASE.test(name(remote)))
+    .sort((a, b) => name(b).localeCompare(name(a), undefined, { numeric: true })).slice(0, RELEASES_WEIGHED);
+  const own = new Set(options.exclude?.filter((ref): ref is string => !!ref));
+  const refs = [...new Set([...named, ...named.flatMap((ref) => remotes.filter((remote) => name(remote) === ref)), ...releases])]
+    .filter((ref) => !own.has(ref) && !(remotes.includes(ref) && own.has(name(ref))));
+  const read = await Promise.all(refs.map(async (ref) => {
+    const since = await commitsSince(bb, env.id, ref);
+    return { ref, ahead: since?.ahead ?? null, behind: since?.behind ?? null };
+  }));
+  // A stable sort: a tie keeps the order above.
+  return read.sort((a, b) => (a.ahead ?? Infinity) - (b.ahead ?? Infinity) || (a.behind ?? Infinity) - (b.behind ?? Infinity));
+}
+
 /**
  * What a folder's diff is against, in the order above, or why that's unknown, and the branch's PR when it has one. A
- * folder with no GitHub repo has no PR. When bb can't say whether the branch has one, the base the last read used
- * (`stored`) stays, so the diff doesn't jump to another base and back.
+ * folder with no GitHub repo has no PR. When bb can't say whether the branch has one, the base you chose, else the
+ * last read's (`stored`), stays, so the diff doesn't jump to another base and back; so does `stored` when bb can't
+ * read it now.
  */
-export async function featureBase(bb: BbPluginApi, env: Environment, repo: string | null, stored?: string): Promise<{ base: string; pr?: FolderPr } | { message: string }> {
+export async function featureBase(bb: BbPluginApi, env: Environment, repo: string | null, options: { stored?: string; chosen?: string; exclude?: Array<string | null | undefined> } = {}): Promise<{ base: string; pr?: FolderPr } | { message: string }> {
+  const { stored, chosen } = options;
   if (repo) {
-    const prs = await bb.sdk.plugins.callRpc({ pluginId: "bb--github-pr-status", method: "pullRequests", input: { keys: [env.id] }, outputSchema: pullRequestsOutput }).catch(() => null);
-    const pr = prs?.[env.id];
-    if (pr?.outcome === "available" && pr.pullRequest?.baseRefName) return { base: pr.pullRequest.baseRefName, pr: pr.pullRequest };
-    if (pr?.outcome !== "absent") {
-      return stored ? { base: stored } : { message: "Couldn’t check whether this branch has a PR, so its base isn’t known yet. Try again in a moment." };
+    const pr = await branchPr(bb, env.id);
+    if (pr && pr !== "absent") return { base: pr.baseRefName, pr };
+    if (!pr) {
+      const kept = chosen ?? stored;
+      return kept ? { base: kept } : { message: "Couldn’t check whether this branch has a PR, so its base isn’t known yet. Try again in a moment." };
     }
   }
-  const base = env.mergeBaseBranch || env.baseBranch || env.defaultBranch;
-  return base ? { base } : { message: "Couldn’t find a base branch to compare this folder with. Choose one in its Diff tab, then try again." };
+  if (chosen) return { base: chosen };
+  const candidates = await baseCandidates(bb, env, { stored, exclude: [env.branchName, ...options.exclude ?? []] });
+  // The last read's base, when bb can't read it now, stays: it can't tell whether another is closer.
+  const closest = candidates.find((candidate) => candidate.ref === stored && candidate.ahead === null) ?? candidates[0];
+  return closest ? { base: closest.ref } : { message: "Couldn’t find a base branch to compare this folder with. Choose one in Diff options’ Base, then try again." };
 }
 
 /** A binary file's diff as a PR's shows it: its headers and one line, without git's encoded contents. */
@@ -154,12 +210,14 @@ function binaryStub(file: ChangedFile, patch: string): string {
 }
 
 type Opened = { env: Environment; base: string; pr?: FolderPr; offline: () => FolderUnread };
+/** A folder to read: `baseRef` the last read's base, `chosenBase` one it must be against unless the branch has a PR. */
+type FolderToRead = Pick<FeatureReview, "environmentId" | "machine" | "repo"> & { baseRef?: string; chosenBase?: string; branch?: string; workBranch?: string };
 
 /**
  * The folder, ready to read: ready on a connected machine, on the review's `branch` when one's given, and its base;
  * else why it can't be read.
  */
-async function openFolder(bb: BbPluginApi, feature: Pick<FeatureReview, "environmentId" | "machine" | "repo"> & { baseRef?: string; branch?: string; workBranch?: string }): Promise<Opened | FolderUnread> {
+async function openFolder(bb: BbPluginApi, feature: FolderToRead): Promise<Opened | FolderUnread> {
   let env: Environment;
   try {
     env = await bb.sdk.environments.get({ environmentId: feature.environmentId });
@@ -178,8 +236,8 @@ async function openFolder(bb: BbPluginApi, feature: Pick<FeatureReview, "environ
   if (branch !== undefined && env.branchName !== branch) {
     return { outcome: "paused", branch: env.branchName, message: `The folder is on ${env.branchName ?? "no branch"}, not ${branch}.` };
   }
-  // That worktree's own base is the branch it was made from: the review keeps the base it had.
-  const found = feature.workBranch && feature.baseRef ? { base: feature.baseRef } : await featureBase(bb, env, feature.repo, feature.baseRef);
+  // A fresh thread's worktree was made from the review's branch, which is never its base.
+  const found = await featureBase(bb, env, feature.repo, { stored: feature.baseRef, chosen: feature.chosenBase, exclude: [feature.branch, feature.workBranch] });
   if ("message" in found) return { outcome: "unavailable", message: found.message };
   return { env, ...found, offline };
 }
@@ -188,7 +246,7 @@ async function openFolder(bb: BbPluginApi, feature: Pick<FeatureReview, "environ
  * Each changed file's revision in the folder now, against its real base, hidden files' too, without reading a diff:
  * what a review compares with the revisions it keeps to say whether the folder changed. With the branch's PR.
  */
-export async function readFeatureRevisions(bb: BbPluginApi, feature: Pick<FeatureReview, "environmentId" | "machine" | "repo"> & { baseRef?: string; branch?: string; workBranch?: string }): Promise<{ outcome: "available"; revisions: Record<string, string>; base: string; pr?: FolderPr } | FolderUnread> {
+export async function readFeatureRevisions(bb: BbPluginApi, feature: FolderToRead): Promise<{ outcome: "available"; revisions: Record<string, string>; base: string; pr?: FolderPr } | FolderUnread> {
   const opened = await openFolder(bb, feature);
   if ("outcome" in opened) return opened;
   const { env, base, pr } = opened;
@@ -211,11 +269,11 @@ const unreadable = (result: z.infer<typeof notGit> | z.infer<typeof failure>): F
 
 /**
  * The folder's diff against its real base, with `include` the hidden files the reviewer chose to see,
- * `feature.baseRef` the base the last read used, if any, and `feature.branch` the branch it must be on, if any. A
+ * `feature.baseRef` the base the last read used, if any, `feature.chosenBase` the one you chose, and `feature.branch` the branch it must be on, if any. A
  * machine that's asleep, a folder bb removed or on another branch, and any read that fails come back as an outcome with
  * the message the review shows.
  */
-export async function readFeatureDiff(bb: BbPluginApi, feature: Pick<FeatureReview, "environmentId" | "machine" | "repo"> & { baseRef?: string; branch?: string; workBranch?: string }, include: readonly string[] = []): Promise<FeatureDiff> {
+export async function readFeatureDiff(bb: BbPluginApi, feature: FolderToRead, include: readonly string[] = []): Promise<FeatureDiff> {
   const opened = await openFolder(bb, feature);
   if ("outcome" in opened) return opened;
   const { env, base, pr, offline } = opened;

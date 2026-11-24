@@ -37,7 +37,9 @@ bb review [<pr-url | owner/repo#n | pr-number | git-ref> [--base <ref>]] [--cont
 - A PR's URL, or `owner/repo#n`, works from anywhere; a PR number or a local ref needs this
   thread's checkout to be on the BB server.
 - A review's id, `bb review api:feat`, opens that review as it is, not as a git ref.
-- `--base <ref>` reviews a local ref against a base, as `git diff <base>...<ref>`.
+- `--base <ref>` reviews a local ref against a base, as `git diff <base>...<ref>`. With no PR or
+  ref, it sets and keeps the base of this thread's folder review (`--base ''` goes back to the
+  automatic base, the one the branch left last); once the branch has an open PR, the PR's base wins.
 - `--context <text>` keeps text with the review for the review agent's automatic review, such as
   the ticket the change implements; `''` removes it.
 - `--name <text>` gives the review the reviewer's name for it in BB, when they ask for one; `''`

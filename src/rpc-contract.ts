@@ -570,6 +570,16 @@ export const rpcContract = defineRpcContract({
     input: z.object({ targetKey: z.string(), files: z.array(z.string().min(1)).min(1).max(1000) }).strict(),
     output: z.object({ ok: z.boolean(), error: z.string().optional() }),
   },
+  /** The bases a folder's local review may be against, the one its branch left last first (src/env-diff.ts baseCandidates). */
+  featureBases: {
+    input: targetKey,
+    output: z.object({ candidates: z.array(z.object({ ref: z.string(), ahead: z.number().nullable(), behind: z.number().nullable() })) }),
+  },
+  /** Keep `base` as the one a folder's local review is against, or null for the automatic one, and read the folder again. */
+  setFeatureBase: {
+    input: z.object({ targetKey: z.string(), base: z.string().trim().min(1).nullable() }).strict(),
+    output: z.object({ ok: z.boolean(), error: z.string().optional() }),
+  },
   /** Follow: the local review becomes that of the branch its folder is on now, under its key, as when the branch is renamed. */
   followFolderBranch: { input: targetKey, output: z.object({ ok: z.boolean(), error: z.string().optional() }) },
   /** Got it on "Now following ‹branch›". */

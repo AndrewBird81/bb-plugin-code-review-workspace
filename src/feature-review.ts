@@ -5,7 +5,7 @@
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import { placeOn, reanchorDraft, type FeatureReview, type MainThread, type PushRun, type ReviewLifecycle, type ReviewMeta, type Store } from "./store";
 import type { AsyncStore } from "./store-queue";
-import { diffFilesHead, featureBase, folderHas, folderHasBranch, folderHasSince, folderHead, isNotFound, isSecretPath, readFeatureDiff, readFeatureRevisions, type FeatureDiff, type FolderPr, type HiddenFile } from "./env-diff";
+import { baseCandidates, branchPr, commitsSince, diffFilesHead, folderHas, folderHasBranch, folderHasSince, folderHead, isNotFound, isSecretPath, readFeatureDiff, readFeatureRevisions, type FeatureDiff, type FolderPr, type HiddenFile } from "./env-diff";
 import { featureKey, mergedSurvivor, prReviewKey, targetKey } from "./targets";
 import { stopFocusRunIn } from "./focus-run";
 import { beginGuide, guideWriterUnavailable, stopGuide } from "./generate";
@@ -200,8 +200,8 @@ async function prReviewToJoin(deps: Deps, folder: Folder): Promise<ReviewMeta | 
   const { bb, store } = deps;
   const { env, repo } = folder;
   if (!repo) return null;
-  const found = await featureBase(bb, env, repo);
-  const pr = "pr" in found ? prOfBranch({ repo }, found.pr) : null;
+  const found = await branchPr(bb, env.id);
+  const pr = found && found !== "absent" ? prOfBranch({ repo }, found) : null;
   // One already the folder's: not one its PR's merge or close ended, as a review's of a branch used again is (movedOn).
   const takes = (review: ReviewMeta) => joinable(review) || review.kind === "pr" && !review.archivedAt && readsFolder(review, env) && !movedOn(review, env.branchName);
   const review = pr ? await store.getReview(await prReviewKey(store, pr))
@@ -219,7 +219,7 @@ async function prReviewToJoin(deps: Deps, folder: Folder): Promise<ReviewMeta | 
  * Push, `main` its main thread, the one before kept, and nothing rebuilt. `covers`, where `main` leads sub-threads
  * sharing the folder (sharedMain): a review one of them has moves to `main`. `run` starts its guide once called.
  */
-async function openFolderReview(deps: Deps, folder: Folder, main: Thread | null, options: { name?: string; context?: string } = {}, covers?: Map<string, string | null>): Promise<{ opened: Opened; run?: () => Promise<void> } | { error: string }> {
+async function openFolderReview(deps: Deps, folder: Folder, main: Thread | null, options: { name?: string; context?: string; chosenBase?: string } = {}, covers?: Map<string, string | null>): Promise<{ opened: Opened; run?: () => Promise<void> } | { error: string }> {
   const { bb, store } = deps;
   const { env, machine, repo } = folder;
   // A review re-homed to a fixer's worktree, on that worktree's branch, is the folder's review: its key is its old folder's;
@@ -251,7 +251,7 @@ async function openFolderReview(deps: Deps, folder: Folder, main: Thread | null,
     if (!main) return { error: "Couldn’t tell which thread leads the work in this folder: BB didn’t answer for one of this thread’s parents. Try again in a moment." };
     const unavailable = await guideWriterUnavailable(bb, store);
     if (unavailable) return { error: unavailable };
-    read = await readFeatureDiff(bb, { environmentId: env.id, machine, repo, branch: env.branchName });
+    read = await readFeatureDiff(bb, { environmentId: env.id, machine, repo, branch: env.branchName, chosenBase: options.chosenBase });
     if (read.outcome !== "available") return { error: read.message };
     if (!read.patch.trim()) return { error: nothingToReview(read) };
   }
@@ -279,7 +279,7 @@ async function openFolderReview(deps: Deps, folder: Folder, main: Thread | null,
     } else if (!review) {
       // Read first above, unless another call started it meanwhile: this one only opens it.
       if (!main || !read || read.outcome !== "available") return { error: "This folder’s review was deleted just now. Run bb review again to start a new one." };
-      const feature: FeatureReview = { environmentId: env.id, hostId: env.hostId, machine, path: env.path, branch: env.branchName, baseRef: read.base, mergeBaseRef: read.mergeBaseRef, repo };
+      const feature: FeatureReview = { environmentId: env.id, hostId: env.hostId, machine, path: env.path, branch: env.branchName, baseRef: read.base, ...options.chosenBase ? { chosenBase: options.chosenBase } : {}, mergeBaseRef: read.mergeBaseRef, repo };
       // Named after the main thread, as it's called now. Kept as "ref" with no cwd, so 1.7.0 never runs git on it.
       const title = threadTitle(main) ?? undefined;
       await tx.saveReview({ targetKey: key, kind: "ref", gitRef: env.branchName, ...title ? { title } : {}, status: "generating", createdAt: now, projectId: env.projectId });
@@ -344,7 +344,7 @@ async function pluginThread(deps: Deps, thread: Thread, hidden: boolean): Promis
 }
 
 /** The parts of `bb review`'s output the no-argument form takes. */
-interface FeatureCommand { name?: string; context?: string; inThreads: boolean }
+interface FeatureCommand { name?: string; context?: string; inThreads: boolean; /** `--base`: the base to keep, or "" for automatic. */ base?: string }
 interface Ctx { projectId?: string; threadId?: string; cwd?: string }
 
 /**
@@ -385,9 +385,10 @@ export async function runFeatureCommand(deps: Deps, command: FeatureCommand, ctx
   const found = await callerFolder(deps, ctx.threadId);
   if ("stderr" in found) return { exitCode: found.exitCode, stderr: found.stderr };
   const { folder, main, covers } = found;
+  if (command.base && await commitsSince(bb, folder.env.id, command.base) === null) return { exitCode: 1, stderr: baseUnread(command.base) };
   let started: Awaited<ReturnType<typeof openFolderReview>>;
   try {
-    started = await openFolderReview(deps, folder, main, command, covers);
+    started = await openFolderReview(deps, folder, main, { ...command, chosenBase: command.base || undefined }, covers);
   } catch (error) {
     return { exitCode: 1, stderr: error instanceof Error ? error.message : String(error) };
   }
@@ -421,8 +422,20 @@ export async function runFeatureCommand(deps: Deps, command: FeatureCommand, ctx
   }
   if (command.context !== undefined) lines.push(!command.context.trim() ? "Removed the review’s context."
     : created ? "The assistant’s automatic review will include this context." : "Kept the context with the review. Its automatic review has run already, so paste it into Ask agent to have the agent act on it.");
+  let failed = false;
+  if (command.base !== undefined) {
+    const set = created ? { ok: true } : await setFeatureBase(deps, key, command.base || null);
+    const now = (await store.getReview(key))!;
+    failed = !set.ok;
+    const shown = now.feature?.baseRef;
+    lines.push(now.kind === "pr" ? `--base was ignored: this is PR #${now.number}’s review, so its diff is against the PR’s base, ${now.base}.`
+      : !set.ok ? set.error!
+      : command.base && shown !== command.base ? `Kept ${command.base} as its base, but the branch has an open PR, so its diff is against the PR’s base, ${shown}.`
+      : command.base ? `Its diff is against ${command.base}, which you chose. \`bb review --base ''\` goes back to the automatic base.`
+      : `Its diff is against the automatic base again: ${shown}.`);
+  }
   if (changed) deps.changed(key);
-  return { exitCode: 0, stdout: lines.join("\n") };
+  return { exitCode: failed ? 1 : 0, stdout: lines.join("\n") };
 }
 
 /** What a feature review's page says about its folder. */
@@ -623,7 +636,7 @@ export async function becomePr(deps: Deps, key: string, pr: { repo: string; numb
   }
   if (other?.status === "generating") await stopGuide(bb, store, prKey);
   // What the folder has that the PR's head doesn't, where a comment the PR's diff loses can stay, not on GitHub yet.
-  const ahead = await readFeatureDiff(bb, { environmentId: now.feature.environmentId, machine: now.feature.machine, repo: null, baseRef: snapshot.pr.headRefOid, workBranch: folderBranchOf(now.feature) }).catch(() => null);
+  const ahead = await readFeatureDiff(bb, { environmentId: now.feature.environmentId, machine: now.feature.machine, repo: null, chosenBase: snapshot.pr.headRefOid, workBranch: folderBranchOf(now.feature) }).catch(() => null);
   const done = await store.exclusive(async (tx) => {
     const review = featureOf(await tx.getReview(key));
     if (!review || review.kind !== "ref") return "skipped" as const;
@@ -812,7 +825,7 @@ async function checkPrFolder(deps: Deps, review: ReviewMeta & { feature: Feature
   const { feature } = review;
   const sha = prHead(review);
   if (!sha) return empty;
-  const read = await readFeatureRevisions(deps.bb, { environmentId: feature.environmentId, machine: feature.machine, repo: null, baseRef: sha, workBranch: folderBranchOf(feature) });
+  const read = await readFeatureRevisions(deps.bb, { environmentId: feature.environmentId, machine: feature.machine, repo: null, chosenBase: sha, workBranch: folderBranchOf(feature) });
   if (read.outcome === "gone") {
     if (await deps.store.exclusive(async (tx) => { const now = featureOf(await tx.getReview(review.targetKey)); return !!now && await markFolderGone(tx, now); })) deps.changed(review.targetKey);
     return { ...empty, state: "gone", message: read.message };
@@ -840,6 +853,31 @@ async function followBranch(deps: Deps, key: string, branch: string, said: boole
   });
   if (followed) deps.changed(key);
   return followed;
+}
+
+/** What a base bb can't read in the folder says. */
+const baseUnread = (base: string) => `Couldn’t find ${base} in the folder, or where its branch left it. Check the name (a remote branch is origin/${base.replace(/^origin\//, "")}), and that the folder’s machine is online.`;
+
+/**
+ * Keep `base` as the one a folder's local review is against (null: automatic again), and read the folder against it.
+ * A PR's review is against the PR's base, as a branch with a PR always is.
+ */
+export async function setFeatureBase(deps: Deps, key: string, base: string | null): Promise<{ ok: boolean; error?: string }> {
+  const review = featureOf(await deps.store.getReview(key));
+  if (!review) return { ok: false, error: "Only a review of a folder has a base to choose." };
+  if (review.kind !== "ref") return { ok: false, error: `This is PR #${review.number}’s review, so its diff is against the PR’s base, ${review.base}. Change the base on GitHub.` };
+  if (base !== null && await commitsSince(deps.bb, review.feature.environmentId, base) === null) return { ok: false, error: baseUnread(base) };
+  const saved = await deps.store.exclusive(async (tx) => {
+    const now = featureOf(await tx.getReview(key));
+    if (!now || now.kind !== "ref") return false;
+    const { chosenBase: _, ...feature } = now.feature;
+    await tx.setLifecycle(key, { feature: base === null ? feature : { ...feature, chosenBase: base } });
+    return true;
+  });
+  if (!saved) return { ok: false, error: "This review changed meanwhile. Reload it." };
+  deps.changed(key);
+  const updated = await updateFeature(deps, key);
+  return updated.ok ? updated : { ok: false, error: `Kept the base; the diff shows it once the review updates. ${updated.error ?? ""}`.trim() };
 }
 
 /**
@@ -975,6 +1013,16 @@ export function register(deps: ServeDeps) {
   const handlers = {
     async checkFeature({ targetKey }) {
       return checkFeature(deps, targetKey);
+    },
+    async featureBases({ targetKey }) {
+      const feature = featureOf(await store.getReview(targetKey))?.feature;
+      if (!feature || feature.folderGone) return { candidates: [] };
+      const env = await bb.sdk.environments.get({ environmentId: feature.environmentId }).catch(() => null);
+      if (!env) return { candidates: [] };
+      return { candidates: await baseCandidates(bb, env, { stored: feature.baseRef, exclude: [env.branchName, feature.branch, feature.workBranch] }) };
+    },
+    async setFeatureBase({ targetKey, base }) {
+      return setFeatureBase(deps, targetKey, base);
     },
     async includeHidden({ targetKey, files, included }) {
       const review = featureOf(await store.getReview(targetKey));
