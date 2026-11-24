@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.17.0 — 2026-11-24
 
 - **Review passes:** `bb review update <review> [--notify]` starts one pass on a PR's review or a folder's: the current diff, the guide when the diff moved, fresh focuses, and a fresh hidden merge thread seeded with earlier findings, the implementer's reports and the reviewer's replies. `bb review result <review> [<pass-id>] [--json]` returns its findings (focus, agent and open draft comments), or `stale` once the PR's head or the folder moved. `--notify` sends the calling thread a receipt when the pass ends. `bb review round` is a deprecated alias.
 - **Update review:** one button, on a PR's review or a folder's, wherever it's out of date (new commits, the folder changed, the guide behind), starts a review pass. It replaces the notices' Update, Update guide and Rewrite guide, the focus strip's Run again, Finish review's focus-coverage Check again, and the Update on "new commits that didn't come from Push". While the pass runs, one notice shows its stage, with Stop in any stage; then it says "N findings", "No findings", incomplete, why it failed, or Stopped. `bb review result` can now return `stopped`. Rewrite guide (from scratch) is only in Review actions, where a PR's item is always **Rebuild guide**.
