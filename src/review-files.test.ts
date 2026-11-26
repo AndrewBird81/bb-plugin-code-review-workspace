@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { describeReviewFiles, FILES_PAGE_CHARS, offsetPastEnd, patchPage, stubSkippedFiles } from "./review-files";
+import { continuedFile, describeReviewFiles, FILES_PAGE_CHARS, fitBytes, offsetPastEnd, PATCH_PAGE_BYTES, patchPage, stubSkippedFiles } from "./review-files";
 import { readFilesPatch } from "./pr-snapshot";
 
 const file = (path: string, body: string) => `diff --git a/${path} b/${path}\nindex 1..2 100644\n--- a/${path}\n+++ b/${path}\n${body}`;
@@ -68,6 +68,38 @@ test("patch pages end on file boundaries, unless one file is longer than the pag
   expect(patchPage(first + second, first.length, 100_000)).toEqual({ text: second, end: first.length + second.length });
   expect(patchPage(first + second, 0, first.length + 3)).toEqual({ text: first, end: first.length });
   expect(patchPage(first + second, 0, 20)).toEqual({ text: first.slice(0, 20), end: 20 });
+});
+
+test("a file longer than the page is cut at its last line that fits, and the next page names it", () => {
+  const long = file("long.ts", `@@ -1,3 +1,3 @@\n-${"a".repeat(30)}\n+${"b".repeat(30)}\n+${"c".repeat(30)}\n`);
+  const after = file("z.ts", "@@ -1 +1 @@\n-y\n+z\n");
+  const patch = long + after;
+  const page = patchPage(patch, 0, long.length - 10);
+  // Short of the last line: the page ends on the line before it, whole.
+  expect(page.text).toBe(long.slice(0, long.lastIndexOf("+c")));
+  expect(continuedFile(patch, page.end)).toBe("long.ts");
+  const rest = patchPage(patch, page.end, 1_000);
+  expect(rest).toEqual({ text: patch.slice(page.end), end: patch.length });
+  // A page that starts at a file's header, or before the first file, goes on with none.
+  expect(continuedFile(patch, long.length)).toBeNull();
+  expect(continuedFile(patch, 0)).toBeNull();
+  expect(continuedFile(patch, long.length + 5)).toBe("z.ts");
+  expect(continuedFile(`Note before the files.\n${patch}`, 3)).toBeNull();
+});
+
+test("patch pages are sized in UTF-8 bytes, so a page of non-ASCII text fits the tool result too, and never split a character", () => {
+  // 2, 3 and 4 bytes a character: a page of 12 bytes holds 6, 4 and 3 of them.
+  expect(fitBytes("é".repeat(10), 0, 12)).toBe(6);
+  expect(fitBytes("中".repeat(10), 0, 12)).toBe(4);
+  expect(fitBytes("😀".repeat(10), 0, 13)).toBe(6);
+  expect(fitBytes("😀".repeat(10), 2, 13)).toBe(8);
+  const cjk = file("i18n/zh.json", `@@ -1 +1,2000 @@\n${Array.from({ length: 2000 }, (_, i) => `+"k${i}": "${"中文".repeat(10)}",\n`).join("")}`);
+  for (let offset = 0; offset < cjk.length;) {
+    const { text, end } = patchPage(cjk, offset, PATCH_PAGE_BYTES);
+    expect(Buffer.byteLength(text)).toBeLessThanOrEqual(PATCH_PAGE_BYTES);
+    expect(end === cjk.length || text.endsWith("\n")).toBe(true);
+    offset = end;
+  }
 });
 
 test("pages stub lockfiles and generated files after their headers, keeping what comes before the first file", () => {

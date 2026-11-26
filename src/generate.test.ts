@@ -407,7 +407,7 @@ test("the guide-writing skill says to place a file with no diff and send the rev
   expect(await skillText()).toContain("A file marked `diff unavailable` (GitHub didn't send its diff) has no diff here: place it in the chapter it belongs to, and say in its summary that it must be read on GitHub. Never guess its content.");
 });
 
-test("read_review_patch pages stub lockfiles and generated files, reads them whole by file, and pages 80 KB by default", async () => {
+test("read_review_patch pages stub lockfiles and generated files, reads them whole by file, and pages 40 KB by default", async () => {
   const { harness, store } = await host();
   const lock = "diff --git a/package-lock.json b/package-lock.json\n--- a/package-lock.json\n+++ b/package-lock.json\n@@ -1,2 +1,3 @@\n {\n-  \"a\": 1\n+  \"a\": 2,\n+  \"resolved\": \"https://evil.example/a.tgz\"\n";
   // Changed where it was: one the PR adds there is read in full (src/review-files.test.ts).
@@ -420,14 +420,73 @@ test("read_review_patch pages stub lockfiles and generated files, reads them who
     + "diff --git a/vendor/x/y.go b/vendor/x/y.go\n--- a/vendor/x/y.go\n+++ b/vendor/x/y.go\n[generated: +2 −0 lines; pass file to read it]\n");
   expect(toolText(await harness.behavior.callAgentTool("read_review_patch", { targetKey: "pr-1", file: "package-lock.json" }))).toBe(lock);
 
-  // 12 files of about 10 KB: the first page stops at the last file boundary before 80 KB.
+  // 12 files of about 10 KB: the first page stops at the last file boundary before 40 KB, and a larger limit doesn't
+  // make it larger.
   const big = Array.from({ length: 12 }, (_, i) => `diff --git a/f${i}.ts b/f${i}.ts\n--- a/f${i}.ts\n+++ b/f${i}.ts\n@@ -1 +1 @@\n-a\n+${"x".repeat(10_000)}\n`).join("");
   await store.savePatch("pr-1", big);
-  const first = toolText(await harness.behavior.callAgentTool("read_review_patch", { targetKey: "pr-1" }));
-  const end = Number(first.match(/call again with offset=(\d+)/)?.[1]);
-  expect(end).toBeLessThanOrEqual(80_000);
-  expect(end).toBeGreaterThan(70_000);
-  expect(big.slice(end).startsWith("diff --git ")).toBe(true);
+  for (const limit of [undefined, 200_000]) {
+    const first = toolText(await harness.behavior.callAgentTool("read_review_patch", { targetKey: "pr-1", limit }));
+    const end = Number(first.match(/call again with offset=(\d+)/)?.[1]);
+    expect(end).toBeLessThanOrEqual(40_000);
+    expect(end).toBeGreaterThan(30_000);
+    expect(big.slice(end).startsWith("diff --git ")).toBe(true);
+  }
+});
+
+test("read_review_patch refuses a limit too small for a character, and a page of the smallest moves on at a 4-byte one", async () => {
+  const { harness, store } = await host();
+  const emoji = "diff --git a/e.md b/e.md\n--- a/e.md\n+++ b/e.md\n@@ -0,0 +1 @@\n+😀😀\n";
+  await store.savePatch("pr-1", emoji);
+  for (const limit of [1, 3]) await expect(harness.behavior.callAgentTool("read_review_patch", { targetKey: "pr-1", limit })).rejects.toThrow("limit: Too small: expected number to be >=4");
+  const at = emoji.indexOf("😀");
+  for (const file of [undefined, "e.md"]) {
+    const page = toolText(await harness.behavior.callAgentTool("read_review_patch", { targetKey: "pr-1", file, offset: at, limit: 4 }));
+    // A page of the whole diff that starts inside a file names it first.
+    expect(page.startsWith(file ? "😀\n\n[" : "[e.md's diff, continued]\n😀\n\n[")).toBe(true);
+    expect(page).toMatch(new RegExp(`offset=${at + 2}\\]$`));
+  }
+});
+
+// A 134-file PR's 376 KB diff came in pages of 63–80 KB, over what Claude Code keeps in a tool result: it saved each to
+// a file and the hidden writer's shell command to read one waited for an approval no one saw.
+test("every page of a big diff fits Claude Code's tool result, and the pages put together are the diff, each file named", async () => {
+  const { harness, store } = await host();
+  const line = (i: number) => `+  const value${i} = await fetchSomething({ id: ${i}, name: "item-${i}" }); // ${"é".repeat(i % 7)}\n`;
+  const sizes = [400, 1_200, 30, 2_500, 800, 5, 900];
+  const big = sizes.map((rows, f) => `diff --git a/src/f${f}.ts b/src/f${f}.ts\n--- a/src/f${f}.ts\n+++ b/src/f${f}.ts\n@@ -0,0 +1,${rows} @@\n${Array.from({ length: rows }, (_, i) => line(i)).join("")}`).join("");
+  await store.savePatch("pr-1", big);
+  let joined = "";
+  const named = new Set<string>();
+  for (let offset = 0; offset < big.length;) {
+    const page = toolText(await harness.behavior.callAgentTool("read_review_patch", { targetKey: "pr-1", offset }));
+    // Claude Code counts no tokens of a result of 50,000 characters or fewer; a page stays well under, in bytes too.
+    expect(Buffer.byteLength(page)).toBeLessThanOrEqual(40_200);
+    const continued = page.match(/^\[(.+)'s diff, continued\]\n/);
+    if (continued) named.add(continued[1]);
+    const next = page.match(/\n\n\[(\d+)\/\d+ bytes — call again with offset=\d+\]$/);
+    const text = page.slice(continued?.[0].length ?? 0, next ? page.length - next[0].length : page.length);
+    for (const header of text.matchAll(/^diff --git a\/(\S+)/gm)) named.add(header[1]);
+    // A page that goes on with a file names the file it goes on with.
+    if (continued) expect(joined.slice(joined.lastIndexOf("diff --git ")).startsWith(`diff --git a/${continued[1]} `)).toBe(true);
+    joined += text;
+    offset = next ? Number(next[1]) : big.length;
+  }
+  expect(joined).toBe(big);
+  expect([...named].sort()).toEqual(sizes.map((_, f) => `src/f${f}.ts`).sort());
+
+  // One file's diff longer than a page comes in pages too, cut at lines.
+  let file = "";
+  for (let offset = 0, more = true; more;) {
+    const page = toolText(await harness.behavior.callAgentTool("read_review_patch", { targetKey: "pr-1", file: "src/f1.ts", offset }));
+    expect(Buffer.byteLength(page)).toBeLessThanOrEqual(40_200);
+    const next = page.match(/\n\n\[(\d+)\/\d+ bytes — call again with file and offset=\d+\]$/);
+    const text = next ? page.slice(0, page.length - next[0].length) : page;
+    expect(text.endsWith("\n")).toBe(true);
+    file += text;
+    more = !!next;
+    offset = next ? Number(next[1]) : 0;
+  }
+  expect(file).toBe(big.slice(big.indexOf("diff --git a/src/f1.ts"), big.indexOf("diff --git a/src/f2.ts")));
 });
 
 test("the guide-writing skill reads the diff in pages, with lockfiles and generated files as stubs", async () => {

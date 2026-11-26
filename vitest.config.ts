@@ -10,7 +10,7 @@ export default defineConfig({
           include: ["src/**/*.test.ts", "scripts/**/*.test.ts"],
           environment: "node",
           // No test may run the real gh. The Store runs on Postgres when CRW_TEST_PG_URL is set.
-          setupFiles: ["src/real-gh.test-support.ts", "src/test-backend.test-support.ts"],
+          setupFiles: ["src/real-gh.test-support.ts", "src/test-backend.test-support.ts", "src/pending-asks.test-support.ts"],
         },
       },
       {

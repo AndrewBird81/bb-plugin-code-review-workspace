@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- **Big PRs' guides:** the guide writer read a big diff in pages of up to 80 KB, more than Claude Code keeps in a tool result, so Claude Code saved each page to a file for the writer to read back, and a shell command to read one waited, in the hidden writer, for an approval no one saw, until the guide timed out. Pages are now at most 40 KB; a file longer than a page goes on, cut at a line, on the next page, which names it.
+- **Hidden guide writer:** an approval it asks for is declined, and it goes on with Code Review Workspace's tools; a question or anything else it asks fails the guide at once, saying what it asked, instead of after its timeout.
+
 ## 1.17.0 — 2026-11-24
 
 - **Review passes:** `bb review update <review> [--notify]` starts one pass on a PR's review or a folder's: the current diff, the guide when the diff moved, fresh focuses, and a fresh hidden merge thread seeded with earlier findings, the implementer's reports and the reviewer's replies. `bb review result <review> [<pass-id>] [--json]` returns its findings (focus, agent and open draft comments), or `stale` once the PR's head or the folder moved. `--notify` sends the calling thread a receipt when the pass ends. `bb review round` is a deprecated alias.
