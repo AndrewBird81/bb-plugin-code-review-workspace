@@ -46,6 +46,11 @@ export interface Folder {
   missing?: boolean;
   /** The Git plugin's answer to a method instead of the folder's, as a changed or broken plugin might give. */
   answers?: Record<string, (input: any) => unknown>;
+  /**
+   * The refs the folder has, by name, with how many commits its head has since each (ahead) and each since the head
+   * left it (behind); given, bb answers workspaceStatus from them.
+   */
+  refs?: Record<string, { ahead: number; behind?: number }>;
 }
 
 /**
@@ -80,6 +85,12 @@ export function folderHost(folder: Folder, sdk: Record<string, unknown> = {}) {
       const file = folder.files.find((f) => f.path === path)!;
       return [key, { outcome: "available", patch: { path, patch: file.reverted ? "" : headers(file), truncated: !!file.truncated } }];
     })),
+    ...folder.refs ? {
+      workspaceStatus: (input: any) => {
+        const ref = folder.refs![input.mergeBaseBranch];
+        return { outcome: "available", workspace: { mergeBase: ref ? { aheadCount: ref.ahead, behindCount: ref.behind ?? 0, commits: [] } : null } };
+      },
+    } : {},
     fileSide: ({ query }) => {
       const file = folder.files.find((f) => f.path === query.path);
       const text = file?.[query.side as "old" | "new"];

@@ -50,37 +50,44 @@ test("updates replace one live status; more than three focuses use counts", () =
 
 test("failure and older commit fold into one dismissible line; dismissal is per run", async () => {
   width(1000);
-  const retry = vi.fn(async () => ({ ok: true }));
   const ended: FocusRun = { ...run, state: "done", focuses: [{ ...run.focuses[0], state: "failed", error: "<img src=x onerror=alert(1)>" }] };
-  const slot = renderSlot({ component: FocusStrip }, { targetKey: "r", run: ended, head: "new" }, { rpc: { rerunFocusRun: retry } });
+  const slot = renderSlot({ component: FocusStrip }, { targetKey: "r", run: ended, head: "new" });
   expect(slot.getAllByRole("status")).toHaveLength(1);
   expect(slot.getByRole("status").nextElementSibling!.textContent).toContain("abcdef1");
   expect(slot.getByRole("status").nextElementSibling!.textContent).toContain("<img src=x onerror=alert(1)>");
   expect(slot.container.querySelector("img")).toBeNull();
-  fireEvent.click(slot.getByRole("button", { name: "Run again" }));
-  await vi.waitFor(() => expect(retry).toHaveBeenCalledWith({ targetKey: "r" }));
-  fireEvent.click(slot.getByRole("button", { name: "Got it" }));
+  // Update review reruns the focuses: the strip has no rerun of its own.
   expect(slot.queryByRole("button", { name: "Run again" })).toBeNull();
+  fireEvent.click(slot.getByRole("button", { name: "Got it" }));
+  expect(slot.queryByRole("button", { name: "Got it" })).toBeNull();
   slot.rerender(<FocusStrip targetKey="r" run={{ ...ended, id: "r2" }} head="new" />);
   expect(slot.getByRole("status")).toBeTruthy();
 });
 
-test("stopped run offers recovery; dispatched merge has no Stop", () => {
+test("a stopped run says so, with Got it and no rerun; dispatched merge has no Stop", () => {
   const slot = renderSlot({ component: FocusStrip }, { targetKey: "r", run: { ...run, state: "stopped" } });
-  expect(slot.getByRole("button", { name: "Run again" })).toBeTruthy();
+  expect(slot.getByText("The focus run stopped.")).toBeTruthy();
+  expect(slot.getByRole("button", { name: "Got it" })).toBeTruthy();
+  expect(slot.queryByRole("button", { name: "Run again" })).toBeNull();
   slot.rerender(<FocusStrip targetKey="r" run={{ ...run, state: "merging", mergeDispatchedAt: 2 }} />);
   expect(slot.queryByRole("button", { name: "Stop" })).toBeNull();
 });
 
-test("a pushed but unloaded commit points to Update guide, not a rerun of the same old diff", () => {
+test("a pushed but unloaded commit points to Update review", () => {
   const ended: FocusRun = { ...run, state: "done", focuses: [{ ...run.focuses[0], state: "done" }] };
-  const slot = renderSlot({ component: FocusStrip }, { targetKey: "r", run: ended, head: run.head, latestHead: "pushed", updateAction: <button>Update guide</button> });
+  const slot = renderSlot({ component: FocusStrip }, { targetKey: "r", run: ended, head: run.head, latestHead: "pushed", updateAction: <button>Update review</button> });
   expect(slot.getByRole("status").nextElementSibling!.textContent).toContain("older commit");
-  expect(slot.getByRole("button", { name: "Update guide" })).toBeTruthy();
-  expect(slot.queryByRole("button", { name: "Run again" })).toBeNull();
-  slot.rerender(<FocusStrip targetKey="r" run={ended} head="pushed" latestHead="pushed" />);
-  expect(slot.getByRole("button", { name: "Run again" })).toBeTruthy();
-  expect(slot.queryByRole("button", { name: "Update guide" })).toBeNull();
+  expect(slot.getByRole("button", { name: "Update review" })).toBeTruthy();
+  slot.rerender(<FocusStrip targetKey="r" run={ended} head="pushed" latestHead="pushed" updateAction={<button>Update review</button>} />);
+  expect(slot.queryByRole("button", { name: "Update review" })).toBeNull();
+});
+
+test("a review pass's focus run leaves the strip to the pass's notice", () => {
+  const slot = renderSlot({ component: FocusStrip }, { targetKey: "r", run: { ...run, passId: "p1" } });
+  expect(slot.getByRole("status").textContent).toBe("");
+  expect(slot.queryByRole("button", { name: "Stop" })).toBeNull();
+  slot.rerender(<FocusStrip targetKey="r" run={{ ...run, passId: "p1", state: "stopped" }} />);
+  expect(slot.queryByRole("button", { name: "Got it" })).toBeNull();
 });
 
 test("the same empty polite live region receives each change once, without announcing controls", () => {
@@ -102,13 +109,13 @@ test("Got it survives remounts, is scoped to the review, and never dismisses a l
   fireEvent.click(slot.getByRole("button", { name: "Got it" }));
   slot.lifecycle.unmount();
   slot = renderSlot({ component: FocusStrip }, { targetKey: "r", run: ended });
-  expect(slot.queryByRole("button", { name: "Run again" })).toBeNull();
+  expect(slot.queryByRole("button", { name: "Got it" })).toBeNull();
   slot.rerender(<FocusStrip targetKey="another-review" run={ended} />);
-  expect(slot.getByRole("button", { name: "Run again" })).toBeTruthy();
+  expect(slot.getByRole("button", { name: "Got it" })).toBeTruthy();
   slot.rerender(<FocusStrip targetKey="r" run={ended} />);
-  expect(slot.queryByRole("button", { name: "Run again" })).toBeNull();
+  expect(slot.queryByRole("button", { name: "Got it" })).toBeNull();
   slot.rerender(<FocusStrip targetKey="r" run={{ ...ended, id: "later" }} />);
-  expect(slot.getByRole("button", { name: "Run again" })).toBeTruthy();
+  expect(slot.getByRole("button", { name: "Got it" })).toBeTruthy();
 });
 
 test.each(["finding", "stopped"] as const)("focuses off hides stored %s run UI and actions", (state) => {

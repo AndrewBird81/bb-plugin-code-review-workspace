@@ -10,7 +10,7 @@ import { createStore } from "./store";
 import { queueStore } from "./store-queue";
 import { toGithubReviewPayload } from "./draft";
 import { dumpDatabase } from "../scripts/store-reads";
-import { defaultFocusSettings } from "../lib/review-preferences";
+import { defaultFocusSettings, defaultPreferences } from "../lib/review-preferences";
 
 // The fixture is a data.db's rows: the Store reads it on SQLite, whatever the test backend.
 vi.unmock("./store");
@@ -43,6 +43,9 @@ test("every Store read of reviews 1.7.0 wrote gives what 1.7.0's gave, but the n
   expect(read170.global.getPreferences.preferences).not.toHaveProperty("focuses");
   expect(reads.global.getPreferences.preferences.focuses).toEqual(defaultFocusSettings);
   read170.global.getPreferences.preferences.focuses = defaultFocusSettings;
+  // 1.15.0's automatic review, which follows the default the fixture kept, and Skip nitpicks at its default.
+  read170.global.getPreferences.preferences.automaticReview = defaultPreferences.automaticReview;
+  read170.global.getPreferences.preferences.skipNitpicks = defaultPreferences.skipNitpicks;
   expect(reads).toEqual(read170);
 });
 

@@ -12,7 +12,7 @@ import type { AsyncStore } from "./store-queue";
 import { assistantReview, mergedAway } from "./draft-comments";
 import { requireReviewRevision, reviewRevision } from "./review-revision";
 import { isMissingThread } from "./thread-errors";
-import { branchLine, commentText, fenced, fixerExecution, fixerTitle, GUARD, GUARD_BUT_PUSH, header, isOwnChange, onlyLocal, placed, theirPr, where, type Placed } from "./fix-handoff";
+import { branchLine, checkedOutBranchLine, commentText, fenced, fixerExecution, fixerTitle, GUARD, GUARD_BUT_PUSH, header, isOwnChange, onlyLocal, placed, theirPr, where, type Placed } from "./fix-handoff";
 import { homeShort, mainThreadState } from "./feature-review";
 import { diffFilesHead } from "./env-diff";
 import { pruneDiffs } from "./feedback-view";
@@ -176,7 +176,7 @@ export async function mainThreadLink(deps: Deps, targetKey: string): Promise<Mai
  * of its own, a fixer, fresh or forked from the thread that wrote it; or, for an approval, which never starts one, no
  * thread at all: it's only recorded.
  */
-type Route = { to: { threadId: string; title: string | null }; unarchive?: boolean } | { fresh: Fresh } | { fixer: FixerPlace; fork: boolean } | { none: { threadId: string; title: string | null } };
+type Route = { to: { threadId: string; title: string | null; environmentId: string | null }; unarchive?: boolean } | { fresh: Fresh } | { fixer: FixerPlace; fork: boolean } | { none: { threadId: string; title: string | null } };
 
 
 /**
@@ -234,6 +234,7 @@ async function route(deps: Deps, review: ReviewMeta, own: boolean, notes: string
     const { thread, state } = await readRecipient(bb, threadId);
     if (unsettled(review, thread)) await settleFolder(deps, review.targetKey, thread!);
     const title = thread ? threadTitle(thread) : null;
+    const to = { threadId, title, environmentId: thread?.environmentId ?? null };
     if (state === "gone") {
       if (!spawn) {
         if (!force) said.push(`${title ?? "The main thread"} was deleted, ${unsent}`);
@@ -245,7 +246,7 @@ async function route(deps: Deps, review: ReviewMeta, own: boolean, notes: string
     } else if (state === "archived") {
       if (!spawn) {
         if (!choice && !force) { said.push(`${title ?? "The main thread"} is archived. Unarchive it and send, or Send anyway to record your approval without telling it.`); offers.push("unarchive", "anyway"); }
-        routed = choice === "unarchive" ? { to: { threadId, title }, unarchive: true } : { none: { threadId, title } };
+        routed = choice === "unarchive" ? { to, unarchive: true } : { none: { threadId, title } };
       } else {
         if (!choice) {
           const place = await fixerNow();
@@ -259,9 +260,9 @@ async function route(deps: Deps, review: ReviewMeta, own: boolean, notes: string
             offers.push("unarchive", "fresh");
           }
         }
-        routed = startsFresh ? await freshRoute() : { to: { threadId, title }, unarchive: true };
+        routed = startsFresh ? await freshRoute() : { to, unarchive: true };
       }
-    } else routed = { to: { threadId, title } };
+    } else routed = { to };
   }
   if (!said.length) return routed;
   // Read already, when a fresh thread was offered.
@@ -372,8 +373,11 @@ export async function send(deps: Deps, targetKey: string, picked: readonly Comme
   const laterFixer = toFixer && !briefed;
   // A fixer works at the PR's head, which hasn't the lines of a comment not on GitHub yet: that one stays, for a main thread in its folder.
   const atHead = !!fixer || toFixer;
-  // To a thread in the PR's own folder: stay on its branch, if the folder is on it.
-  const stayOn = "to" in routed && !toFixer && main && main.environmentId === now.feature?.environmentId ? await folderBranchLine(bb, now) : null;
+  // A Send to an existing thread can name where the PR's branch is already checked out.
+  const checkout = "to" in routed && !toFixer
+    ? (routed.to.environmentId === now.feature?.environmentId ? await folderBranchLine(bb, now) : null)
+      ?? await checkedOutBranchLine(bb, now, routed.to.environmentId).catch(() => null)
+    : null;
   const moved = fresh?.from ? newWorktree(shown, fresh.from) : null;
   // A fresh thread is told GitHub's limits as Fix in a new thread is: all of them, or, let push, all but the push.
   // Let push on someone else's PR, from a folder that joined its review: told whose branch a push changes, as Push says.
@@ -429,7 +433,7 @@ export async function send(deps: Deps, targetKey: string, picked: readonly Comme
       const brief = fixer ? { place: fixer.fixer, forked: fixer.fork } : briefed ? { place: briefed, forked: true } : null;
       const opening = brief
         ? fixerBrief(shown, brief.place, { lead: `${named.length ? "Fix these comments from my review of" : "Address this feedback on"} ${prWhat(shown)}.`, intent: (await tx.getGuide(targetKey))?.intent, forked: brief.forked, own, letPush })
-        : moved ? where(moved.shown, moved.branch, lead) : where(shown, laterFixer && main ? fixerBranchLine(recordOf(now, main.threadId)?.branch ?? main.branch) : stayOn ?? undefined, lead);
+        : moved ? where(moved.shown, moved.branch, lead) : where(shown, laterFixer && main ? fixerBranchLine(recordOf(now, main.threadId)?.branch ?? main.branch) : checkout ?? undefined, lead);
       // A fixer sent to again stays on its branch, and is told again what the quoted words are.
       const text = [message, opening, ...texts, ...apply, summary, ...limits, ...laterFixer ? [UNTRUSTED_NOTE] : [], REPORT].filter(Boolean).join("\n\n");
       return { comments: named, items: items.map((item, i) => ({ githubId: githubId(item), id: itemIds[i] })), skipped: github.length - items.length, keptLocal, patch, local, files, text };

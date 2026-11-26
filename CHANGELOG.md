@@ -11,6 +11,34 @@ Choose the review agent as you start a review, and the guide writer as you build
 - A PR found on GitHub with no guide yet shows **Guide writer** above **Build the guide** on its page, and so does a first guide that stopped or failed, above **Build the guide** or **Try again**. It starts at the **Guide writer agent** setting, else the agent, model, and effort BB remembers for the project the review runs in, with the same machine choice. Pick another, and that build's writer starts on exactly that provider, model, effort, service tier, and machine; Settings stay as they are, and the pick isn't kept, so the next build, as **Update guide**, is the setting's. Settings' permission mode comes along when you keep its provider; on another, the lowest its provider runs in on the picked machine, as on Project defaults. A pick on a machine that's offline or removed stops the build before the PR is read.
 - A pasted PR's guide writer is the **Guide writer agent** setting's, as before. `bb review`, **Review changes** above a thread's message box, starting a stack's PR from its review, **Build the guide** in a review's menu, and **Update guide** or **Rebuild guide** take no pick: they start on the setting. A guide a reload interrupted restarts on the setting's writer too.
 
+## 1.17.0 — 2026-11-24
+
+- **Review passes:** `bb review update <review> [--notify]` starts one pass on a PR's review or a folder's: the current diff, the guide when the diff moved, fresh focuses, and a fresh hidden merge thread seeded with earlier findings, the implementer's reports and the reviewer's replies. `bb review result <review> [<pass-id>] [--json]` returns its findings (focus, agent and open draft comments), or `stale` once the PR's head or the folder moved. `--notify` sends the calling thread a receipt when the pass ends. `bb review round` is a deprecated alias.
+- **Update review:** one button, on a PR's review or a folder's, wherever it's out of date (new commits, the folder changed, the guide behind), starts a review pass. It replaces the notices' Update, Update guide and Rewrite guide, the focus strip's Run again, Finish review's focus-coverage Check again, and the Update on "new commits that didn't come from Push". While the pass runs, one notice shows its stage, with Stop in any stage; then it says "N findings", "No findings", incomplete, why it failed, or Stopped. `bb review result` can now return `stopped`. Rewrite guide (from scratch) is only in Review actions, where a PR's item is always **Rebuild guide**.
+- Rounds' pending result from 1.16.0 isn't carried over: start a new pass.
+- **Folder review base:** `bb review --base <ref>` with no PR or ref sets and keeps the base of the thread's folder review; `--base ''` goes back to automatic. Diff options' **Base** shows it and picks another. An open PR's base still wins.
+- **Automatic base:** of the folder's base in BB, the branch it was made from, the default branch and their copies on `origin`, a folder review is now against the one its branch left last, worked out again at each read. A local `main` not pulled lately no longer shows what's merged since as new, and a fresh thread's worktree no longer keeps its first base forever.
+
+## 1.16.0 — 2026-11-23
+
+- **Local review rounds:** `bb review round start` refreshes the worktree diff and notifies the requesting thread when the review agent records its findings. `bb review round result` returns a structured batch tied to the reviewed diff. Previous findings are checked again after fixes; incomplete or stale results are not passes.
+- Local rounds leave draft comments, the human `bb review ready` flow, and GitHub unchanged. No data migration or change to minimum BB, SDK, or Node versions.
+
+## 1.15.1 — 2026-11-21
+
+- **Send to main thread:** when a PR’s branch is already checked out in the review’s BB project, the message names the folder, machine, and environment instead of asking the thread to check out the branch. It keeps the existing wording when no checkout can be confirmed.
+- Still **BB 0.48+** (plugin SDK **0.6.79+**) with Node 24+. No data migration.
+
+## 1.15.0 — 2026-11-20
+
+Reviews that catch the comments human reviewers ask to fix, and a Skip nitpicks setting for others' PRs and for your own. Still **BB 0.48+** (plugin SDK **0.6.79+**) with Node 24+; installs at `^1.0.0` update to 1.15.0. 1.15.0 adds no migration: Skip nitpicks is kept with the other settings, so rolling back to 1.14.0 keeps everything, and 1.14.0 drops the setting the next time it saves settings.
+
+- **Docs focus:** checks every comment the diff adds for ticket, issue or phase ids, wording a reader can't follow the first time, comments that only restate the code, and lint suppressions with no reason given. These are now Should fix with a suggested rewrite, not Nits. If you edited the Docs focus's instructions, use **Reset to template** to get the new one.
+- **Focus merge:** keeps a focus's severity unless the code shows it's wrong, so a wrong docstring is no longer dismissed as a Nit, and no longer dismisses findings as "not worth the author's time".
+- **Skip nitpicks** (Settings → Review agent), with one switch for others' PRs (on by default) and one for your own PRs and local changes (off by default). With it off on your own change, the review agent and focuses draft every confirmed Nit, with no cap of 5 per focus. With it off on others' PRs, they keep at most 5 per focus.
+- **Automatic review:** the default prompt says comment wording and ticket ids aren't style, takes **Nit:** comments, and leaves Nits to Skip nitpicks. If you never edited the prompt, you get the new default.
+- **Assistant instructions:** when you've written none, the fallback no longer says "skip nitpicks"; Skip nitpicks decides that.
+
 ## 1.14.0 — 2026-11-17
 
 Reviews in BB's own thread sections, and a focus merge that no longer drops its findings. Still **BB 0.48+** (plugin SDK **0.6.79+**) with Node 24+; installs at `^1.0.0` update to 1.14.0. 1.14.0 adds no migration: a review's section is kept with its other lifecycle fields, so rolling back to 1.13.0 keeps everything, and reviews you moved go back to where they go by themselves.

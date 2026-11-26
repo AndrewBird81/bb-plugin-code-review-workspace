@@ -4,7 +4,7 @@ import type { AgentMessage, ReviewMeta } from "./store";
 import type { Guide } from "./guide";
 import { isMissingThread } from "./thread-errors";
 import { runGh } from "./gh";
-import { assistantPreferencesPrompt, automaticReviewPrompt, spawnExecution, type AgentExecution, type ReviewPreferences } from "./preferences";
+import { assistantPreferencesPrompt, automaticReviewPrompt, nitPolicy, nitpickRule, spawnExecution, type AgentExecution, type ReviewPreferences } from "./preferences";
 import { mayRunChecks, mayRunUnattended, skipWhy } from "../lib/trust";
 import { agentPlacement, machineStatus, machineUnavailable } from "./machines";
 import { identityIn, placeFacts } from "./review-places";
@@ -59,6 +59,8 @@ export function assistantInstructions(targetKey: string, guide: Guide | null, pr
   // What Settings asks it to do besides, least needed last: the first to go, a whole line at a time, when the guide's
   // chapter titles, or bb's limit, need the room.
   const checks = [
+    // Settings' Skip nitpicks, by whose change it is: first, so the last of them to go.
+    nitpickRule(nitPolicy(preferences, review)),
     ...(preferences.knobs.preExistingFindings ? ["Mark problems in code the PR didn't change introduced: false; never suggest REQUEST_CHANGES for those alone."] : []),
     ...(preferences.knobs.agentCoverage ? ["Pass set_review_summary unchecked: what you didn't read or run."] : []),
     ...(preferences.knobs.testWeakening ? ["Check tests marked weakened, that an added enum value, route, handler or provider is registered wherever its siblings are, and for helpers the PR re-implements. Over ~1,000 changed lines in independent chapters, suggest a split."] : []),

@@ -128,9 +128,9 @@ export const rpcContract = defineRpcContract({
   getPreferences: { input: z.null(), output: z.object({ preferences: preferencesSchema, revision: z.number().int() }) },
   savePreferences: {
     // Pages open from before 0.5.1 send settings without threadListReviews, from before 0.6.0 without rereviewShows,
-    // and from before 1.5.0 without markdownFiles; the saved value stands. Pages from before knobs send none, and any page may send some: the saved
+    // from before 1.5.0 without markdownFiles, and from before 1.15.0 without skipNitpicks; the saved value stands. Pages from before knobs send none, and any page may send some: the saved
     // ones stand for the rest. Pages from before focuses leave its saved value intact.
-    input: z.object({ preferences: preferencesSchema.extend({ knobs: knobsSchema.partial().optional(), focuses: focusSettingsSchema.partial({ githubLabel: true, mergeEffort: true }).extend({ focuses: z.array(focusSchema.extend({ agent: focusSchema.shape.agent.removeDefault().optional() })).max(12) }) }).partial({ threadListReviews: true, rereviewShows: true, markdownFiles: true, focuses: true }), revision: z.number().int().min(0) }).strict(),
+    input: z.object({ preferences: preferencesSchema.extend({ knobs: knobsSchema.partial().optional(), focuses: focusSettingsSchema.partial({ githubLabel: true, mergeEffort: true }).extend({ focuses: z.array(focusSchema.extend({ agent: focusSchema.shape.agent.removeDefault().optional() })).max(12) }) }).partial({ threadListReviews: true, rereviewShows: true, markdownFiles: true, skipNitpicks: true, focuses: true }), revision: z.number().int().min(0) }).strict(),
     output: z.object({ preferences: preferencesSchema, revision: z.number().int() }),
   },
   // Seeds a custom agent selection with the panel project's remembered defaults, and a custom guide writer with the
@@ -181,6 +181,9 @@ export const rpcContract = defineRpcContract({
   },
 
   rerunFocusRun: { input: targetKey, output: z.object({ ok: z.boolean(), error: z.string().optional() }) },
+  // A review pass (src/review-pass.ts): the review's reviewPass shows its stage and result.
+  startPass: { input: targetKey, output: z.object({ ok: z.boolean(), error: z.string().optional(), passId: z.string().optional(), reused: z.boolean().optional() }) },
+  stopPass: { input: targetKey, output: z.object({ ok: z.boolean(), error: z.string().optional() }) },
   stopFocusRun: { input: z.object({ targetKey: z.string() }).strict(), output: z.object({ ok: z.boolean() }) },
   // Read. sync: how reading GitHub went (src/review-lifecycle.ts SyncHealth).
   listReviews: { input: z.null(), output: z.object({ reviews: z.array(z.any()), sync: syncHealth.optional() }) },
@@ -570,6 +573,16 @@ export const rpcContract = defineRpcContract({
   /** Got it: stop warning about these committed files that look like secrets, in this review. */
   dismissFlagged: {
     input: z.object({ targetKey: z.string(), files: z.array(z.string().min(1)).min(1).max(1000) }).strict(),
+    output: z.object({ ok: z.boolean(), error: z.string().optional() }),
+  },
+  /** The bases a folder's local review may be against, the one its branch left last first (src/env-diff.ts baseCandidates). */
+  featureBases: {
+    input: targetKey,
+    output: z.object({ candidates: z.array(z.object({ ref: z.string(), ahead: z.number(), behind: z.number() })) }),
+  },
+  /** Keep `base` as the one a folder's local review is against, or null for the automatic one, and read the folder again. */
+  setFeatureBase: {
+    input: z.object({ targetKey: z.string(), base: z.string().trim().min(1).nullable() }).strict(),
     output: z.object({ ok: z.boolean(), error: z.string().optional() }),
   },
   /** Follow: the local review becomes that of the branch its folder is on now, under its key, as when the branch is renamed. */

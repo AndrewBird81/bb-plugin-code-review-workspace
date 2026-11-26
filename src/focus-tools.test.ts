@@ -116,6 +116,20 @@ test("the five-Nit cap uses the merge agent's severity, including folds", async 
   await s.harness.lifecycle.dispose();
 });
 
+test("on your own PR with Skip nitpicks off for it, the merge keeps every Nit", async () => {
+  const s = await setup();
+  await s.store.setLifecycle("r", { ownPr: true });
+  for (let n = 0; n < 7; n++) await s.store.saveFocusFinding(staged({ id: String(n) }));
+  await s.store.upsertDraftComment("r", { file: "a.ts", line: 1, side: "RIGHT", author: "agent", body: "General" });
+  await s.merge();
+  for (let n = 0; n < 7; n++) expect(await s.call("keep_focus_finding", { id: String(n), body: "Combined", severity: "nit", evidence: "a.ts:1", into: { file: "a.ts", line: 1 } })).not.toHaveProperty("isError", true);
+  // Skip nitpicks on for your own PRs puts the cap back.
+  await s.store.savePreferences({ ...defaultPreferences, skipNitpicks: { others: true, own: true } }, (await s.store.getPreferences()).revision);
+  for (let n = 7; n < 8; n++) await s.store.saveFocusFinding(staged({ id: String(n) }));
+  expect(await s.call("keep_focus_finding", { id: "7", body: "Combined", severity: "nit", evidence: "a.ts:1", into: { file: "a.ts", line: 1 } })).toMatchObject({ isError: true });
+  await s.harness.lifecycle.dispose();
+});
+
 test.each(["no submit", "rejected submit"])("%s: idle twice nudges once, then fails stopped without reporting", async (report) => {
   const idles: Array<() => void> = [];
   const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: {

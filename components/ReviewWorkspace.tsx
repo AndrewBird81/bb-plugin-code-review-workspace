@@ -27,9 +27,6 @@ import { carried, keep, present, type KeptFocus, type LineSelection } from "../l
 import { CompactViewportOverrideProvider } from "./ui/hooks/use-compact-viewport";
 import { useMediaQuery } from "./ui/hooks/use-media-query";
 import { Button } from "./ui/button";
-import { Hint } from "./ui/hint";
-import { Icon } from "./ui/icon";
-import { useFullscreenPortalContainer } from "../lib/portal-scope";
 import type { FileOwners } from "../src/codeowners";
 import { ChapterIntro } from "./ChapterIntro";
 import { ChapterViewSwitch } from "./ChapterNav";
@@ -62,7 +59,8 @@ import { NavigatorHost } from "./shell/NavigatorHost";
 import { PhoneDock } from "./shell/PhoneDock";
 import { returnFocus } from "./shell/side-parts";
 import { FocusStrip } from "./shell/FocusStrip";
-import { REWRITE_GUIDE, ReviewNotices, useNewCommits, type Notice } from "./shell/ReviewNotices";
+import { ReviewNotices, useNewCommits, type Notice } from "./shell/ReviewNotices";
+import { OUT_OF_DATE, useReviewPass } from "./shell/PassNotices";
 import { useBranchKeptNotices, useFeatureNotices } from "./shell/FeatureNotices";
 import { useFixNotices } from "./shell/FixNotices";
 import { usePrDraftToast, usePushNotices } from "./shell/PushNotices";
@@ -801,10 +799,8 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   }, [stopping, rpc, targetKey, load]);
   const archived = !!review?.archivedAt;
   const localDiffChanges = useKnob("localDiffChanges");
-  // Rewrite guide's hint, inside the workspace in full screen.
-  const portalContainer = useFullscreenPortalContainer();
   const reviewLinks = useReviewLinks(review);
-  const { newCommits, local: localChanged, text: newCommitsText } = useNewCommits(targetKey, (isPr || review?.kind === "ref" && localDiffChanges) && !archived);
+  const { newCommits, text: newCommitsText } = useNewCommits(targetKey, (isPr || review?.kind === "ref" && localDiffChanges) && !archived);
 
   useEffect(() => {
     if (guide) void checkAccess();
@@ -814,6 +810,8 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   });
   // A local review's folder: changed, on another branch, offline or gone, and who else works there; a PR's, what's not pushed yet.
   const featureNotices = useFeatureNotices(targetKey, review, load, activeId === NOT_PUSHED_PAGE ? null : () => setActiveId(NOT_PUSHED_PAGE), () => openComments("feedback"));
+  // Update review, and the review pass's notice (src/review-pass.ts).
+  const { notices: passNotices, updateReview, running: passRunning } = useReviewPass(targetKey, review, load);
   // A fixer's branch, once BB removed its folder.
   const branchKept = useBranchKeptNotices(targetKey, review, load);
 
@@ -1567,9 +1565,9 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     display: { layout: diffLayout, toggleLayout, newFiles, setNewFiles: changeNewFiles, markdownFiles, setMarkdownFiles: changeMarkdownFiles, unifiedOnly, wrap: wrapLines, setWrap: changeWrap, hideWhitespace, setHideWhitespace: changeHideWhitespace, githubThreads: showThreads, setGithubThreads: setShowThreads, commentsFolded, setCommentsFolded: changeCommentsFolded },
     reveal: showComment, showLocation, followUp, askAgent, openFinish: showDraftSummary,
     fullscreen: { available: canFullscreen, on: fullscreen, toggle: toggleFullscreen }, leave,
-    snooze, newCommits, rebuild, reload: load, pinnable: preferences?.preferences.threadListReviews === true, showShortcuts,
+    snooze, rebuild, reload: load, pinnable: preferences?.preferences.threadListReviews === true, showShortcuts,
     shortcuts: shortcutsOn, mainThread, patch, injection,
-  } : null, [targetKey, review, guide, sections, activeId, selectChapter, layout, toggleNav, findInReview, navView, changeNavView, shownPanel, openPanel, togglePanel, closePanel, views, toggleViewed, markChapterViewed, nextUnviewed, foldAllFiles, baselineSha, compareFrom, pickCompare, flip, since, sinceOnly, sinceError, sinceWhat, diffLayout, toggleLayout, newFiles, changeNewFiles, markdownFiles, changeMarkdownFiles, unifiedOnly, wrapLines, changeWrap, hideWhitespace, changeHideWhitespace, showThreads, setShowThreads, commentsFolded, changeCommentsFolded, showComment, showLocation, followUp, askAgent, showDraftSummary, canFullscreen, fullscreen, toggleFullscreen, leave, snooze, newCommits, rebuild, load, preferences, showShortcuts, shortcutsOn, mainThread, patch, injection, identity?.id, identity?.name]);
+  } : null, [targetKey, review, guide, sections, activeId, selectChapter, layout, toggleNav, findInReview, navView, changeNavView, shownPanel, openPanel, togglePanel, closePanel, views, toggleViewed, markChapterViewed, nextUnviewed, foldAllFiles, baselineSha, compareFrom, pickCompare, flip, since, sinceOnly, sinceError, sinceWhat, diffLayout, toggleLayout, newFiles, changeNewFiles, markdownFiles, changeMarkdownFiles, unifiedOnly, wrapLines, changeWrap, hideWhitespace, changeHideWhitespace, showThreads, setShowThreads, commentsFolded, changeCommentsFolded, showComment, showLocation, followUp, askAgent, showDraftSummary, canFullscreen, fullscreen, toggleFullscreen, leave, snooze, rebuild, load, preferences, showShortcuts, shortcutsOn, mainThread, patch, injection, identity?.id, identity?.name]);
 
   // A comment asked for from another page, as its row on a thread's Review tab asks, whether the review opens now or
   // is open already: it shows once the page has its guide.
@@ -1609,11 +1607,10 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
 
   const noticeButton = cn("h-7", TOUCH_CONTROL);
   const retryGuide = <Button variant="outline" size="sm" className={noticeButton} disabled={rebuilding} onClick={() => void rebuild()}>Try again</Button>;
-  const updateButton = <Button variant="outline" size="sm" className={noticeButton} disabled={rebuilding} onClick={() => void rebuild("updateFeature")}>Update</Button>;
-  const updateGuide = <Button variant="outline" size="sm" className={noticeButton} disabled={rebuilding} onClick={() => void rebuild()}>Update guide</Button>;
-  const prFolder = isPr && !!review?.feature && !review.feature.folderGone;
   // The most pressing first: what went wrong, then what's under way, then what you might do.
-  const notices: Notice[] = [
+  // While a pass runs, its notice says what it does: the guide's own update notice, and what's out of date, wait for it.
+  const outOfDate = (notice: Notice) => OUT_OF_DATE.has(notice.id);
+  const shown: Notice[] = [
     ...(connection === "reconnecting" ? [{ id: "reconnecting", tone: "warning", icon: "Loading", busy: true, text: "Reconnecting… The review reloads once it’s back." }] as const : []),
     ...(loadError ? [{ id: "load", tone: "danger", icon: "AlertCircle", role: "alert", text: loadError, action: <Button variant="outline" size="sm" className={noticeButton} onClick={() => void load()}>Try again</Button> }] as const : []),
     // Once Try again starts the update over, the page keeps the review it last read: the update's notice replaces this one.
@@ -1623,21 +1620,19 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
       // Why, as a first guide's page says it: the writer's words or the last rejection, as plain text cut to a few lines.
       : { id: "rebuild", tone: "danger", icon: "AlertTriangle", role: "alert", text: <>Couldn’t update the guide. Showing the previous one.{review.guideError?.text && <span className="mt-0.5 line-clamp-3 whitespace-pre-line break-words">{review.guideError.text}</span>}</>, action: retryGuide } as const] : []),
     ...(repoAccess && !repoAccess.accessible ? [{ id: "access", tone: "danger", icon: "Lock", text: repoAccess.badCredentials ? "GitHub refused your account’s credentials. Switch account:" : `${repoAccess.account ? `@${repoAccess.account}` : "Your GitHub account"} can’t access ${repoAccess.repo ?? "this repo"}. Switch account:`, action: <AccountBar /> }] as const : []),
+    ...passNotices,
     ...featureNotices,
     ...fixNotices,
     ...branchKept,
     ...pushNotices,
-    ...(generatingReplacement ? [{ id: "updating", tone: "warning", icon: "Loading", busy: true, text: "Updating the guide for the new commits. Your current view and unsaved edits stay here.", ...(stopGenerating ? { action: <Button variant="outline" size="sm" className={noticeButton} disabled={stopping} onClick={() => void stopGuide()}>{stopping ? "Stopping…" : "Stop"}</Button> } : {}) }] as const : []),
+    ...(generatingReplacement && !passRunning ? [{ id: "updating", tone: "warning", icon: "Loading", busy: true, text: "Updating the guide for the new commits. Your current view and unsaved edits stay here.", ...(stopGenerating ? { action: <Button variant="outline" size="sm" className={noticeButton} disabled={stopping} onClick={() => void stopGuide()}>{stopping ? "Stopping…" : "Stop"}</Button> } : {}) }] as const : []),
     ...(review?.skippedRun && !archived ? [{ id: "not-run", tone: "warning", icon: "Lock", label: "Not run automatically", text: `${notRunReason(review, { unattendedAgents })}.`, action: <NotRunButton review={review} /> }] as const : []),
-    // A local review's buttons stay on its text's first line, as a folder's notices' do; Rewrite guide wears the agent's sparkle.
-    // A PR's review with its folder updates to the new commits without the guide writer too (src/feature-review.ts updatePr).
-    ...(newCommits && !generatingReplacement ? [{ id: "new-commits", tone: "info", icon: "GitCommit", text: newCommitsText, ...localChanged || prFolder ? { firstLine: true } : {}, action: localChanged ? <span className="flex gap-2">
-      {updateButton}
-      <Hint label={REWRITE_GUIDE} container={portalContainer}>
-        <Button variant="outline" size="sm" className={noticeButton} aria-description={REWRITE_GUIDE} disabled={rebuilding} onClick={() => void rebuild("rewriteGuide")}><Icon name="Sparkles" className="text-(--ansi-13)" aria-hidden />Rewrite guide</Button>
-      </Hint>
-    </span> : prFolder ? <span className="flex gap-2">{updateButton}{updateGuide}</span> : updateGuide }] as const : []),
-  ];
+    ...(newCommits && !generatingReplacement ? [{ id: "new-commits", tone: "info", icon: "GitCommit", text: newCommitsText }] as const : []),
+  ].filter((notice) => !passRunning || !outOfDate(notice));
+  // However many ways the review is out of date (new commits, the folder changed, the guide behind), one Update review
+  // answers them all, on the first that says so.
+  const first = shown.findIndex(outOfDate);
+  const notices: Notice[] = shown.map((notice, index) => index === first ? { ...notice, firstLine: true, action: updateReview } : notice);
   // Inside the padding that keeps the workspace clear of the screen's edges.
   const rootStyle = rootEl && getComputedStyle(rootEl);
   const paneWidth = rootEl && rootStyle ? rootEl.clientWidth - (parseFloat(rootStyle.paddingLeft) || 0) - (parseFloat(rootStyle.paddingRight) || 0) : 0;
@@ -1673,7 +1668,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
         <main aria-label={identity ? `Review: ${identity.label}` : "Review"} inert={sheetOpen} className="flex min-w-0 flex-1 flex-col">
           {/* On a short keyboard viewport, notices give way to the code, as the bar above does. */}
           <div className="contents [[data-keyboard=short]_&]:hidden">
-            <FocusStrip targetKey={targetKey} run={review?.focusRun} head={review?.focusHead ?? review?.headSha} latestHead={review?.latestHeadSha} updateAction={prFolder ? updateButton : updateGuide} findings={review?.focusFindings} generalWorking={review?.agentStatus?.indicator === "runtime"} />
+            <FocusStrip targetKey={targetKey} run={review?.focusRun} head={review?.focusHead ?? review?.headSha} latestHead={review?.latestHeadSha} updateAction={updateReview} findings={review?.focusFindings} generalWorking={review?.agentStatus?.indicator === "runtime"} />
             <ReviewNotices notices={notices} />
           </div>
           {/* A spacer, not top padding: padding would hold sticky file headers 16px down, with code showing above them. */}

@@ -3,6 +3,8 @@ import { z } from "zod";
 import { focusInstructions } from "../lib/focus-templates";
 import { ASSISTANT_INSTRUCTIONS_LIMIT, AUTO_START_REPOS_LIMIT, REPO_PATTERN, defaultPreferences, defaultFocusSettings, type FocusSettings, type AgentExecution, type ReviewPreferences } from "../lib/review-preferences";
 import { KNOB_RANGES, defaultKnobs, type KnobId, type Knobs } from "../lib/knobs";
+import { yoursByFolder } from "../lib/fixer";
+import type { ReviewMeta } from "./store";
 export { defaultPreferences, type AgentExecution, type ReviewPreferences } from "../lib/review-preferences";
 
 /** The automatic review's default before the review summary; saved settings that kept it read as the current default. */
@@ -18,6 +20,17 @@ export const AUTOMATIC_REVIEW_BEFORE_EVIDENCE = [
   "2. Read the whole diff, high-risk chapters first. Before you comment, confirm the problem with read_file (callers, the base version). If you can't confirm it, don't comment; ask a question only when the answer decides whether there's a bug.",
   "3. Skip style, naming, formatting, anything a linter or CI reports, lockfiles, generated files, and anything an existing GitHub thread already raises.",
   "4. One issue per add_draft_comment, on the line the fix goes. Start with **Blocking:**, **Should fix:** or **Question:**. Say what fails (input → wrong result), then the fix; when the fix replaces specific lines, add a ```suggestion block.",
+  "5. At most 10 comments; keep the most severe.",
+  "6. Then set_review_summary: 2–5 bullets, blockers first with file:line, and anything you couldn't check. Suggest APPROVE only if nothing blocks and you read every non-generated file, REQUEST_CHANGES only for a verified blocking issue, otherwise COMMENT.",
+].join("\n");
+
+/** The automatic review's default before it reviewed comments and left Nits to Settings; saved settings that kept it read as the current default. */
+export const AUTOMATIC_REVIEW_BEFORE_NITS = [
+  "Review this change for defects a careful senior engineer would block on or want fixed. Precision over recall: a missed nit costs nothing; a wrong comment costs the reviewer's trust.",
+  "1. Start with read_pr_context: what the PR says it does, linked tickets, the repo's review rules, CI, and what other reviewers already raised.",
+  "2. Read the whole diff, high-risk chapters first. Before you comment, confirm the problem with read_file (callers, the base version). If you can't confirm it, don't comment; ask a question only when the answer decides whether there's a bug.",
+  "3. Skip style, naming, formatting, anything a linter or CI reports, lockfiles, generated files, and anything an existing GitHub thread already raises.",
+  "4. One issue per add_draft_comment, on the line the fix goes. Start with **Blocking:**, **Should fix:** or **Question:**. Say what fails (input → wrong result), then the fix; when the fix replaces specific lines, add a ```suggestion block. Put how you confirmed it in evidence, with file:line: only what you read or ran.",
   "5. At most 10 comments; keep the most severe.",
   "6. Then set_review_summary: 2–5 bullets, blockers first with file:line, and anything you couldn't check. Suggest APPROVE only if nothing blocks and you read every non-generated file, REQUEST_CHANGES only for a verified blocking issue, otherwise COMMENT.",
 ].join("\n");
@@ -120,6 +133,7 @@ export const preferencesSchema = z.object({
   unattendedAuthors: z.enum(["members", "anyone"]),
   runRepoChecks: z.boolean(),
   threadListReviews: z.boolean(),
+  skipNitpicks: z.object({ others: z.boolean(), own: z.boolean() }).strict(),
   knobs: knobsSchema,
   focuses: focusSettingsSchema,
 }).strict();
@@ -171,7 +185,7 @@ export function readPreferences(saved: Partial<ReviewPreferences>, knobs?: unkno
     const parsed = shape[key].safeParse(value);
     return [key, parsed.success ? parsed.data : shape[key].parse(defaultPreferences[key])];
   })), knobs: readKnobs(knobs !== undefined ? knobs : record.knobs), focuses: readFocusSettings(focuses !== undefined ? focuses : record.focuses) } as ReviewPreferences;
-  if ([AUTOMATIC_REVIEW_BEFORE_SUMMARY, AUTOMATIC_REVIEW_BEFORE_PRECISION, AUTOMATIC_REVIEW_BEFORE_EVIDENCE].includes(preferences.automaticReview)) preferences.automaticReview = defaultPreferences.automaticReview;
+  if ([AUTOMATIC_REVIEW_BEFORE_SUMMARY, AUTOMATIC_REVIEW_BEFORE_PRECISION, AUTOMATIC_REVIEW_BEFORE_EVIDENCE, AUTOMATIC_REVIEW_BEFORE_NITS].includes(preferences.automaticReview)) preferences.automaticReview = defaultPreferences.automaticReview;
   if (preferences.verificationPrompt === VERIFICATION_PROMPT_BEFORE_OPEN_THREADS) preferences.verificationPrompt = defaultPreferences.verificationPrompt;
   return preferences;
 }
@@ -223,7 +237,28 @@ export function guidePreferencesPrompt(preferences: ReviewPreferences): string {
 }
 
 export function assistantPreferencesPrompt(preferences: ReviewPreferences): string {
-  return `Current reviewer preferences (replace any earlier preferences):\n${preferences.assistantInstructions.trim().slice(0, ASSISTANT_INSTRUCTIONS_LIMIT) || "Answer concisely, ground claims in the diff, and explain uncertainty. Keep draft comments terse and skip nitpicks."}`;
+  return `Current reviewer preferences (replace any earlier preferences):\n${preferences.assistantInstructions.trim().slice(0, ASSISTANT_INSTRUCTIONS_LIMIT) || "Answer concisely, ground claims in the diff, and explain uncertainty. Keep draft comments terse."}`;
+}
+
+/** How a review takes Nits, from Settings' Skip nitpicks by whose change it is: left out, at most 5, or every one on your own change. */
+export type NitPolicy = "skip" | "capped" | "all";
+
+/** Your own change: a local review, a PR's that began as one, or a PR you wrote; one the sync hasn't placed yet is someone else's. */
+export const ownChange = (review: Pick<ReviewMeta, "kind" | "feature" | "ownPr"> | null | undefined): boolean => yoursByFolder(review) || review?.ownPr === true;
+
+export function nitPolicy(preferences: Pick<ReviewPreferences, "skipNitpicks">, review: Pick<ReviewMeta, "kind" | "feature" | "ownPr"> | null | undefined): NitPolicy {
+  const own = ownChange(review);
+  if (own ? preferences.skipNitpicks.own : preferences.skipNitpicks.others) return "skip";
+  return own ? "all" : "capped";
+}
+
+/** The review agent's rule for Nits. */
+export function nitpickRule(policy: NitPolicy): string {
+  return {
+    skip: "Skip nitpicks; a ticket id or unclear wording in a comment the diff adds is Should fix.",
+    capped: "Draft at most 5 confirmed nitpicks as Nits, after everything more severe.",
+    all: "The reviewer's own change: draft every confirmed nitpick as a Nit, uncapped.",
+  }[policy];
 }
 
 /** Whether a repository ("owner/repo") matches one of the auto-start patterns. */
