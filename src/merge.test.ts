@@ -14,6 +14,7 @@ import { SUMMARY_AT, type DraftComment } from "./draft";
 import type { FeedbackThread } from "./github/types";
 import { testSql, testStore } from "./test-store.test-support";
 import { notPushedView } from "../lib/push";
+import { getConversation, newConversation } from "./agent";
 
 // The plugin reads GitHub as it starts: here it can't.
 vi.mock("./gh", async (original) => ({ ...await original<typeof import("./gh")>(), runGh: vi.fn(async () => ({ stdout: "", stderr: "no GitHub here", code: 1 })) }));
@@ -339,6 +340,31 @@ test("a review with no agent of its own takes the other's conversation, which go
   expect(await store.getAssistantThread(S)).toBe("agent-p");
   expect(await store.getAssistantThread(P)).toBeNull();
   expect((await store.getReview(S))?.mergedFrom).toEqual([{ key: P, at: expect.any(Number), id: "api#7", agentThreadId: null }]);
+});
+
+test("a review with no agent of its own takes the other's conversation with the review agent picked for it, over its own pick, so its next conversation starts there too", async () => {
+  const { bb, harness, store } = await setup({ agentOnBoth: false });
+  harness.sdk.stub("threads.archive", async () => {});
+  const picked = { providerId: "codex", model: "gpt-6", reasoningLevel: "low", serviceTier: "fast" };
+  await store.setLifecycle(P, { reviewAgent: picked });
+  await store.setLifecycle(S, { reviewAgent: { providerId: "claude-code", model: "opus", reasoningLevel: "high" } });
+  expect((await store.mergeReview(P, S))!.adopted).toBe(true);
+  expect((await store.getReview(S))?.reviewAgent).toEqual(picked);
+  await newConversation(bb, store, S);
+  expect((await getConversation(bb, store, S)).defaults).toEqual(picked);
+});
+
+test("a review that keeps its own conversation keeps its own review agent; one taking a conversation with none picked keeps its own too", async () => {
+  const own = { providerId: "claude-code", model: "opus", reasoningLevel: "high" };
+  const kept = await setup();
+  await kept.store.setLifecycle(P, { reviewAgent: { providerId: "codex", model: "gpt-6", reasoningLevel: "low" } });
+  await kept.store.setLifecycle(S, { reviewAgent: own });
+  expect((await kept.store.mergeReview(P, S))!.adopted).toBe(false);
+  expect((await kept.store.getReview(S))?.reviewAgent).toEqual(own);
+  const unpicked = await setup({ agentOnBoth: false });
+  await unpicked.store.setLifecycle(S, { reviewAgent: own });
+  expect((await unpicked.store.mergeReview(P, S))!.adopted).toBe(true);
+  expect((await unpicked.store.getReview(S))?.reviewAgent).toEqual(own);
 });
 
 test("a merge that fails partway changes nothing", async () => {

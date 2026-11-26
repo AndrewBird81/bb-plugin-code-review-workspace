@@ -29,10 +29,10 @@ const CHOICE = `h-auto min-h-8 whitespace-normal py-1.5 text-left aria-pressed:b
 
 type AgentUpdate = (agent: AgentExecution | null) => AgentExecution | null;
 /** undefined while loading; null when they couldn't be loaded. */
-type Machines = readonly Machine[] | null | undefined;
+export type Machines = readonly Machine[] | null | undefined;
 
 /** The bb server is the default machine, stored as no machine so the choice follows a server move. */
-function MachineSelect({ hostId, machines, disabled, onChange }: {
+export function MachineSelect({ hostId, machines, disabled, onChange }: {
   hostId?: string; machines: Machines; disabled: boolean; onChange(hostId: string | undefined): void;
 }) {
   const server = machines?.find((machine) => machine.server);
