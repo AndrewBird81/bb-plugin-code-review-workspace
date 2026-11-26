@@ -71,8 +71,86 @@ async function ownPr(store: AsyncStore, over: Record<string, unknown> = {}) {
   await store.upsertDraftComment("pr-1", { ...A3, body: "Name this better." });
 }
 
+function worktree(id: string, hostId: string, path: string, branchName = "retry-uploads") {
+  return { id, hostId, path, branchName, projectId: "p1", status: "ready", isGitRepo: true, lifecycle: { phase: "active" }, hostLifecycle: "active" };
+}
+
+function checkout(branch: string) {
+  return { outcome: "available", workspace: { branch: { currentBranch: branch } } };
+}
+
 const call = (harness: ReturnType<typeof host>["harness"], method: string, input: unknown) => harness.behavior.callRpc(method, input) as Promise<any>;
 const comment = async (store: AsyncStore, at: CommentLocation) => (await store.getDraft("pr-1")).comments.find((c) => c.file === at.file && c.line === at.line && c.side === at.side)!;
+
+test("a PR Send names its checked-out folder without moving the main thread, and finds a restored folder by its new id", async () => {
+  const h = host({ coder: { title: "Orchestrator", environmentId: "env_main" } });
+  const store = await startPlugin(h.bb);
+  await ownPr(store);
+  const main = worktree("env_main", "host_local", "/src/web", "main");
+  const original = worktree("env_old", "host_local", "/work/old");
+  const remote = worktree("env_remote", "host_remote", "/work/remote");
+  const restored = worktree("env_new", "host_remote", "/work/restored");
+  let folders = [remote, original, main];
+  h.harness.sdk.stub("environments.list", async () => folders);
+  h.harness.sdk.stub("projects.get", async () => ({ gitRemoteUrl: "git@github.com:Acme/Web.git" }));
+  h.harness.sdk.stub("hosts.get", async ({ hostId }: { hostId: string }) => ({ name: hostId === "host_remote" ? "Build Mac" : "Local Mac", status: "connected", lifecycle: { phase: "active" } }));
+  h.harness.sdk.stub("plugins.callRpc", async ({ input }: { input: { keys: string[] } }) =>
+    Object.fromEntries(input.keys.map((id) => [id, checkout(folders.find((env) => env.id === id)!.branchName)])));
+  const send = () => call(h.harness, "sendNow", { targetKey: "pr-1", comment: A3 });
+
+  await send();
+  expect(h.calls("environments.list")).toEqual([{ projectId: "p1", status: "ready" }]);
+  expect(h.sends()[0].threadId).toBe("coder");
+  const text = h.sends()[0].input[0].text;
+  expect(text).toContain("Work on `retry-uploads` in `/work/old` on `Local Mac`, or spawn a worker in BB environment `env_old`. Don't check out the branch here. I reviewed commit `abc1234`.");
+  expect(text).not.toContain("Check out the branch");
+  // The local folder was removed; its replacement is on a different machine.
+  folders = [{ ...original, status: "destroyed" }, main, restored];
+  await send();
+  expect(h.sends()[1].input[0].text).toContain("in `/work/restored` on `Build Mac`, or spawn a worker in BB environment `env_new`");
+  expect(h.spawns()).toEqual([]);
+  expect((await store.getReview("pr-1"))?.feature).toBeUndefined();
+});
+
+test("a PR Send prefers the recipient's checkout but won't assume a branch in a different repo is the PR's", async () => {
+  const h = host({ coder: { title: "Coder", environmentId: "env_coder" } });
+  const store = await startPlugin(h.bb);
+  await ownPr(store);
+  const other = worktree("env_other", "host_local", "/work/other");
+  const coder = worktree("env_coder", "host_local", "/work/coder");
+  h.harness.sdk.stub("environments.list", async () => [other, coder]);
+  h.harness.sdk.stub("projects.get", async () => ({ gitRemoteUrl: "https://github.com/acme/other.git" }));
+  let hasHead = false;
+  h.harness.sdk.stub("plugins.callRpc", async ({ method }: { method: string }) =>
+    method === "status" ? { env_other: checkout("retry-uploads"), env_coder: checkout("retry-uploads") }
+      : { outcome: "available", workspace: { mergeBase: { behindCount: hasHead ? 0 : 1 } } });
+  const send = () => call(h.harness, "sendNow", { targetKey: "pr-1", comment: A3 });
+
+  await send();
+  expect(h.sends()[0].input[0].text).toContain("Check out the branch `retry-uploads`");
+  hasHead = true;
+  await send();
+  expect(h.sends()[1].input[0].text).toContain("Stay on `retry-uploads` in `/work/coder` on `host_local`. I reviewed commit `abc1234`.");
+});
+
+test("a PR Send falls back to checkout instructions when BB can't confirm a matching checkout", async () => {
+  const h = host({ coder: { title: "Orchestrator", environmentId: "env_main" } });
+  const store = await startPlugin(h.bb);
+  await ownPr(store);
+  h.harness.sdk.stub("environments.list", async () => [worktree("env_old", "host_local", "/work/old")]);
+  h.harness.sdk.stub("projects.get", async () => ({ gitRemoteUrl: "https://github.com/acme/web.git" }));
+  h.harness.sdk.stub("plugins.callRpc", async () => ({ env_old: checkout("other-branch") }));
+  const send = () => call(h.harness, "sendNow", { targetKey: "pr-1", comment: A3 });
+
+  await send();
+  h.harness.sdk.stub("environments.list", async () => { throw new Error("BB unavailable"); });
+  await send();
+  for (const sent of h.sends()) {
+    expect(sent.input[0].text).toContain("Check out the branch `retry-uploads`, or stay on it if it's already checked out. I reviewed commit `abc1234`.");
+    expect(sent.input[0].text).not.toContain("/work/old");
+  }
+  expect(h.sends()).toHaveLength(2);
+});
 
 test("Send gives each comment an id and sends them to the main thread with the review's header, their code and words, no push, and how to report", async () => {
   const h = host();

@@ -32,6 +32,12 @@ export async function updateThenClear(rpc: Rpc, targetKey: string): Promise<{ ok
   return updated.ok ? rpc.call("dismissPush", { targetKey }) : updated;
 }
 
+/** Update review: start a review pass on the new code (src/review-pass.ts), then clear the Push it answers. */
+async function passThenClear(rpc: Rpc, targetKey: string): Promise<{ ok: boolean; error?: string }> {
+  const started = await rpc.call("startPass", { targetKey });
+  return started.ok ? rpc.call("dismissPush", { targetKey }) : started;
+}
+
 /** The PR drafts said ready, by review and when each was shown, so each is said once while the page stays open. */
 const draftsSaid = new Set<string>();
 
@@ -84,7 +90,7 @@ export function usePushNotices(targetKey: string, review: Pick<ReviewLifecycle, 
   if (run.flag === "unrequested") {
     return [{ id: "push-flagged", tone: "info", icon: "GitCommit", role: "status", label: "New commits on GitHub", firstLine: true, text: <Marked text={text} />,
       // A PR's new commits show as its own: only a local review's folder updates here.
-      action: <span className="flex flex-wrap gap-2">{review?.kind !== "pr" && button("Update", () => void act(() => updateThenClear(rpc, targetKey), "Updated. Review what changed.")(), false)}{gotIt(false)}</span> }];
+      action: <span className="flex flex-wrap gap-2">{review?.kind !== "pr" && button("Update review", () => void act(() => passThenClear(rpc, targetKey), "Updating the review.")(), false)}{gotIt(false)}</span> }];
   }
   return [{ id: "push-flagged", tone: "warning", icon: "AlertTriangle", role: "alert", label: "Push not on GitHub", firstLine: true, text: <Marked text={text} />,
     action: <span className="flex flex-wrap gap-2">

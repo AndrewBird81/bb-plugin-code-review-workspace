@@ -108,8 +108,6 @@ export interface WorkspaceApi {
   /** Go to All reviews, or to another of the panel's pages (`subPath`), leaving full screen first. */
   leave(subPath?: string): Promise<void>;
   snooze(snoozed: boolean, until?: number): Promise<void>;
-  /** The PR has commits the guide wasn't written for. */
-  newCommits: boolean;
   /** Write the guide again, as for new commits. */
   rebuild(): Promise<void>;
   /** Read the review, guide and diff again. */

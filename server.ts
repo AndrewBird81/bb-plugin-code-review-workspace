@@ -7,6 +7,7 @@ import { rpcContract } from "./src/rpc-contract";
 import { createStore, storeOn, type Store } from "./src/store";
 import { codeOwners } from "./src/codeowners";
 import { runReviewCommand } from "./src/review-command";
+import * as reviewPass from "./src/review-pass";
 import { assistantInstructions, assistantMayAnswer, endAssistantWaits, threadMayAnswer, onAssistantWaitsEnded, refreshAssistants } from "./src/agent";
 import { personalProjectId } from "./src/machines";
 import { assistantReview } from "./src/draft-comments";
@@ -339,6 +340,7 @@ function servePlugin(bb: BbPluginApi, { configured, store, interrupted }: Awaite
   const opening = openPr.register(moduleDeps);
   const sends = loop.register(moduleDeps);
   const reports = reportsModule.register(moduleDeps);
+  const passes = reviewPass.register(moduleDeps);
   const own = ownPr.register(moduleDeps);
   const threadPages = threadSurfaces.register(moduleDeps);
   const status = reviewStatus.register(moduleDeps);
@@ -346,7 +348,7 @@ function servePlugin(bb: BbPluginApi, { configured, store, interrupted }: Awaite
   const watching = prWatch.register(moduleDeps);
   focusTools.register(moduleDeps);
   const stubs = rpcStubs.register();
-  const handlers: RpcHandlers = merge(settings.handlers, reviews.handlers, githubThreads.handlers, draft.handlers, assistant.handlers, turn.handlers, agents.handlers, feature.handlers, opening.handlers, relays.handlers, sends.handlers, reports.handlers, own.handlers, threadPages.handlers, pushing.handlers, watching.handlers, stubs.handlers);
+  const handlers: RpcHandlers = merge(settings.handlers, reviews.handlers, githubThreads.handlers, draft.handlers, assistant.handlers, turn.handlers, agents.handlers, feature.handlers, opening.handlers, relays.handlers, sends.handlers, reports.handlers, own.handlers, threadPages.handlers, pushing.handlers, watching.handlers, passes.handlers, stubs.handlers);
   const published: PublicHandlers = merge(status.published, feature.published);
   const guard = <T extends object>(handlers: T): T => Object.fromEntries(Object.entries(handlers).map(([name, handler]) =>
     [name, (input: unknown) => updates.run(() => (handler as (input: unknown) => unknown)(input))])) as unknown as T;
@@ -365,7 +367,7 @@ function servePlugin(bb: BbPluginApi, { configured, store, interrupted }: Awaite
     experimental_description: "Code Review Workspace for other plugins: where each review stands, who it waits on, whether you've approved the code as it is now and since when; and starting a review of a thread's changes.",
   });
   listen(bb, [events.events, agents.events, feature.events, ledgerEvents(bb), sends.events, reports.events, own.events, pushing.events, watching.events, focusEvents(bb, store)]);
-  const subcommands: Subcommands = merge(reviews.commands, draft.commands, relays.commands, reports.commands);
+  const subcommands: Subcommands = merge(reviews.commands, draft.commands, relays.commands, reports.commands, passes.commands);
 
   // Tools go only to THIS plugin's own spawned threads, by the role each is recorded with: a thread can retitle
   // itself, so its title chooses only while its spawn is in flight, before its id is recorded.
@@ -375,6 +377,7 @@ function servePlugin(bb: BbPluginApi, { configured, store, interrupted }: Awaite
     if (context.origin?.pluginId !== bb.pluginId && context.origin?.pluginId !== FORMER_PLUGIN_ID) return { tools: [], skills: configured.preferences().knobs.reviewCommandInThreads ? ["code-review-workspace"] : [] };
     const role = context.thread ? configured.threadRole(context.thread) : null;
     if (role === "focus") return { tools: [...focusTools.FOCUS_TOOLS], skills: [] };
+    if (role === "pass") return { tools: [...reviewPass.PASS_TOOL_NAMES], skills: [] };
     if (role === "writer") {
       return { tools: [...WRITER_TOOL_NAMES], skills: ["code-review-workspace-generate"] };
     }
@@ -433,6 +436,8 @@ function servePlugin(bb: BbPluginApi, { configured, store, interrupted }: Awaite
       if (sharedWithReplaced) configured.readAllAfterNextTurn();
       // What happened to the main threads while the plugin was down: BB doesn't tell its events again.
       await updates.run(() => reports.reconcile(), false).catch((error) => bb.log.warn(`Could not read the main threads again: ${String(error)}`));
+      // Passes a reload interrupted end failed, telling their subscribers.
+      await updates.run(() => passes.recover(), false).catch((error) => bb.log.warn(`Could not end interrupted review passes: ${String(error)}`));
       await updates.run(() => agentTools.clearPrDrafts(), false).catch((error) => bb.log.warn(`Could not clear the PR drafts of Post forms from before the plugin started: ${String(error)}`));
       // Approvals of a diff their review no longer shows, as ones kept from before 1.10.0, end.
       await updates.run(async () => { for (const key of await loop.endOutlivedApprovals(store)) changed(key); }, false).catch((error) => bb.log.warn(`Could not end the approvals of earlier diffs: ${String(error)}`));

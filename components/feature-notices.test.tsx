@@ -45,18 +45,20 @@ async function renderWorkspace(rpc: Record<string, unknown>, review: Record<stri
 type Slot = Awaited<ReturnType<typeof renderWorkspace>>["slot"];
 const notice = (slot: Slot, text: string | RegExp) => slot.getByText(text).closest<HTMLElement>("[role]")!;
 
-test("a changed folder says how many files, and Update reads it again without the guide writer", async () => {
+test("a changed folder says how many files, with Update review, which starts a review pass", async () => {
   const checkFeature = vi.fn(() => ({ ...nothing, state: "changed", changedFiles: 3 }));
+  const startPass = vi.fn(() => ({ ok: true, passId: "p1" }));
   const updateFeature = vi.fn(() => ({ ok: true }));
-  const { slot, rpc } = await renderWorkspace({ checkFeature, updateFeature });
+  const { slot, rpc } = await renderWorkspace({ checkFeature, startPass, updateFeature });
   const text = "3 files changed since your last update.";
   await slot.findByText(text);
   expect(notice(slot, text).querySelector("svg")?.getAttribute("data-icon")).toBe("FileDiff");
-  const update = within(notice(slot, text)).getByRole("button", { name: "Update" });
+  const update = within(notice(slot, text)).getByRole("button", { name: "Update review" });
   expect(update.className.split(" ")).toEqual(expect.arrayContaining(TOUCH_CONTROL.split(" ")));
   fireEvent.click(update);
-  await waitFor(() => expect(updateFeature).toHaveBeenCalledWith({ targetKey: KEY }));
-  // The review reads itself again: the updated diff.
+  await waitFor(() => expect(startPass).toHaveBeenCalledWith({ targetKey: KEY }));
+  expect(updateFeature).not.toHaveBeenCalled();
+  // The review reads itself again: the pass's stage.
   await waitFor(() => expect(rpc.getReviewBundle.mock.calls.length).toBeGreaterThan(1));
   expect(slot.queryByRole("button", { name: "Update guide" })).toBeNull();
   // Its folder is asked about again when the review, or the folder, changes.
@@ -194,10 +196,11 @@ test("a review that isn't of a folder, or became its PR's and lost its folder, a
   ref.slot.lifecycle.unmount();
 });
 
-test("after Update, a guide written before it says so, after Changed, with Rewrite guide, which says it starts the guide writer", async () => {
+test("after Update, a guide written before it says so, after Changed; one Update review answers both, and Rewrite guide isn't a notice's", async () => {
   const rewriteGuide = vi.fn(() => ({ ok: true }));
+  const startPass = vi.fn(() => ({ ok: true, passId: "p1" }));
   const review = { ...local, feature: { ...feature, guideOlderThanDiff: "update" } };
-  const { slot } = await renderWorkspace({ checkFeature: () => ({ ...nothing, state: "changed", changedFiles: 1 }), rewriteGuide }, review);
+  const { slot } = await renderWorkspace({ checkFeature: () => ({ ...nothing, state: "changed", changedFiles: 1 }), rewriteGuide, startPass }, review);
   const text = "The guide was written before your last Update.";
   // Changed first: it's what Update answers.
   const more = await slot.findByRole("button", { name: "1 more notice" });
@@ -205,15 +208,16 @@ test("after Update, a guide written before it says so, after Changed, with Rewri
   fireEvent.click(more);
   await slot.findByText(text);
   expect(shown.getAllByRole("status").map((row) => row.getAttribute("aria-label"))).toEqual(["Folder changed", "Guide out of date"]);
-  const rewrite = within(notice(slot, text)).getByRole("button", { name: "Rewrite guide" });
-  expect(rewrite.getAttribute("aria-description")).toBe("Starts the guide writer to write a new guide for the code now.");
-  expect(rewrite.querySelector("svg")?.getAttribute("data-icon")).toBe("Sparkles");
-  fireEvent.click(rewrite);
-  await waitFor(() => expect(rewriteGuide).toHaveBeenCalledWith({ targetKey: KEY }));
+  expect(shown.getAllByRole("button", { name: "Update review" })).toHaveLength(1);
+  expect(within(notice(slot, text)).queryByRole("button")).toBeNull();
+  expect(shown.queryByRole("button", { name: "Rewrite guide" })).toBeNull();
+  fireEvent.click(shown.getByRole("button", { name: "Update review" }));
+  await waitFor(() => expect(startPass).toHaveBeenCalledWith({ targetKey: KEY }));
+  expect(rewriteGuide).not.toHaveBeenCalled();
   slot.lifecycle.unmount();
   cleanup();
 
-  // While the guide is being written, its own notice says so instead; and Rewrite guide can't run once the folder's gone
+  // While the guide is being written, its own notice says so instead; and the review can't update once the folder's gone
   // or the review's archived, so it isn't offered.
   for (const [rpc, shown] of [
     [{ checkFeature: () => nothing }, { ...review, status: "generating" }],
@@ -247,7 +251,7 @@ test("after Update, a guide written before it says so, after Changed, with Rewri
   for (const [flag, said] of [["push", "The guide was written before the PR’s latest commits."], ["pr", "The guide was written for the local changes, before the PR."]] as const) {
     const flagged = await renderWorkspace({ checkFeature: () => nothing, rewriteGuide }, { ...review, kind: "pr", repo: "acme/api", number: 7, headSha: "c0ffee", ownPr: true, feature: { ...feature, guideOlderThanDiff: flag } });
     await flagged.slot.findByText(said);
-    expect(within(notice(flagged.slot, said)).getByRole("button", { name: "Rewrite guide" })).toBeTruthy();
+    expect(within(notice(flagged.slot, said)).getByRole("button", { name: "Update review" })).toBeTruthy();
     flagged.slot.lifecycle.unmount();
     cleanup();
   }
@@ -308,4 +312,26 @@ test("while the page shows a local review, its branch's PR is looked for every 3
   } finally {
     vi.useRealTimers();
   }
+});
+
+test("Diff options' Base shows a folder's base and picks another, as bb review --base does", async () => {
+  const { openDiffOptions } = await import("./review-bar.test-support");
+  const featureBases = vi.fn(() => ({ candidates: [{ ref: "origin/main", ahead: 2, behind: 0 }, { ref: "main", ahead: 40, behind: 0 }] }));
+  const setFeatureBase = vi.fn(() => ({ ok: true }));
+  const { slot } = await renderWorkspace({ checkFeature: () => nothing, featureBases, setFeatureBase }, { ...local, feature: { ...feature, baseRef: "origin/main" } });
+  openDiffOptions(slot);
+  fireEvent.click(slot.getByRole("button", { name: /^Base/ }));
+  const menu = await slot.findByRole("menu", { name: "Base" });
+  expect(within(menu).getByRole("menuitemradio", { name: /Automatic/ }).getAttribute("aria-checked")).toBe("true");
+  fireEvent.click(await within(menu).findByRole("menuitemradio", { name: /^main/ }));
+  await waitFor(() => expect(setFeatureBase).toHaveBeenCalledWith({ targetKey: KEY, base: "main" }));
+  slot.lifecycle.unmount();
+});
+
+test("a PR's review has no Base in Diff options: its diff is against the PR's base", async () => {
+  const { openDiffOptions } = await import("./review-bar.test-support");
+  const { slot } = await renderWorkspace({ checkFeature: () => nothing }, { ...local, kind: "pr", repo: "acme/api", number: 7, base: "main" });
+  openDiffOptions(slot);
+  expect(slot.queryByRole("button", { name: /^Base/ })).toBeNull();
+  slot.lifecycle.unmount();
 });

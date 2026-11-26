@@ -23,6 +23,12 @@ import { assertSqliteLedger } from "./db/schema-guard";
 
 export interface ReviewLifecycle {
   focusRun?: import("./focus-model").FocusRun;
+  /** The latest review pass (src/review-pass.ts), independent of the reviewer's draft. */
+  reviewPass?: import("./review-pass").ReviewPass;
+  /** Earlier passes, newest last, that seed the next pass's merge thread. */
+  reviewPasses?: import("./review-pass").ReviewPass[];
+  /** Every pass's merge thread, kept hidden, newest last: what gives them their role and tools. */
+  passThreads?: string[];
   prState?: "OPEN" | "CLOSED" | "MERGED";
   /** The PR's state as gh read it when the review last started or rebuilt, until the sync reads the PR. Only the sync writes prState. */
   startedPrState?: "OPEN" | "CLOSED" | "MERGED" | null;
@@ -299,8 +305,10 @@ export interface FeatureReview {
   /** The folder's path on that machine. */
   path: string;
   branch: string;
-  /** What the diff is against: the PR's base, else the folder's merge base in bb, the branch it was made from, or the default branch (src/env-diff.ts). */
+  /** What the diff is against: the PR's base, else `chosenBase`, else the base the branch left last (src/env-diff.ts). */
   baseRef: string;
+  /** The base you chose (`bb review --base`, Diff options' Base): the diff's unless the branch has a PR. Absent: automatic. */
+  chosenBase?: string;
   /** The commit where the branch left `baseRef` when the stored diff was read (src/env-diff.ts): file reads take the diff's old side there. */
   mergeBaseRef?: string;
   /** The project's GitHub repo, owner/name, from its remote; null without one. The review's own `repo` means it's of a PR. */

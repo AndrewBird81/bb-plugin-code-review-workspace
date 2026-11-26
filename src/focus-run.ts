@@ -100,7 +100,7 @@ async function tokens(bb: BbPluginApi, threadId: string): Promise<FocusTokens | 
 }
 
 /** After an automatic review, or an explicit fresh focus run; never after a conversation or feedback check. */
-export async function startFocusRun(bb: BbPluginApi, store: AsyncStore, key: string): Promise<{ ok: true } | { ok: false; error: string }> {
+export async function startFocusRun(bb: BbPluginApi, store: AsyncStore, key: string, { passId }: { passId?: string } = {}): Promise<{ ok: true } | { ok: false; error: string }> {
   const begun = await store.exclusive(async (tx) => {
     const preferences = (await tx.getPreferences()).preferences;
     if (!preferences.focuses.enabled) return { error: "Review with focuses is off. Turn it on in Review settings." };
@@ -115,7 +115,7 @@ export async function startFocusRun(bb: BbPluginApi, store: AsyncStore, key: str
     if (!mayRunUnattended(review, preferences, review.headSha)) return { error: "This review’s head isn’t approved for unattended agents. Check its trust settings before running focuses." };
     const focuses = preferences.focuses.focuses.filter((focus) => focus.enabled);
     if (!focuses.length) return { error: "No focuses are enabled. Enable one in Review settings." };
-    const run: FocusRun = { id: randomUUID(), head: (await agentReadsHead(tx, key))!, startedAt: Date.now(), state: "finding", focuses: focuses.map((focus) => ({ focusId: focus.id, label: focus.label, state: "queued", queuedAt: Date.now() })) };
+    const run: FocusRun = { id: randomUUID(), head: (await agentReadsHead(tx, key))!, startedAt: Date.now(), state: "finding", ...passId ? { passId } : {}, focuses: focuses.map((focus) => ({ focusId: focus.id, label: focus.label, state: "queued", queuedAt: Date.now() })) };
     await tx.clearFocusFindings(key);
     await tx.setLifecycle(key, { focusRun: run });
     return { run, preferences, review, guide: await tx.getGuide(key), bytes: (await tx.patch(key)).length };
@@ -272,6 +272,8 @@ async function settle(bb: BbPluginApi, store: AsyncStore, key: string) {
   const run = (await store.getReview(key))?.focusRun;
   if (!run || run.state !== "finding" || run.focuses.some((focus) => focus.state === "running" || focus.state === "queued")) return;
   if (await agentReadsHead(store, key) !== run.head) return finish(bb, store, key, run, "diff changed");
+  // A pass's focuses leave their findings for its merge thread.
+  if (run.passId) return finish(bb, store, key, run);
   const findings = await store.focusFindings(key, run.id);
   if (!findings.length && !run.focuses.some((focus) => focus.state === "failed")) return finish(bb, store, key, run);
   const rank = { blocking: 0, "should-fix": 1, question: 2, nit: 3 };

@@ -10,6 +10,7 @@ import { focusSpawnTitled } from "./focus-identity";
 import type { FocusThread } from "./focus-model";
 import { ASSISTANT_TITLE } from "./agent";
 import { GUIDE_WORKER_TITLE } from "./generate";
+import { PASS_TITLE } from "./review-pass";
 
 /** Store methods that change nothing the view holds. A turn that calls any other brings it up to date. */
 const KEEPS_VIEW = new Set<string>([
@@ -65,7 +66,7 @@ export interface ConfigureView {
    * What a thread of this plugin is: the assistant or guide writer it's recorded as, whatever its title now, or, only
    * while a spawn with its exact title is in flight, what that title names. Null for any other thread.
    */
-  threadRole(thread: Thread): "assistant" | "writer" | "focus" | null;
+  threadRole(thread: Thread): "assistant" | "writer" | "focus" | "pass" | null;
   /** The review a thread of this plugin belongs to, as threadReview (src/thread-review.ts) reads it from the store. */
   threadReview(thread: Thread): string | null;
   preferences(): ReviewPreferences;
@@ -134,9 +135,11 @@ export async function createConfigureView(bb: BbPluginApi, backend: Store): Prom
       if (snapshot.focuses.some((focus) => focus.threadId === thread.id)) return "focus";
       if (assistantReview(thread.id)) return "assistant";
       if (generationOf(thread.id)) return "writer";
+      if ([...snapshot.reviews.values()].some((review) => review.passThreads?.includes(thread.id))) return "pass";
       if (focusSpawnTitled(bb, thread.title)) return "focus";
       for (const { title } of spawnsTitled(bb, thread.title)) {
         if (title.startsWith(GUIDE_WORKER_TITLE)) return "writer";
+        if (title.startsWith(PASS_TITLE)) return "pass";
         if (title.startsWith(ASSISTANT_TITLE)) return "assistant";
       }
       return null;

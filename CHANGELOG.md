@@ -5,6 +5,24 @@
 - **Big PRs' guides:** the guide writer read a big diff in pages of up to 80 KB, more than Claude Code keeps in a tool result, so Claude Code saved each page to a file for the writer to read back, and a shell command to read one waited, in the hidden writer, for an approval no one saw, until the guide timed out. Pages are now at most 40 KB; a file longer than a page goes on, cut at a line, on the next page, which names it.
 - **Hidden guide writer:** an approval it asks for is declined, and it goes on with Code Review Workspace's tools; a question or anything else it asks fails the guide at once, saying what it asked, instead of after its timeout.
 
+## 1.17.0 — 2026-11-24
+
+- **Review passes:** `bb review update <review> [--notify]` starts one pass on a PR's review or a folder's: the current diff, the guide when the diff moved, fresh focuses, and a fresh hidden merge thread seeded with earlier findings, the implementer's reports and the reviewer's replies. `bb review result <review> [<pass-id>] [--json]` returns its findings (focus, agent and open draft comments), or `stale` once the PR's head or the folder moved. `--notify` sends the calling thread a receipt when the pass ends. `bb review round` is a deprecated alias.
+- **Update review:** one button, on a PR's review or a folder's, wherever it's out of date (new commits, the folder changed, the guide behind), starts a review pass. It replaces the notices' Update, Update guide and Rewrite guide, the focus strip's Run again, Finish review's focus-coverage Check again, and the Update on "new commits that didn't come from Push". While the pass runs, one notice shows its stage, with Stop in any stage; then it says "N findings", "No findings", incomplete, why it failed, or Stopped. `bb review result` can now return `stopped`. Rewrite guide (from scratch) is only in Review actions, where a PR's item is always **Rebuild guide**.
+- Rounds' pending result from 1.16.0 isn't carried over: start a new pass.
+- **Folder review base:** `bb review --base <ref>` with no PR or ref sets and keeps the base of the thread's folder review; `--base ''` goes back to automatic. Diff options' **Base** shows it and picks another. An open PR's base still wins.
+- **Automatic base:** of the folder's base in BB, the branch it was made from, the default branch and their copies on `origin`, a folder review is now against the one its branch left last, worked out again at each read. A local `main` not pulled lately no longer shows what's merged since as new, and a fresh thread's worktree no longer keeps its first base forever.
+
+## 1.16.0 — 2026-11-23
+
+- **Local review rounds:** `bb review round start` refreshes the worktree diff and notifies the requesting thread when the review agent records its findings. `bb review round result` returns a structured batch tied to the reviewed diff. Previous findings are checked again after fixes; incomplete or stale results are not passes.
+- Local rounds leave draft comments, the human `bb review ready` flow, and GitHub unchanged. No data migration or change to minimum BB, SDK, or Node versions.
+
+## 1.15.1 — 2026-11-21
+
+- **Send to main thread:** when a PR’s branch is already checked out in the review’s BB project, the message names the folder, machine, and environment instead of asking the thread to check out the branch. It keeps the existing wording when no checkout can be confirmed.
+- Still **BB 0.48+** (plugin SDK **0.6.79+**) with Node 24+. No data migration.
+
 ## 1.15.0 — 2026-11-20
 
 Reviews that catch the comments human reviewers ask to fix, and a Skip nitpicks setting for others' PRs and for your own. Still **BB 0.48+** (plugin SDK **0.6.79+**) with Node 24+; installs at `^1.0.0` update to 1.15.0. 1.15.0 adds no migration: Skip nitpicks is kept with the other settings, so rolling back to 1.14.0 keeps everything, and 1.14.0 drops the setting the next time it saves settings.

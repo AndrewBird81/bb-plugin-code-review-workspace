@@ -1,14 +1,17 @@
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
+import { z } from "zod";
 import type { ReviewMeta } from "./store";
+import { callGit, folderHas } from "./env-diff";
+import { machineStatus } from "./machines";
 import { isLocal, linesOf, postedBody, sameLocation, type CommentLocation, type DraftComment } from "./draft";
 import { runGh } from "./gh";
 import { patchRows, splitPatchByFile } from "./patch";
 import { spawnExecution } from "./preferences";
 import type { AsyncStore } from "./store-queue";
-import { untrusted } from "./untrusted";
+import { inlineCode, untrusted } from "./untrusted";
 import { reviewIdentity, threadLine, type ReviewPlace } from "../lib/review-identity";
 import { yoursByFolder } from "../lib/fixer";
-import { placeFacts, reviewPlaces } from "./review-places";
+import { placeFacts, remoteRepo, reviewPlaces } from "./review-places";
 
 /** A review with where its code is (src/review-places.ts), as its messages name it. */
 export type Placed = ReviewMeta & { place?: ReviewPlace | null };
@@ -79,12 +82,59 @@ export function where(review: Placed, branch = branchLine(review), lead?: "feedb
   return [header(review), lead === "feedback" ? `Address this feedback on ${what}.` : `Fix these comments from my review of ${what}.`, branch].join("\n");
 }
 
+const reviewedCommit = (review: Pick<ReviewMeta, "headSha">) => review.headSha ? ` I reviewed commit \`${review.headSha.slice(0, 7)}\`.` : "";
+
 /** Which branch to work on: the PR's, and the commit reviewed; a folder's; or a local review's diff's head. */
 export function branchLine(review: Placed): string {
-  if (review.kind === "pr") return `Check out the branch \`${review.head}\`, or stay on it if it's already checked out.${review.headSha ? ` I reviewed commit \`${review.headSha.slice(0, 7)}\`.` : ""}`;
+  if (review.kind === "pr") return `Check out the branch \`${review.head}\`, or stay on it if it's already checked out.${reviewedCommit(review)}`;
   if (review.feature) return `Stay on \`${review.feature.branch}\`.`;
   const head = review.gitRef?.split(/\.{2,3}/)[1];
   return head && head !== "HEAD" ? `Check out \`${head}\`, or stay on it if it's already checked out.` : "Stay on the branch checked out there.";
+}
+
+const checkoutStatus = z.record(z.string(), z.object({
+  outcome: z.string(),
+  workspace: z.object({ branch: z.object({ currentBranch: z.string().nullable() }) }).optional(),
+}));
+/** The Git plugin caps a status call at 200 keys. */
+const STATUS_BATCH = 200;
+
+/** Find the PR branch in the review's project now, without binding the review or moving its recipient. */
+export async function checkedOutBranchLine(bb: BbPluginApi, review: ReviewMeta, recipientEnvironmentId: string | null): Promise<string | null> {
+  const { projectId, head, headSha, repo } = review;
+  if (review.kind !== "pr" || !projectId || !head || !repo) return null;
+  const [envs, project] = await Promise.all([
+    bb.sdk.environments.list({ projectId, status: "ready" }),
+    (async () => bb.sdk.projects.get({ projectId }))().catch(() => null),
+  ]);
+  const remote = project?.gitRemoteUrl?.trim();
+  const sameRepo = review.headFork == null && !!remote && /^(?:https?:\/\/|ssh:\/\/(?:[^/@]+@)?|[^/@]+@)github\.com[/:]/i.test(remote)
+    && remoteRepo(remote)?.toLowerCase() === repo.toLowerCase();
+  // A PR URL can be opened from any project. For a fork or a different remote, require the reviewed commit here.
+  if (!sameRepo && !headSha) return null;
+
+  // Prefer the recipient's own checkout, then its machine; ids break ties on duplicate checkouts.
+  const recipientHost = envs.find((env) => env.id === recipientEnvironmentId)?.hostId;
+  const rank = (env: (typeof envs)[number]) => env.id === recipientEnvironmentId ? 0 : env.hostId === recipientHost ? 1 : 2;
+  const candidates = envs.flatMap((env) => env.status === "ready" && env.isGitRepo && env.path && env.hostLifecycle === "active"
+    && (env.lifecycle.phase === "active" || env.lifecycle.phase === "retiring") ? [{ ...env, path: env.path }] : [])
+    .sort((a, b) => rank(a) - rank(b) || a.id.localeCompare(b.id));
+  for (let i = 0; i < candidates.length; i += STATUS_BATCH) {
+    const batch = candidates.slice(i, i + STATUS_BATCH);
+    // Read the actual branch on each host; the environment's branch name can lag a checkout.
+    const rows = await callGit(bb, "status", { keys: batch.map((env) => env.id) }, checkoutStatus);
+    for (const env of batch) {
+      const row = rows[env.id];
+      if (row?.outcome !== "available" || row.workspace?.branch.currentBranch !== head) continue;
+      if (!sameRepo && (!headSha || !await folderHas(bb, env.id, headSha))) continue;
+      const machine = (await machineStatus(bb, env.hostId).catch(() => null))?.name ?? env.hostId;
+      const place = `in ${inlineCode(env.path)} on ${inlineCode(machine)}`;
+      const branch = inlineCode(head);
+      return (env.id === recipientEnvironmentId ? `Stay on ${branch} ${place}.`
+        : `Work on ${branch} ${place}, or spawn a worker in BB environment ${inlineCode(env.id)}. Don't check out the branch here.`) + reviewedCommit(review);
+    }
+  }
+  return null;
 }
 
 /**

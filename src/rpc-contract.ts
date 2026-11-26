@@ -177,6 +177,9 @@ export const rpcContract = defineRpcContract({
   },
 
   rerunFocusRun: { input: targetKey, output: z.object({ ok: z.boolean(), error: z.string().optional() }) },
+  // A review pass (src/review-pass.ts): the review's reviewPass shows its stage and result.
+  startPass: { input: targetKey, output: z.object({ ok: z.boolean(), error: z.string().optional(), passId: z.string().optional(), reused: z.boolean().optional() }) },
+  stopPass: { input: targetKey, output: z.object({ ok: z.boolean(), error: z.string().optional() }) },
   stopFocusRun: { input: z.object({ targetKey: z.string() }).strict(), output: z.object({ ok: z.boolean() }) },
   // Read. sync: how reading GitHub went (src/review-lifecycle.ts SyncHealth).
   listReviews: { input: z.null(), output: z.object({ reviews: z.array(z.any()), sync: syncHealth.optional() }) },
@@ -566,6 +569,16 @@ export const rpcContract = defineRpcContract({
   /** Got it: stop warning about these committed files that look like secrets, in this review. */
   dismissFlagged: {
     input: z.object({ targetKey: z.string(), files: z.array(z.string().min(1)).min(1).max(1000) }).strict(),
+    output: z.object({ ok: z.boolean(), error: z.string().optional() }),
+  },
+  /** The bases a folder's local review may be against, the one its branch left last first (src/env-diff.ts baseCandidates). */
+  featureBases: {
+    input: targetKey,
+    output: z.object({ candidates: z.array(z.object({ ref: z.string(), ahead: z.number(), behind: z.number() })) }),
+  },
+  /** Keep `base` as the one a folder's local review is against, or null for the automatic one, and read the folder again. */
+  setFeatureBase: {
+    input: z.object({ targetKey: z.string(), base: z.string().trim().min(1).nullable() }).strict(),
     output: z.object({ ok: z.boolean(), error: z.string().optional() }),
   },
   /** Follow: the local review becomes that of the branch its folder is on now, under its key, as when the branch is renamed. */

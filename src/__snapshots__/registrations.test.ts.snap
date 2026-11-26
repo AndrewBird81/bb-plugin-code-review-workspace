@@ -1121,6 +1121,94 @@ exports[`the plugin registers the same RPC methods, tools, CLI subcommands, list
     "presentation": null,
   },
   {
+    "description": "Record the result of the review pass you were started for, once. Nothing is posted or drafted.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "findings": {
+          "description": "Every actionable issue still present. An empty array means none found, not that the pass is complete.",
+          "items": {
+            "properties": {
+              "body": {
+                "maxLength": 2000,
+                "minLength": 1,
+                "type": "string",
+              },
+              "file": {
+                "maxLength": 1024,
+                "minLength": 1,
+                "type": "string",
+              },
+              "focus": {
+                "description": "The focus's label, for source focus.",
+                "maxLength": 200,
+                "type": "string",
+              },
+              "line": {
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991,
+                "type": "integer",
+              },
+              "severity": {
+                "enum": [
+                  "blocking",
+                  "should-fix",
+                  "question",
+                  "nit",
+                ],
+                "type": "string",
+              },
+              "source": {
+                "description": "focus: a focus finding you confirmed; agent: your own; draft: an open draft comment still present.",
+                "enum": [
+                  "focus",
+                  "agent",
+                  "draft",
+                ],
+                "type": "string",
+              },
+            },
+            "required": [
+              "severity",
+              "body",
+              "source",
+            ],
+            "type": "object",
+          },
+          "maxItems": 50,
+          "type": "array",
+        },
+        "outcome": {
+          "description": "Incomplete if you couldn't review the whole diff or check an earlier finding.",
+          "enum": [
+            "complete",
+            "incomplete",
+          ],
+          "type": "string",
+        },
+        "passId": {
+          "type": "string",
+        },
+        "summary": {
+          "description": "What you checked, or what prevented completion.",
+          "maxLength": 2000,
+          "minLength": 1,
+          "type": "string",
+        },
+      },
+      "required": [
+        "passId",
+        "outcome",
+        "summary",
+        "findings",
+      ],
+      "type": "object",
+    },
+    "instructions": "Call it once, with the pass id from your first message, after reviewing the whole diff. An empty list is meaningful only with a complete pass.",
+    "name": "finish_review_pass",
+    "presentation": null,
+  },
+  {
     "description": "Push this review's branch to GitHub when the reviewer says push: the main thread commits what they reviewed, the review checks the commit, then the main thread pushes exactly that commit. Never a force-push.",
     "inputSchema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",

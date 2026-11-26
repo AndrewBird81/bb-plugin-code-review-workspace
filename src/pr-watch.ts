@@ -4,7 +4,7 @@
 // number of reviews; the review becomes the PR's through src/feature-review.ts becomePr.
 import { ghErrorMessage, type runGh } from "./gh";
 import { becomePr, folderBranchOf } from "./feature-review";
-import { featureBase } from "./env-diff";
+import { branchPr } from "./env-diff";
 import { parsePrLink } from "../lib/pr-link";
 import type { FeatureReview, ReviewMeta } from "./store";
 import { githubWaits } from "./review-lifecycle";
@@ -132,8 +132,8 @@ export async function becomeFound(deps: Parameters<typeof becomePr>[0], key: str
 async function statusPr(deps: Deps, feature: Watched["feature"]): Promise<{ repo: string; number: number } | null> {
   const env = await deps.bb.sdk.environments.get({ environmentId: feature.environmentId }).catch(() => null);
   if (env?.status !== "ready" || env.branchName !== folderBranchOf(feature)) return null;
-  const found = await featureBase(deps.bb, env, feature.repo);
-  const pr = "pr" in found ? found.pr : undefined;
+  const found = await branchPr(deps.bb, env.id);
+  const pr = found === "absent" ? null : found;
   const link = pr?.url ? parsePrLink(pr.url) : null;
   if (!pr?.number || !link || link.repo.toLowerCase() !== feature.repo.toLowerCase() || pr.state !== undefined && !/^(open|draft)$/i.test(pr.state)) return null;
   return { repo: link.repo, number: pr.number };

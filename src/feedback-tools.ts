@@ -8,7 +8,7 @@ import { assistantReview, mergedAway, unchangeable } from "./draft-comments";
 import { recordAgentReads } from "./agent-reads";
 import { writeSummary } from "./draft-summary";
 import { runGh, runGit } from "./gh";
-import { toolThreadReview } from "./thread-review";
+import { passReview, toolThreadReview } from "./thread-review";
 import { focusThread } from "./focus-identity";
 import { withPrNote } from "./agent";
 import { assess, changesSinceReview, changesSinceSend, describeFeedback, readFileAt } from "./verification";
@@ -117,7 +117,7 @@ export function register(deps: ServeDeps) {
       // Local reviews too, unlike the feedback tools.
       const focus = await focusThread(bb, store, threadId);
       const review = await store.exclusive(async (tx) => {
-        const targetKey = focus?.targetKey ?? await assistantReview(tx, threadId);
+        const targetKey = focus?.targetKey ?? await assistantReview(tx, threadId) ?? await passReview(tx, threadId);
         return targetKey ? await tx.getReview(targetKey) : null;
       });
       if (!review) return failed("This conversation is no longer a review's assistant.");

@@ -39,41 +39,47 @@ async function renderWorkspace(rpc: Record<string, unknown> = {}, bundle: () => 
 }
 const notice = (slot: Awaited<ReturnType<typeof renderWorkspace>>["slot"], text: string) => slot.getByText(text).closest<HTMLElement>("[role]")!;
 
-test("new commits show a notice with Update guide, which rebuilds it; once the guide catches up, the notice goes", async () => {
+test("new commits show a notice with Update review, which starts a review pass; once the review catches up, the notice goes", async () => {
   const checkForUpdates = vi.fn().mockReturnValueOnce({ hasNewCommits: true }).mockReturnValue({ hasNewCommits: false });
-  const { slot, rpc } = await renderWorkspace({ checkForUpdates });
-  await slot.findByText("New commits since this guide was written.");
-  fireEvent.click(within(notice(slot, "New commits since this guide was written.")).getByRole("button", { name: "Update guide" }));
-  await waitFor(() => expect(rpc.rereview).toHaveBeenCalledWith({ targetKey: "pr-42" }));
-  // The rebuilt guide publishes the review's update, which checks again.
+  const startPass = vi.fn(() => ({ ok: true, passId: "p1" }));
+  const { slot, rpc } = await renderWorkspace({ checkForUpdates, startPass });
+  const text = "New commits since this guide was written.";
+  await slot.findByText(text);
+  expect(within(notice(slot, text)).getAllByRole("button").map((button) => button.textContent)).toEqual(["Update review"]);
+  fireEvent.click(within(notice(slot, text)).getByRole("button", { name: "Update review" }));
+  await waitFor(() => expect(startPass).toHaveBeenCalledWith({ targetKey: "pr-42" }));
+  expect(rpc.rereview).not.toHaveBeenCalled();
+  // The pass publishes the review's update, which checks again.
   await slot.emitRealtime("review:pr-42", {});
-  await waitFor(() => expect(slot.queryByText("New commits since this guide was written.")).toBeNull());
+  await waitFor(() => expect(slot.queryByText(text)).toBeNull());
   slot.lifecycle.unmount();
 });
 
-test("on a PR's review with its folder, new commits offer Update, to the PR's head without the guide writer, beside Update guide", async () => {
+test("on a PR's review with its folder, new commits offer the one Update review, not Update and Update guide", async () => {
   const checkForUpdates = vi.fn().mockReturnValueOnce({ hasNewCommits: true }).mockReturnValue({ hasNewCommits: false });
+  const startPass = vi.fn(() => ({ ok: true, passId: "p1" }));
   const updateFeature = vi.fn(() => ({ ok: true }));
   const feature = { environmentId: "env1", hostId: "host_max", machine: "MaxBook", path: "/Users/me/src/web", branch: "feat/rows", baseRef: "main", repo: "acme/web" };
-  const { slot, rpc } = await renderWorkspace({ checkForUpdates, updateFeature, checkFeature: () => ({ state: "current", alsoActive: [], hidden: [], flagged: [] }) },
+  const { slot, rpc } = await renderWorkspace({ checkForUpdates, startPass, updateFeature, checkFeature: () => ({ state: "current", alsoActive: [], hidden: [], flagged: [] }) },
     () => ({ review: { targetKey: "pr-42", kind: "pr", status: "ready", createdAt: 1, title: "Parse rows", headSha: "new", feature } }));
   const text = "New commits since this guide was written.";
   await slot.findByText(text);
-  expect(within(notice(slot, text)).getAllByRole("button").map((button) => button.textContent)).toEqual(["Update", "Update guide"]);
-  fireEvent.click(within(notice(slot, text)).getByRole("button", { name: "Update" }));
-  await waitFor(() => expect(updateFeature).toHaveBeenCalledWith({ targetKey: "pr-42" }));
+  expect(within(notice(slot, text)).getAllByRole("button").map((button) => button.textContent)).toEqual(["Update review"]);
+  fireEvent.click(within(notice(slot, text)).getByRole("button", { name: "Update review" }));
+  await waitFor(() => expect(startPass).toHaveBeenCalledWith({ targetKey: "pr-42" }));
+  expect(updateFeature).not.toHaveBeenCalled();
   expect(rpc.rereview).not.toHaveBeenCalled();
   slot.lifecycle.unmount();
 });
 
-test("a PR retargeted to a new base says so in the Update guide notice, with or without new commits", async () => {
+test("a PR retargeted to a new base says so in the Update review notice, with or without new commits", async () => {
   const baseChanged = { from: "parent", to: "main" };
   const checkForUpdates = vi.fn().mockReturnValueOnce({ hasNewCommits: true, current: "new", stored: "new", baseChanged })
     .mockReturnValue({ hasNewCommits: true, current: "newer", stored: "new", baseChanged });
   const { slot } = await renderWorkspace({ checkForUpdates });
   const text = "The PR’s base changed from parent to main since this guide was written.";
   await slot.findByText(text);
-  expect(within(notice(slot, text)).getByRole("button", { name: "Update guide" })).toBeTruthy();
+  expect(within(notice(slot, text)).getByRole("button", { name: "Update review" })).toBeTruthy();
   await slot.emitRealtime("review:pr-42", {});
   await slot.findByText("New commits, and the PR’s base changed from parent to main, since this guide was written.");
   slot.lifecycle.unmount();
@@ -209,31 +215,26 @@ test("the opening review's placeholder says in words what it shows in shapes", a
   slot.lifecycle.unmount();
 });
 
-test("a local review whose code changed says so, with Update, which keeps the guide, and Rewrite guide, which starts the guide writer; with its switch off it never asks", async () => {
+test("a local review whose code changed says so, with Update review and no Rewrite guide; a refusal says why; with its switch off it never asks", async () => {
   const local = () => ({ review: { targetKey: "pr-42", kind: "ref", gitRef: "HEAD", cwd: "/repo", status: "ready", createdAt: 1, title: "HEAD" } });
   const checkForUpdates = vi.fn(() => ({ hasNewCommits: false, localChanged: true }));
-  const updateFeature = vi.fn(() => ({ ok: true }));
-  const rewriteGuide = vi.fn(() => ({ ok: true }));
-  const { slot, rpc } = await renderWorkspace({ checkForUpdates, updateFeature, rewriteGuide }, local);
-  const text = "The code changed. Update keeps this guide; Rewrite guide has the guide writer write a new one.";
+  const startPass = vi.fn(() => ({ ok: true, passId: "p1" }));
+  const { slot, rpc } = await renderWorkspace({ checkForUpdates, startPass }, local);
+  const text = "The code changed.";
   await slot.findByText(text);
-  expect(within(notice(slot, text)).queryByRole("button", { name: "Update guide" })).toBeNull();
-  const rewrite = within(notice(slot, text)).getByRole("button", { name: "Rewrite guide" });
-  expect(rewrite.getAttribute("aria-description")).toBe("Starts the guide writer to write a new guide for the code now.");
-  expect(rewrite.querySelector("svg")?.getAttribute("data-icon")).toBe("Sparkles");
-  fireEvent.click(within(notice(slot, text)).getByRole("button", { name: "Update" }));
-  await waitFor(() => expect(updateFeature).toHaveBeenCalledWith({ targetKey: "pr-42" }));
-  fireEvent.click(within(notice(slot, text)).getByRole("button", { name: "Rewrite guide" }));
-  await waitFor(() => expect(rewriteGuide).toHaveBeenCalledWith({ targetKey: "pr-42" }));
+  expect(within(notice(slot, text)).getAllByRole("button").map((button) => button.textContent)).toEqual(["Update review"]);
+  fireEvent.click(within(notice(slot, text)).getByRole("button", { name: "Update review" }));
+  await waitFor(() => expect(startPass).toHaveBeenCalledWith({ targetKey: "pr-42" }));
   expect(rpc.rereview).not.toHaveBeenCalled();
   slot.lifecycle.unmount();
   cleanup();
 
-  // Update's error stays on the page, with what to do.
-  const failing = await renderWorkspace({ checkForUpdates, updateFeature: () => ({ ok: false, error: "No changes found." }) }, local);
+  // A pass that can't start says why.
+  const { toast } = await import("sonner");
+  const failing = await renderWorkspace({ checkForUpdates, startPass: () => ({ ok: false, error: "No changes found." }) }, local);
   await failing.slot.findByText(text);
-  fireEvent.click(within(notice(failing.slot, text)).getByRole("button", { name: "Update" }));
-  expect(await failing.slot.findByText("No changes found.")).toBeTruthy();
+  fireEvent.click(within(notice(failing.slot, text)).getByRole("button", { name: "Update review" }));
+  await waitFor(() => expect(toast.error).toHaveBeenCalledWith("No changes found."));
   failing.slot.lifecycle.unmount();
   cleanup();
 
@@ -242,4 +243,84 @@ test("a local review whose code changed says so, with Update, which keeps the gu
   expect(off).not.toHaveBeenCalled();
   expect(quiet.slot.queryByText(text)).toBeNull();
   quiet.slot.lifecycle.unmount();
+});
+
+const pass = { id: "p1", head: "new", diffHash: "h", subscribers: [], startedAt: 1 };
+const withPass = (reviewPass: Record<string, unknown>, extra: Record<string, unknown> = {}) => () => ({ review: { targetKey: "pr-42", kind: "pr", status: "ready", createdAt: 1, title: "Parse rows", headSha: "new", reviewPass: { ...pass, ...reviewPass }, ...extra } });
+
+test("while a pass runs, one notice shows its stage in place of what's out of date, with Stop in any stage, which stops the pass", async () => {
+  const checkForUpdates = vi.fn(() => ({ hasNewCommits: true }));
+  const stopPass = vi.fn(() => ({ ok: true }));
+  const { slot } = await renderWorkspace({ checkForUpdates, stopPass }, withPass({ state: "pending", stage: "guide" }, { status: "generating" }));
+  const text = "Updating the review: updating the guide (2 of 4).";
+  await slot.findByText(text);
+  expect(slot.queryByText("New commits since this guide was written.")).toBeNull();
+  expect(slot.queryByText(/Updating the guide for the new commits/)).toBeNull();
+  expect(slot.queryByRole("button", { name: "Update review" })).toBeNull();
+  fireEvent.click(within(notice(slot, text)).getByRole("button", { name: "Stop" }));
+  await waitFor(() => expect(stopPass).toHaveBeenCalledWith({ targetKey: "pr-42" }));
+  slot.lifecycle.unmount();
+  cleanup();
+
+  const focusRun = { id: "f1", head: "new", startedAt: 1, state: "finding", passId: "p1", focuses: [{ focusId: "docs", label: "Docs", state: "running", queuedAt: 1 }] };
+  const focusing = await renderWorkspace({}, withPass({ state: "pending", stage: "focuses" }, { focusRun }));
+  const running = "Updating the review: running focuses (3 of 4).";
+  await focusing.slot.findByText(running);
+  // The pass's notice speaks for its focuses: no strip of their own.
+  expect(focusing.slot.queryByText(/Reviewing with focuses/)).toBeNull();
+  focusing.slot.lifecycle.unmount();
+  cleanup();
+
+  // Merging can be stopped too.
+  const merging = await renderWorkspace({ stopPass }, withPass({ state: "pending", stage: "merging" }));
+  const said = "Updating the review: merging findings (4 of 4).";
+  await merging.slot.findByText(said);
+  fireEvent.click(within(notice(merging.slot, said)).getByRole("button", { name: "Stop" }));
+  await waitFor(() => expect(stopPass).toHaveBeenCalledTimes(2));
+  merging.slot.lifecycle.unmount();
+  cleanup();
+
+  // A stopped pass reads Stopped, with Update review.
+  const startPass = vi.fn(() => ({ ok: true, passId: "p9" }));
+  const stopped = await renderWorkspace({ startPass }, withPass({ id: "p8", state: "stopped", stage: "done" }));
+  const row = notice(stopped.slot, await stopped.slot.findByText(/^Stopped\./).then((el) => el.textContent!));
+  fireEvent.click(within(row).getByRole("button", { name: "Update review" }));
+  await waitFor(() => expect(startPass).toHaveBeenCalledWith({ targetKey: "pr-42" }));
+  stopped.slot.lifecycle.unmount();
+});
+
+test("a finished pass says what came back, N findings, No findings, incomplete or why it failed, until Got it", async () => {
+  const findings = [{ id: "p1:1", severity: "nit", body: "a", source: "agent" }, { id: "p1:2", severity: "nit", body: "b", source: "agent" }];
+  const done = await renderWorkspace({}, withPass({ state: "complete", stage: "done", summary: "Checked it.", findings }));
+  await done.slot.findByText("Review updated: 2 findings.");
+  fireEvent.click(within(notice(done.slot, "Review updated: 2 findings.")).getByRole("button", { name: "Got it" }));
+  await waitFor(() => expect(done.slot.queryByText("Review updated: 2 findings.")).toBeNull());
+  done.slot.lifecycle.unmount();
+  cleanup();
+  // Got it is kept for that pass.
+  const again = await renderWorkspace({}, withPass({ state: "complete", stage: "done", summary: "Checked it.", findings }));
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  expect(again.slot.queryByText("Review updated: 2 findings.")).toBeNull();
+  again.slot.lifecycle.unmount();
+  cleanup();
+
+  const clean = await renderWorkspace({}, withPass({ id: "p2", state: "complete", stage: "done", summary: "Checked it.", findings: [] }));
+  expect(await clean.slot.findByText("Review updated: No findings.")).toBeTruthy();
+  clean.slot.lifecycle.unmount();
+  cleanup();
+
+  const partial = await renderWorkspace({}, withPass({ id: "p3", state: "incomplete", stage: "done", summary: "Couldn't read src/b.ts.", findings: [] }));
+  expect(await partial.slot.findByText("Couldn't read src/b.ts.")).toBeTruthy();
+  expect(partial.slot.getByText(/Review updated, but incomplete: No findings\./)).toBeTruthy();
+  partial.slot.lifecycle.unmount();
+  cleanup();
+
+  const startPass = vi.fn(() => ({ ok: true, passId: "p5" }));
+  const failed = await renderWorkspace({ startPass }, withPass({ id: "p4", state: "failed", stage: "done", error: "The merge thread failed." }));
+  const why = await failed.slot.findByText("The merge thread failed.");
+  const row = why.closest<HTMLElement>("[role]")!;
+  expect(row.getAttribute("role")).toBe("alert");
+  fireEvent.click(within(row).getByRole("button", { name: "Update review" }));
+  await waitFor(() => expect(startPass).toHaveBeenCalledWith({ targetKey: "pr-42" }));
+  failed.slot.lifecycle.unmount();
 });
