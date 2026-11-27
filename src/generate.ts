@@ -1,4 +1,4 @@
-import type { BbPluginApi } from "@get-bb/plugin-sdk";
+import type { BbPluginApi, PluginThreadEventHandler } from "@get-bb/plugin-sdk";
 import { stopFocusRunIn } from "./focus-run";
 import { completionNotifications } from "./completion-notifications";
 import { defaultPreferences, guidePreferencesPrompt, reReviewCheckPrompt, spawnExecution, type ReviewPreferences } from "./preferences";
@@ -26,6 +26,38 @@ const active = new WeakMap<BbPluginApi, Set<AbortController>>();
 const failures = new WeakMap<BbPluginApi, Map<string, AbortController>>();
 /** thread.failed: a guide worker that failed ends its generation now, instead of at the wait's timeout, saying `error`, BB's why. */
 export function guideWorkerFailed(bb: BbPluginApi, threadId: string, error?: string | null) { failures.get(bb)?.get(threadId)?.abort(error || undefined); }
+
+type Interaction = Parameters<PluginThreadEventHandler<"interaction.pending">>[0]["interaction"];
+const asking = new WeakMap<BbPluginApi, Map<string, (interaction: Interaction) => void>>();
+/**
+ * interaction.pending: a guide writer runs hidden, so an approval or a question it asks waits on no one until the run's
+ * cap, which the reviewer read as BB's "Timed out waiting for thread". Its run declines each at once instead.
+ */
+export function guideWorkerAsked(bb: BbPluginApi, threadId: string, interaction: Interaction) { asking.get(bb)?.get(threadId)?.(interaction); }
+
+/** What a writer's interaction asks for, in a few words, for its reminder, the log and the guide's error. */
+export function askedFor(interaction: Interaction): string {
+  const payload = interaction.payload;
+  if (payload.kind === "approval") {
+    const subject = payload.subject;
+    if (subject.kind === "permission_grant") return subject.toolName ? `approval to use ${subject.toolName}` : "a permission";
+    if (subject.kind === "tool_use") return `approval to use ${subject.tool}`;
+    if (subject.kind === "command") return "approval to run a shell command";
+    if (subject.kind === "file_change") return "approval to change files";
+    return "an approval";
+  }
+  return payload.kind === "user_question" ? "an answer to a question" : "a reply";
+}
+
+/** Decline a writer's interaction: an approval is denied, as the agent can go on without it; anything else is cancelled. */
+async function decline(bb: BbPluginApi, threadId: string, interaction: Interaction): Promise<void> {
+  const payload = interaction.payload;
+  if (payload.kind === "approval" && payload.availableDecisions.includes("deny")) {
+    await bb.sdk.threads.interactions.resolve({ threadId, interactionId: interaction.id, resolution: { decision: "deny" } });
+  } else {
+    await bb.sdk.threads.interactions.cancel({ threadId, interactionId: interaction.id });
+  }
+}
 /**
  * Each running generation, by its id: told when generate_review_guide accepts its guide, why it last refused one, and
  * whether the reviewer stopped it; and whether it asked for sinceReview, as a re-review does.
@@ -241,6 +273,35 @@ export async function beginGuide(
       watched.set(worker.id, failed);
       /** The writer's thread failed, and why, if BB said: what the reviewer reads, not the wait's abort. */
       const writerFailed = () => new Error(`the guide writer failed${typeof failed.signal.reason === "string" ? `: ${failed.signal.reason}` : ""}`);
+      // What the hidden writer asked for and was declined, each once: it's reminded of them, and a failed guide says so.
+      const declined = new Set<string>();
+      const seen = new Set<string>();
+      const asked = (interaction: Interaction) => {
+        if (interaction.payload.kind === "plugin" || interaction.status !== "pending" || seen.has(interaction.id)) return;
+        seen.add(interaction.id);
+        const what = askedFor(interaction);
+        declined.add(what);
+        bb.log.warn(`The guide writer for ${targetKey} asked for ${what}, which no one can give a hidden thread; declined.`);
+        // Not declined, it would wait out the run's cap: the guide fails now, saying what it waited for.
+        decline(bb, worker.id, interaction).catch((error) => {
+          bb.log.warn(`Could not decline the guide writer's ask for ${what} on ${targetKey}: ${String(error)}`);
+          failed.abort(`it waited for ${what}, which no one can give a hidden thread`);
+        });
+      };
+      /** Asks the writer made before its run listened, or that interaction.pending didn't bring. */
+      const sweep = async () => {
+        try {
+          for (const interaction of await threads!.interactions.list({ threadId: worker.id })) asked(interaction);
+        } catch { /* best effort: interaction.pending is the main path */ }
+      };
+      const listening = asking.get(bb) ?? new Map<string, (interaction: Interaction) => void>();
+      asking.set(bb, listening);
+      listening.set(worker.id, asked);
+      void sweep();
+      /** The reminder's first line, naming what the writer was declined. */
+      const declinedNote = () => declined.size
+        ? `You asked for ${[...declined].join(", ")}. No one can give that to this hidden thread, so it was declined. Don't ask again; finish without it.\n`
+        : "";
       try {
         const deadline = Date.now() + waitCap((await store.patch(targetKey)).length);
         const signal = AbortSignal.any([controller.signal, failed.signal, accepted.signal]);
@@ -258,19 +319,23 @@ export async function beginGuide(
             if (signal.aborted || Date.now() >= deadline || Date.now() - started < timeoutMs) throw error;
             const thread = await threads!.get({ threadId: worker.id }).catch(() => null);
             if (!thread || !workerActive(thread.status)) throw error;
+            await sweep();
             continue;
           }
           // Idle without an accepted guide: the worker is told why, once, and has the rest of its time to fix it.
           if (nudged || await store.getGuide(targetKey) !== null || Date.now() >= deadline) break;
           nudged = true;
-          await threads!.send({ threadId: worker.id, mode: "queue-if-active", input: [{ type: "text", mentions: [], text: generation.rejection
+          await threads!.send({ threadId: worker.id, mode: "queue-if-active", input: [{ type: "text", mentions: [], text: declinedNote() + (generation.rejection
             ? `Your guide wasn't accepted:\n${generation.rejection}\nFix it and call generate_review_guide again with the same targetKey and generationId.`
-            : "You haven't submitted the guide. Finish it and call generate_review_guide with the same targetKey and generationId." }] });
+            : "You haven't submitted the guide. Finish it and call generate_review_guide with the same targetKey and generationId.") }] });
         }
         if (failed.signal.aborted && !accepted.signal.aborted) throw writerFailed();
-        if (!accepted.signal.aborted && await store.getGuide(targetKey) === null) throw new Error("the guide writer stopped without an accepted guide");
+        if (!accepted.signal.aborted && await store.getGuide(targetKey) === null) {
+          throw new Error(`the guide writer stopped without an accepted guide${declined.size ? `. It asked for ${[...declined].join(", ")}, which no one can give a hidden thread, so it was declined` : ""}`);
+        }
       } finally {
         watched.delete(worker.id);
+        listening.delete(worker.id);
       }
     } catch (error) {
       // spawn/wait failed — fall through and finalize as error below. The log
