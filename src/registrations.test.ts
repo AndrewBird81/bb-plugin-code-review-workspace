@@ -278,7 +278,7 @@ test("the plugin registers the same RPC methods, tools, CLI subcommands, listene
     {
       "experimental_environment.removed": 2,
       "experimental_thread.events": 1,
-      "interaction.pending": 1,
+      "interaction.pending": 2,
       "message.cancelled": 4,
       "message.dispatched": 4,
       "thread.active": 2,

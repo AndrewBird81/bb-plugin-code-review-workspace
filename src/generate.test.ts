@@ -468,8 +468,12 @@ test("the guide-writing skill stops once the guide is accepted, without a recap"
   expect(await skillText()).toContain("When the tool answers `Guide accepted.`, stop. End your turn without a recap.");
 });
 
-/** A guide writer whose turns `turns` play, one per wait: each may call generate_review_guide with the run's ids. */
-async function writerRun(turns: Array<(submit: (guide: unknown) => Promise<unknown>) => Promise<void>>) {
+type WriterHarness = ReturnType<typeof createFakePluginHost>["harness"];
+/**
+ * A guide writer whose turns `turns` play, one per wait: each may call generate_review_guide with the run's ids, or
+ * raise BB's events on the harness. `threads` adds to the fake threads SDK, such as `interactions`.
+ */
+async function writerRun(turns: Array<(submit: (guide: unknown) => Promise<unknown>, harness: WriterHarness) => Promise<void>>, threads: Record<string, unknown> = {}) {
   const { generateGuide } = await import("./generate");
   let prompt = "";
   const send = vi.fn(async () => ({ ok: true, delivery: "sent" }));
@@ -479,9 +483,10 @@ async function writerRun(turns: Array<(submit: (guide: unknown) => Promise<unkno
     get: async () => ({ id: "worker", title: "Generate guide: pr-1", status: "idle", archivedAt: null, deletedAt: null }),
     wait: async () => {
       const generationId = prompt.match(/generationId "([^"]+)"/)![1];
-      await turns.shift()?.((guide) => h.harness.behavior.callAgentTool("generate_review_guide", { targetKey: "pr-1", generationId, guide }));
+      await turns.shift()?.((guide) => h.harness.behavior.callAgentTool("generate_review_guide", { targetKey: "pr-1", generationId, guide }), h.harness);
       return { matched: true };
     },
+    ...threads,
   } } as any });
   await plugin(h.bb);
   const store = testStore(h.bb);
@@ -516,6 +521,92 @@ test("a guide writer told why its guide wasn't accepted can fix it, and the guid
   expect(send).toHaveBeenCalledTimes(1);
   expect((await store.getReview("pr-1"))?.status).toBe("ready");
   expect((await store.getReview("pr-1"))?.guideError).toBeNull();
+});
+
+/** A provider's pending interaction on `threadId`, as interaction.pending and interactions.list bring it. */
+function pendingInteraction(id: string, payload: Record<string, unknown>, threadId = "worker") {
+  return { id, threadId, turnId: "turn", createdAt: 1, status: "pending", statusReason: null, resolution: null, providerId: "claude-code", providerRequestId: id, providerThreadId: "p", payload } as any;
+}
+const linearApproval = (id: string, threadId?: string) => pendingInteraction(id, {
+  kind: "approval", reason: null, availableDecisions: ["allow_once", "allow_for_session", "deny"],
+  subject: { kind: "permission_grant", itemId: "i7", toolName: "mcp__claude_ai_Linear__get_issue", permissions: { network: { enabled: true }, fileSystem: null } },
+}, threadId);
+const goodGuide = { ...ghostGuide, sections: [{ ...ghostGuide.sections[0], diffs: [{ file: "a.ts", summary: "x" }] }] };
+
+// A hidden guide writer that called a tool needing approval waited on a prompt no one could see, until the run's cap:
+// the reviewer read "Timed out waiting for thread … to reach status idle", about one guide in seven.
+test("a guide writer's approval is denied at once, not left for no one: it's told so once, and its guide can still be ready", async () => {
+  const resolve = vi.fn(async () => ({}));
+  const cancel = vi.fn(async () => ({}));
+  const { makeThreadResponse } = await import("@get-bb/plugin-sdk/testing");
+  const { store, send, logs } = await writerRun([
+    async (_submit, harness) => {
+      // Another thread's ask isn't the writer's to decline.
+      await harness.behavior.emitThreadEvent("interaction.pending", { thread: makeThreadResponse({ id: "someone-else" }), interaction: linearApproval("int-other", "someone-else") });
+      await harness.behavior.emitThreadEvent("interaction.pending", { thread: makeThreadResponse({ id: "worker" }), interaction: linearApproval("int-1") });
+      // BB can bring the same ask twice: it's declined once.
+      await harness.behavior.emitThreadEvent("interaction.pending", { thread: makeThreadResponse({ id: "worker" }), interaction: linearApproval("int-1") });
+    },
+    async (submit) => { await submit(goodGuide); },
+  ], { interactions: { list: async () => [], resolve, cancel } });
+  expect(resolve).toHaveBeenCalledTimes(1);
+  expect(resolve).toHaveBeenCalledWith({ threadId: "worker", interactionId: "int-1", resolution: { decision: "deny" } });
+  expect(cancel).not.toHaveBeenCalled();
+  expect(send).toHaveBeenCalledTimes(1);
+  expect(JSON.stringify(send.mock.calls[0])).toContain("You asked for approval to use mcp__claude_ai_Linear__get_issue. No one can give that to this hidden thread, so it was declined.");
+  expect(logs).toContainEqual("warn: The guide writer for pr-1 asked for approval to use mcp__claude_ai_Linear__get_issue, which no one can give a hidden thread; declined.");
+  expect((await store.getReview("pr-1"))?.status).toBe("ready");
+});
+
+test("a guide writer's question is cancelled, and a guide that still fails says what it was declined", async () => {
+  const resolve = vi.fn(async () => ({}));
+  const cancel = vi.fn(async () => ({}));
+  const { makeThreadResponse } = await import("@get-bb/plugin-sdk/testing");
+  const question = pendingInteraction("int-q", { kind: "user_question", questions: [{ id: "q", prompt: "Which ticket?", allowFreeText: true, multiSelect: false, required: true }] });
+  const { store } = await writerRun([
+    async (_submit, harness) => { await harness.behavior.emitThreadEvent("interaction.pending", { thread: makeThreadResponse({ id: "worker" }), interaction: question }); },
+  ], { interactions: { list: async () => [], resolve, cancel } });
+  expect(cancel).toHaveBeenCalledWith({ threadId: "worker", interactionId: "int-q" });
+  expect(resolve).not.toHaveBeenCalled();
+  expect((await store.getReview("pr-1"))?.guideError?.text).toBe("The guide writer stopped without an accepted guide. It asked for an answer to a question, which no one can give a hidden thread, so it was declined.");
+});
+
+test("an ask the writer made before its run listened is declined too", async () => {
+  const resolve = vi.fn(async () => ({}));
+  const { store } = await writerRun([async (submit) => { await submit(goodGuide); }], {
+    interactions: { list: async () => [linearApproval("int-early"), { ...linearApproval("int-done"), status: "resolved" }], resolve, cancel: async () => ({}) },
+  });
+  await vi.waitFor(() => expect(resolve).toHaveBeenCalledTimes(1));
+  expect(resolve).toHaveBeenCalledWith({ threadId: "worker", interactionId: "int-early", resolution: { decision: "deny" } });
+  expect((await store.getReview("pr-1"))?.status).toBe("ready");
+});
+
+test("an ask BB won't let the run decline fails the guide now, saying what the writer waited for, not at the run's cap", async () => {
+  const { makeThreadResponse } = await import("@get-bb/plugin-sdk/testing");
+  let waiting = false;
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: { threads: {
+    spawn: async () => ({ id: "worker" }), archive: async () => ({}), stop: async () => ({}),
+    wait: ({ signal }: { signal: AbortSignal }) => new Promise((_resolve, reject) => {
+      waiting = true;
+      signal.addEventListener("abort", () => reject(new DOMException("This operation was aborted", "AbortError")), { once: true });
+    }),
+    interactions: { list: async () => [], resolve: async () => { throw new Error("interaction already resolving"); }, cancel: async () => ({}) },
+    queuedMessages: { list: async () => [] },
+  } } as any });
+  await plugin(bb);
+  const store = testStore(bb);
+  await store.saveReview({ targetKey: "ref-1", kind: "ref", gitRef: "main", status: "generating", createdAt: 1, projectId: "p1" });
+  await store.savePatch("ref-1", patch);
+  const run = generateGuide(bb, store, "ref-1", "p1", { notify: false });
+  await vi.waitFor(() => expect(waiting).toBe(true));
+  await harness.behavior.emitThreadEvent("interaction.pending", { thread: makeThreadResponse({ id: "worker" }), interaction: linearApproval("int-1") });
+  await run;
+  expect((await store.getReview("ref-1"))?.status).toBe("error");
+  expect((await store.getReview("ref-1"))?.guideError?.text).toBe("The guide writer failed: it waited for approval to use mcp__claude_ai_Linear__get_issue, which no one can give a hidden thread.");
+});
+
+test("the guide-writing skill steers ticket reads to a tool that needs no approval", async () => {
+  expect(await skillText()).toContain("Pick a tool that needs no approval, such as bb's `linear_issue_get`, over a connector's: one that asks for approval is declined, and then go on without the ticket.");
 });
 
 // bug bash AGT-5: the review agent in Settings runs on a laptop that's asleep, the guide writer on the project's default

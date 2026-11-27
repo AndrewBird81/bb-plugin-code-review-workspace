@@ -1,11 +1,12 @@
 // What BB's thread and queue events settle: a turn's end ends the asks, discussions and feedback check that waited for
-// it, a queued message leaving the queue starts or withdraws them, and a guide writer that fails fails its guide.
+// it, a queued message leaving the queue starts or withdraws them, a guide writer that fails fails its guide, and one that
+// asks for an approval or an answer is declined, as no one sees its hidden thread.
 import type { PluginThreadEventHandler } from "@get-bb/plugin-sdk";
 import { assistantReview } from "./draft-comments";
 import { discussionsWaitingOn, settleDiscussions } from "./discussions";
 import { listAsks, setAsk } from "./asks";
 import { endDeepDive } from "./deep-dive";
-import { guideWorkerFailed } from "./generate";
+import { guideWorkerAsked, guideWorkerFailed } from "./generate";
 import { noteLeftQueue } from "./verification";
 import type { AsyncStore } from "./store-queue";
 import type { EventListeners, ServeDeps } from "./server-modules";
@@ -96,6 +97,7 @@ export function register(deps: ServeDeps) {
       "thread.idle": [settleAs(false)],
       "thread.deleted": [deleted],
       "thread.failed": [settleAs(true), ({ thread, error }) => guideWorkerFailed(bb, thread.id, error)],
+      "interaction.pending": [({ thread, interaction }) => guideWorkerAsked(bb, thread.id, interaction)],
       "message.dispatched": [dispatched],
       "message.cancelled": [cancelled],
     } satisfies EventListeners,
